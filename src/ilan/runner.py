@@ -12,12 +12,20 @@ from . import config as cfg
 from .models import Task, TaskStatus
 from .store import Store
 
-CLAUDE_BASE_FLAGS = [
+_CLAUDE_STATIC_FLAGS = [
     "--dangerously-skip-permissions",
-    "--model", "opus",
-    "--effort", "high",
     "--output-format", "json",
 ]
+
+
+def _claude_flags() -> list[str]:
+    """Build claude flags, reading model/effort from config at call time."""
+    conf = cfg.load()
+    return [
+        *_CLAUDE_STATIC_FLAGS,
+        "--model", str(conf.get("model", "opus")),
+        "--effort", str(conf.get("effort", "high")),
+    ]
 
 STATUS_SUFFIX = """
 
@@ -112,7 +120,7 @@ class Runner:
 
     def _spawn(self, task: Task, prompt: str, *, resume: bool) -> bool:
         """Spawn a claude process. Returns True on success."""
-        cmd = ["claude", "-p", prompt + STATUS_SUFFIX, *CLAUDE_BASE_FLAGS]
+        cmd = ["claude", "-p", prompt + STATUS_SUFFIX, *_claude_flags()]
         if resume and task.session_id:
             cmd.extend(["--resume", task.session_id])
 

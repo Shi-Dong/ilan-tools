@@ -7,6 +7,8 @@ from pathlib import Path
 DEFAULTS: dict[str, str | int] = {
     "workdir": "~/.ilan",
     "num-agents": 5,
+    "model": "opus",
+    "effort": "high",
     "time-zone": "US/Pacific",
     "editor": "emacs",
 }

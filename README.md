@@ -46,6 +46,8 @@ ilan task done fix-bug
 
 A background server starts automatically on the first command (port 4526). It polls every ~3 seconds, reaping finished agents and spawning new ones up to the concurrency cap.
 
+> **Warning:** `--dangerously-skip-permissions` is always on. Use at your own discretion.
+
 ### Remote usage
 
 To manage tasks on a centralized host from another machine, set `ILAN_SERVER_URL` on the client machine:
@@ -105,6 +107,8 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 | `workdir` | `~/.ilan` | Where all ilan data is stored |
 | `num-agents` | `5` | Max concurrent Claude Code agents |
 | `time-zone` | `US/Pacific` | Time zone for displayed timestamps |
+| `model` | `opus` | Claude model passed to `claude -p` |
+| `effort` | `high` | Effort level for the model |
 | `editor` | `emacs` | Editor used by `ilan task log` |
 
 ## Task lifecycle
@@ -134,7 +138,7 @@ All `claude -p` processes are spawned with `cwd` set to the configured workdir s
 ## Architecture
 
 ```
-┌─────────────┐         HTTP/JSON          ┌──────────────────┐
+┌─────────────┐         HTTP/JSON           ┌──────────────────┐
 │  ilan CLI   │ ◀─────────────────────────▶ │  ilan server     │
 │  (client)   │    localhost:4526           │  (background)    │
 └─────────────┘                             │                  │
