@@ -1,0 +1,87 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Any
+
+
+class TaskStatus(str, Enum):
+    UNCLAIMED = "UNCLAIMED"
+    WORKING = "WORKING"
+    NEEDS_ATTENTION = "NEEDS_ATTENTION"
+    AGENT_FINISHED = "AGENT_FINISHED"
+    DONE = "DONE"
+    DISCARDED = "DISCARDED"
+    ERROR = "ERROR"
+
+    @property
+    def is_terminal(self) -> bool:
+        return self in (TaskStatus.DONE, TaskStatus.DISCARDED)
+
+    @property
+    def is_claimable(self) -> bool:
+        return self == TaskStatus.UNCLAIMED
+
+
+STYLE_FOR_STATUS: dict[TaskStatus, str] = {
+    TaskStatus.UNCLAIMED: "yellow",
+    TaskStatus.WORKING: "bold cyan",
+    TaskStatus.NEEDS_ATTENTION: "bold red",
+    TaskStatus.AGENT_FINISHED: "green",
+    TaskStatus.DONE: "dim green",
+    TaskStatus.DISCARDED: "dim",
+    TaskStatus.ERROR: "bold red",
+}
+
+
+@dataclass
+class Task:
+    name: str
+    prompt: str
+    status: TaskStatus = TaskStatus.UNCLAIMED
+    created_at: str = ""
+    session_id: str | None = None
+    pid: int | None = None
+    cached_replies: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "prompt": self.prompt,
+            "status": self.status.value,
+            "created_at": self.created_at,
+            "session_id": self.session_id,
+            "pid": self.pid,
+            "cached_replies": self.cached_replies,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Task:
+        return cls(
+            name=d["name"],
+            prompt=d["prompt"],
+            status=TaskStatus(d["status"]),
+            created_at=d.get("created_at", ""),
+            session_id=d.get("session_id"),
+            pid=d.get("pid"),
+            cached_replies=d.get("cached_replies", []),
+        )
+
+
+@dataclass
+class LogEntry:
+    role: str
+    content: str
+    timestamp: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {"role": self.role, "content": self.content, "timestamp": self.timestamp}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, str]) -> LogEntry:
+        return cls(role=d["role"], content=d["content"], timestamp=d.get("timestamp", ""))
+
+    @classmethod
+    def now(cls, role: str, content: str) -> LogEntry:
+        return cls(role=role, content=content, timestamp=datetime.now(timezone.utc).isoformat())

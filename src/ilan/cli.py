@@ -1,0 +1,383 @@
+"""CLI entry-point.  Every command is a thin presentation layer over the
+:class:`~ilan.client.Client` HTTP client that talks to the background server.
+"""
+
+from __future__ import annotations
+
+import subprocess
+import tempfile
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import click
+from rich.console import Console
+from rich.table import Table
+from rich.text import Text
+
+from . import config as cfg
+from .client import Client
+from .models import STYLE_FOR_STATUS, TaskStatus
+from .server import read_server_info
+
+console = Console()
+
+
+# ── helpers ──────────────────────────────────────────────────────────
+
+def _client() -> Client:
+    """Return a Client connected to the server (auto-starting if needed)."""
+    c = Client()
+    try:
+        c.ensure_server()
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1)
+    return c
+
+
+def _format_ts(iso: str) -> str:
+    """Convert a UTC ISO timestamp to the configured time-zone."""
+    try:
+        tz = ZoneInfo(str(cfg.load().get("time-zone", "US/Pacific")))
+        dt = datetime.fromisoformat(iso).astimezone(tz)
+        return dt.strftime("%Y-%m-%d %H:%M:%S %Z")
+    except Exception:
+        return iso
+
+
+def _check_error(resp: dict) -> bool:
+    """Print error if present and return True, else False."""
+    if "error" in resp:
+        console.print(f"[yellow]{resp['error']}[/yellow]")
+        return True
+    return False
+
+
+# ── root group ───────────────────────────────────────────────────────
+
+@click.group()
+def main() -> None:
+    """Ilan CLI — manage a swarm of Claude Code agents."""
+
+
+# ── server ───────────────────────────────────────────────────────────
+
+@main.group("server")
+def server_group() -> None:
+    """Manage the ilan background server."""
+
+
+@server_group.command("stop")
+def server_stop() -> None:
+    """Stop the background server."""
+    info = read_server_info()
+    if info is None:
+        console.print("[dim]Server is not running.[/dim]")
+        return
+    try:
+        Client(port=info["port"]).stop_server()
+        console.print("[green]Server stopped.[/green]")
+    except Exception:
+        console.print("[yellow]Server did not respond. It may already be stopped.[/yellow]")
+
+
+@server_group.command("status")
+def server_status() -> None:
+    """Show whether the background server is running."""
+    info = read_server_info()
+    if info is None:
+        console.print("[dim]Server is not running.[/dim]")
+        return
+    try:
+        Client(port=info["port"]).health()
+        console.print(f"[green]Server is running[/green]  (pid={info['pid']}, port={info['port']})")
+    except Exception:
+        console.print("[yellow]PID file exists but server is not responding.[/yellow]")
+
+
+# ── config ───────────────────────────────────────────────────────────
+
+@main.group("config")
+def config_group() -> None:
+    """View or modify ilan configuration."""
+
+
+@config_group.command("set")
+@click.argument("key")
+@click.argument("value")
+def config_set(key: str, value: str) -> None:
+    """Set a configuration value (e.g. ilan config set num-agents 3)."""
+    resp = _client().set_config(key, value)
+    if _check_error(resp):
+        raise SystemExit(1)
+    console.print(f"[green]Set[/green] {resp['key']} = {resp['value']}")
+
+
+@config_group.command("show")
+def config_show() -> None:
+    """Show current configuration."""
+    resp = _client().get_config()
+    conf = resp["config"]
+    table = Table(title="Configuration")
+    table.add_column("Key", style="bold")
+    table.add_column("Value")
+    for k in sorted(conf):
+        table.add_row(k, str(conf[k]))
+    console.print(table)
+
+
+# ── task group ───────────────────────────────────────────────────────
+
+@main.group("task")
+def task_group() -> None:
+    """Manage tasks."""
+
+
+# ── task add ─────────────────────────────────────────────────────────
+
+@task_group.command("add")
+@click.option("-n", "--name", required=True, help="Short name for the task.")
+@click.option("-f", "--file", "file_path", type=click.Path(exists=True), default=None,
+              help="Path to a file containing the task prompt.")
+@click.option("-d", "--description", default=None, help="Inline task prompt.")
+def task_add(name: str, file_path: str | None, description: str | None) -> None:
+    """Add a new task."""
+    if (file_path is None) == (description is None):
+        console.print("[red]Exactly one of --file / --description must be provided.[/red]")
+        raise SystemExit(1)
+
+    prompt = Path(file_path).read_text() if file_path else description
+    assert prompt is not None
+
+    resp = _client().add_task(name, prompt)
+    if _check_error(resp):
+        raise SystemExit(1)
+    console.print(f"[green]Task [bold]{name}[/bold] added.[/green]")
+
+
+# ── task ls ──────────────────────────────────────────────────────────
+
+@task_group.command("ls")
+@click.option("-a", "--all", "show_all", is_flag=True, help="Include DONE and DISCARDED tasks.")
+def task_ls(show_all: bool) -> None:
+    """List tasks."""
+    resp = _client().list_tasks(show_all=show_all)
+    rows = resp["tasks"]
+    if not rows:
+        msg = "[dim]No tasks.[/dim]" if show_all else "[dim]No active tasks. Use -a to see all.[/dim]"
+        console.print(msg)
+        return
+
+    table = Table()
+    table.add_column("Name", style="bold")
+    table.add_column("Status")
+    table.add_column("Created")
+    for r in rows:
+        status = TaskStatus(r["status"])
+        style = STYLE_FOR_STATUS.get(status, "")
+        table.add_row(r["name"], Text(status.value, style=style), _format_ts(r["created_at"]))
+    console.print(table)
+
+
+# ── task show ────────────────────────────────────────────────────────
+
+@task_group.command("show")
+@click.argument("name")
+def task_show(name: str) -> None:
+    """Show the full prompt of a task."""
+    resp = _client().get_task(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    t = resp["task"]
+    console.print(f"[bold]Task: {t['name']}[/bold]  (status: {t['status']})\n")
+    console.print(t["prompt"])
+
+
+# ── task tail ────────────────────────────────────────────────────────
+
+@task_group.command("tail")
+@click.argument("name")
+def task_tail(name: str) -> None:
+    """Show the last assistant message and any user messages after it."""
+    resp = _client().get_tail(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+
+    if resp.get("warning"):
+        console.print(f"[yellow]{resp['warning']}[/yellow]")
+        return
+
+    for entry in resp["entries"]:
+        label = "Assistant" if entry["role"] == "assistant" else "User"
+        style = "bold cyan" if entry["role"] == "assistant" else "bold green"
+        ts = _format_ts(entry["timestamp"]) if entry.get("timestamp") else ""
+        console.print(f"[{style}]{label}[/{style}] [dim]({ts})[/dim]")
+        console.print(entry["content"])
+        console.print()
+
+
+# ── task reply ───────────────────────────────────────────────────────
+
+@task_group.command("reply")
+@click.argument("name")
+@click.argument("message")
+def task_reply(name: str, message: str) -> None:
+    """Send a response to a task."""
+    resp = _client().reply(name, message)
+    if _check_error(resp):
+        raise SystemExit(1)
+    if resp.get("warning"):
+        console.print(f"[yellow]{resp['warning']}[/yellow]")
+    elif resp.get("message"):
+        console.print(f"[green]{resp['message']}[/green]")
+
+
+# ── task kill ────────────────────────────────────────────────────────
+
+@task_group.command("kill")
+@click.argument("name")
+def task_kill(name: str) -> None:
+    """Kill a WORKING agent and move its task to ERROR."""
+    resp = _client().kill_task(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    console.print(f"[green]Agent for [bold]{name}[/bold] killed. Task set to ERROR.[/green]")
+
+
+# ── task log / logs ──────────────────────────────────────────────────
+
+def _open_log(name: str) -> None:
+    resp = _client().get_logs(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+
+    logs = resp["logs"]
+    if not logs:
+        console.print("[yellow]No logs yet for this task.[/yellow]")
+        return
+
+    lines: list[str] = []
+    for entry in logs:
+        label = "User" if entry["role"] == "user" else "Assistant"
+        ts = _format_ts(entry["timestamp"]) if entry.get("timestamp") else ""
+        lines.append(f"--- {label} ({ts}) ---")
+        lines.append(entry["content"])
+        lines.append("")
+
+    editor = str(cfg.load().get("editor", "emacs"))
+    readonly_flags: dict[str, list[str]] = {
+        "vim": ["-R"], "vi": ["-R"], "nvim": ["-R"],
+        "nano": ["-v"],
+    }
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=f"-{name}.log", delete=False) as tmp:
+        tmp.write("\n".join(lines))
+        tmp_path = tmp.name
+
+    cmd = [editor, *readonly_flags.get(editor, []), tmp_path]
+    subprocess.run(cmd)
+
+
+@task_group.command("log")
+@click.argument("name")
+def task_log(name: str) -> None:
+    """Open task logs in the configured editor."""
+    _open_log(name)
+
+
+@task_group.command("logs")
+@click.argument("name")
+def task_logs(name: str) -> None:
+    """Alias for 'ilan task log'."""
+    _open_log(name)
+
+
+# ── task rm ──────────────────────────────────────────────────────────
+
+@task_group.command("rm")
+@click.argument("names", nargs=-1, required=True)
+@click.option("-y", "--yes", is_flag=True, help="Skip confirmation.")
+def task_rm(names: tuple[str, ...], yes: bool) -> None:
+    """Remove one or more tasks and all their data."""
+    client = _client()
+
+    found: list[str] = []
+    missing: list[str] = []
+    for n in names:
+        resp = client.get_task(n)
+        (found if "task" in resp else missing).append(n)
+
+    if missing:
+        console.print(f"[yellow]Not found: {', '.join(missing)}[/yellow]")
+    if not found:
+        return
+
+    if not yes:
+        if not click.confirm(f"Remove {len(found)} task(s): {', '.join(found)}?"):
+            return
+
+    for n in found:
+        client.delete_task(n)
+    console.print(f"[green]Removed: {', '.join(found)}[/green]")
+
+
+# ── task done / discard ──────────────────────────────────────────────
+
+@task_group.command("done")
+@click.argument("name")
+def task_done(name: str) -> None:
+    """Mark a task as DONE."""
+    resp = _client().mark_done(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    console.print(f"[green]Task [bold]{name}[/bold] marked DONE.[/green]")
+
+
+@task_group.command("discard")
+@click.argument("name")
+def task_discard(name: str) -> None:
+    """Mark a task as DISCARDED."""
+    resp = _client().mark_discard(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    console.print(f"[dim]Task [bold]{name}[/bold] discarded.[/dim]")
+
+
+# ── task undone / undiscard ──────────────────────────────────────────
+
+@task_group.command("undone")
+@click.argument("name")
+def task_undone(name: str) -> None:
+    """Move a DONE task back to NEEDS_ATTENTION."""
+    resp = _client().undone(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    console.print(f"[green]Task [bold]{name}[/bold] moved to NEEDS_ATTENTION.[/green]")
+
+
+@task_group.command("undiscard")
+@click.argument("name")
+def task_undiscard(name: str) -> None:
+    """Move a DISCARDED task back to NEEDS_ATTENTION."""
+    resp = _client().undiscard(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    console.print(f"[green]Task [bold]{name}[/bold] moved to NEEDS_ATTENTION.[/green]")
+
+
+# ── clear-everything ─────────────────────────────────────────────────
+
+@main.command("clear-everything")
+def clear_everything() -> None:
+    """Remove ALL tasks, logs, and data. Cannot be bypassed with -y."""
+    if not click.confirm(
+        "This will permanently delete ALL ilan data. Are you sure?", default=False
+    ):
+        console.print("[dim]Aborted.[/dim]")
+        return
+
+    resp = _client().clear_everything()
+    if _check_error(resp):
+        raise SystemExit(1)
+    console.print("[green]All data cleared.[/green]")
