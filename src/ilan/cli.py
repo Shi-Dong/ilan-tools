@@ -463,23 +463,35 @@ def task_rm(names: tuple[str, ...], yes: bool) -> None:
 # ── task done / discard ──────────────────────────────────────────────
 
 @task_group.command("done")
-@click.argument("name", shell_complete=_complete_task_names)
-def task_done(name: str) -> None:
-    """Mark a task as DONE."""
-    resp = _client().mark_done(name)
-    if _check_error(resp):
+@click.argument("names", nargs=-1, required=True, shell_complete=_complete_task_names)
+def task_done(names: tuple[str, ...]) -> None:
+    """Mark one or more tasks as DONE."""
+    client = _client()
+    failed = False
+    for name in names:
+        resp = client.mark_done(name)
+        if _check_error(resp):
+            failed = True
+        else:
+            console.print(f"[green]Task [bold]{name}[/bold] marked DONE.[/green]")
+    if failed:
         raise SystemExit(1)
-    console.print(f"[green]Task [bold]{name}[/bold] marked DONE.[/green]")
 
 
 @task_group.command("discard")
-@click.argument("name", shell_complete=_complete_task_names)
-def task_discard(name: str) -> None:
-    """Mark a task as DISCARDED."""
-    resp = _client().mark_discard(name)
-    if _check_error(resp):
+@click.argument("names", nargs=-1, required=True, shell_complete=_complete_task_names)
+def task_discard(names: tuple[str, ...]) -> None:
+    """Mark one or more tasks as DISCARDED."""
+    client = _client()
+    failed = False
+    for name in names:
+        resp = client.mark_discard(name)
+        if _check_error(resp):
+            failed = True
+        else:
+            console.print(f"[dim]Task [bold]{name}[/bold] discarded.[/dim]")
+    if failed:
         raise SystemExit(1)
-    console.print(f"[dim]Task [bold]{name}[/bold] discarded.[/dim]")
 
 
 # ── task undone / undiscard ──────────────────────────────────────────

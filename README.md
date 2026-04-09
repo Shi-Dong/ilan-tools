@@ -76,8 +76,8 @@ When connecting to a remote server, the CLI automatically checks whether the loc
 | `ilan task reply NAME "msg"` | Send a reply to an agent |
 | `ilan task log NAME` | Open the full conversation log in your editor |
 | `ilan task kill NAME` | Kill a WORKING agent, move task to ERROR |
-| `ilan task done NAME` | Mark task as DONE |
-| `ilan task discard NAME` | Mark task as DISCARDED |
+| `ilan task done NAME [NAME...]` | Mark task(s) as DONE |
+| `ilan task discard NAME [NAME...]` | Mark task(s) as DISCARDED |
 | `ilan task undone NAME` | Move a DONE task back to NEEDS\_ATTENTION |
 | `ilan task undiscard NAME` | Move a DISCARDED task back to NEEDS\_ATTENTION |
 | `ilan task rm NAME [NAME...]` | Delete task(s) and all their data |
