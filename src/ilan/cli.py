@@ -136,6 +136,14 @@ def server_group() -> None:
 @server_group.command("stop")
 def server_stop() -> None:
     """Stop the background server."""
+    c = Client()
+    if c.is_remote:
+        try:
+            c.stop_server()
+            console.print(f"[green]Remote server stopped.[/green]  ({c._base_url})")
+        except Exception:
+            console.print(f"[yellow]Remote server did not respond.[/yellow]  ({c._base_url})")
+        return
     info = read_server_info()
     if info is None:
         console.print("[dim]Server is not running.[/dim]")
@@ -150,6 +158,10 @@ def server_stop() -> None:
 @server_group.command("restart")
 def server_restart() -> None:
     """Restart the background server (picks up code changes)."""
+    c = Client()
+    if c.is_remote:
+        console.print("[yellow]Cannot restart a remote server from this machine.[/yellow]")
+        raise SystemExit(1)
     info = read_server_info()
     if info is not None:
         try:
@@ -158,7 +170,6 @@ def server_restart() -> None:
             pass
         import time
         time.sleep(0.3)
-    c = Client()
     try:
         c.ensure_server()
         new_info = read_server_info()
@@ -174,6 +185,14 @@ def server_restart() -> None:
 @server_group.command("status")
 def server_status() -> None:
     """Show whether the background server is running."""
+    c = Client()
+    if c.is_remote:
+        try:
+            c.health()
+            console.print(f"[green]Remote server is reachable[/green]  ({c._base_url})")
+        except Exception:
+            console.print(f"[yellow]Remote server is not reachable[/yellow]  ({c._base_url})")
+        return
     info = read_server_info()
     if info is None:
         console.print("[dim]Server is not running.[/dim]")

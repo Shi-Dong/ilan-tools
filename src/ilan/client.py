@@ -6,6 +6,7 @@ Auto-starts the server on the first call if it isn't already running.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -15,17 +16,55 @@ from urllib.request import Request, urlopen
 from . import config as cfg
 from .server import pid_file_path, read_server_info
 
+SERVER_URL_ENV = "ILAN_SERVER_URL"
+
 
 class Client:
-    """JSON-over-HTTP client for the ilan server."""
+    """JSON-over-HTTP client for the ilan server.
 
-    def __init__(self, port: int | None = None) -> None:
-        self._base_url: str | None = f"http://127.0.0.1:{port}" if port else None
+    Resolution order for the server address:
+
+    1. Explicit *base_url* or *port* passed to ``__init__``.
+    2. The ``ILAN_SERVER_URL`` environment variable.
+    3. Auto-discover (and auto-start) a local server via the PID file.
+    """
+
+    def __init__(self, *, port: int | None = None, base_url: str | None = None) -> None:
+        if base_url:
+            self._base_url: str | None = base_url.rstrip("/")
+            self._remote = True
+        elif port:
+            self._base_url = f"http://127.0.0.1:{port}"
+            self._remote = False
+        else:
+            env_url = os.environ.get(SERVER_URL_ENV)
+            if env_url:
+                self._base_url = env_url.rstrip("/")
+                self._remote = True
+            else:
+                self._base_url = None
+                self._remote = False
+
+    @property
+    def is_remote(self) -> bool:
+        return self._remote
 
     # ── server lifecycle ─────────────────────────────────────────
 
     def ensure_server(self) -> dict:
-        """Return server info, starting the server if necessary."""
+        """Return server info, starting a local server if necessary.
+
+        For remote servers (``ILAN_SERVER_URL``), just verifies reachability.
+        """
+        if self._remote:
+            try:
+                self.health()
+                return {"url": self._base_url}
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Cannot reach remote ilan server at {self._base_url}: {exc}"
+                ) from exc
+
         info = self._probe()
         if info:
             return info

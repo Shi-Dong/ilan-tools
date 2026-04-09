@@ -22,6 +22,7 @@ from .runner import Runner
 from .store import Store
 
 POLL_INTERVAL = 3  # seconds
+DEFAULT_PORT = 4526
 
 
 # ── PID file helpers (shared with client.py) ─────────────────────────
@@ -91,7 +92,7 @@ class IlanServer:
 
     # ── lifecycle ────────────────────────────────────────────────
 
-    def run(self, host: str = "127.0.0.1", port: int = 0) -> None:
+    def run(self, host: str = "0.0.0.0", port: int = DEFAULT_PORT) -> None:
         handler_cls = _make_handler()
         self._httpd = _HTTPServer((host, port), handler_cls, self)
         actual_port = self._httpd.server_address[1]

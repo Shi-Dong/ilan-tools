@@ -44,7 +44,19 @@ ilan task reply fix-bug "Use the OAuth2 flow instead"
 ilan task done fix-bug
 ```
 
-A background server starts automatically on the first command. It polls every ~3 seconds, reaping finished agents and spawning new ones up to the concurrency cap.
+A background server starts automatically on the first command (port 4526). It polls every ~3 seconds, reaping finished agents and spawning new ones up to the concurrency cap.
+
+### Remote usage
+
+To manage tasks on a centralized host from another machine, set `ILAN_SERVER_URL` on the client machine:
+
+```bash
+export ILAN_SERVER_URL=http://my-server:4526
+ilan task ls          # queries the remote server
+ilan task add -n fix-bug -d "Fix the crash"   # task runs on the remote host
+```
+
+When the env var is unset, `ilan` starts and talks to a local server as usual.
 
 ## Commands
 
@@ -119,7 +131,7 @@ Agents self-report their status via a `[STATUS: DONE]` or `[STATUS: NEEDS_ATTENT
 ```
 ┌─────────────┐         HTTP/JSON          ┌──────────────────┐
 │  ilan CLI   │ ◀─────────────────────────▶ │  ilan server     │
-│  (client)   │    localhost:ephemeral      │  (background)    │
+│  (client)   │    localhost:4526           │  (background)    │
 └─────────────┘                             │                  │
                                             │  ┌────────────┐  │
                                             │  │ scheduler  │  │ ── poll every 3s
