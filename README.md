@@ -124,7 +124,9 @@ UNCLAIMED ──▶ WORKING ──▶ AGENT_FINISHED ──▶ DONE
                       (undiscard) ──▶ NEEDS_ATTENTION
 ```
 
-Agents self-report their status via a `[STATUS: DONE]` or `[STATUS: NEEDS_ATTENTION]` marker injected into every prompt.
+Agents self-report their status via a `[STATUS: DONE]` or `[STATUS: NEEDS_ATTENTION]` marker injected into every prompt. The injected convention also requires the agent to provide a substantive answer before emitting the marker.
+
+All `claude -p` processes are spawned with `cwd` set to the configured workdir so that Claude Code stores sessions under a consistent project directory. This ensures `--resume` can always locate prior sessions.
 
 ## Architecture
 

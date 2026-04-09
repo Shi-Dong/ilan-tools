@@ -22,11 +22,15 @@ CLAUDE_BASE_FLAGS = [
 STATUS_SUFFIX = """
 
 ---
-IMPORTANT — when you finish responding, you MUST output exactly one of these
-markers on the very last line of your response (no extra text after it):
+IMPORTANT — before ending your response you MUST:
+
+1. Provide a clear answer to the user's question or a summary of what you did.
+2. On the very last line, output exactly one of these markers (no extra text after it):
 
 [STATUS: DONE] — you believe the task is complete.
 [STATUS: NEEDS_ATTENTION] — you are blocked and need the user's input to proceed.
+
+Never emit a status marker without first giving a substantive response.
 """
 
 
@@ -113,10 +117,13 @@ class Runner:
             cmd.extend(["--resume", task.session_id])
 
         out_path = self.store.output_path(task.name)
+        workdir = cfg.get_workdir()
+        workdir.mkdir(parents=True, exist_ok=True)
         try:
             with open(out_path, "w") as out_f:
                 proc = subprocess.Popen(
                     cmd,
+                    cwd=workdir,
                     stdout=out_f,
                     stderr=subprocess.DEVNULL,
                     start_new_session=True,
