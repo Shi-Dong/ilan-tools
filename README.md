@@ -20,6 +20,8 @@ The `ilan` binary is now at `.venv/bin/ilan`. Add it to your `PATH` or invoke it
 ilan --install-completion zsh   # or bash / fish
 ```
 
+Once installed, Tab completes task names, config keys, sub-commands, and options.
+
 ## Quick start
 
 ```bash
@@ -68,6 +70,7 @@ A background server starts automatically on the first command. It polls every ~3
 | Command | Description |
 |---|---|
 | `ilan server status` | Show whether the background server is running |
+| `ilan server restart` | Restart the server (picks up code changes) |
 | `ilan server stop` | Stop the background server |
 
 ### Config

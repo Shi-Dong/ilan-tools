@@ -35,24 +35,28 @@ class Runner:
 
     def __init__(self, store: Store) -> None:
         self.store = store
+        self._procs: dict[str, subprocess.Popen] = {}
 
     # ── public API ───────────────────────────────────────────────────
 
     def recover(self) -> list[str]:
         """Reconcile WORKING tasks against actual process state.
 
-        Called once at server startup.  For every task marked WORKING whose
-        agent process is no longer alive, read the output file the agent
-        wrote to the workdir and determine the real status.  Returns the
-        names of recovered tasks.
+        Called once at server startup.  We have no Popen objects from the
+        previous server, so we rely on two signals:
+
+        1. ``_pid_alive`` — is the PID still a running process?
+        2. ``_output_complete`` — did the agent write a full JSON result to
+           its output file?  This catches zombies whose PID entry lingers
+           after a server restart.
         """
         recovered: list[str] = []
         for task in self.store.load_tasks().values():
             if task.status != TaskStatus.WORKING:
                 continue
             if task.pid is not None and self._pid_alive(task.pid):
-                continue
-            # Agent is gone — check the output file it left behind
+                if not self._output_complete(task.name):
+                    continue  # genuinely still running
             self._try_reap(task)
             recovered.append(task.name)
         return recovered
@@ -95,6 +99,9 @@ class Runner:
                 os.kill(task.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
+        proc = self._procs.pop(task.name, None)
+        if proc is not None:
+            proc.wait(timeout=5)
         task.pid = None
 
     # ── internals ────────────────────────────────────────────────────
@@ -119,6 +126,7 @@ class Runner:
             self.store.put_task(task)
             return False
 
+        self._procs[task.name] = proc
         task.pid = proc.pid
         task.status = TaskStatus.WORKING
         self.store.put_task(task)
@@ -142,9 +150,15 @@ class Runner:
 
     def _reap_all(self) -> None:
         for task in self.store.load_tasks().values():
-            if task.status == TaskStatus.WORKING and task.pid is not None:
-                if not self._pid_alive(task.pid):
+            if task.status != TaskStatus.WORKING or task.pid is None:
+                continue
+            proc = self._procs.get(task.name)
+            if proc is not None:
+                if proc.poll() is not None:
+                    self._procs.pop(task.name, None)
                     self._try_reap(task)
+            elif not self._pid_alive(task.pid) or self._output_complete(task.name):
+                self._try_reap(task)
 
     def _try_reap(self, task: Task) -> None:
         """Parse claude output and update task status after process exits."""
@@ -173,6 +187,18 @@ class Runner:
             task.status = self._parse_status_marker(response)
         self.store.put_task(task)
 
+    def _output_complete(self, task_name: str) -> bool:
+        """Return True if the output file contains a valid JSON result."""
+        out_path = self.store.output_path(task_name)
+        if not out_path.exists() or out_path.stat().st_size == 0:
+            return False
+        try:
+            with open(out_path) as f:
+                json.load(f)
+            return True
+        except (json.JSONDecodeError, OSError):
+            return False
+
     @staticmethod
     def _parse_status_marker(response: str) -> TaskStatus:
         """Extract ``[STATUS: …]`` from the last lines of the response."""
@@ -185,6 +211,16 @@ class Runner:
 
     @staticmethod
     def _pid_alive(pid: int) -> bool:
+        # Try to reap a zombie first.  waitpid with WNOHANG returns (pid, status)
+        # if the child has exited (clearing the zombie), or (0, 0) if still running.
+        # It raises ChildProcessError if pid is not our child.
+        try:
+            wpid, _ = os.waitpid(pid, os.WNOHANG)
+            if wpid != 0:
+                return False  # was a zombie, now reaped
+        except ChildProcessError:
+            pass  # not our child — fall through to kill-based check
+
         try:
             os.kill(pid, 0)
             return True

@@ -56,6 +56,20 @@ def _check_error(resp: dict) -> bool:
     return False
 
 
+def _complete_task_names(ctx: click.Context, param: click.Parameter, incomplete: str) -> list[str]:
+    """Shell completion for task names — reads tasks.json directly (no server needed)."""
+    try:
+        from .store import Store
+        tasks = Store(cfg.get_workdir()).load_tasks()
+        return sorted(n for n in tasks if n.startswith(incomplete))
+    except Exception:
+        return []
+
+
+def _complete_config_keys(ctx: click.Context, param: click.Parameter, incomplete: str) -> list[str]:
+    return sorted(k for k in cfg.VALID_KEYS if k.startswith(incomplete))
+
+
 def _install_completion(ctx: click.Context, _param: click.Parameter, shell: str | None) -> None:
     """Eager callback: generate and install the Click tab-completion script."""
     if shell is None:
@@ -133,6 +147,30 @@ def server_stop() -> None:
         console.print("[yellow]Server did not respond. It may already be stopped.[/yellow]")
 
 
+@server_group.command("restart")
+def server_restart() -> None:
+    """Restart the background server (picks up code changes)."""
+    info = read_server_info()
+    if info is not None:
+        try:
+            Client(port=info["port"]).stop_server()
+        except Exception:
+            pass
+        import time
+        time.sleep(0.3)
+    c = Client()
+    try:
+        c.ensure_server()
+        new_info = read_server_info()
+        console.print(
+            f"[green]Server restarted[/green]  "
+            f"(pid={new_info['pid']}, port={new_info['port']})"
+        )
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1)
+
+
 @server_group.command("status")
 def server_status() -> None:
     """Show whether the background server is running."""
@@ -155,7 +193,7 @@ def config_group() -> None:
 
 
 @config_group.command("set")
-@click.argument("key")
+@click.argument("key", shell_complete=_complete_config_keys)
 @click.argument("value")
 def config_set(key: str, value: str) -> None:
     """Set a configuration value (e.g. ilan config set num-agents 3)."""
@@ -234,7 +272,7 @@ def task_ls(show_all: bool) -> None:
 # ── task show ────────────────────────────────────────────────────────
 
 @task_group.command("show")
-@click.argument("name")
+@click.argument("name", shell_complete=_complete_task_names)
 def task_show(name: str) -> None:
     """Show the full prompt of a task."""
     resp = _client().get_task(name)
@@ -248,7 +286,7 @@ def task_show(name: str) -> None:
 # ── task tail ────────────────────────────────────────────────────────
 
 @task_group.command("tail")
-@click.argument("name")
+@click.argument("name", shell_complete=_complete_task_names)
 def task_tail(name: str) -> None:
     """Show the last assistant message and any user messages after it."""
     resp = _client().get_tail(name)
@@ -271,7 +309,7 @@ def task_tail(name: str) -> None:
 # ── task reply ───────────────────────────────────────────────────────
 
 @task_group.command("reply")
-@click.argument("name")
+@click.argument("name", shell_complete=_complete_task_names)
 @click.argument("message")
 def task_reply(name: str, message: str) -> None:
     """Send a response to a task."""
@@ -287,7 +325,7 @@ def task_reply(name: str, message: str) -> None:
 # ── task kill ────────────────────────────────────────────────────────
 
 @task_group.command("kill")
-@click.argument("name")
+@click.argument("name", shell_complete=_complete_task_names)
 def task_kill(name: str) -> None:
     """Kill a WORKING agent and move its task to ERROR."""
     resp = _client().kill_task(name)
@@ -331,14 +369,14 @@ def _open_log(name: str) -> None:
 
 
 @task_group.command("log")
-@click.argument("name")
+@click.argument("name", shell_complete=_complete_task_names)
 def task_log(name: str) -> None:
     """Open task logs in the configured editor."""
     _open_log(name)
 
 
 @task_group.command("logs")
-@click.argument("name")
+@click.argument("name", shell_complete=_complete_task_names)
 def task_logs(name: str) -> None:
     """Alias for 'ilan task log'."""
     _open_log(name)
@@ -347,7 +385,7 @@ def task_logs(name: str) -> None:
 # ── task rm ──────────────────────────────────────────────────────────
 
 @task_group.command("rm")
-@click.argument("names", nargs=-1, required=True)
+@click.argument("names", nargs=-1, required=True, shell_complete=_complete_task_names)
 @click.option("-y", "--yes", is_flag=True, help="Skip confirmation.")
 def task_rm(names: tuple[str, ...], yes: bool) -> None:
     """Remove one or more tasks and all their data."""
@@ -376,7 +414,7 @@ def task_rm(names: tuple[str, ...], yes: bool) -> None:
 # ── task done / discard ──────────────────────────────────────────────
 
 @task_group.command("done")
-@click.argument("name")
+@click.argument("name", shell_complete=_complete_task_names)
 def task_done(name: str) -> None:
     """Mark a task as DONE."""
     resp = _client().mark_done(name)
@@ -386,7 +424,7 @@ def task_done(name: str) -> None:
 
 
 @task_group.command("discard")
-@click.argument("name")
+@click.argument("name", shell_complete=_complete_task_names)
 def task_discard(name: str) -> None:
     """Mark a task as DISCARDED."""
     resp = _client().mark_discard(name)
@@ -398,7 +436,7 @@ def task_discard(name: str) -> None:
 # ── task undone / undiscard ──────────────────────────────────────────
 
 @task_group.command("undone")
-@click.argument("name")
+@click.argument("name", shell_complete=_complete_task_names)
 def task_undone(name: str) -> None:
     """Move a DONE task back to NEEDS_ATTENTION."""
     resp = _client().undone(name)
@@ -408,7 +446,7 @@ def task_undone(name: str) -> None:
 
 
 @task_group.command("undiscard")
-@click.argument("name")
+@click.argument("name", shell_complete=_complete_task_names)
 def task_undiscard(name: str) -> None:
     """Move a DISCARDED task back to NEEDS_ATTENTION."""
     resp = _client().undiscard(name)
