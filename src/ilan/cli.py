@@ -22,6 +22,8 @@ from .server import read_server_info
 
 console = Console()
 
+_SHELL_RC: dict[str, str] = {"bash": "~/.bashrc", "zsh": "~/.zshrc"}
+
 
 # ── helpers ──────────────────────────────────────────────────────────
 
@@ -54,9 +56,58 @@ def _check_error(resp: dict) -> bool:
     return False
 
 
+def _install_completion(ctx: click.Context, _param: click.Parameter, shell: str | None) -> None:
+    """Eager callback: generate and install the Click tab-completion script."""
+    if shell is None:
+        return
+
+    from click.shell_completion import get_completion_class
+
+    cls = get_completion_class(shell)
+    if cls is None:
+        console.print(f"[red]Unsupported shell: {shell}[/red]")
+        ctx.exit(1)
+
+    comp = cls(cli=main, ctx_args={}, prog_name="ilan", complete_var="_ILAN_COMPLETE")
+    script = comp.source()
+
+    if shell == "fish":
+        script_path = Path("~/.config/fish/completions/ilan.fish").expanduser()
+        script_path.parent.mkdir(parents=True, exist_ok=True)
+        script_path.write_text(script)
+        console.print(f"[green]Completion installed:[/green] {script_path}")
+    else:
+        script_path = Path(f"~/.ilan/completion.{shell}").expanduser()
+        script_path.parent.mkdir(parents=True, exist_ok=True)
+        script_path.write_text(script)
+
+        rc_path = Path(_SHELL_RC[shell]).expanduser()
+        source_line = f". {script_path}"
+
+        if rc_path.exists() and str(script_path) in rc_path.read_text():
+            console.print(f"[green]Completion already installed in {rc_path}[/green]")
+            ctx.exit(0)
+
+        with open(rc_path, "a") as f:
+            f.write(f"\n{source_line}\n")
+        console.print(f"[green]Completion installed. Restart your shell or run:[/green]")
+        console.print(f"  {source_line}")
+
+    ctx.exit(0)
+
+
 # ── root group ───────────────────────────────────────────────────────
 
 @click.group()
+@click.option(
+    "--install-completion",
+    type=click.Choice(["bash", "zsh", "fish"]),
+    default=None,
+    is_eager=True,
+    expose_value=False,
+    callback=_install_completion,
+    help="Install shell tab-completion and exit.",
+)
 def main() -> None:
     """Ilan CLI — manage a swarm of Claude Code agents."""
 
