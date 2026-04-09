@@ -208,7 +208,7 @@ def config_show() -> None:
     """Show current configuration."""
     resp = _client().get_config()
     conf = resp["config"]
-    table = Table(title="Configuration")
+    table = Table()
     table.add_column("Key", style="bold")
     table.add_column("Value")
     for k in sorted(conf):

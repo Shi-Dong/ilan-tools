@@ -15,15 +15,22 @@ VALID_KEYS = set(DEFAULTS)
 
 INT_KEYS = {"num-agents"}
 
-_CONFIG_DIR = Path("~/.ilan").expanduser()
+_CONFIG_DIR = Path("~/.config/ilan").expanduser()
 _CONFIG_FILE = _CONFIG_DIR / "config.json"
 
 
+def _ensure_config_file() -> None:
+    """Create ``~/.config/ilan/config.json`` with defaults if it doesn't exist."""
+    if not _CONFIG_FILE.exists():
+        _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(_CONFIG_FILE, "w") as f:
+            json.dump(DEFAULTS, f, indent=2)
+
+
 def load() -> dict[str, str | int]:
-    if _CONFIG_FILE.exists():
-        with open(_CONFIG_FILE) as f:
-            return {**DEFAULTS, **json.load(f)}
-    return dict(DEFAULTS)
+    _ensure_config_file()
+    with open(_CONFIG_FILE) as f:
+        return {**DEFAULTS, **json.load(f)}
 
 
 def save(config: dict[str, str | int]) -> None:

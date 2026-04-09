@@ -83,6 +83,8 @@ A background server starts automatically on the first command. It polls every ~3
 
 ### Configuration keys
 
+Configuration is stored at `~/.config/ilan/config.json` (created with defaults on first run).
+
 | Key | Default | Description |
 |---|---|---|
 | `workdir` | `~/.ilan` | Where all ilan data is stored |
