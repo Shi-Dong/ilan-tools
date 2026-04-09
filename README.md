@@ -58,6 +58,8 @@ ilan task add -n fix-bug -d "Fix the crash"   # task runs on the remote host
 
 When the env var is unset, `ilan` starts and talks to a local server as usual.
 
+When connecting to a remote server, the CLI automatically checks whether the local and server ilan code are built from the same git commit. If they differ, a warning is printed with both commit hashes so you can decide whether to update.
+
 ## Commands
 
 ### Tasks

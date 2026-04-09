@@ -49,6 +49,7 @@ def read_server_info() -> dict | None:
 # ── URL routing table ────────────────────────────────────────────────
 
 ROUTES: list[tuple[str, str, str]] = [
+    ("GET",    r"^/version$",                  "handle_version"),
     ("GET",    r"^/health$",                   "handle_health"),
     ("GET",    r"^/config$",                   "handle_get_config"),
     ("POST",   r"^/config/set$",               "handle_set_config"),
@@ -194,6 +195,10 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
 
         def handle_health(self):
             self._json({"status": "ok"})
+
+        def handle_version(self):
+            from . import __version__, get_git_commit
+            self._json({"version": __version__, "commit": get_git_commit()})
 
         def handle_get_config(self):
             self._json({"config": cfg.load()})
