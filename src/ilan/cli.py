@@ -57,7 +57,23 @@ def _check_error(resp: dict) -> bool:
 
 
 def _complete_task_names(ctx: click.Context, param: click.Parameter, incomplete: str) -> list[str]:
-    """Shell completion for task names — reads tasks.json directly (no server needed)."""
+    """Shell completion for task names.
+
+    When connected to a remote server (ILAN_SERVER_URL), queries the server API
+    so that the client can discover task names that only exist on the remote host.
+    Falls back to reading the local tasks.json when the server is unreachable.
+    """
+    try:
+        c = Client()
+        if c.is_remote:
+            resp = c.list_tasks(show_all=True)
+            names = [t["name"] for t in resp.get("tasks", [])]
+            return sorted(n for n in names if n.startswith(incomplete))
+    except Exception:
+        pass
+
+    # Local fallback: read tasks.json directly (avoids starting a server just
+    # for tab-completion).
     try:
         from .store import Store
         tasks = Store(cfg.get_workdir()).load_tasks()
