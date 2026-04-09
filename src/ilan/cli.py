@@ -6,11 +6,13 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import click
+from click.shell_completion import get_completion_class
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
@@ -19,6 +21,7 @@ from . import config as cfg
 from .client import Client
 from .models import STYLE_FOR_STATUS, TaskStatus
 from .server import read_server_info
+from .store import Store
 
 console = Console()
 
@@ -77,7 +80,6 @@ def _complete_task_names(ctx: click.Context, param: click.Parameter, incomplete:
     # Local fallback: read tasks.json directly (avoids starting a server just
     # for tab-completion).
     try:
-        from .store import Store
         tasks = Store(cfg.get_workdir()).load_tasks()
         return sorted(n for n in tasks if n.startswith(incomplete))
     except Exception:
@@ -92,8 +94,6 @@ def _install_completion(ctx: click.Context, _param: click.Parameter, shell: str 
     """Eager callback: generate and install the Click tab-completion script."""
     if shell is None:
         return
-
-    from click.shell_completion import get_completion_class
 
     cls = get_completion_class(shell)
     if cls is None:
@@ -186,7 +186,6 @@ def server_restart() -> None:
             Client(port=info["port"]).stop_server()
         except Exception:
             pass
-        import time
         time.sleep(0.3)
     try:
         c.ensure_server()

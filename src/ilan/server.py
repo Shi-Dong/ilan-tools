@@ -16,7 +16,7 @@ import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import config as cfg
+from . import __version__, config as cfg, get_git_commit
 from .models import Task, TaskStatus
 from .runner import Runner
 from .store import Store
@@ -197,7 +197,6 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             self._json({"status": "ok"})
 
         def handle_version(self):
-            from . import __version__, get_git_commit
             self._json({"version": __version__, "commit": get_git_commit()})
 
         def handle_get_config(self):
