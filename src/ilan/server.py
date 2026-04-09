@@ -64,6 +64,7 @@ ROUTES: list[tuple[str, str, str]] = [
     ("POST",   r"^/tasks/([^/]+)/kill$",       "handle_task_kill"),
     ("GET",    r"^/tasks/([^/]+)/logs$",       "handle_task_logs"),
     ("GET",    r"^/tasks/([^/]+)/tail$",       "handle_task_tail"),
+    ("GET",    r"^/tasks/([^/]+)/path$",       "handle_task_path"),
     ("POST",   r"^/clear-everything$",         "handle_clear_everything"),
     ("POST",   r"^/stop$",                     "handle_stop"),
 ]
@@ -376,6 +377,16 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 return
 
             self._json({"entries": [e.to_dict() for e in entries[last_asst:]]})
+
+        def handle_task_path(self, name: str):
+            with self._ilan.lock:
+                task = self._get_task_or_404(name)
+            if task is None:
+                return
+            if not task.session_log_path:
+                self._json({"error": f"No session log path for task {name}"}, 404)
+                return
+            self._json({"path": task.session_log_path})
 
         def handle_clear_everything(self):
             with self._ilan.lock:

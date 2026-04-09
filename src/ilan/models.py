@@ -42,6 +42,7 @@ class Task:
     status: TaskStatus = TaskStatus.UNCLAIMED
     created_at: str = ""
     session_id: str | None = None
+    session_log_path: str | None = None
     pid: int | None = None
     cached_replies: list[str] = field(default_factory=list)
 
@@ -52,6 +53,7 @@ class Task:
             "status": self.status.value,
             "created_at": self.created_at,
             "session_id": self.session_id,
+            "session_log_path": self.session_log_path,
             "pid": self.pid,
             "cached_replies": self.cached_replies,
         }
@@ -64,6 +66,7 @@ class Task:
             status=TaskStatus(d["status"]),
             created_at=d.get("created_at", ""),
             session_id=d.get("session_id"),
+            session_log_path=d.get("session_log_path"),
             pid=d.get("pid"),
             cached_replies=d.get("cached_replies", []),
         )

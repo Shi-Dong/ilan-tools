@@ -302,6 +302,18 @@ def task_show(name: str) -> None:
     console.print(t["prompt"])
 
 
+# ── task path ────────────────────────────────────────────────────────
+
+@task_group.command("path")
+@click.argument("name", shell_complete=_complete_task_names)
+def task_path(name: str) -> None:
+    """Print the Claude Code session log path for a task."""
+    resp = _client().get_path(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    console.print(resp["path"])
+
+
 # ── task tail ────────────────────────────────────────────────────────
 
 @task_group.command("tail")
