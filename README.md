@@ -67,6 +67,7 @@ When the env var is unset, `ilan` starts and talks to a local server as usual.
 | `ilan task add -n NAME -d "prompt"` | Add a task (or use `-f file`) |
 | `ilan task ls [-a]` | List active tasks (`-a` includes DONE/DISCARDED) |
 | `ilan task show NAME` | Print the full prompt of a task |
+| `ilan task path NAME` | Print the Claude Code session log path for a task |
 | `ilan task tail NAME` | Show the last assistant message + any user replies after it |
 | `ilan task reply NAME "msg"` | Send a reply to an agent |
 | `ilan task log NAME` | Open the full conversation log in your editor |

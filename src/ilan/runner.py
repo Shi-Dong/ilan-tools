@@ -183,6 +183,9 @@ class Runner:
         sid = result.get("session_id")
         if sid:
             task.session_id = sid
+            log_path = self._find_session_log(sid)
+            if log_path:
+                task.session_log_path = str(log_path)
 
         response = result.get("result", "")
         if response:
@@ -215,6 +218,15 @@ class Runner:
         if match:
             return TaskStatus.NEEDS_ATTENTION
         return TaskStatus.AGENT_FINISHED
+
+    @staticmethod
+    def _find_session_log(session_id: str) -> Path | None:
+        """Locate the Claude Code session log for the given session ID."""
+        claude_dir = Path.home() / ".claude" / "projects"
+        if not claude_dir.is_dir():
+            return None
+        matches = list(claude_dir.glob(f"*/{session_id}.jsonl"))
+        return matches[0] if matches else None
 
     @staticmethod
     def _pid_alive(pid: int) -> bool:
