@@ -383,6 +383,12 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task = self._get_task_or_404(name)
             if task is None:
                 return
+            if not task.session_log_path and task.session_id:
+                log_path = Runner._find_session_log(task.session_id)
+                if log_path:
+                    task.session_log_path = str(log_path)
+                    with self._ilan.lock:
+                        self._ilan.store.put_task(task)
             if not task.session_log_path:
                 self._json({"error": f"No session log path for task {name}"}, 404)
                 return
