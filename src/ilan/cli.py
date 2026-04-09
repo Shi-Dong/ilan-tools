@@ -35,6 +35,8 @@ def _client() -> Client:
     except RuntimeError as exc:
         console.print(f"[red]{exc}[/red]")
         raise SystemExit(1)
+    if c.version_mismatch:
+        console.print(f"[yellow]Warning: ilan commit mismatch ({c.version_mismatch})[/yellow]")
     return c
 
 

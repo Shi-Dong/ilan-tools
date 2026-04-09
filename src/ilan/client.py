@@ -14,6 +14,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from . import config as cfg
+from . import get_git_commit
 from .server import pid_file_path, read_server_info
 
 SERVER_URL_ENV = "ILAN_SERVER_URL"
@@ -28,6 +29,9 @@ class Client:
     2. The ``ILAN_SERVER_URL`` environment variable.
     3. Auto-discover (and auto-start) a local server via the PID file.
     """
+
+    version_mismatch: str | None = None
+    """Set after :meth:`ensure_server` if local/remote commits differ."""
 
     def __init__(self, *, port: int | None = None, base_url: str | None = None) -> None:
         if base_url:
@@ -59,11 +63,12 @@ class Client:
         if self._remote:
             try:
                 self.health()
-                return {"url": self._base_url}
             except Exception as exc:
                 raise RuntimeError(
                     f"Cannot reach remote ilan server at {self._base_url}: {exc}"
                 ) from exc
+            self._check_remote_version()
+            return {"url": self._base_url}
 
         info = self._probe()
         if info:
@@ -71,6 +76,23 @@ class Client:
 
         self._start_server()
         return self._wait_for_server()
+
+    def _check_remote_version(self) -> None:
+        """Warn if the local ilan commit differs from the remote server's."""
+        local_commit = get_git_commit()
+        if local_commit is None:
+            return
+        try:
+            resp = self.version()
+            server_commit = resp.get("commit")
+        except Exception:
+            return
+        if server_commit is None:
+            return
+        if local_commit != server_commit:
+            self.version_mismatch = (
+                f"local={local_commit}, server={server_commit}"
+            )
 
     def _probe(self) -> dict | None:
         info = read_server_info()
@@ -139,6 +161,7 @@ class Client:
     # ── high-level API ───────────────────────────────────────────
 
     def health(self) -> dict:                    return self.get("/health")
+    def version(self) -> dict:                   return self.get("/version")
     def get_config(self) -> dict:                return self.get("/config")
     def set_config(self, key: str, value) -> dict:
         return self.post("/config/set", {"key": key, "value": value})
