@@ -131,6 +131,7 @@ Frequently used task commands have top-level aliases to save typing:
 |---|---|
 | `ilan config show` | Print current configuration |
 | `ilan config set KEY VALUE` | Set a config value |
+| `ilan clean DURATION` | Delete tasks whose last change is older than DURATION (e.g. `5h`, `3d`) |
 | `ilan clear-everything` | Delete all tasks, logs, and data (requires confirmation) |
 
 ### Configuration keys

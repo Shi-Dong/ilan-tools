@@ -5,10 +5,11 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -60,6 +61,22 @@ def _check_error(resp: dict) -> bool:
         console.print(f"[yellow]{resp['error']}[/yellow]")
         return True
     return False
+
+
+_DURATION_RE = re.compile(r"^(\d+)\s*([hd])$", re.IGNORECASE)
+
+
+def _parse_duration(spec: str) -> timedelta:
+    """Parse a human duration like ``5h`` or ``3d`` into a timedelta."""
+    m = _DURATION_RE.match(spec.strip())
+    if not m:
+        raise click.BadParameter(
+            f"Invalid duration {spec!r}. Use a number followed by 'h' (hours) or 'd' (days), e.g. 5h or 3d."
+        )
+    value, unit = int(m.group(1)), m.group(2).lower()
+    if unit == "h":
+        return timedelta(hours=value)
+    return timedelta(days=value)
 
 
 def _complete_task_names(ctx: click.Context, param: click.Parameter, incomplete: str) -> list[str]:
@@ -727,6 +744,54 @@ def shortcut_log(name: str, path: bool) -> None:
 def shortcut_logs(name: str, path: bool) -> None:
     """Shorthand for 'ilan task logs'."""
     _open_log(name, path=path)
+
+
+# ── clean ────────────────────────────────────────────────────────────
+
+@main.command("clean")
+@click.argument("duration")
+@click.option("-y", "--yes", is_flag=True, help="Skip confirmation.")
+def clean(duration: str, yes: bool) -> None:
+    """Delete tasks whose last change is older than DURATION (e.g. 5h, 3d)."""
+    delta = _parse_duration(duration)
+    cutoff = datetime.now(timezone.utc) - delta
+
+    client = _client()
+    resp = client.list_tasks(show_all=True)
+    rows = resp["tasks"]
+
+    stale: list[dict] = []
+    for r in rows:
+        changed = r.get("status_changed_at") or r.get("created_at", "")
+        if not changed:
+            continue
+        ts = datetime.fromisoformat(changed)
+        if ts < cutoff:
+            stale.append(r)
+
+    if not stale:
+        console.print(f"[dim]No tasks older than {duration}.[/dim]")
+        return
+
+    table = Table(title=f"Tasks older than {duration}")
+    table.add_column("Name", style="bold")
+    table.add_column("Status")
+    table.add_column("Last Changed")
+    for r in stale:
+        status = TaskStatus(r["status"])
+        style = STYLE_FOR_STATUS.get(status, "")
+        changed = _format_ts(r["status_changed_at"]) if r.get("status_changed_at") else ""
+        table.add_row(r["name"], Text(status.value, style=style), changed)
+    console.print(table)
+
+    if not yes:
+        if not click.confirm(f"Delete {len(stale)} task(s)?"):
+            console.print("[dim]Aborted.[/dim]")
+            return
+
+    for r in stale:
+        client.delete_task(r["name"])
+    console.print(f"[green]Deleted {len(stale)} task(s).[/green]")
 
 
 # ── clear-everything ─────────────────────────────────────────────────
