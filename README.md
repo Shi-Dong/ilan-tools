@@ -74,7 +74,7 @@ ilan re sd "try v2"   # instead of: ilan re fix-bug "try v2"
 ilan done sd
 ```
 
-Aliases are assigned when a task is created and released when it transitions to DONE or DISCARDED. If a task is moved back out of a terminal state (via `undone` / `undiscard`), it receives a new alias. The alias pool supports up to 81 concurrent non-terminal tasks.
+Aliases are assigned when a task is created and released when it transitions to `DONE` or `DISCARDED`. If a task is moved back out of a terminal state (via `undone` / `undiscard`), it receives a new alias. The alias pool supports up to 81 concurrent non-terminal tasks.
 
 To avoid ambiguity between aliases and task names, task names must be at least 3 characters long. Aliases are not included in shell tab-completion.
 
@@ -85,19 +85,19 @@ To avoid ambiguity between aliases and task names, task names must be at least 3
 | Command | Description |
 |---|---|
 | `ilan task add -n NAME -d "prompt"` | Add a task (or use `-f file`; name must be ≥ 3 chars) |
-| `ilan task ls [-a]` | List active tasks (`-a` includes DONE/DISCARDED) |
+| `ilan task ls [-a]` | List active tasks (`-a` includes `DONE`/`DISCARDED`) |
 | `ilan task show NAME` | Print the full prompt of a task |
 | `ilan task path NAME` | Print the Claude Code session log path for a task |
 | `ilan task tail NAME` | Show the last assistant message + any user replies after it |
 | `ilan task reply NAME "msg"` | Send a reply to an agent |
-| `ilan task tap NAME` | Ask a WORKING agent for a status update |
+| `ilan task tap NAME` | Ask a `WORKING` agent for a status update |
 | `ilan task log [-p] NAME` | Open the full conversation log in your editor (`-p` prints the log file path instead) |
-| `ilan task kill NAME` | Kill a WORKING agent, move task to ERROR |
+| `ilan task kill NAME` | Kill a `WORKING` agent, move task to `ERROR` |
 | `ilan task attach NAME` | Attach to a task's Claude Code session interactively |
-| `ilan task done NAME [NAME...]` | Mark task(s) as DONE |
-| `ilan task discard NAME [NAME...]` | Mark task(s) as DISCARDED |
-| `ilan task undone NAME` | Move a DONE task back to NEEDS\_ATTENTION |
-| `ilan task undiscard NAME` | Move a DISCARDED task back to NEEDS\_ATTENTION |
+| `ilan task done NAME [NAME...]` | Mark task(s) as `DONE` |
+| `ilan task discard NAME [NAME...]` | Mark task(s) as `DISCARDED` |
+| `ilan task undone NAME` | Move a `DONE` task back to `NEEDS_ATTENTION` |
+| `ilan task undiscard NAME` | Move a `DISCARDED` task back to `NEEDS_ATTENTION` |
 | `ilan task rm NAME [NAME...]` | Delete task(s) and all their data |
 
 ### Shorthands
