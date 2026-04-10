@@ -484,10 +484,8 @@ def task_rm(names: tuple[str, ...], yes: bool) -> None:
 
 # ── task done / discard ──────────────────────────────────────────────
 
-@task_group.command("done")
-@click.argument("names", nargs=-1, required=True, shell_complete=_complete_task_names)
-def task_done(names: tuple[str, ...]) -> None:
-    """Mark one or more tasks as DONE."""
+
+def _do_done(names: tuple[str, ...]) -> None:
     client = _client()
     failed = False
     for name in names:
@@ -500,10 +498,7 @@ def task_done(names: tuple[str, ...]) -> None:
         raise SystemExit(1)
 
 
-@task_group.command("discard")
-@click.argument("names", nargs=-1, required=True, shell_complete=_complete_task_names)
-def task_discard(names: tuple[str, ...]) -> None:
-    """Mark one or more tasks as DISCARDED."""
+def _do_discard(names: tuple[str, ...]) -> None:
     client = _client()
     failed = False
     for name in names:
@@ -514,6 +509,20 @@ def task_discard(names: tuple[str, ...]) -> None:
             console.print(f"[dim]Task [bold]{name}[/bold] discarded.[/dim]")
     if failed:
         raise SystemExit(1)
+
+
+@task_group.command("done")
+@click.argument("names", nargs=-1, required=True, shell_complete=_complete_task_names)
+def task_done(names: tuple[str, ...]) -> None:
+    """Mark one or more tasks as DONE."""
+    _do_done(names)
+
+
+@task_group.command("discard")
+@click.argument("names", nargs=-1, required=True, shell_complete=_complete_task_names)
+def task_discard(names: tuple[str, ...]) -> None:
+    """Mark one or more tasks as DISCARDED."""
+    _do_discard(names)
 
 
 # ── task undone / undiscard ──────────────────────────────────────────
@@ -578,6 +587,20 @@ def shortcut_reply(name: str, message: str) -> None:
 def shortcut_re(name: str, message: str) -> None:
     """Shorthand for 'ilan task reply'."""
     _do_reply(name, message)
+
+
+@main.command("done")
+@click.argument("names", nargs=-1, required=True, shell_complete=_complete_task_names)
+def shortcut_done(names: tuple[str, ...]) -> None:
+    """Shorthand for 'ilan task done'."""
+    _do_done(names)
+
+
+@main.command("discard")
+@click.argument("names", nargs=-1, required=True, shell_complete=_complete_task_names)
+def shortcut_discard(names: tuple[str, ...]) -> None:
+    """Shorthand for 'ilan task discard'."""
+    _do_discard(names)
 
 
 # ── clear-everything ─────────────────────────────────────────────────

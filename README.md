@@ -43,7 +43,7 @@ ilan reply fix-bug "Use the OAuth2 flow instead"
 ilan re fix-bug "Use the OAuth2 flow instead"
 
 # Mark a task as done
-ilan task done fix-bug
+ilan done fix-bug
 ```
 
 A background server starts automatically on the first command (port 4526). It polls every ~3 seconds, reaping finished agents and spawning new ones up to the concurrency cap.
@@ -71,7 +71,7 @@ Every non-terminal task is automatically assigned a two-letter alias (e.g. `aa`,
 ```bash
 ilan tail sd          # instead of: ilan tail fix-bug
 ilan re sd "try v2"   # instead of: ilan re fix-bug "try v2"
-ilan task done sd
+ilan done sd
 ```
 
 Aliases are assigned when a task is created and released when it transitions to DONE or DISCARDED. If a task is moved back out of a terminal state (via `undone` / `undiscard`), it receives a new alias. The alias pool supports up to 81 concurrent non-terminal tasks.
@@ -109,6 +109,8 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan tail NAME` | `ilan task tail NAME` |
 | `ilan reply NAME "msg"` | `ilan task reply NAME "msg"` |
 | `ilan re NAME "msg"` | `ilan task reply NAME "msg"` |
+| `ilan done NAME [NAME...]` | `ilan task done NAME [NAME...]` |
+| `ilan discard NAME [NAME...]` | `ilan task discard NAME [NAME...]` |
 
 ### Server
 
