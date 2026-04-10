@@ -287,6 +287,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     self._ilan.runner.kill(task)
                 task.set_status(TaskStatus.DONE)
                 task.alias = None
+                task.needs_review = False
                 self._ilan.store.put_task(task)
             self._json({"ok": True, "name": task.name})
 
@@ -299,6 +300,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     self._ilan.runner.kill(task)
                 task.set_status(TaskStatus.DISCARDED)
                 task.alias = None
+                task.needs_review = False
                 self._ilan.store.put_task(task)
             self._json({"ok": True, "name": task.name})
 

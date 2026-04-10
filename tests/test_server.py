@@ -388,6 +388,24 @@ class TestNeedsReview:
         task_row = next(t for t in resp["tasks"] if t["name"] == "nr-fresh")
         assert task_row["needs_review"] is False
 
+    def test_done_clears_needs_review(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "nr-done", "prompt": "P"})
+        _set_needs_review(ilan_server, "nr-done")
+
+        _post(ilan_server, "/tasks/nr-done/done")
+
+        task = _get(ilan_server, "/tasks/nr-done")["task"]
+        assert task["needs_review"] is False
+
+    def test_discard_clears_needs_review(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "nr-disc", "prompt": "P"})
+        _set_needs_review(ilan_server, "nr-disc")
+
+        _post(ilan_server, "/tasks/nr-disc/discard")
+
+        task = _get(ilan_server, "/tasks/nr-disc")["task"]
+        assert task["needs_review"] is False
+
 
 # ── Kill ────────────────────────────────────────────────────────────────
 
