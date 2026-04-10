@@ -64,13 +64,27 @@ When the env var is unset, `ilan` starts and talks to a local server as usual.
 
 When connecting to a remote server, the CLI automatically checks whether the local and server ilan code are built from the same git commit. If they differ, a warning is printed with both commit hashes so you can decide whether to update.
 
+## Task aliases
+
+Every non-terminal task is automatically assigned a two-letter alias (e.g. `aa`, `sd`, `kl`) drawn from the characters `asdfghjkl`. Aliases are displayed in bold magenta in `ilan ls` and can be used in place of the full task name in any command:
+
+```bash
+ilan tail sd          # instead of: ilan tail fix-bug
+ilan re sd "try v2"   # instead of: ilan re fix-bug "try v2"
+ilan task done sd
+```
+
+Aliases are assigned when a task is created and released when it transitions to DONE or DISCARDED. If a task is moved back out of a terminal state (via `undone` / `undiscard`), it receives a new alias. The alias pool supports up to 81 concurrent non-terminal tasks.
+
+To avoid ambiguity between aliases and task names, task names must be at least 3 characters long. Aliases are not included in shell tab-completion.
+
 ## Commands
 
 ### Tasks
 
 | Command | Description |
 |---|---|
-| `ilan task add -n NAME -d "prompt"` | Add a task (or use `-f file`) |
+| `ilan task add -n NAME -d "prompt"` | Add a task (or use `-f file`; name must be ≥ 3 chars) |
 | `ilan task ls [-a]` | List active tasks (`-a` includes DONE/DISCARDED) |
 | `ilan task show NAME` | Print the full prompt of a task |
 | `ilan task path NAME` | Print the Claude Code session log path for a task |

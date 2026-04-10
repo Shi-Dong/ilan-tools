@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
+
+ALIAS_CHARS = "asdfghjkl"
+ALIAS_POOL: list[str] = ["".join(p) for p in itertools.product(ALIAS_CHARS, repeat=2)]
 
 
 class TaskStatus(str, Enum):
@@ -46,6 +50,7 @@ class Task:
     session_log_path: str | None = None
     pid: int | None = None
     cached_replies: list[str] = field(default_factory=list)
+    alias: str | None = None
 
     def set_status(self, status: TaskStatus) -> None:
         """Set status and update the ``status_changed_at`` timestamp."""
@@ -63,6 +68,7 @@ class Task:
             "session_log_path": self.session_log_path,
             "pid": self.pid,
             "cached_replies": self.cached_replies,
+            "alias": self.alias,
         }
 
     @classmethod
@@ -77,6 +83,7 @@ class Task:
             session_log_path=d.get("session_log_path"),
             pid=d.get("pid"),
             cached_replies=d.get("cached_replies", []),
+            alias=d.get("alias"),
         )
 
 

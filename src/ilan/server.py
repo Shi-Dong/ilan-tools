@@ -186,7 +186,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             return self.server.ilan
 
         def _get_task_or_404(self, name: str) -> Task | None:
-            task = self._ilan.store.get_task(name)
+            task = self._ilan.store.get_task_by_name_or_alias(name)
             if task is None:
                 self._json({"error": f"Task {name} not found"}, 404)
             return task
@@ -229,12 +229,16 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     "status": t.status.value,
                     "created_at": t.created_at,
                     "status_changed_at": t.status_changed_at,
+                    "alias": t.alias,
                 })
             self._json({"tasks": rows})
 
         def handle_add_task(self):
             body = self._body()
             name, prompt = body["name"], body["prompt"]
+            if len(name) < 3:
+                self._json({"error": "Task name must be at least 3 characters"}, 400)
+                return
             with self._ilan.lock:
                 if self._ilan.store.get_task(name) is not None:
                     existing = self._ilan.store.get_task(name)
@@ -244,7 +248,14 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     )
                     return
                 now = datetime.now(timezone.utc).isoformat()
-                task = Task(name=name, prompt=prompt, created_at=now, status_changed_at=now)
+                alias = self._ilan.store.next_available_alias()
+                task = Task(
+                    name=name,
+                    prompt=prompt,
+                    created_at=now,
+                    status_changed_at=now,
+                    alias=alias,
+                )
                 self._ilan.store.put_task(task)
             self._ilan.nudge()
             self._json({"ok": True})
@@ -262,7 +273,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     return
                 if task.status == TaskStatus.WORKING:
                     self._ilan.runner.kill(task)
-                self._ilan.store.delete_task(name)
+                self._ilan.store.delete_task(task.name)
             self._json({"ok": True})
 
         def handle_task_done(self, name: str):
@@ -273,6 +284,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 if task.status == TaskStatus.WORKING:
                     self._ilan.runner.kill(task)
                 task.set_status(TaskStatus.DONE)
+                task.alias = None
                 self._ilan.store.put_task(task)
             self._json({"ok": True})
 
@@ -284,6 +296,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 if task.status == TaskStatus.WORKING:
                     self._ilan.runner.kill(task)
                 task.set_status(TaskStatus.DISCARDED)
+                task.alias = None
                 self._ilan.store.put_task(task)
             self._json({"ok": True})
 
@@ -296,6 +309,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     self._json({"error": f"Task is {task.status.value}, not DONE"}, 409)
                     return
                 task.set_status(TaskStatus.NEEDS_ATTENTION)
+                task.alias = self._ilan.store.next_available_alias()
                 self._ilan.store.put_task(task)
             self._json({"ok": True})
 
@@ -308,6 +322,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     self._json({"error": f"Task is {task.status.value}, not DISCARDED"}, 409)
                     return
                 task.set_status(TaskStatus.NEEDS_ATTENTION)
+                task.alias = self._ilan.store.next_available_alias()
                 self._ilan.store.put_task(task)
             self._json({"ok": True})
 
@@ -327,7 +342,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
 
                 if task.status == TaskStatus.UNCLAIMED:
                     task.cached_replies.append(message)
-                    store.append_log(name, "user", message)
+                    store.append_log(task.name, "user", message)
                     store.put_task(task)
                     self._json({"ok": True, "warning": "Task is UNCLAIMED. Reply cached."})
                     return
@@ -340,7 +355,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 # NEEDS_ATTENTION / AGENT_FINISHED / ERROR
                 task.cached_replies.append(message)
                 task.set_status(TaskStatus.UNCLAIMED)
-                store.append_log(name, "user", message)
+                store.append_log(task.name, "user", message)
                 store.put_task(task)
             self._ilan.nudge()
             self._json({"ok": True, "message": "Reply cached. Task set to UNCLAIMED."})
@@ -363,7 +378,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task = self._get_task_or_404(name)
                 if task is None:
                     return
-                entries = self._ilan.store.read_logs(name)
+                entries = self._ilan.store.read_logs(task.name)
             self._json({"logs": [e.to_dict() for e in entries]})
 
         def handle_task_tail(self, name: str):
@@ -371,7 +386,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task = self._get_task_or_404(name)
                 if task is None:
                     return
-                entries = self._ilan.store.read_logs(name)
+                entries = self._ilan.store.read_logs(task.name)
 
             if not entries:
                 self._json({"entries": [], "warning": "No logs yet."})
@@ -400,7 +415,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     with self._ilan.lock:
                         self._ilan.store.put_task(task)
             if not task.session_log_path:
-                self._json({"error": f"No session log path for task {name}"}, 404)
+                self._json({"error": f"No session log path for task {task.name}"}, 404)
                 return
             self._json({"path": task.session_log_path})
 

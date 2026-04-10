@@ -287,6 +287,9 @@ def task_add(name: str, file_path: str | None, description: str | None) -> None:
 
 # ── task ls ──────────────────────────────────────────────────────────
 
+ALIAS_STYLE = "bold magenta"
+
+
 def _do_ls(show_all: bool) -> None:
     resp = _client().list_tasks(show_all=show_all)
     rows = resp["tasks"]
@@ -296,6 +299,7 @@ def _do_ls(show_all: bool) -> None:
         return
 
     table = Table()
+    table.add_column("Alias", style=ALIAS_STYLE)
     table.add_column("Name", style="bold")
     table.add_column("Status")
     table.add_column("Created")
@@ -303,8 +307,9 @@ def _do_ls(show_all: bool) -> None:
     for r in rows:
         status = TaskStatus(r["status"])
         style = STYLE_FOR_STATUS.get(status, "")
+        alias = r.get("alias") or ""
         changed = _format_ts(r["status_changed_at"]) if r.get("status_changed_at") else ""
-        table.add_row(r["name"], Text(status.value, style=style), _format_ts(r["created_at"]), changed)
+        table.add_row(alias, r["name"], Text(status.value, style=style), _format_ts(r["created_at"]), changed)
     console.print(table)
 
 

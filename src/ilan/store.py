@@ -4,7 +4,7 @@ import json
 import shutil
 from pathlib import Path
 
-from .models import LogEntry, Task
+from .models import ALIAS_POOL, LogEntry, Task
 
 
 class Store:
@@ -34,6 +34,25 @@ class Store:
 
     def get_task(self, name: str) -> Task | None:
         return self.load_tasks().get(name)
+
+    def get_task_by_name_or_alias(self, name_or_alias: str) -> Task | None:
+        """Look up a task by name first, then by alias."""
+        tasks = self.load_tasks()
+        if name_or_alias in tasks:
+            return tasks[name_or_alias]
+        for task in tasks.values():
+            if task.alias == name_or_alias:
+                return task
+        return None
+
+    def next_available_alias(self) -> str | None:
+        """Return the first unused alias from the pool, or None if exhausted."""
+        tasks = self.load_tasks()
+        used = {t.alias for t in tasks.values() if t.alias}
+        for alias in ALIAS_POOL:
+            if alias not in used:
+                return alias
+        return None
 
     def put_task(self, task: Task) -> None:
         tasks = self.load_tasks()
