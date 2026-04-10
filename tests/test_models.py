@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from ilan.models import ALIAS_POOL, LogEntry, Task, TaskStatus
+import pytest
+
+from ilan.models import ALIAS_POOL, LogEntry, Task, TaskStatus, validate_task_name
 
 
 # ── TaskStatus ──────────────────────────────────────────────────────────
@@ -64,6 +66,47 @@ class TestAliasPool:
         valid = set("asdfghjkl")
         for alias in ALIAS_POOL:
             assert set(alias) <= valid
+
+
+# ── validate_task_name ─────────────────────────────────────────────────
+
+
+class TestValidateTaskName:
+    @pytest.mark.parametrize("name", [
+        "fix-bug",
+        "my_task",
+        "Task123",
+        "abc",
+        "A-long_Task-Name_99",
+    ])
+    def test_valid_names(self, name: str) -> None:
+        assert validate_task_name(name) is None
+
+    @pytest.mark.parametrize("name", ["ab", "x", ""])
+    def test_too_short(self, name: str) -> None:
+        err = validate_task_name(name)
+        assert err is not None
+        assert "at least 3" in err
+
+    @pytest.mark.parametrize("name", [
+        "has space",
+        "hello!",
+        "a.b.c",
+        "foo/bar",
+        "name@here",
+        "col:on",
+        "semi;colon",
+    ])
+    def test_invalid_characters(self, name: str) -> None:
+        err = validate_task_name(name)
+        assert err is not None
+        assert "letters, digits" in err
+
+    def test_short_and_invalid_reports_length_first(self) -> None:
+        """A 2-char name with bad chars should fail on length, not charset."""
+        err = validate_task_name("a!")
+        assert err is not None
+        assert "at least 3" in err
 
 
 # ── Task ────────────────────────────────────────────────────────────────
