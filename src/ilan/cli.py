@@ -459,6 +459,14 @@ def task_kill(name: str) -> None:
 
 def _do_attach(name: str) -> None:
     client = _client()
+
+    if client.is_remote:
+        console.print(
+            "[red]ilan attach can only be run from the host machine "
+            "where the ilan server is running.[/red]"
+        )
+        raise SystemExit(1)
+
     resp = client.get_task(name)
     if _check_error(resp):
         raise SystemExit(1)

@@ -15,13 +15,34 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
-def _make_client(task_resp: dict) -> MagicMock:
+def _make_client(task_resp: dict, *, remote: bool = False) -> MagicMock:
     """Build a mock Client whose get_task returns *task_resp*."""
     client = MagicMock()
     client.ensure_server.return_value = {}
     client.version_mismatch = None
+    client.is_remote = remote
     client.get_task.return_value = task_resp
     return client
+
+
+# ── remote client refused ───────────────────────────────────────────────
+
+
+class TestAttachRemoteRefused:
+    def test_remote_client_refused(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client({"task": {}}, remote=True)
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["task", "attach", "any-task"])
+        assert result.exit_code != 0
+        assert "host machine" in result.output.lower()
+        client.get_task.assert_not_called()
+
+    def test_shorthand_remote_refused(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client({"task": {}}, remote=True)
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["attach", "any-task"])
+        assert result.exit_code != 0
+        assert "host machine" in result.output.lower()
 
 
 # ── task not found ──────────────────────────────────────────────────────
