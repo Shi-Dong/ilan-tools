@@ -32,7 +32,7 @@ ilan add -n fix-bug -d "Fix the null-pointer crash in auth.py"
 ilan add -n big-refactor -f tasks/refactor.md
 
 # See what's running
-ilan task ls
+ilan ls
 
 # Read the latest agent output
 ilan tail fix-bug
@@ -91,6 +91,7 @@ Frequently used task commands have top-level aliases to save typing:
 | Shorthand | Equivalent |
 |---|---|
 | `ilan add` | `ilan task add` |
+| `ilan ls [-a]` | `ilan task ls [-a]` |
 | `ilan tail NAME` | `ilan task tail NAME` |
 | `ilan reply NAME "msg"` | `ilan task reply NAME "msg"` |
 | `ilan re NAME "msg"` | `ilan task reply NAME "msg"` |

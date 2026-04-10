@@ -287,10 +287,7 @@ def task_add(name: str, file_path: str | None, description: str | None) -> None:
 
 # ── task ls ──────────────────────────────────────────────────────────
 
-@task_group.command("ls")
-@click.option("-a", "--all", "show_all", is_flag=True, help="Include DONE and DISCARDED tasks.")
-def task_ls(show_all: bool) -> None:
-    """List tasks."""
+def _do_ls(show_all: bool) -> None:
     resp = _client().list_tasks(show_all=show_all)
     rows = resp["tasks"]
     if not rows:
@@ -307,6 +304,13 @@ def task_ls(show_all: bool) -> None:
         style = STYLE_FOR_STATUS.get(status, "")
         table.add_row(r["name"], Text(status.value, style=style), _format_ts(r["created_at"]))
     console.print(table)
+
+
+@task_group.command("ls")
+@click.option("-a", "--all", "show_all", is_flag=True, help="Include DONE and DISCARDED tasks.")
+def task_ls(show_all: bool) -> None:
+    """List tasks."""
+    _do_ls(show_all)
 
 
 # ── task show ────────────────────────────────────────────────────────
@@ -537,6 +541,13 @@ def task_undiscard(name: str) -> None:
 def shortcut_add(name: str, file_path: str | None, description: str | None) -> None:
     """Shorthand for 'ilan task add'."""
     _do_add(name, file_path, description)
+
+
+@main.command("ls")
+@click.option("-a", "--all", "show_all", is_flag=True, help="Include DONE and DISCARDED tasks.")
+def shortcut_ls(show_all: bool) -> None:
+    """Shorthand for 'ilan task ls'."""
+    _do_ls(show_all)
 
 
 @main.command("tail")
