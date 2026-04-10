@@ -60,6 +60,24 @@ class Store:
         tasks[task.name] = task
         self.save_tasks(tasks)
 
+    def rename_task(self, old_name: str, new_name: str) -> Task:
+        """Rename a task, updating the tasks dict, log file, and output file."""
+        tasks = self.load_tasks()
+        task = tasks.pop(old_name)
+        task.name = new_name
+        tasks[new_name] = task
+        self.save_tasks(tasks)
+
+        old_log = self.log_path(old_name)
+        if old_log.exists():
+            old_log.rename(self.log_path(new_name))
+
+        old_output = self.output_path(old_name)
+        if old_output.exists():
+            old_output.rename(self.output_path(new_name))
+
+        return task
+
     def delete_task(self, name: str) -> None:
         tasks = self.load_tasks()
         tasks.pop(name, None)
