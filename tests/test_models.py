@@ -51,7 +51,7 @@ class TestTaskStatus:
 
 class TestAliasPool:
     def test_length(self) -> None:
-        assert len(ALIAS_POOL) == 9 * 9  # 81 two-letter aliases
+        assert len(ALIAS_POOL) == 9 * 9 - 1  # 81 combos minus 1 banned ("ls")
 
     def test_all_unique(self) -> None:
         assert len(set(ALIAS_POOL)) == len(ALIAS_POOL)
