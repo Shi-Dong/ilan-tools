@@ -88,6 +88,7 @@ class TestTask:
         assert t.pid is None
         assert t.cached_replies == []
         assert t.alias is None
+        assert t.needs_review is False
 
     def test_set_status_updates_timestamp(self) -> None:
         t = self._make_task()
@@ -105,6 +106,7 @@ class TestTask:
             pid=42,
             cached_replies=["reply1"],
             alias="as",
+            needs_review=True,
         )
         d = t.to_dict()
         t2 = Task.from_dict(d)
@@ -117,6 +119,7 @@ class TestTask:
         assert t2.pid == t.pid
         assert t2.cached_replies == t.cached_replies
         assert t2.alias == t.alias
+        assert t2.needs_review == t.needs_review
 
     def test_to_dict_keys(self) -> None:
         t = self._make_task()
@@ -124,6 +127,7 @@ class TestTask:
         expected_keys = {
             "name", "prompt", "status", "created_at", "status_changed_at",
             "session_id", "session_log_path", "pid", "cached_replies", "alias",
+            "needs_review",
         }
         assert set(d.keys()) == expected_keys
 
@@ -137,6 +141,7 @@ class TestTask:
         assert t.session_id is None
         assert t.cached_replies == []
         assert t.alias is None
+        assert t.needs_review is False
 
     def test_from_dict_status_changed_at_fallback(self) -> None:
         """status_changed_at falls back to created_at if missing."""

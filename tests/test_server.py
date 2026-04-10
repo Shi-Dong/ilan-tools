@@ -334,6 +334,79 @@ class TestLogs:
         assert "warning" in resp
 
 
+# ── Needs Review ───────────────────────────────────────────────────────
+
+
+def _set_needs_review(server: IlanServer, name: str) -> None:
+    """Set a task to NEEDS_ATTENTION with needs_review=True."""
+    with server.lock:
+        task = server.store.get_task(name)
+        task.set_status(TaskStatus.NEEDS_ATTENTION)
+        task.needs_review = True
+        server.store.put_task(task)
+
+
+class TestNeedsReview:
+    def test_list_tasks_includes_needs_review(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "nr-list", "prompt": "P"})
+        _set_needs_review(ilan_server, "nr-list")
+        resp = _get(ilan_server, "/tasks")
+        task_row = next(t for t in resp["tasks"] if t["name"] == "nr-list")
+        assert task_row["needs_review"] is True
+
+    def test_tail_clears_needs_review(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "nr-tail", "prompt": "P"})
+        _set_needs_review(ilan_server, "nr-tail")
+        ilan_server.store.append_log("nr-tail", "assistant", "done")
+
+        _get(ilan_server, "/tasks/nr-tail/tail")
+
+        task = _get(ilan_server, "/tasks/nr-tail")["task"]
+        assert task["needs_review"] is False
+
+    def test_logs_clears_needs_review(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "nr-logs", "prompt": "P"})
+        _set_needs_review(ilan_server, "nr-logs")
+
+        _get(ilan_server, "/tasks/nr-logs/logs")
+
+        task = _get(ilan_server, "/tasks/nr-logs")["task"]
+        assert task["needs_review"] is False
+
+    def test_reply_clears_needs_review(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "nr-reply", "prompt": "P"})
+        _set_needs_review(ilan_server, "nr-reply")
+
+        _post(ilan_server, "/tasks/nr-reply/reply", {"message": "got it"})
+
+        task = _get(ilan_server, "/tasks/nr-reply")["task"]
+        assert task["needs_review"] is False
+
+    def test_new_task_has_no_needs_review(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "nr-fresh", "prompt": "P"})
+        resp = _get(ilan_server, "/tasks")
+        task_row = next(t for t in resp["tasks"] if t["name"] == "nr-fresh")
+        assert task_row["needs_review"] is False
+
+    def test_done_clears_needs_review(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "nr-done", "prompt": "P"})
+        _set_needs_review(ilan_server, "nr-done")
+
+        _post(ilan_server, "/tasks/nr-done/done")
+
+        task = _get(ilan_server, "/tasks/nr-done")["task"]
+        assert task["needs_review"] is False
+
+    def test_discard_clears_needs_review(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "nr-disc", "prompt": "P"})
+        _set_needs_review(ilan_server, "nr-disc")
+
+        _post(ilan_server, "/tasks/nr-disc/discard")
+
+        task = _get(ilan_server, "/tasks/nr-disc")["task"]
+        assert task["needs_review"] is False
+
+
 # ── Kill ────────────────────────────────────────────────────────────────
 
 

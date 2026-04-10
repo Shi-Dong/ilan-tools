@@ -231,6 +231,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     "created_at": t.created_at,
                     "status_changed_at": t.status_changed_at,
                     "alias": t.alias,
+                    "needs_review": t.needs_review,
                 })
             self._json({"tasks": rows})
 
@@ -286,6 +287,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     self._ilan.runner.kill(task)
                 task.set_status(TaskStatus.DONE)
                 task.alias = None
+                task.needs_review = False
                 self._ilan.store.put_task(task)
             self._json({"ok": True, "name": task.name})
 
@@ -298,6 +300,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     self._ilan.runner.kill(task)
                 task.set_status(TaskStatus.DISCARDED)
                 task.alias = None
+                task.needs_review = False
                 self._ilan.store.put_task(task)
             self._json({"ok": True, "name": task.name})
 
@@ -355,6 +358,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
 
                 # NEEDS_ATTENTION / AGENT_FINISHED / ERROR
                 task.cached_replies.append(message)
+                task.needs_review = False
                 task.set_status(TaskStatus.UNCLAIMED)
                 store.append_log(task.name, "user", message)
                 store.put_task(task)
@@ -379,6 +383,9 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task = self._get_task_or_404(name)
                 if task is None:
                     return
+                if task.needs_review:
+                    task.needs_review = False
+                    self._ilan.store.put_task(task)
                 entries = self._ilan.store.read_logs(task.name)
             self._json({"logs": [e.to_dict() for e in entries]})
 
@@ -395,6 +402,9 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task = self._get_task_or_404(name)
                 if task is None:
                     return
+                if task.needs_review:
+                    task.needs_review = False
+                    self._ilan.store.put_task(task)
                 entries = self._ilan.store.read_logs(task.name)
 
             if not entries:
