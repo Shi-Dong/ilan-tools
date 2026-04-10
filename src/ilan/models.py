@@ -1,23 +1,10 @@
 from __future__ import annotations
 
 import itertools
-import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
-
-_TASK_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
-
-
-def validate_task_name(name: str) -> str | None:
-    """Return an error message if *name* is not a valid task name, else ``None``."""
-    if len(name) < 3:
-        return "Task name must be at least 3 characters"
-    if not _TASK_NAME_RE.match(name):
-        return "Task name may only contain letters, digits, hyphens, and underscores"
-    return None
-
 
 ALIAS_CHARS = "asdfghjkl"
 _BANNED_ALIASES: set[str] = {"ls"}

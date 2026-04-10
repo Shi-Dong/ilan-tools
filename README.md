@@ -76,7 +76,7 @@ ilan done sd
 
 Aliases are assigned when a task is created and released when it transitions to `DONE` or `DISCARDED`. If a task is moved back out of a terminal state (via `undone` / `undiscard`), it receives a new alias. The alias pool supports up to 81 concurrent non-terminal tasks.
 
-Task names must be at least 3 characters long (to avoid ambiguity with aliases) and may only contain letters, digits, hyphens (`-`), and underscores (`_`). Aliases are not included in shell tab-completion.
+To avoid ambiguity between aliases and task names, task names must be at least 3 characters long. Aliases are not included in shell tab-completion.
 
 ## Commands
 
@@ -84,7 +84,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 
 | Command | Description |
 |---|---|
-| `ilan task add -n NAME -d "prompt"` | Add a task (or use `-f file`; name must be ≥ 3 chars, letters/digits/`-`/`_` only) |
+| `ilan task add -n NAME -d "prompt"` | Add a task (or use `-f file`; name must be ≥ 3 chars) |
 | `ilan task ls [-a]` | List active tasks (`-a` includes `DONE`/`DISCARDED`) |
 | `ilan task show NAME` | Print the full prompt of a task |
 | `ilan task path NAME` | Print the Claude Code session log path for a task |
