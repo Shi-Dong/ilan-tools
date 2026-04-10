@@ -102,7 +102,7 @@ class Runner:
             self._spawn(task, message, resume=True)
         else:
             task.cached_replies.append(message)
-            task.status = TaskStatus.UNCLAIMED
+            task.set_status(TaskStatus.UNCLAIMED)
             self.store.put_task(task)
 
     def kill(self, task: Task) -> None:
@@ -137,13 +137,13 @@ class Runner:
                     start_new_session=True,
                 )
         except FileNotFoundError:
-            task.status = TaskStatus.ERROR
+            task.set_status(TaskStatus.ERROR)
             self.store.put_task(task)
             return False
 
         self._procs[task.name] = proc
         task.pid = proc.pid
-        task.status = TaskStatus.WORKING
+        task.set_status(TaskStatus.WORKING)
         self.store.put_task(task)
 
         if not resume:
@@ -184,7 +184,7 @@ class Runner:
             with open(out_path) as f:
                 result = json.load(f)
         except (json.JSONDecodeError, FileNotFoundError):
-            task.status = TaskStatus.ERROR
+            task.set_status(TaskStatus.ERROR)
             self.store.put_task(task)
             return
 
@@ -200,9 +200,9 @@ class Runner:
             self.store.append_log(task.name, "assistant", response)
 
         if result.get("is_error"):
-            task.status = TaskStatus.ERROR
+            task.set_status(TaskStatus.ERROR)
         else:
-            task.status = self._parse_status_marker(response)
+            task.set_status(self._parse_status_marker(response))
         self.store.put_task(task)
 
     def _output_complete(self, task_name: str) -> bool:
