@@ -417,11 +417,15 @@ def _open_log(name: str) -> None:
         console.print("[yellow]No logs yet for this task.[/yellow]")
         return
 
-    lines: list[str] = []
-    for entry in logs:
+    lines: list[str] = [f"# Task: {name}", ""]
+    for i, entry in enumerate(logs):
         label = "User" if entry["role"] == "user" else "Assistant"
         ts = _format_ts(entry["timestamp"]) if entry.get("timestamp") else ""
-        lines.append(f"--- {label} ({ts}) ---")
+        if i > 0:
+            lines.append("---")
+            lines.append("")
+        lines.append(f"## {label} — {ts}")
+        lines.append("")
         lines.append(entry["content"])
         lines.append("")
 
@@ -431,7 +435,7 @@ def _open_log(name: str) -> None:
         "nano": ["-v"],
     }
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=f"-{name}.log", delete=False) as tmp:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=f"-{name}.md", delete=False) as tmp:
         tmp.write("\n".join(lines))
         tmp_path = tmp.name
 
@@ -605,6 +609,20 @@ def shortcut_done(names: tuple[str, ...]) -> None:
 def shortcut_discard(names: tuple[str, ...]) -> None:
     """Shorthand for 'ilan task discard'."""
     _do_discard(names)
+
+
+@main.command("log")
+@click.argument("name", shell_complete=_complete_task_names)
+def shortcut_log(name: str) -> None:
+    """Shorthand for 'ilan task log'."""
+    _open_log(name)
+
+
+@main.command("logs")
+@click.argument("name", shell_complete=_complete_task_names)
+def shortcut_logs(name: str) -> None:
+    """Shorthand for 'ilan task logs'."""
+    _open_log(name)
 
 
 # ── clear-everything ─────────────────────────────────────────────────
