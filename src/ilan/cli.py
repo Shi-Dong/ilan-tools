@@ -493,7 +493,8 @@ def _do_done(names: tuple[str, ...]) -> None:
         if _check_error(resp):
             failed = True
         else:
-            console.print(f"[green]Task [bold]{name}[/bold] marked DONE.[/green]")
+            task_name = resp.get("name", name)
+            console.print(f"[green]Task [bold]{task_name}[/bold] marked DONE.[/green]")
     if failed:
         raise SystemExit(1)
 
@@ -506,7 +507,8 @@ def _do_discard(names: tuple[str, ...]) -> None:
         if _check_error(resp):
             failed = True
         else:
-            console.print(f"[dim]Task [bold]{name}[/bold] discarded.[/dim]")
+            task_name = resp.get("name", name)
+            console.print(f"[dim]Task [bold]{task_name}[/bold] discarded.[/dim]")
     if failed:
         raise SystemExit(1)
 
@@ -534,7 +536,8 @@ def task_undone(name: str) -> None:
     resp = _client().undone(name)
     if _check_error(resp):
         raise SystemExit(1)
-    console.print(f"[green]Task [bold]{name}[/bold] moved to NEEDS_ATTENTION.[/green]")
+    task_name = resp.get("name", name)
+    console.print(f"[green]Task [bold]{task_name}[/bold] moved to NEEDS_ATTENTION.[/green]")
 
 
 @task_group.command("undiscard")
@@ -544,7 +547,8 @@ def task_undiscard(name: str) -> None:
     resp = _client().undiscard(name)
     if _check_error(resp):
         raise SystemExit(1)
-    console.print(f"[green]Task [bold]{name}[/bold] moved to NEEDS_ATTENTION.[/green]")
+    task_name = resp.get("name", name)
+    console.print(f"[green]Task [bold]{task_name}[/bold] moved to NEEDS_ATTENTION.[/green]")
 
 
 # ── top-level shorthands ─────────────────────────────────────────────

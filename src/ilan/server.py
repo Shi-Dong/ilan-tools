@@ -286,7 +286,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task.set_status(TaskStatus.DONE)
                 task.alias = None
                 self._ilan.store.put_task(task)
-            self._json({"ok": True})
+            self._json({"ok": True, "name": task.name})
 
         def handle_task_discard(self, name: str):
             with self._ilan.lock:
@@ -298,7 +298,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task.set_status(TaskStatus.DISCARDED)
                 task.alias = None
                 self._ilan.store.put_task(task)
-            self._json({"ok": True})
+            self._json({"ok": True, "name": task.name})
 
         def handle_task_undone(self, name: str):
             with self._ilan.lock:
@@ -311,7 +311,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task.set_status(TaskStatus.NEEDS_ATTENTION)
                 task.alias = self._ilan.store.next_available_alias()
                 self._ilan.store.put_task(task)
-            self._json({"ok": True})
+            self._json({"ok": True, "name": task.name})
 
         def handle_task_undiscard(self, name: str):
             with self._ilan.lock:
@@ -324,7 +324,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task.set_status(TaskStatus.NEEDS_ATTENTION)
                 task.alias = self._ilan.store.next_available_alias()
                 self._ilan.store.put_task(task)
-            self._json({"ok": True})
+            self._json({"ok": True, "name": task.name})
 
         def handle_task_reply(self, name: str):
             body = self._body()
