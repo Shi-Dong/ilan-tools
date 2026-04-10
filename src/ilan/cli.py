@@ -299,10 +299,12 @@ def _do_ls(show_all: bool) -> None:
     table.add_column("Name", style="bold")
     table.add_column("Status")
     table.add_column("Created")
+    table.add_column("Last Changed")
     for r in rows:
         status = TaskStatus(r["status"])
         style = STYLE_FOR_STATUS.get(status, "")
-        table.add_row(r["name"], Text(status.value, style=style), _format_ts(r["created_at"]))
+        changed = _format_ts(r["status_changed_at"]) if r.get("status_changed_at") else ""
+        table.add_row(r["name"], Text(status.value, style=style), _format_ts(r["created_at"]), changed)
     console.print(table)
 
 
