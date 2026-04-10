@@ -457,10 +457,17 @@ def _do_attach(name: str) -> None:
         if _check_error(kill_resp):
             raise SystemExit(1)
 
+    conf = cfg.load()
     workdir = cfg.get_workdir()
     console.print(f"Attaching to session [bold]{session_id}[/bold] for task [bold]{t['name']}[/bold]…")
     os.chdir(workdir)
-    os.execvp("claude", ["claude", "--resume", session_id])
+    os.execvp("claude", [
+        "claude",
+        "--resume", session_id,
+        "--dangerously-skip-permissions",
+        "--model", str(conf.get("model", "opus")),
+        "--effort", str(conf.get("effort", "high")),
+    ])
 
 
 @task_group.command("attach")
