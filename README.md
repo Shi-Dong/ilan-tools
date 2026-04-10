@@ -91,7 +91,7 @@ To avoid ambiguity between aliases and task names, task names must be at least 3
 | `ilan task tail NAME` | Show the last assistant message + any user replies after it |
 | `ilan task reply NAME "msg"` | Send a reply to an agent |
 | `ilan task tap NAME` | Ask a WORKING agent for a status update |
-| `ilan task log NAME` | Open the full conversation log in your editor |
+| `ilan task log [-p] NAME` | Open the full conversation log in your editor (`-p` prints the log file path instead) |
 | `ilan task kill NAME` | Kill a WORKING agent, move task to ERROR |
 | `ilan task done NAME [NAME...]` | Mark task(s) as DONE |
 | `ilan task discard NAME [NAME...]` | Mark task(s) as DISCARDED |
@@ -111,6 +111,7 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan reply NAME "msg"` | `ilan task reply NAME "msg"` |
 | `ilan re NAME "msg"` | `ilan task reply NAME "msg"` |
 | `ilan tap NAME` | `ilan task tap NAME` |
+| `ilan log [-p] NAME` | `ilan task log [-p] NAME` |
 | `ilan done NAME [NAME...]` | `ilan task done NAME [NAME...]` |
 | `ilan discard NAME [NAME...]` | `ilan task discard NAME [NAME...]` |
 

@@ -181,6 +181,7 @@ class Client:
     def undiscard(self, name: str) -> dict:      return self.post(f"/tasks/{name}/undiscard")
     def kill_task(self, name: str) -> dict:      return self.post(f"/tasks/{name}/kill")
     def get_logs(self, name: str) -> dict:       return self.get(f"/tasks/{name}/logs")
+    def get_log_path(self, name: str) -> dict:   return self.get(f"/tasks/{name}/log-path")
     def get_tail(self, name: str) -> dict:       return self.get(f"/tasks/{name}/tail")
     def get_path(self, name: str) -> dict:       return self.get(f"/tasks/{name}/path")
 
