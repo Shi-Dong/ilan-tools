@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 import shutil
 from pathlib import Path
 
@@ -46,13 +47,13 @@ class Store:
         return None
 
     def next_available_alias(self) -> str | None:
-        """Return the first unused alias from the pool, or None if exhausted."""
+        """Return a random unused alias from the pool, or None if exhausted."""
         tasks = self.load_tasks()
         used = {t.alias for t in tasks.values() if t.alias}
-        for alias in ALIAS_POOL:
-            if alias not in used:
-                return alias
-        return None
+        available = [alias for alias in ALIAS_POOL if alias not in used]
+        if not available:
+            return None
+        return random.choice(available)
 
     def put_task(self, task: Task) -> None:
         tasks = self.load_tasks()
