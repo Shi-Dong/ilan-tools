@@ -7,7 +7,11 @@ from enum import Enum
 from typing import Any
 
 ALIAS_CHARS = "asdfghjkl"
-ALIAS_POOL: list[str] = ["".join(p) for p in itertools.product(ALIAS_CHARS, repeat=2)]
+_BANNED_ALIASES: set[str] = {"ls"}
+ALIAS_POOL: list[str] = [
+    "".join(p) for p in itertools.product(ALIAS_CHARS, repeat=2)
+    if "".join(p) not in _BANNED_ALIASES
+]
 
 
 class TaskStatus(str, Enum):
