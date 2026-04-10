@@ -393,6 +393,33 @@ def task_reply(name: str, message: str) -> None:
     _do_reply(name, message)
 
 
+# ── task tap ─────────────────────────────────────────────────────────
+
+TAP_MESSAGE = "How are things now? Give me a summary of the current situation."
+
+
+def _do_tap(name: str) -> None:
+    client = _client()
+    resp = client.get_task(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    status = TaskStatus(resp["task"]["status"])
+    if status != TaskStatus.WORKING:
+        console.print(
+            f"[yellow]Task [bold]{name}[/bold] is {status.value}, not WORKING. "
+            f"Tap only works on WORKING tasks.[/yellow]"
+        )
+        return
+    _do_reply(name, TAP_MESSAGE)
+
+
+@task_group.command("tap")
+@click.argument("name", shell_complete=_complete_task_names)
+def task_tap(name: str) -> None:
+    """Ask a WORKING agent for a status update."""
+    _do_tap(name)
+
+
 # ── task kill ────────────────────────────────────────────────────────
 
 @task_group.command("kill")
@@ -609,6 +636,13 @@ def shortcut_done(names: tuple[str, ...]) -> None:
 def shortcut_discard(names: tuple[str, ...]) -> None:
     """Shorthand for 'ilan task discard'."""
     _do_discard(names)
+
+
+@main.command("tap")
+@click.argument("name", shell_complete=_complete_task_names)
+def shortcut_tap(name: str) -> None:
+    """Shorthand for 'ilan task tap'."""
+    _do_tap(name)
 
 
 @main.command("log")
