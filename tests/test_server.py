@@ -297,6 +297,16 @@ class TestLogs:
         resp = _get(ilan_server, "/tasks/log-full/logs")
         assert len(resp["logs"]) == 2
 
+    def test_get_log_path(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "log-path-test", "prompt": "P"})
+        resp = _get(ilan_server, "/tasks/log-path-test/log-path")
+        assert "path" in resp
+        assert resp["path"].endswith("log-path-test.jsonl")
+
+    def test_get_log_path_not_found(self, ilan_server: IlanServer) -> None:
+        resp = _get(ilan_server, "/tasks/nonexistent/log-path")
+        assert "error" in resp
+
     def test_tail_returns_last_assistant(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "tail-test", "prompt": "P"})
         ilan_server.store.append_log("tail-test", "user", "u1")

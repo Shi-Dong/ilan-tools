@@ -434,7 +434,18 @@ def task_kill(name: str) -> None:
 
 # ── task log / logs ──────────────────────────────────────────────────
 
-def _open_log(name: str) -> None:
+def _print_log_path(name: str) -> None:
+    resp = _client().get_log_path(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    click.echo(resp["path"])
+
+
+def _open_log(name: str, *, path: bool = False) -> None:
+    if path:
+        _print_log_path(name)
+        return
+
     resp = _client().get_logs(name)
     if _check_error(resp):
         raise SystemExit(1)
@@ -472,16 +483,18 @@ def _open_log(name: str) -> None:
 
 @task_group.command("log")
 @click.argument("name", shell_complete=_complete_task_names)
-def task_log(name: str) -> None:
+@click.option("-p", "--path", is_flag=True, help="Print the log file path instead of opening it.")
+def task_log(name: str, path: bool) -> None:
     """Open task logs in the configured editor."""
-    _open_log(name)
+    _open_log(name, path=path)
 
 
 @task_group.command("logs")
 @click.argument("name", shell_complete=_complete_task_names)
-def task_logs(name: str) -> None:
+@click.option("-p", "--path", is_flag=True, help="Print the log file path instead of opening it.")
+def task_logs(name: str, path: bool) -> None:
     """Alias for 'ilan task log'."""
-    _open_log(name)
+    _open_log(name, path=path)
 
 
 # ── task rm ──────────────────────────────────────────────────────────
@@ -647,16 +660,18 @@ def shortcut_tap(name: str) -> None:
 
 @main.command("log")
 @click.argument("name", shell_complete=_complete_task_names)
-def shortcut_log(name: str) -> None:
+@click.option("-p", "--path", is_flag=True, help="Print the log file path instead of opening it.")
+def shortcut_log(name: str, path: bool) -> None:
     """Shorthand for 'ilan task log'."""
-    _open_log(name)
+    _open_log(name, path=path)
 
 
 @main.command("logs")
 @click.argument("name", shell_complete=_complete_task_names)
-def shortcut_logs(name: str) -> None:
+@click.option("-p", "--path", is_flag=True, help="Print the log file path instead of opening it.")
+def shortcut_logs(name: str, path: bool) -> None:
     """Shorthand for 'ilan task logs'."""
-    _open_log(name)
+    _open_log(name, path=path)
 
 
 # ── clear-everything ─────────────────────────────────────────────────

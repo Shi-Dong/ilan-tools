@@ -64,6 +64,7 @@ ROUTES: list[tuple[str, str, str]] = [
     ("POST",   r"^/tasks/([^/]+)/reply$",      "handle_task_reply"),
     ("POST",   r"^/tasks/([^/]+)/kill$",       "handle_task_kill"),
     ("GET",    r"^/tasks/([^/]+)/logs$",       "handle_task_logs"),
+    ("GET",    r"^/tasks/([^/]+)/log-path$",   "handle_task_log_path"),
     ("GET",    r"^/tasks/([^/]+)/tail$",       "handle_task_tail"),
     ("GET",    r"^/tasks/([^/]+)/path$",       "handle_task_path"),
     ("POST",   r"^/clear-everything$",         "handle_clear_everything"),
@@ -380,6 +381,14 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     return
                 entries = self._ilan.store.read_logs(task.name)
             self._json({"logs": [e.to_dict() for e in entries]})
+
+        def handle_task_log_path(self, name: str):
+            with self._ilan.lock:
+                task = self._get_task_or_404(name)
+                if task is None:
+                    return
+                path = self._ilan.store.log_path(task.name)
+            self._json({"path": str(path)})
 
         def handle_task_tail(self, name: str):
             with self._ilan.lock:
