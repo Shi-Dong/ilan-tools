@@ -55,6 +55,7 @@ class Task:
     pid: int | None = None
     cached_replies: list[str] = field(default_factory=list)
     alias: str | None = None
+    needs_review: bool = False
 
     def set_status(self, status: TaskStatus) -> None:
         """Set status and update the ``status_changed_at`` timestamp."""
@@ -73,6 +74,7 @@ class Task:
             "pid": self.pid,
             "cached_replies": self.cached_replies,
             "alias": self.alias,
+            "needs_review": self.needs_review,
         }
 
     @classmethod
@@ -88,6 +90,7 @@ class Task:
             pid=d.get("pid"),
             cached_replies=d.get("cached_replies", []),
             alias=d.get("alias"),
+            needs_review=d.get("needs_review", False),
         )
 
 

@@ -311,6 +311,8 @@ def _do_ls(show_all: bool) -> None:
         if alias:
             name_cell.append(f"({alias}) ", style=ALIAS_STYLE)
         name_cell.append(r["name"], style="bold")
+        if r.get("needs_review"):
+            name_cell.append(" \u26a0\ufe0f")
         changed = _format_ts(r["status_changed_at"]) if r.get("status_changed_at") else ""
         table.add_row(name_cell, Text(status.value, style=style), _format_ts(r["created_at"]), changed)
     console.print(table)

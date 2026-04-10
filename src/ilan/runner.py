@@ -202,7 +202,10 @@ class Runner:
         if result.get("is_error"):
             task.set_status(TaskStatus.ERROR)
         else:
-            task.set_status(self._parse_status_marker(response))
+            new_status = self._parse_status_marker(response)
+            task.set_status(new_status)
+            if new_status in (TaskStatus.NEEDS_ATTENTION, TaskStatus.AGENT_FINISHED):
+                task.needs_review = True
         self.store.put_task(task)
 
     def _output_complete(self, task_name: str) -> bool:

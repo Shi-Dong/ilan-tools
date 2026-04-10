@@ -78,6 +78,16 @@ Aliases are assigned when a task is created and released when it transitions to 
 
 To avoid ambiguity between aliases and task names, task names must be at least 3 characters long. Aliases are not included in shell tab-completion.
 
+## Review mark
+
+When a task transitions from WORKING to NEEDS\_ATTENTION or AGENT\_FINISHED, a ⚠️ mark appears after the task name in `ilan ls`. This indicates the agent has new output that hasn't been reviewed yet.
+
+The mark is automatically cleared when you run any of these commands on the task:
+
+- `ilan re NAME "msg"` / `ilan reply NAME "msg"`
+- `ilan tail NAME`
+- `ilan log NAME` / `ilan logs NAME`
+
 ## Commands
 
 ### Tasks
