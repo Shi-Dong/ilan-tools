@@ -50,7 +50,15 @@ def _format_ts(iso: str) -> str:
     try:
         tz = ZoneInfo(str(cfg.load().get("time-zone", "US/Pacific")))
         dt = datetime.fromisoformat(iso).astimezone(tz)
-        return dt.strftime("%Y-%m-%d %H:%M:%S %Z")
+        today = datetime.now(tz).date()
+        day = dt.date()
+        if day == today:
+            date_part = "Today"
+        elif day == today - timedelta(days=1):
+            date_part = "Yesterday"
+        else:
+            date_part = dt.strftime("%m-%d")
+        return f"{date_part} {dt.strftime('%H:%M:%S %Z')}"
     except Exception:
         return iso
 
