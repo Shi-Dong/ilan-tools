@@ -463,6 +463,25 @@ def task_kill(name: str) -> None:
     console.print(f"[green]Agent for [bold]{name}[/bold] killed. Task set to ERROR.[/green]")
 
 
+# ── task rename ─────────────────────────────────────────────────────
+
+def _do_rename(old_name: str, new_name: str) -> None:
+    resp = _client().rename_task(old_name, new_name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    console.print(
+        f"[green]Renamed [bold]{resp['old_name']}[/bold] → [bold]{resp['new_name']}[/bold][/green]"
+    )
+
+
+@task_group.command("rename")
+@click.argument("old_name", shell_complete=_complete_task_names)
+@click.argument("new_name")
+def task_rename(old_name: str, new_name: str) -> None:
+    """Rename a task."""
+    _do_rename(old_name, new_name)
+
+
 # ── task attach ─────────────────────────────────────────────────────
 
 def _do_attach(name: str) -> None:
@@ -730,6 +749,14 @@ def shortcut_done(names: tuple[str, ...]) -> None:
 def shortcut_discard(names: tuple[str, ...]) -> None:
     """Shorthand for 'ilan task discard'."""
     _do_discard(names)
+
+
+@main.command("rename")
+@click.argument("old_name", shell_complete=_complete_task_names)
+@click.argument("new_name")
+def shortcut_rename(old_name: str, new_name: str) -> None:
+    """Shorthand for 'ilan task rename'."""
+    _do_rename(old_name, new_name)
 
 
 @main.command("tap")

@@ -63,6 +63,7 @@ ROUTES: list[tuple[str, str, str]] = [
     ("POST",   r"^/tasks/([^/]+)/undiscard$",  "handle_task_undiscard"),
     ("POST",   r"^/tasks/([^/]+)/reply$",      "handle_task_reply"),
     ("POST",   r"^/tasks/([^/]+)/kill$",       "handle_task_kill"),
+    ("POST",   r"^/tasks/([^/]+)/rename$",     "handle_task_rename"),
     ("GET",    r"^/tasks/([^/]+)/logs$",       "handle_task_logs"),
     ("GET",    r"^/tasks/([^/]+)/log-path$",   "handle_task_log_path"),
     ("GET",    r"^/tasks/([^/]+)/tail$",       "handle_task_tail"),
@@ -378,6 +379,25 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task.set_status(TaskStatus.ERROR)
                 self._ilan.store.put_task(task)
             self._json({"ok": True})
+
+        def handle_task_rename(self, name: str):
+            body = self._body()
+            new_name = body.get("new_name", "").strip()
+            if not new_name:
+                self._json({"error": "new_name is required"}, 400)
+                return
+            if len(new_name) < 3:
+                self._json({"error": "Task name must be at least 3 characters"}, 400)
+                return
+            with self._ilan.lock:
+                task = self._get_task_or_404(name)
+                if task is None:
+                    return
+                if self._ilan.store.get_task(new_name) is not None:
+                    self._json({"error": f"Task {new_name} already exists"}, 409)
+                    return
+                task = self._ilan.store.rename_task(task.name, new_name)
+            self._json({"ok": True, "old_name": name, "new_name": task.name})
 
         def handle_task_logs(self, name: str):
             with self._ilan.lock:

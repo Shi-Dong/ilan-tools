@@ -185,6 +185,9 @@ class Client:
     def get_tail(self, name: str) -> dict:       return self.get(f"/tasks/{name}/tail")
     def get_path(self, name: str) -> dict:       return self.get(f"/tasks/{name}/path")
 
+    def rename_task(self, old_name: str, new_name: str) -> dict:
+        return self.post(f"/tasks/{old_name}/rename", {"new_name": new_name})
+
     def reply(self, name: str, message: str) -> dict:
         return self.post(f"/tasks/{name}/reply", {"message": message})
 
