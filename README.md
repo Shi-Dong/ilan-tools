@@ -26,19 +26,21 @@ Once installed, Tab completes task names, config keys, sub-commands, and options
 
 ```bash
 # Add a task (inline)
-ilan task add -n fix-bug -d "Fix the null-pointer crash in auth.py"
+ilan add -n fix-bug -d "Fix the null-pointer crash in auth.py"
 
 # Add a task (from file)
-ilan task add -n big-refactor -f tasks/refactor.md
+ilan add -n big-refactor -f tasks/refactor.md
 
 # See what's running
-ilan task ls
+ilan ls
 
 # Read the latest agent output
-ilan task tail fix-bug
+ilan tail fix-bug
 
 # Reply to a blocked agent
-ilan task reply fix-bug "Use the OAuth2 flow instead"
+ilan reply fix-bug "Use the OAuth2 flow instead"
+# or even shorter:
+ilan re fix-bug "Use the OAuth2 flow instead"
 
 # Mark a task as done
 ilan task done fix-bug
@@ -81,6 +83,18 @@ When connecting to a remote server, the CLI automatically checks whether the loc
 | `ilan task undone NAME` | Move a DONE task back to NEEDS\_ATTENTION |
 | `ilan task undiscard NAME` | Move a DISCARDED task back to NEEDS\_ATTENTION |
 | `ilan task rm NAME [NAME...]` | Delete task(s) and all their data |
+
+### Shorthands
+
+Frequently used task commands have top-level aliases to save typing:
+
+| Shorthand | Equivalent |
+|---|---|
+| `ilan add` | `ilan task add` |
+| `ilan ls [-a]` | `ilan task ls [-a]` |
+| `ilan tail NAME` | `ilan task tail NAME` |
+| `ilan reply NAME "msg"` | `ilan task reply NAME "msg"` |
+| `ilan re NAME "msg"` | `ilan task reply NAME "msg"` |
 
 ### Server
 
