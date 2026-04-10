@@ -452,10 +452,11 @@ def _do_attach(name: str) -> None:
 
     status = TaskStatus(t["status"])
     if status == TaskStatus.WORKING:
-        console.print(f"[yellow]Killing running agent for [bold]{t['name']}[/bold]…[/yellow]")
-        kill_resp = client.kill_task(name)
-        if _check_error(kill_resp):
-            raise SystemExit(1)
+        console.print(
+            f"[yellow]Task [bold]{t['name']}[/bold] is WORKING. "
+            f"Kill the agent first with [bold]ilan task kill {t['name']}[/bold].[/yellow]"
+        )
+        raise SystemExit(1)
 
     conf = cfg.load()
     workdir = cfg.get_workdir()
