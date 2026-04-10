@@ -261,13 +261,7 @@ def task_group() -> None:
 
 # ── task add ─────────────────────────────────────────────────────────
 
-@task_group.command("add")
-@click.option("-n", "--name", required=True, help="Short name for the task.")
-@click.option("-f", "--file", "file_path", type=click.Path(exists=True), default=None,
-              help="Path to a file containing the task prompt.")
-@click.option("-d", "--description", default=None, help="Inline task prompt.")
-def task_add(name: str, file_path: str | None, description: str | None) -> None:
-    """Add a new task."""
+def _do_add(name: str, file_path: str | None, description: str | None) -> None:
     if (file_path is None) == (description is None):
         console.print("[red]Exactly one of --file / --description must be provided.[/red]")
         raise SystemExit(1)
@@ -279,6 +273,16 @@ def task_add(name: str, file_path: str | None, description: str | None) -> None:
     if _check_error(resp):
         raise SystemExit(1)
     console.print(f"[green]Task [bold]{name}[/bold] added.[/green]")
+
+
+@task_group.command("add")
+@click.option("-n", "--name", required=True, help="Short name for the task.")
+@click.option("-f", "--file", "file_path", type=click.Path(exists=True), default=None,
+              help="Path to a file containing the task prompt.")
+@click.option("-d", "--description", default=None, help="Inline task prompt.")
+def task_add(name: str, file_path: str | None, description: str | None) -> None:
+    """Add a new task."""
+    _do_add(name, file_path, description)
 
 
 # ── task ls ──────────────────────────────────────────────────────────
@@ -333,10 +337,7 @@ def task_path(name: str) -> None:
 
 # ── task tail ────────────────────────────────────────────────────────
 
-@task_group.command("tail")
-@click.argument("name", shell_complete=_complete_task_names)
-def task_tail(name: str) -> None:
-    """Show the last assistant message and any user messages after it."""
+def _do_tail(name: str) -> None:
     resp = _client().get_tail(name)
     if _check_error(resp):
         raise SystemExit(1)
@@ -354,13 +355,16 @@ def task_tail(name: str) -> None:
         console.print()
 
 
+@task_group.command("tail")
+@click.argument("name", shell_complete=_complete_task_names)
+def task_tail(name: str) -> None:
+    """Show the last assistant message and any user messages after it."""
+    _do_tail(name)
+
+
 # ── task reply ───────────────────────────────────────────────────────
 
-@task_group.command("reply")
-@click.argument("name", shell_complete=_complete_task_names)
-@click.argument("message")
-def task_reply(name: str, message: str) -> None:
-    """Send a response to a task."""
+def _do_reply(name: str, message: str) -> None:
     resp = _client().reply(name, message)
     if _check_error(resp):
         raise SystemExit(1)
@@ -368,6 +372,14 @@ def task_reply(name: str, message: str) -> None:
         console.print(f"[yellow]{resp['warning']}[/yellow]")
     elif resp.get("message"):
         console.print(f"[green]{resp['message']}[/green]")
+
+
+@task_group.command("reply")
+@click.argument("name", shell_complete=_complete_task_names)
+@click.argument("message")
+def task_reply(name: str, message: str) -> None:
+    """Send a response to a task."""
+    _do_reply(name, message)
 
 
 # ── task kill ────────────────────────────────────────────────────────
@@ -513,6 +525,41 @@ def task_undiscard(name: str) -> None:
     if _check_error(resp):
         raise SystemExit(1)
     console.print(f"[green]Task [bold]{name}[/bold] moved to NEEDS_ATTENTION.[/green]")
+
+
+# ── top-level shorthands ─────────────────────────────────────────────
+
+@main.command("add")
+@click.option("-n", "--name", required=True, help="Short name for the task.")
+@click.option("-f", "--file", "file_path", type=click.Path(exists=True), default=None,
+              help="Path to a file containing the task prompt.")
+@click.option("-d", "--description", default=None, help="Inline task prompt.")
+def shortcut_add(name: str, file_path: str | None, description: str | None) -> None:
+    """Shorthand for 'ilan task add'."""
+    _do_add(name, file_path, description)
+
+
+@main.command("tail")
+@click.argument("name", shell_complete=_complete_task_names)
+def shortcut_tail(name: str) -> None:
+    """Shorthand for 'ilan task tail'."""
+    _do_tail(name)
+
+
+@main.command("reply")
+@click.argument("name", shell_complete=_complete_task_names)
+@click.argument("message")
+def shortcut_reply(name: str, message: str) -> None:
+    """Shorthand for 'ilan task reply'."""
+    _do_reply(name, message)
+
+
+@main.command("re")
+@click.argument("name", shell_complete=_complete_task_names)
+@click.argument("message")
+def shortcut_re(name: str, message: str) -> None:
+    """Shorthand for 'ilan task reply'."""
+    _do_reply(name, message)
 
 
 # ── clear-everything ─────────────────────────────────────────────────
