@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import __version__, config as cfg, get_git_commit
-from .models import Task, TaskStatus
+from .models import Task, TaskStatus, validate_task_name
 from .runner import Runner
 from .store import Store
 
@@ -238,8 +238,9 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
         def handle_add_task(self):
             body = self._body()
             name, prompt = body["name"], body["prompt"]
-            if len(name) < 3:
-                self._json({"error": "Task name must be at least 3 characters"}, 400)
+            err = validate_task_name(name)
+            if err:
+                self._json({"error": err}, 400)
                 return
             with self._ilan.lock:
                 if self._ilan.store.get_task(name) is not None:

@@ -150,6 +150,18 @@ class TestTasksCRUD:
         resp = _post(ilan_server, "/tasks", {"name": "ab", "prompt": "Too short"})
         assert "error" in resp
 
+    def test_add_task_invalid_chars(self, ilan_server: IlanServer) -> None:
+        resp = _post(ilan_server, "/tasks", {"name": "has space", "prompt": "P"})
+        assert "error" in resp
+
+    def test_add_task_special_chars(self, ilan_server: IlanServer) -> None:
+        resp = _post(ilan_server, "/tasks", {"name": "foo/bar!", "prompt": "P"})
+        assert "error" in resp
+
+    def test_add_task_with_underscores_and_dashes(self, ilan_server: IlanServer) -> None:
+        resp = _post(ilan_server, "/tasks", {"name": "my_task-1", "prompt": "P"})
+        assert resp.get("ok") is True
+
     def test_list_tasks(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "list-test", "prompt": "P"})
         resp = _get(ilan_server, "/tasks")
