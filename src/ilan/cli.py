@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import tempfile
 import time
@@ -435,6 +436,48 @@ def task_kill(name: str) -> None:
     console.print(f"[green]Agent for [bold]{name}[/bold] killed. Task set to ERROR.[/green]")
 
 
+# ── task attach ─────────────────────────────────────────────────────
+
+def _do_attach(name: str) -> None:
+    client = _client()
+    resp = client.get_task(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+
+    t = resp["task"]
+    session_id = t.get("session_id")
+    if not session_id:
+        console.print(f"[yellow]Task [bold]{t['name']}[/bold] has no session yet.[/yellow]")
+        raise SystemExit(1)
+
+    status = TaskStatus(t["status"])
+    if status == TaskStatus.WORKING:
+        console.print(
+            f"[yellow]Task [bold]{t['name']}[/bold] is WORKING. "
+            f"Kill the agent first with [bold]ilan task kill {t['name']}[/bold].[/yellow]"
+        )
+        raise SystemExit(1)
+
+    conf = cfg.load()
+    workdir = cfg.get_workdir()
+    console.print(f"Attaching to session [bold]{session_id}[/bold] for task [bold]{t['name']}[/bold]…")
+    os.chdir(workdir)
+    os.execvp("claude", [
+        "claude",
+        "--resume", session_id,
+        "--dangerously-skip-permissions",
+        "--model", str(conf.get("model", "opus")),
+        "--effort", str(conf.get("effort", "high")),
+    ])
+
+
+@task_group.command("attach")
+@click.argument("name", shell_complete=_complete_task_names)
+def task_attach(name: str) -> None:
+    """Attach to a task's Claude Code session in interactive mode."""
+    _do_attach(name)
+
+
 # ── task log / logs ──────────────────────────────────────────────────
 
 def _print_log_path(name: str) -> None:
@@ -659,6 +702,13 @@ def shortcut_discard(names: tuple[str, ...]) -> None:
 def shortcut_tap(name: str) -> None:
     """Shorthand for 'ilan task tap'."""
     _do_tap(name)
+
+
+@main.command("attach")
+@click.argument("name", shell_complete=_complete_task_names)
+def shortcut_attach(name: str) -> None:
+    """Shorthand for 'ilan task attach'."""
+    _do_attach(name)
 
 
 @main.command("log")
