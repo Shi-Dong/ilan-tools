@@ -148,6 +148,7 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 | `model` | `opus` | Claude model passed to `claude -p` |
 | `effort` | `high` | Effort level for the model |
 | `editor` | `emacs` | Editor used by `ilan task log` |
+| `api-key` | _(empty)_ | Anthropic API key passed as `ANTHROPIC_API_KEY` to spawned agents |
 
 ## Task lifecycle
 
