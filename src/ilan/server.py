@@ -396,8 +396,9 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 if self._ilan.store.get_task(new_name) is not None:
                     self._json({"error": f"Task {new_name} already exists"}, 409)
                     return
+                old_task_name = task.name
                 task = self._ilan.store.rename_task(task.name, new_name)
-            self._json({"ok": True, "old_name": name, "new_name": task.name})
+            self._json({"ok": True, "old_name": old_task_name, "new_name": task.name})
 
         def handle_task_logs(self, name: str):
             with self._ilan.lock:
