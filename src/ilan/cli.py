@@ -22,6 +22,7 @@ from rich.text import Text
 from . import config as cfg
 from .client import Client
 from .models import STYLE_FOR_STATUS, TaskStatus
+from .runner import Runner
 from .server import read_server_info
 from .store import Store
 
@@ -512,7 +513,6 @@ def _do_attach(name: str) -> None:
         )
         raise SystemExit(1)
 
-    from .runner import Runner
     if not Runner._find_session_log(session_id):
         console.print(
             f"[yellow]Session [bold]{session_id}[/bold] for task [bold]{t['name']}[/bold] "
