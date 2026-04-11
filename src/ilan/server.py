@@ -233,6 +233,9 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     "status_changed_at": t.status_changed_at,
                     "alias": t.alias,
                     "needs_review": t.needs_review,
+                    "input_tokens": t.input_tokens,
+                    "output_tokens": t.output_tokens,
+                    "cache_read_input_tokens": t.cache_read_input_tokens,
                 })
             self._json({"tasks": rows})
 
