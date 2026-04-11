@@ -209,6 +209,7 @@ class Runner:
         task.input_tokens += usage.get("input_tokens", 0)
         task.output_tokens += usage.get("output_tokens", 0)
         task.cache_read_input_tokens += usage.get("cache_read_input_tokens", 0)
+        task.cost_usd += result.get("total_cost_usd", 0.0)
 
         response = result.get("result", "")
         if response:

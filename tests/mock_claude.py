@@ -55,11 +55,14 @@ def main() -> None:
     if delay > 0:
         time.sleep(delay)
 
+    cost = float(os.environ.get("MOCK_CLAUDE_COST", "0.05"))
+
     if status == "ERROR":
         result = {
             "session_id": session_id,
             "result": "Something went wrong.",
             "is_error": True,
+            "total_cost_usd": cost,
         }
     elif status == "EMPTY":
         # Simulate a crash — write nothing
@@ -83,6 +86,7 @@ def main() -> None:
             "session_id": session_id,
             "result": response,
             "is_error": False,
+            "total_cost_usd": cost,
         }
 
     json.dump(result, sys.stdout)

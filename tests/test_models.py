@@ -171,6 +171,7 @@ class TestTask:
             "name", "prompt", "status", "created_at", "status_changed_at",
             "session_id", "session_log_path", "pid", "cached_replies", "alias",
             "needs_review", "input_tokens", "output_tokens", "cache_read_input_tokens",
+            "cost_usd",
         }
         assert set(d.keys()) == expected_keys
 

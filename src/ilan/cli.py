@@ -333,6 +333,7 @@ def _do_ls(show_all: bool) -> None:
     table = Table()
     table.add_column("(Alias) Name", style="bold")
     table.add_column("Status")
+    table.add_column("Cost", justify="right")
     table.add_column("Tokens (in/out/cache)", justify="right")
     table.add_column("Created")
     table.add_column("Last Changed")
@@ -354,9 +355,12 @@ def _do_ls(show_all: bool) -> None:
             tokens_cell = f"{_fmt_tokens(in_tok)}/{_fmt_tokens(out_tok)}/{_fmt_tokens(cache_tok)}"
         else:
             tokens_cell = "[dim]-[/dim]"
+        cost = r.get("cost_usd", 0.0)
+        cost_cell = f"${cost:.2f}" if cost else "[dim]-[/dim]"
         table.add_row(
             name_cell,
             Text(status.value, style=style),
+            cost_cell,
             tokens_cell,
             _format_ts(r["created_at"]),
             changed,
