@@ -69,6 +69,9 @@ class Task:
     cached_replies: list[str] = field(default_factory=list)
     alias: str | None = None
     needs_review: bool = False
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_input_tokens: int = 0
 
     def set_status(self, status: TaskStatus) -> None:
         """Set status and update the ``status_changed_at`` timestamp."""
@@ -88,6 +91,9 @@ class Task:
             "cached_replies": self.cached_replies,
             "alias": self.alias,
             "needs_review": self.needs_review,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "cache_read_input_tokens": self.cache_read_input_tokens,
         }
 
     @classmethod
@@ -104,6 +110,9 @@ class Task:
             cached_replies=d.get("cached_replies", []),
             alias=d.get("alias"),
             needs_review=d.get("needs_review", False),
+            input_tokens=d.get("input_tokens", 0),
+            output_tokens=d.get("output_tokens", 0),
+            cache_read_input_tokens=d.get("cache_read_input_tokens", 0),
         )
 
 

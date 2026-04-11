@@ -205,6 +205,11 @@ class Runner:
                 task.session_id = sid
                 task.session_log_path = str(log_path)
 
+        usage = result.get("usage") or {}
+        task.input_tokens += usage.get("input_tokens", 0)
+        task.output_tokens += usage.get("output_tokens", 0)
+        task.cache_read_input_tokens += usage.get("cache_read_input_tokens", 0)
+
         response = result.get("result", "")
         if response:
             self.store.append_log(task.name, "assistant", response)
