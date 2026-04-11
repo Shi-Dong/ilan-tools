@@ -176,6 +176,48 @@ class TestTryReap:
         assert logs[0].role == "assistant"
         assert "All good" in logs[0].content
 
+    def test_reap_accumulates_cost(self, store: Store, runner: Runner) -> None:
+        t = Task(name="t-cost", prompt="p", status=TaskStatus.WORKING, pid=99999)
+        store.put_task(t)
+        out = {
+            "session_id": "sid-c1",
+            "result": "First run\n[STATUS: DONE]",
+            "is_error": False,
+            "total_cost_usd": 1.25,
+        }
+        store.output_path("t-cost").write_text(json.dumps(out))
+
+        runner._try_reap(t)
+        updated = store.get_task("t-cost")
+        assert updated is not None
+        assert updated.cost_usd == pytest.approx(1.25)
+
+        # Simulate a second invocation (e.g. after ilan reply)
+        t = updated
+        t.status = TaskStatus.WORKING
+        t.pid = 99999
+        store.put_task(t)
+        out["total_cost_usd"] = 0.75
+        out["result"] = "Second run\n[STATUS: DONE]"
+        store.output_path("t-cost").write_text(json.dumps(out))
+
+        runner._try_reap(t)
+        updated = store.get_task("t-cost")
+        assert updated is not None
+        assert updated.cost_usd == pytest.approx(2.0)
+
+    def test_reap_cost_defaults_to_zero(self, store: Store, runner: Runner) -> None:
+        """Output without total_cost_usd should not break accumulation."""
+        t = Task(name="t-no-cost", prompt="p", status=TaskStatus.WORKING, pid=99999)
+        store.put_task(t)
+        out = {"session_id": "sid-nc", "result": "Done\n[STATUS: DONE]", "is_error": False}
+        store.output_path("t-no-cost").write_text(json.dumps(out))
+
+        runner._try_reap(t)
+        updated = store.get_task("t-no-cost")
+        assert updated is not None
+        assert updated.cost_usd == 0.0
+
     def test_reap_empty_result_no_log(self, store: Store, runner: Runner) -> None:
         t = Task(name="t7", prompt="p", status=TaskStatus.WORKING, pid=99999)
         store.put_task(t)
