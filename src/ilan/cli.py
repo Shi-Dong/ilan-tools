@@ -512,6 +512,14 @@ def _do_attach(name: str) -> None:
         )
         raise SystemExit(1)
 
+    from .runner import Runner
+    if not Runner._find_session_log(session_id):
+        console.print(
+            f"[yellow]Session [bold]{session_id}[/bold] for task [bold]{t['name']}[/bold] "
+            f"not found on disk. The session may have been lost when the agent was killed.[/yellow]"
+        )
+        raise SystemExit(1)
+
     conf = cfg.load()
     workdir = cfg.get_workdir()
     console.print(f"Attaching to session [bold]{session_id}[/bold] for task [bold]{t['name']}[/bold]…")

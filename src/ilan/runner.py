@@ -190,9 +190,9 @@ class Runner:
 
         sid = result.get("session_id")
         if sid:
-            task.session_id = sid
             log_path = self._find_session_log(sid)
             if log_path:
+                task.session_id = sid
                 task.session_log_path = str(log_path)
 
         response = result.get("result", "")
