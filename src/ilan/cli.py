@@ -22,6 +22,7 @@ from rich.text import Text
 from . import config as cfg
 from .client import Client
 from .models import STYLE_FOR_STATUS, TaskStatus
+from .runner import Runner
 from .server import read_server_info
 from .store import Store
 
@@ -509,6 +510,13 @@ def _do_attach(name: str) -> None:
         console.print(
             f"[yellow]Task [bold]{t['name']}[/bold] is WORKING. "
             f"Kill the agent first with [bold]ilan task kill {t['name']}[/bold].[/yellow]"
+        )
+        raise SystemExit(1)
+
+    if not Runner._find_session_log(session_id):
+        console.print(
+            f"[yellow]Session [bold]{session_id}[/bold] for task [bold]{t['name']}[/bold] "
+            f"not found on disk. The session may have been lost when the agent was killed.[/yellow]"
         )
         raise SystemExit(1)
 

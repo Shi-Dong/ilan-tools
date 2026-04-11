@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
 
 from ilan.cli import main
+from ilan.runner import Runner
 
 
 @pytest.fixture()
@@ -140,6 +142,7 @@ class TestAttachSuccess:
         })
         with (
             patch("ilan.cli._client", return_value=client),
+            patch.object(Runner, "_find_session_log", return_value=Path("/fake/sess-abc.jsonl")),
             patch("ilan.cli.os.chdir") as mock_chdir,
             patch("ilan.cli.os.execvp") as mock_execvp,
         ):
@@ -164,6 +167,7 @@ class TestAttachSuccess:
         })
         with (
             patch("ilan.cli._client", return_value=client),
+            patch.object(Runner, "_find_session_log", return_value=Path("/fake/sess-xyz.jsonl")),
             patch("ilan.cli.os.chdir"),
             patch("ilan.cli.os.execvp") as mock_execvp,
         ):
@@ -185,6 +189,7 @@ class TestAttachSuccess:
         })
         with (
             patch("ilan.cli._client", return_value=client),
+            patch.object(Runner, "_find_session_log", return_value=Path("/fake/sess-short.jsonl")),
             patch("ilan.cli.os.chdir"),
             patch("ilan.cli.os.execvp") as mock_execvp,
         ):
@@ -206,6 +211,7 @@ class TestAttachSuccess:
         })
         with (
             patch("ilan.cli._client", return_value=client),
+            patch.object(Runner, "_find_session_log", return_value=Path("/fake/sess-done.jsonl")),
             patch("ilan.cli.os.chdir"),
             patch("ilan.cli.os.execvp") as mock_execvp,
         ):

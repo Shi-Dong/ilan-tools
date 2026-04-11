@@ -152,6 +152,10 @@ class Runner:
 
     def _build_prompt(self, task: Task) -> tuple[str, bool]:
         """Return (prompt_text, is_resume) for a task about to be scheduled."""
+        if task.session_id and not self._find_session_log(task.session_id):
+            task.session_id = None
+            task.session_log_path = None
+
         if task.cached_replies:
             replies = "\n\n".join(task.cached_replies)
             task.cached_replies = []
@@ -190,9 +194,9 @@ class Runner:
 
         sid = result.get("session_id")
         if sid:
-            task.session_id = sid
             log_path = self._find_session_log(sid)
             if log_path:
+                task.session_id = sid
                 task.session_log_path = str(log_path)
 
         response = result.get("result", "")

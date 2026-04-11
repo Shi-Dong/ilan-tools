@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -62,7 +63,8 @@ class TestBuildPrompt:
 
     def test_task_with_session_and_no_replies(self, runner: Runner) -> None:
         t = Task(name="t", prompt="Do X", session_id="sid-1")
-        prompt, resume = runner._build_prompt(t)
+        with patch.object(Runner, "_find_session_log", return_value=Path("/fake/sid-1.jsonl")):
+            prompt, resume = runner._build_prompt(t)
         assert prompt == "Please continue working on this task."
         assert resume is True
 
@@ -76,7 +78,8 @@ class TestBuildPrompt:
 
     def test_task_with_cached_replies_and_session(self, runner: Runner) -> None:
         t = Task(name="t", prompt="Do X", session_id="sid-1", cached_replies=["r1", "r2"])
-        prompt, resume = runner._build_prompt(t)
+        with patch.object(Runner, "_find_session_log", return_value=Path("/fake/sid-1.jsonl")):
+            prompt, resume = runner._build_prompt(t)
         assert "r1" in prompt
         assert "r2" in prompt
         assert resume is True
@@ -111,7 +114,8 @@ class TestTryReap:
         out = {"session_id": "sid-1", "result": "Done!\n[STATUS: DONE]", "is_error": False}
         store.output_path("t1").write_text(json.dumps(out))
 
-        runner._try_reap(t)
+        with patch.object(Runner, "_find_session_log", return_value=Path("/fake/sid-1.jsonl")):
+            runner._try_reap(t)
         updated = store.get_task("t1")
         assert updated is not None
         assert updated.status == TaskStatus.AGENT_FINISHED
