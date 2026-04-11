@@ -13,9 +13,9 @@ import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from . import config as cfg
-from . import get_git_commit
-from .server import pid_file_path, read_server_info
+from ilan import config as cfg
+from ilan import get_git_commit
+from ilan.server import pid_file_path, read_server_info
 
 SERVER_URL_ENV = "ILAN_SERVER_URL"
 

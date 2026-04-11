@@ -16,10 +16,10 @@ import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import __version__, config as cfg, get_git_commit
-from .models import Task, TaskStatus, validate_task_name
-from .runner import Runner
-from .store import Store
+from ilan import __version__, config as cfg, get_git_commit
+from ilan.models import Task, TaskStatus, validate_task_name
+from ilan.runner import Runner
+from ilan.store import Store
 
 POLL_INTERVAL = 3  # seconds
 DEFAULT_PORT = 4526
