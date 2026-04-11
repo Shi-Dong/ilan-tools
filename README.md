@@ -135,6 +135,7 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan config set KEY VALUE` | Set a config value |
 | `ilan clean DURATION` | Delete tasks whose last change is older than DURATION (e.g. `5h`, `3d`) |
 | `ilan clear-everything` | Delete all tasks, logs, and data (requires confirmation) |
+| `ilan update` | Pull the latest ilan-tools from remote and reinstall |
 
 ### Configuration keys
 

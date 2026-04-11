@@ -872,3 +872,63 @@ def clear_everything() -> None:
     if _check_error(resp):
         raise SystemExit(1)
     console.print("[green]All data cleared.[/green]")
+
+
+# ── update ──────────────────────────────────────────────────────────
+
+def _find_repo_root() -> Path:
+    """Return the git repo root for the ilan-tools source tree."""
+    src_dir = Path(__file__).resolve().parent
+    try:
+        root = subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=src_dir,
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+        return Path(root)
+    except Exception:
+        return src_dir.parent.parent  # fallback: src/ilan -> src -> repo root
+
+
+@main.command("update")
+def update() -> None:
+    """Pull the latest ilan-tools from remote and reinstall."""
+    repo = _find_repo_root()
+    console.print(f"[bold]Updating ilan-tools[/bold]  ({repo})")
+
+    # Check for uncommitted changes that would block git pull.
+    result = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=repo, capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        console.print(f"[red]git status failed:[/red] {result.stderr.strip()}")
+        raise SystemExit(1)
+    dirty = [ln for ln in result.stdout.splitlines() if ln and not ln.startswith("??")]
+    if dirty:
+        console.print("[red]Uncommitted changes in ilan-tools — commit or stash them first.[/red]")
+        for ln in dirty:
+            console.print(f"  {ln}")
+        raise SystemExit(1)
+
+    # git pull
+    console.print("[dim]Pulling latest changes…[/dim]")
+    pull = subprocess.run(
+        ["git", "pull"],
+        cwd=repo, capture_output=True, text=True,
+    )
+    if pull.returncode != 0:
+        console.print(f"[red]git pull failed:[/red]\n{pull.stderr.strip()}")
+        raise SystemExit(1)
+    console.print(pull.stdout.strip())
+
+    # reinstall
+    console.print("[dim]Reinstalling…[/dim]")
+    install = subprocess.run(
+        ["uv", "pip", "install", "-e", "."],
+        cwd=repo, capture_output=True, text=True,
+    )
+    if install.returncode != 0:
+        console.print(f"[red]uv pip install failed:[/red]\n{install.stderr.strip()}")
+        raise SystemExit(1)
+    console.print("[green]ilan-tools updated successfully.[/green]")
