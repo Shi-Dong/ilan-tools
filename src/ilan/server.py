@@ -278,7 +278,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 if task.status == TaskStatus.WORKING:
                     self._ilan.runner.kill(task)
                 self._ilan.store.delete_task(task.name)
-            self._json({"ok": True})
+            self._json({"ok": True, "name": task.name})
 
         def handle_task_done(self, name: str):
             with self._ilan.lock:
@@ -378,7 +378,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 self._ilan.runner.kill(task)
                 task.set_status(TaskStatus.ERROR)
                 self._ilan.store.put_task(task)
-            self._json({"ok": True})
+            self._json({"ok": True, "name": task.name})
 
         def handle_task_rename(self, name: str):
             body = self._body()
