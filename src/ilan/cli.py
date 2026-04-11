@@ -435,14 +435,16 @@ def _do_tap(name: str) -> None:
     resp = client.get_task(name)
     if _check_error(resp):
         raise SystemExit(1)
-    status = TaskStatus(resp["task"]["status"])
+    t = resp["task"]
+    task_name = t["name"]
+    status = TaskStatus(t["status"])
     if status != TaskStatus.WORKING:
         console.print(
-            f"[yellow]Task [bold]{name}[/bold] is {status.value}, not WORKING. "
+            f"[yellow]Task [bold]{task_name}[/bold] is {status.value}, not WORKING. "
             f"Tap only works on WORKING tasks.[/yellow]"
         )
         return
-    _do_reply(name, TAP_MESSAGE)
+    _do_reply(task_name, TAP_MESSAGE)
 
 
 @task_group.command("tap")
@@ -461,7 +463,8 @@ def task_kill(name: str) -> None:
     resp = _client().kill_task(name)
     if _check_error(resp):
         raise SystemExit(1)
-    console.print(f"[green]Agent for [bold]{name}[/bold] killed. Task set to ERROR.[/green]")
+    task_name = resp.get("name", name)
+    console.print(f"[green]Agent for [bold]{task_name}[/bold] killed. Task set to ERROR.[/green]")
 
 
 # ── task rename ─────────────────────────────────────────────────────
@@ -554,7 +557,13 @@ def _open_log(name: str, *, path: bool = False) -> None:
         _print_log_path(name)
         return
 
-    resp = _client().get_logs(name)
+    client = _client()
+    task_resp = client.get_task(name)
+    if _check_error(task_resp):
+        raise SystemExit(1)
+    task_name = task_resp["task"]["name"]
+
+    resp = client.get_logs(name)
     if _check_error(resp):
         raise SystemExit(1)
 
@@ -563,7 +572,7 @@ def _open_log(name: str, *, path: bool = False) -> None:
         console.print("[yellow]No logs yet for this task.[/yellow]")
         return
 
-    lines: list[str] = [f"# Task: {name}", ""]
+    lines: list[str] = [f"# Task: {task_name}", ""]
     for i, entry in enumerate(logs):
         label = "User" if entry["role"] == "user" else "Assistant"
         ts = _format_ts(entry["timestamp"]) if entry.get("timestamp") else ""
@@ -581,7 +590,7 @@ def _open_log(name: str, *, path: bool = False) -> None:
         "nano": ["-v"],
     }
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=f"-{name}.md", delete=False) as tmp:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=f"-{task_name}.md", delete=False) as tmp:
         tmp.write("\n".join(lines))
         tmp_path = tmp.name
 
@@ -618,7 +627,10 @@ def task_rm(names: tuple[str, ...], yes: bool) -> None:
     missing: list[str] = []
     for n in names:
         resp = client.get_task(n)
-        (found if "task" in resp else missing).append(n)
+        if "task" in resp:
+            found.append(resp["task"]["name"])
+        else:
+            missing.append(n)
 
     if missing:
         console.print(f"[yellow]Not found: {', '.join(missing)}[/yellow]")
