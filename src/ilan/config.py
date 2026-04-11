@@ -11,6 +11,7 @@ DEFAULTS: dict[str, str | int] = {
     "effort": "high",
     "time-zone": "US/Pacific",
     "editor": "emacs",
+    "api-key": "",
 }
 
 VALID_KEYS = set(DEFAULTS)

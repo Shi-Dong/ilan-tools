@@ -124,6 +124,11 @@ class Runner:
         if resume and task.session_id:
             cmd.extend(["--resume", task.session_id])
 
+        env = os.environ.copy()
+        api_key = str(cfg.load().get("api-key", "")).strip()
+        if api_key:
+            env["ANTHROPIC_API_KEY"] = api_key
+
         out_path = self.store.output_path(task.name)
         workdir = cfg.get_workdir()
         workdir.mkdir(parents=True, exist_ok=True)
@@ -132,6 +137,7 @@ class Runner:
                 proc = subprocess.Popen(
                     cmd,
                     cwd=workdir,
+                    env=env,
                     stdout=out_f,
                     stderr=subprocess.DEVNULL,
                     start_new_session=True,
