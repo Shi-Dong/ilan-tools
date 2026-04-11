@@ -5,7 +5,7 @@ import random
 import shutil
 from pathlib import Path
 
-from .models import ALIAS_POOL, LogEntry, Task
+from ilan.models import ALIAS_POOL, LogEntry, Task
 
 
 class Store:

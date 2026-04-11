@@ -19,12 +19,12 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from . import config as cfg
-from .client import Client
-from .models import STYLE_FOR_STATUS, TaskStatus
-from .runner import Runner
-from .server import read_server_info
-from .store import Store
+from ilan import config as cfg
+from ilan.client import Client
+from ilan.models import STYLE_FOR_STATUS, TaskStatus
+from ilan.runner import Runner
+from ilan.server import read_server_info
+from ilan.store import Store
 
 console = Console()
 

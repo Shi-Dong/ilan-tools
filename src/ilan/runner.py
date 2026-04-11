@@ -8,9 +8,9 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import config as cfg
-from .models import Task, TaskStatus
-from .store import Store
+from ilan import config as cfg
+from ilan.models import Task, TaskStatus
+from ilan.store import Store
 
 _CLAUDE_STATIC_FLAGS = [
     "--dangerously-skip-permissions",
