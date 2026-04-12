@@ -317,15 +317,6 @@ def task_add(name: str, file_path: str | None, description: str | None) -> None:
 ALIAS_STYLE = "bold magenta"
 
 
-def _fmt_tokens(n: int) -> str:
-    """Format a token count with adaptive units (e.g. ``42``, ``5.8K``, ``1.4M``)."""
-    if n >= 1_000_000:
-        return f"{n / 1_000_000:.1f}M"
-    if n >= 1_000:
-        return f"{n / 1_000:.1f}K"
-    return str(n)
-
-
 def _do_ls(show_all: bool) -> None:
     resp = _client().list_tasks(show_all=show_all)
     rows = resp["tasks"]
@@ -338,7 +329,6 @@ def _do_ls(show_all: bool) -> None:
     table.add_column("(Alias) Name", style="bold")
     table.add_column("Status")
     table.add_column("Cost", justify="right")
-    table.add_column("Tokens (in/out/cache)", justify="right")
     table.add_column("Created")
     table.add_column("Last Changed")
     for r in rows:
@@ -352,20 +342,12 @@ def _do_ls(show_all: bool) -> None:
         if r.get("needs_review"):
             name_cell.append(" \u26a0\ufe0f")
         changed = _format_ts(r["status_changed_at"]) if r.get("status_changed_at") else ""
-        in_tok = r.get("input_tokens", 0)
-        out_tok = r.get("output_tokens", 0)
-        cache_tok = r.get("cache_read_input_tokens", 0)
-        if in_tok or out_tok or cache_tok:
-            tokens_cell = f"{_fmt_tokens(in_tok)}/{_fmt_tokens(out_tok)}/{_fmt_tokens(cache_tok)}"
-        else:
-            tokens_cell = "[dim]-[/dim]"
         cost = r.get("cost_usd", 0.0)
         cost_cell = f"${cost:.2f}" if cost else "[dim]-[/dim]"
         table.add_row(
             name_cell,
             Text(status.value, style=style),
             cost_cell,
-            tokens_cell,
             _format_ts(r["created_at"]),
             changed,
         )
