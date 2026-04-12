@@ -318,8 +318,12 @@ ALIAS_STYLE = "bold magenta"
 
 
 def _fmt_tokens(n: int) -> str:
-    """Format a token count in millions with one decimal place (e.g. ``1.4M``)."""
-    return f"{n / 1_000_000:.1f}M"
+    """Format a token count with adaptive units (e.g. ``42``, ``5.8K``, ``1.4M``)."""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.1f}K"
+    return str(n)
 
 
 def _do_ls(show_all: bool) -> None:
