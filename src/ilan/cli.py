@@ -442,10 +442,13 @@ def _do_reply(name: str, message: str) -> None:
 
 @task_group.command("reply")
 @click.argument("name", shell_complete=_complete_task_names)
-@click.argument("message")
-def task_reply(name: str, message: str) -> None:
-    """Send a response to a task."""
-    _do_reply(name, message)
+@click.argument("message", required=False, default=None)
+def task_reply(name: str, message: str | None) -> None:
+    """Send a response to a task. If no message is given, show the tail instead."""
+    if message is None:
+        _do_tail(name)
+    else:
+        _do_reply(name, message)
 
 
 # ── task tap ─────────────────────────────────────────────────────────
@@ -766,18 +769,24 @@ def shortcut_tail(name: str) -> None:
 
 @main.command("reply")
 @click.argument("name", shell_complete=_complete_task_names)
-@click.argument("message")
-def shortcut_reply(name: str, message: str) -> None:
+@click.argument("message", required=False, default=None)
+def shortcut_reply(name: str, message: str | None) -> None:
     """Shorthand for 'ilan task reply'."""
-    _do_reply(name, message)
+    if message is None:
+        _do_tail(name)
+    else:
+        _do_reply(name, message)
 
 
 @main.command("re")
 @click.argument("name", shell_complete=_complete_task_names)
-@click.argument("message")
-def shortcut_re(name: str, message: str) -> None:
+@click.argument("message", required=False, default=None)
+def shortcut_re(name: str, message: str | None) -> None:
     """Shorthand for 'ilan task reply'."""
-    _do_reply(name, message)
+    if message is None:
+        _do_tail(name)
+    else:
+        _do_reply(name, message)
 
 
 @main.command("done")
