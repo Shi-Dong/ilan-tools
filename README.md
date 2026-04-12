@@ -42,6 +42,9 @@ ilan reply fix-bug "Use the OAuth2 flow instead"
 # or even shorter:
 ilan re fix-bug "Use the OAuth2 flow instead"
 
+# Omit the message to see the tail first
+ilan re fix-bug
+
 # Mark a task as done
 ilan done fix-bug
 ```
@@ -89,7 +92,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task show NAME` | Print the full prompt of a task |
 | `ilan task path NAME` | Print the Claude Code session log path for a task |
 | `ilan task tail NAME` | Show the last assistant message + any user replies after it |
-| `ilan task reply NAME "msg"` | Send a reply to an agent |
+| `ilan task reply NAME ["msg"]` | Send a reply to an agent (omit message to show tail) |
 | `ilan task tap NAME` | Ask a `WORKING` agent for a status update |
 | `ilan task log [-p] NAME` | Open the full conversation log in your editor (`-p` prints the log file path instead) |
 | `ilan task rename OLD NEW` | Rename a task |
@@ -110,8 +113,8 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan add` | `ilan task add` |
 | `ilan ls [-a]` | `ilan task ls [-a]` |
 | `ilan tail NAME` | `ilan task tail NAME` |
-| `ilan reply NAME "msg"` | `ilan task reply NAME "msg"` |
-| `ilan re NAME "msg"` | `ilan task reply NAME "msg"` |
+| `ilan reply NAME ["msg"]` | `ilan task reply NAME ["msg"]` |
+| `ilan re NAME ["msg"]` | `ilan task reply NAME ["msg"]` |
 | `ilan rename OLD NEW` | `ilan task rename OLD NEW` |
 | `ilan tap NAME` | `ilan task tap NAME` |
 | `ilan attach NAME` | `ilan task attach NAME` |
