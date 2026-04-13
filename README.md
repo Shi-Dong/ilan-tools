@@ -88,7 +88,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | Command | Description |
 |---|---|
 | `ilan task add -n NAME -d "prompt"` | Add a task (or use `-f file`; name must be ≥ 3 chars, letters/digits/`-`/`_` only) |
-| `ilan task ls [-a]` | List active tasks (`-a` includes `DONE`/`DISCARDED`) |
+| `ilan task ls [-a] [NAME]` | List active tasks (`-a` includes `DONE`/`DISCARDED`); if `NAME` is given, show its tail instead |
 | `ilan task show NAME` | Print the full prompt of a task |
 | `ilan task path NAME` | Print the Claude Code session log path for a task |
 | `ilan task tail NAME` | Show the last assistant message + any user replies after it |
@@ -111,7 +111,7 @@ Frequently used task commands have top-level aliases to save typing:
 | Shorthand | Equivalent |
 |---|---|
 | `ilan add` | `ilan task add` |
-| `ilan ls [-a]` | `ilan task ls [-a]` |
+| `ilan ls [-a] [NAME]` | `ilan task ls [-a] [NAME]` |
 | `ilan tail NAME` | `ilan task tail NAME` |
 | `ilan reply NAME ["msg"]` | `ilan task reply NAME ["msg"]` |
 | `ilan re NAME ["msg"]` | `ilan task reply NAME ["msg"]` |
@@ -121,6 +121,8 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan log [-p] NAME` | `ilan task log [-p] NAME` |
 | `ilan done NAME [NAME...]` | `ilan task done NAME [NAME...]` |
 | `ilan discard NAME [NAME...]` | `ilan task discard NAME [NAME...]` |
+| `ilan undone NAME` | `ilan task undone NAME` |
+| `ilan undiscard NAME` | `ilan task undiscard NAME` |
 
 ### Server
 
