@@ -355,10 +355,14 @@ def _do_ls(show_all: bool) -> None:
 
 
 @task_group.command("ls")
+@click.argument("name", required=False, default=None, shell_complete=_complete_task_names)
 @click.option("-a", "--all", "show_all", is_flag=True, help="Include DONE and DISCARDED tasks.")
-def task_ls(show_all: bool) -> None:
-    """List tasks."""
-    _do_ls(show_all)
+def task_ls(name: str | None, show_all: bool) -> None:
+    """List tasks, or tail a specific task."""
+    if name is not None:
+        _do_tail(name)
+    else:
+        _do_ls(show_all)
 
 
 # ── task show ────────────────────────────────────────────────────────
@@ -705,10 +709,7 @@ def task_discard(names: tuple[str, ...]) -> None:
 
 # ── task undone / undiscard ──────────────────────────────────────────
 
-@task_group.command("undone")
-@click.argument("name", shell_complete=_complete_task_names)
-def task_undone(name: str) -> None:
-    """Move a DONE task back to NEEDS_ATTENTION."""
+def _do_undone(name: str) -> None:
     resp = _client().undone(name)
     if _check_error(resp):
         raise SystemExit(1)
@@ -716,15 +717,26 @@ def task_undone(name: str) -> None:
     console.print(f"[green]Task [bold]{task_name}[/bold] moved to NEEDS_ATTENTION.[/green]")
 
 
-@task_group.command("undiscard")
-@click.argument("name", shell_complete=_complete_task_names)
-def task_undiscard(name: str) -> None:
-    """Move a DISCARDED task back to NEEDS_ATTENTION."""
+def _do_undiscard(name: str) -> None:
     resp = _client().undiscard(name)
     if _check_error(resp):
         raise SystemExit(1)
     task_name = resp.get("name", name)
     console.print(f"[green]Task [bold]{task_name}[/bold] moved to NEEDS_ATTENTION.[/green]")
+
+
+@task_group.command("undone")
+@click.argument("name", shell_complete=_complete_task_names)
+def task_undone(name: str) -> None:
+    """Move a DONE task back to NEEDS_ATTENTION."""
+    _do_undone(name)
+
+
+@task_group.command("undiscard")
+@click.argument("name", shell_complete=_complete_task_names)
+def task_undiscard(name: str) -> None:
+    """Move a DISCARDED task back to NEEDS_ATTENTION."""
+    _do_undiscard(name)
 
 
 # ── top-level shorthands ─────────────────────────────────────────────
@@ -740,10 +752,14 @@ def shortcut_add(name: str, file_path: str | None, description: str | None) -> N
 
 
 @main.command("ls")
+@click.argument("name", required=False, default=None, shell_complete=_complete_task_names)
 @click.option("-a", "--all", "show_all", is_flag=True, help="Include DONE and DISCARDED tasks.")
-def shortcut_ls(show_all: bool) -> None:
-    """Shorthand for 'ilan task ls'."""
-    _do_ls(show_all)
+def shortcut_ls(name: str | None, show_all: bool) -> None:
+    """Shorthand for 'ilan task ls'. If a task name is given, acts as 'ilan tail'."""
+    if name is not None:
+        _do_tail(name)
+    else:
+        _do_ls(show_all)
 
 
 @main.command("tail")
@@ -787,6 +803,20 @@ def shortcut_done(names: tuple[str, ...]) -> None:
 def shortcut_discard(names: tuple[str, ...]) -> None:
     """Shorthand for 'ilan task discard'."""
     _do_discard(names)
+
+
+@main.command("undone")
+@click.argument("name", shell_complete=_complete_task_names)
+def shortcut_undone(name: str) -> None:
+    """Shorthand for 'ilan task undone'."""
+    _do_undone(name)
+
+
+@main.command("undiscard")
+@click.argument("name", shell_complete=_complete_task_names)
+def shortcut_undiscard(name: str) -> None:
+    """Shorthand for 'ilan task undiscard'."""
+    _do_undiscard(name)
 
 
 @main.command("rename")
