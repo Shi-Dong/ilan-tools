@@ -948,8 +948,13 @@ def _find_repo_root() -> Path:
 
 
 @main.command("update")
-def update() -> None:
-    """Pull the latest ilan-tools from remote and reinstall."""
+@click.argument("branch", required=False, default=None)
+def update(branch: str | None) -> None:
+    """Pull the latest ilan-tools from remote and reinstall.
+
+    Optionally pass a BRANCH name to fetch and checkout that branch
+    instead of pulling the current one (defaults to main).
+    """
     repo = _find_repo_root()
     console.print(f"[bold]Updating ilan-tools[/bold]  ({repo})")
 
@@ -968,16 +973,50 @@ def update() -> None:
             console.print(f"  {ln}")
         raise SystemExit(1)
 
-    # git pull
-    console.print("[dim]Pulling latest changes…[/dim]")
-    pull = subprocess.run(
-        ["git", "pull"],
-        cwd=repo, capture_output=True, text=True,
-    )
-    if pull.returncode != 0:
-        console.print(f"[red]git pull failed:[/red]\n{pull.stderr.strip()}")
-        raise SystemExit(1)
-    console.print(pull.stdout.strip())
+    if branch is not None:
+        # Fetch the specific branch and check it out.
+        console.print(f"[dim]Fetching branch [bold]{branch}[/bold]…[/dim]")
+        fetch = subprocess.run(
+            ["git", "fetch", "origin", branch],
+            cwd=repo, capture_output=True, text=True,
+        )
+        if fetch.returncode != 0:
+            console.print(f"[red]git fetch failed:[/red]\n{fetch.stderr.strip()}")
+            raise SystemExit(1)
+        console.print(f"[dim]Checking out [bold]{branch}[/bold]…[/dim]")
+        checkout = subprocess.run(
+            ["git", "checkout", branch],
+            cwd=repo, capture_output=True, text=True,
+        )
+        if checkout.returncode != 0:
+            # Branch may only exist on remote — try creating a local tracking branch.
+            checkout = subprocess.run(
+                ["git", "checkout", "-b", branch, f"origin/{branch}"],
+                cwd=repo, capture_output=True, text=True,
+            )
+            if checkout.returncode != 0:
+                console.print(f"[red]git checkout failed:[/red]\n{checkout.stderr.strip()}")
+                raise SystemExit(1)
+        # Pull latest for the checked-out branch.
+        pull = subprocess.run(
+            ["git", "pull", "origin", branch],
+            cwd=repo, capture_output=True, text=True,
+        )
+        if pull.returncode != 0:
+            console.print(f"[red]git pull failed:[/red]\n{pull.stderr.strip()}")
+            raise SystemExit(1)
+        console.print(pull.stdout.strip())
+    else:
+        # Default: pull current branch (main).
+        console.print("[dim]Pulling latest changes…[/dim]")
+        pull = subprocess.run(
+            ["git", "pull"],
+            cwd=repo, capture_output=True, text=True,
+        )
+        if pull.returncode != 0:
+            console.print(f"[red]git pull failed:[/red]\n{pull.stderr.strip()}")
+            raise SystemExit(1)
+        console.print(pull.stdout.strip())
 
     # reinstall
     console.print("[dim]Reinstalling…[/dim]")
