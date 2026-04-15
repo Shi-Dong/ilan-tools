@@ -52,6 +52,21 @@ def _client() -> Client:
     return c
 
 
+def _format_elapsed(iso: str) -> str:
+    """Return a human-readable elapsed duration like ``01h23m06s``."""
+    try:
+        dt = datetime.fromisoformat(iso)
+        delta = datetime.now(timezone.utc) - dt.astimezone(timezone.utc)
+        total = int(delta.total_seconds())
+        if total < 0:
+            total = 0
+        h, rem = divmod(total, 3600)
+        m, s = divmod(rem, 60)
+        return f"{h:02d}h{m:02d}m{s:02d}s"
+    except Exception:
+        return ""
+
+
 def _format_ts(iso: str) -> str:
     """Convert a UTC ISO timestamp to the configured time-zone."""
     try:
@@ -355,12 +370,17 @@ def _do_ls(show_all: bool) -> None:
         name_cell.append(r["name"], style="bold")
         if r.get("needs_review"):
             name_cell.append(" \u26a0\ufe0f")
+        status_cell = Text(status.value, style=style)
+        if status == TaskStatus.WORKING and r.get("status_changed_at"):
+            elapsed = _format_elapsed(r["status_changed_at"])
+            if elapsed:
+                status_cell.append(f" (for {elapsed})", style="dim")
         changed = _format_ts(r["status_changed_at"]) if r.get("status_changed_at") else ""
         cost = r.get("cost_usd", 0.0)
         cost_cell = f"${cost:.2f}" if cost else "[dim]-[/dim]"
         table.add_row(
             name_cell,
-            Text(status.value, style=style),
+            status_cell,
             cost_cell,
             _format_ts(r["created_at"]),
             changed,
@@ -910,12 +930,17 @@ def _build_dashboard_table(rows: list[dict], tz: ZoneInfo) -> Table:
             # (U+26A0 + VS16) has unpredictable terminal width that
             # causes table misalignment in Rich's Live display.
             name_cell.append(" !!", style="bold yellow")
+        status_cell = Text(status.value, style=style)
+        if status == TaskStatus.WORKING and r.get("status_changed_at"):
+            elapsed = _format_elapsed(r["status_changed_at"])
+            if elapsed:
+                status_cell.append(f" (for {elapsed})", style="dim")
         changed = _format_ts(r["status_changed_at"]) if r.get("status_changed_at") else ""
         cost = r.get("cost_usd", 0.0)
         cost_cell = f"${cost:.2f}" if cost else "[dim]-[/dim]"
         table.add_row(
             name_cell,
-            Text(status.value, style=style),
+            status_cell,
             cost_cell,
             _format_ts(r["created_at"]),
             changed,

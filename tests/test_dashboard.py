@@ -219,8 +219,53 @@ class TestNeedsReviewMarker:
             table = _build_dashboard_table([row], _TZ)
             status_cell = table.columns[1]._cells[0]
             assert isinstance(status_cell, Text)
-            assert status_cell.plain == status.value
+            assert status_cell.plain.startswith(status.value)
             assert str(status_cell.style) == expected_style
+
+
+class TestWorkingElapsed:
+    """Test the elapsed-time annotation on WORKING tasks."""
+
+    def test_working_shows_elapsed(self) -> None:
+        row = _task_row(status="WORKING")
+        table = _build_dashboard_table([row], _TZ)
+        status_cell = table.columns[1]._cells[0]
+        assert isinstance(status_cell, Text)
+        assert status_cell.plain.startswith("WORKING (for ")
+        assert status_cell.plain.endswith("s)")
+
+    def test_non_working_no_elapsed(self) -> None:
+        for status in TaskStatus:
+            if status == TaskStatus.WORKING:
+                continue
+            row = _task_row(status=status.value)
+            table = _build_dashboard_table([row], _TZ)
+            status_cell = table.columns[1]._cells[0]
+            assert isinstance(status_cell, Text)
+            assert status_cell.plain == status.value
+
+    def test_elapsed_format(self) -> None:
+        """Elapsed time should be formatted as NNhNNmNNs."""
+        import re
+        row = _task_row(status="WORKING")
+        table = _build_dashboard_table([row], _TZ)
+        status_cell = table.columns[1]._cells[0]
+        assert isinstance(status_cell, Text)
+        match = re.search(r"\(for (\d{2}h\d{2}m\d{2}s)\)", status_cell.plain)
+        assert match, f"Expected elapsed time pattern, got: {status_cell.plain}"
+
+    def test_elapsed_styled_dim(self) -> None:
+        """The elapsed-time portion should be styled dim."""
+        row = _task_row(status="WORKING")
+        table = _build_dashboard_table([row], _TZ)
+        status_cell = table.columns[1]._cells[0]
+        assert isinstance(status_cell, Text)
+        # The main style is "bold cyan" for WORKING.
+        # The appended "(for ...)" has its own "dim" style span.
+        elapsed_start = status_cell.plain.index(" (for ")
+        spans = status_cell._spans
+        dim_spans = [s for s in spans if s.start <= elapsed_start < s.end or s.start >= elapsed_start]
+        assert any(s.style == "dim" for s in dim_spans)
 
 
 # ── bell / status change detection ───────────────────────────────────
