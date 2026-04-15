@@ -141,9 +141,9 @@ class TestNeedsReviewMarker:
     terminal-width misalignment in Rich's Live display.
     """
 
-    def test_needs_review_true_shows_bang(self) -> None:
+    def test_needs_review_true_shows_double_bang(self) -> None:
         text = _render_table_text([_task_row(needs_review=True)])
-        assert "!" in text
+        assert "!!" in text
 
     def test_needs_review_false_no_bang(self) -> None:
         row = _task_row(name="clean-task", needs_review=False)
@@ -156,7 +156,7 @@ class TestNeedsReviewMarker:
         """Review marker should appear even when an alias is set."""
         text = _render_table_text([_task_row(alias="sd", needs_review=True)])
         assert "(sd)" in text
-        assert "!" in text
+        assert "!!" in text
 
     def test_name_cell_structure(self) -> None:
         """Verify the Rich Text object: alias + name + review marker."""
@@ -167,7 +167,7 @@ class TestNeedsReviewMarker:
         plain = name_cell.plain
         assert plain.startswith("(jk) ")
         assert "fix-bug" in plain
-        assert plain.endswith(" !")
+        assert plain.endswith(" !!")
 
     def test_name_cell_without_review(self) -> None:
         """Without needs_review, no marker in the name cell."""
@@ -177,18 +177,17 @@ class TestNeedsReviewMarker:
         assert isinstance(name_cell, Text)
         assert "!" not in name_cell.plain
 
-    def test_review_marker_styled_bold_red(self) -> None:
-        """The ``!`` marker should be styled bold red for visibility."""
+    def test_review_marker_styled_bold_yellow(self) -> None:
+        """The ``!!`` marker should be styled bold yellow for visibility."""
         row = _task_row(name="my-task", needs_review=True)
         table = _build_dashboard_table([row], _TZ)
         name_cell = table.columns[0]._cells[0]
         assert isinstance(name_cell, Text)
-        # Find the span covering the "!" character.
-        bang_idx = name_cell.plain.index("!")
+        bang_idx = name_cell.plain.index("!!")
         spans = name_cell._spans
         bang_span = [s for s in spans if s.start <= bang_idx < s.end]
-        assert bang_span, "No style span found for the '!' marker"
-        assert bang_span[0].style == "bold red"
+        assert bang_span, "No style span found for the '!!' marker"
+        assert bang_span[0].style == "bold yellow"
 
     def test_name_cell_styling(self) -> None:
         """Alias uses ALIAS_STYLE ('bold magenta'), name uses 'bold'."""

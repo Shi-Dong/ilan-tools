@@ -909,7 +909,7 @@ def _build_dashboard_table(rows: list[dict], tz: ZoneInfo) -> Table:
             # Use an ASCII marker instead of the ⚠️ emoji.  The emoji
             # (U+26A0 + VS16) has unpredictable terminal width that
             # causes table misalignment in Rich's Live display.
-            name_cell.append(" !", style="bold red")
+            name_cell.append(" !!", style="bold yellow")
         changed = _format_ts(r["status_changed_at"]) if r.get("status_changed_at") else ""
         cost = r.get("cost_usd", 0.0)
         cost_cell = f"${cost:.2f}" if cost else "[dim]-[/dim]"
