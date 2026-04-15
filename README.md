@@ -4,7 +4,9 @@ A CLI tool that manages and runs a swarm of [Claude Code](https://docs.anthropic
 
 ## Installation
 
-Requires Python 3.11+ and [uv](https://github.com/astral-sh/uv).
+Requires Python 3.11+, [uv](https://github.com/astral-sh/uv), and [tmux](https://github.com/tmux/tmux).
+
+Each agent's terminal work runs inside tmux sessions prefixed with a unique task hash, so that sessions can be tracked and automatically cleaned up when a task is completed, discarded, or killed.
 
 ```bash
 git clone git@github.com:Shi-Dong/ilan-tools.git

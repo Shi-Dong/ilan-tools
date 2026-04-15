@@ -42,6 +42,21 @@ Never emit a status marker without first giving a substantive response.
 """
 
 
+def _tmux_instruction(task_hash: str, task_name: str) -> str:
+    """Build the tmux session instruction injected into agent prompts."""
+    session_prefix = task_hash
+    default_session = f"{task_hash}-claude-{task_name}"
+    return (
+        f"\n\n---\n"
+        f"TMUX SESSION REQUIREMENT: You MUST do all your terminal work inside tmux "
+        f"sessions whose names start with `{session_prefix}`. Your default session "
+        f"should be `{default_session}` — create it if it does not already exist "
+        f"(`tmux new-session -d -s {default_session}` then send commands to it). "
+        f"You may create additional tmux sessions for this task (e.g. for parallel "
+        f"work), but every session name MUST be prefixed with `{session_prefix}`.\n"
+    )
+
+
 class Runner:
     """Spawns / kills / reaps ``claude -p`` processes and schedules work."""
 
@@ -120,7 +135,8 @@ class Runner:
 
     def _spawn(self, task: Task, prompt: str, *, resume: bool) -> bool:
         """Spawn a claude process. Returns True on success."""
-        cmd = ["claude", "-p", prompt + STATUS_SUFFIX, *_claude_flags()]
+        tmux_instr = _tmux_instruction(task.task_hash, task.name) if task.task_hash else ""
+        cmd = ["claude", "-p", prompt + tmux_instr + STATUS_SUFFIX, *_claude_flags()]
         if resume and task.session_id:
             cmd.extend(["--resume", task.session_id])
 
