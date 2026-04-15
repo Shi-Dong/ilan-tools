@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import io
-import sys
-from datetime import datetime, timezone
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -212,14 +210,15 @@ class TestDashboardBell:
         *,
         keypress_after: int | None = None,
         key: str = "q",
-    ) -> list[str]:
-        """Simulate dashboard iterations and capture stdout writes.
+    ) -> list[bytes]:
+        """Simulate dashboard iterations and capture raw writes.
 
         *responses* is a list of server responses for successive ``list_tasks``
         calls.  After *keypress_after* iterations (0-indexed), the given *key*
         is injected; otherwise ``q`` is sent after all responses are consumed.
 
-        Returns a list of strings written to stdout (look for ``\\a``).
+        Returns a list of byte strings written via ``os.write`` (look for
+        ``b"\\a"``).
         """
         client = _make_client()
         call_count = 0
@@ -232,8 +231,7 @@ class TestDashboardBell:
 
         client.list_tasks.side_effect = mock_list_tasks
 
-        stdout_writes: list[str] = []
-        original_write = sys.stdout.write
+        os_writes: list[bytes] = []
 
         iteration = 0
         quit_after = keypress_after if keypress_after is not None else len(responses) - 1
@@ -251,6 +249,10 @@ class TestDashboardBell:
         fake_stdin.fileno.return_value = 0
         fake_stdin.read.return_value = key
 
+        def fake_os_write(fd, data):
+            os_writes.append(data)
+            return len(data)
+
         with (
             patch("ilan.cli._client", return_value=client),
             patch("ilan.cli.cfg") as mock_cfg,
@@ -258,6 +260,7 @@ class TestDashboardBell:
             patch("ilan.cli.tty"),
             patch("ilan.cli.select") as mock_select,
             patch("ilan.cli.sys") as mock_sys,
+            patch("ilan.cli.os.write", side_effect=fake_os_write),
             patch("ilan.cli.time") as mock_time,
             patch("ilan.cli.Live"),
         ):
@@ -266,7 +269,7 @@ class TestDashboardBell:
             mock_select.select.side_effect = fake_select
             mock_sys.stdin = fake_stdin
             mock_sys.stdout = MagicMock()
-            mock_sys.stdout.write.side_effect = lambda s: stdout_writes.append(s)
+            mock_sys.stdout.fileno.return_value = 1
             # Make time.monotonic advance so auto-refresh triggers.
             monotonic_counter = [0.0]
 
@@ -280,20 +283,20 @@ class TestDashboardBell:
 
             _do_dashboard()
 
-        return stdout_writes
+        return os_writes
 
     def test_no_bell_on_first_render(self) -> None:
         """First poll should never ring the bell (no prior state)."""
         resp = {"tasks": [_task_row(name="t1", status="WORKING")]}
         writes = self._run_dashboard_iterations([resp], keypress_after=0)
-        assert "\a" not in writes
+        assert b"\a" not in writes
 
     def test_bell_on_status_change(self) -> None:
         """Bell should ring when a task's status changes between polls."""
         resp1 = {"tasks": [_task_row(name="t1", status="WORKING")]}
         resp2 = {"tasks": [_task_row(name="t1", status="AGENT_FINISHED")]}
         writes = self._run_dashboard_iterations([resp1, resp2], keypress_after=1)
-        assert "\a" in writes
+        assert b"\a" in writes
 
     def test_bell_on_new_task(self) -> None:
         """Bell should ring when a new task appears."""
@@ -303,13 +306,13 @@ class TestDashboardBell:
             _task_row(name="t2", status="UNCLAIMED"),
         ]}
         writes = self._run_dashboard_iterations([resp1, resp2], keypress_after=1)
-        assert "\a" in writes
+        assert b"\a" in writes
 
     def test_no_bell_when_no_change(self) -> None:
         """No bell when nothing changes between polls."""
         resp = {"tasks": [_task_row(name="t1", status="WORKING")]}
         writes = self._run_dashboard_iterations([resp, resp], keypress_after=1)
-        assert "\a" not in writes
+        assert b"\a" not in writes
 
     def test_bell_on_task_disappearing_and_status_change(self) -> None:
         """Bell on status change even if another task disappeared."""
@@ -321,7 +324,7 @@ class TestDashboardBell:
             _task_row(name="t1", status="DONE"),
         ]}
         writes = self._run_dashboard_iterations([resp1, resp2], keypress_after=1)
-        assert "\a" in writes
+        assert b"\a" in writes
 
 
 # ── CLI command registration ─────────────────────────────────────────
