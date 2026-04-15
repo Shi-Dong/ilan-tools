@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -289,6 +290,14 @@ def task_group() -> None:
 # ── task add ─────────────────────────────────────────────────────────
 
 def _do_add(name: str, file_path: str | None, description: str | None) -> None:
+    if shutil.which("tmux") is None:
+        console.print(
+            "[red]tmux is required but not found on PATH.[/red]\n"
+            "ilan uses tmux to isolate agent terminal sessions. "
+            "Please install tmux and try again."
+        )
+        raise SystemExit(1)
+
     if (file_path is None) == (description is None):
         console.print("[red]Exactly one of --file / --description must be provided.[/red]")
         raise SystemExit(1)
