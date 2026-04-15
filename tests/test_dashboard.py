@@ -135,49 +135,67 @@ class TestBuildDashboardTable:
 
 
 class TestNeedsReviewMarker:
-    """Ensure the dashboard renders the ⚠️ marker identically to ``ilan ls``."""
+    """Ensure the dashboard renders the review marker correctly.
 
-    def test_needs_review_true_shows_warning(self) -> None:
+    The dashboard uses an ASCII ``!`` instead of the ⚠️ emoji to avoid
+    terminal-width misalignment in Rich's Live display.
+    """
+
+    def test_needs_review_true_shows_bang(self) -> None:
         text = _render_table_text([_task_row(needs_review=True)])
-        assert "\u26a0\ufe0f" in text
+        assert "!" in text
 
-    def test_needs_review_false_no_warning(self) -> None:
-        text = _render_table_text([_task_row(needs_review=False)])
-        assert "\u26a0" not in text
+    def test_needs_review_false_no_bang(self) -> None:
+        row = _task_row(name="clean-task", needs_review=False)
+        table = _build_dashboard_table([row], _TZ)
+        name_cell = table.columns[0]._cells[0]
+        assert isinstance(name_cell, Text)
+        assert "!" not in name_cell.plain
 
     def test_needs_review_with_alias(self) -> None:
-        """⚠️ should appear even when an alias is set."""
+        """Review marker should appear even when an alias is set."""
         text = _render_table_text([_task_row(alias="sd", needs_review=True)])
         assert "(sd)" in text
-        assert "\u26a0\ufe0f" in text
+        assert "!" in text
 
-    def test_name_cell_structure_matches_ls(self) -> None:
-        """Verify the Rich Text object built for the name cell matches _do_ls."""
+    def test_name_cell_structure(self) -> None:
+        """Verify the Rich Text object: alias + name + review marker."""
         row = _task_row(name="fix-bug", alias="jk", needs_review=True)
         table = _build_dashboard_table([row], _TZ)
-        # The first column of the first data row is the name cell.
         name_cell = table.columns[0]._cells[0]
         assert isinstance(name_cell, Text)
         plain = name_cell.plain
         assert plain.startswith("(jk) ")
         assert "fix-bug" in plain
-        assert "\u26a0\ufe0f" in plain
+        assert plain.endswith(" !")
 
     def test_name_cell_without_review(self) -> None:
-        """Without needs_review, no ⚠️ in the name cell."""
+        """Without needs_review, no marker in the name cell."""
         row = _task_row(name="fix-bug", alias="jk", needs_review=False)
         table = _build_dashboard_table([row], _TZ)
         name_cell = table.columns[0]._cells[0]
         assert isinstance(name_cell, Text)
-        assert "\u26a0" not in name_cell.plain
+        assert "!" not in name_cell.plain
 
-    def test_name_cell_styling_matches_ls(self) -> None:
+    def test_review_marker_styled_bold_red(self) -> None:
+        """The ``!`` marker should be styled bold red for visibility."""
+        row = _task_row(name="my-task", needs_review=True)
+        table = _build_dashboard_table([row], _TZ)
+        name_cell = table.columns[0]._cells[0]
+        assert isinstance(name_cell, Text)
+        # Find the span covering the "!" character.
+        bang_idx = name_cell.plain.index("!")
+        spans = name_cell._spans
+        bang_span = [s for s in spans if s.start <= bang_idx < s.end]
+        assert bang_span, "No style span found for the '!' marker"
+        assert bang_span[0].style == "bold red"
+
+    def test_name_cell_styling(self) -> None:
         """Alias uses ALIAS_STYLE ('bold magenta'), name uses 'bold'."""
         row = _task_row(name="my-task", alias="ab", needs_review=False)
         table = _build_dashboard_table([row], _TZ)
         name_cell = table.columns[0]._cells[0]
         assert isinstance(name_cell, Text)
-        # Check that the alias portion has the correct style.
         spans = name_cell._spans
         # First span should be the alias with ALIAS_STYLE.
         alias_span = spans[0]
@@ -185,6 +203,14 @@ class TestNeedsReviewMarker:
         # Second span should be the task name with 'bold'.
         name_span = spans[1]
         assert name_span.style == "bold"
+
+    def test_marker_is_ascii_safe(self) -> None:
+        """The review marker must be pure ASCII for predictable terminal width."""
+        row = _task_row(name="my-task", needs_review=True)
+        table = _build_dashboard_table([row], _TZ)
+        name_cell = table.columns[0]._cells[0]
+        assert isinstance(name_cell, Text)
+        assert name_cell.plain.isascii()
 
     def test_status_styling_applied(self) -> None:
         """Each status should get the correct Rich style from STYLE_FOR_STATUS."""

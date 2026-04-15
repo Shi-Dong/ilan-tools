@@ -906,7 +906,10 @@ def _build_dashboard_table(rows: list[dict], tz: ZoneInfo) -> Table:
             name_cell.append(f"({alias}) ", style=ALIAS_STYLE)
         name_cell.append(r["name"], style="bold")
         if r.get("needs_review"):
-            name_cell.append(" \u26a0\ufe0f")
+            # Use an ASCII marker instead of the ⚠️ emoji.  The emoji
+            # (U+26A0 + VS16) has unpredictable terminal width that
+            # causes table misalignment in Rich's Live display.
+            name_cell.append(" !", style="bold red")
         changed = _format_ts(r["status_changed_at"]) if r.get("status_changed_at") else ""
         cost = r.get("cost_usd", 0.0)
         cost_cell = f"${cost:.2f}" if cost else "[dim]-[/dim]"
@@ -991,8 +994,8 @@ def _do_dashboard() -> None:
                         last_poll = time.monotonic()
                         continue
 
-                # Auto-refresh every 2 seconds.
-                if time.monotonic() - last_poll >= 2.0:
+                # Auto-refresh every 1 second.
+                if time.monotonic() - last_poll >= 1.0:
                     _refresh(live)
                     last_poll = time.monotonic()
     finally:
