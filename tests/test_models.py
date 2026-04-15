@@ -6,7 +6,7 @@ from datetime import datetime
 
 import pytest
 
-from ilan.models import ALIAS_POOL, LogEntry, Task, TaskStatus, validate_task_name
+from ilan.models import ALIAS_POOL, LogEntry, Task, TaskStatus, generate_task_hash, validate_task_name
 
 
 # ── TaskStatus ──────────────────────────────────────────────────────────
@@ -170,8 +170,8 @@ class TestTask:
         expected_keys = {
             "name", "prompt", "status", "created_at", "status_changed_at",
             "session_id", "session_log_path", "pid", "cached_replies", "alias",
-            "needs_review", "input_tokens", "output_tokens", "cache_read_input_tokens",
-            "cost_usd",
+            "task_hash", "needs_review", "input_tokens", "output_tokens",
+            "cache_read_input_tokens", "cost_usd",
         }
         assert set(d.keys()) == expected_keys
 
@@ -203,6 +203,39 @@ class TestTask:
         d = t.to_dict()
         assert d["status"] == "NEEDS_ATTENTION"
         assert isinstance(d["status"], str)
+
+    def test_task_hash_roundtrip(self) -> None:
+        t = self._make_task(task_hash="abcd1234")
+        d = t.to_dict()
+        assert d["task_hash"] == "abcd1234"
+        t2 = Task.from_dict(d)
+        assert t2.task_hash == "abcd1234"
+
+    def test_task_hash_default_none(self) -> None:
+        t = Task(name="x", prompt="y")
+        assert t.task_hash is None
+
+    def test_from_dict_missing_task_hash(self) -> None:
+        d = {"name": "old", "prompt": "p", "status": "UNCLAIMED"}
+        t = Task.from_dict(d)
+        assert t.task_hash is None
+
+
+# ── generate_task_hash ─────────────────────────────────────────────────
+
+
+class TestGenerateTaskHash:
+    def test_length(self) -> None:
+        h = generate_task_hash()
+        assert len(h) == 8
+
+    def test_hex_chars(self) -> None:
+        h = generate_task_hash()
+        assert all(c in "0123456789abcdef" for c in h)
+
+    def test_uniqueness(self) -> None:
+        hashes = {generate_task_hash() for _ in range(100)}
+        assert len(hashes) == 100
 
 
 # ── LogEntry ────────────────────────────────────────────────────────────

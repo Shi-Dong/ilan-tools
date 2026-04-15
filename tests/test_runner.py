@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from ilan.models import Task, TaskStatus
-from ilan.runner import Runner, STATUS_SUFFIX
+from ilan.runner import Runner, STATUS_SUFFIX, _tmux_instruction
 from ilan.store import Store
 
 
@@ -89,6 +89,23 @@ class TestBuildPrompt:
         t = Task(name="t", prompt="Do X", cached_replies=["a", "b", "c"])
         prompt, resume = runner._build_prompt(t)
         assert "a\n\nb\n\nc" in prompt
+
+
+# ── _tmux_instruction ──────────────────────────────────────────────────
+
+
+class TestTmuxInstruction:
+    def test_contains_session_name(self) -> None:
+        instr = _tmux_instruction("abc12345", "my-task")
+        assert "abc12345-claude-my-task" in instr
+
+    def test_contains_create_command(self) -> None:
+        instr = _tmux_instruction("abc12345", "my-task")
+        assert "tmux new-session -d -s abc12345-claude-my-task" in instr
+
+    def test_contains_requirement_keyword(self) -> None:
+        instr = _tmux_instruction("abc12345", "my-task")
+        assert "TMUX SESSION REQUIREMENT" in instr
 
 
 # ── STATUS_SUFFIX ───────────────────────────────────────────────────────
@@ -339,6 +356,50 @@ class TestSpawn:
         proc = runner._procs.get("resume-test")
         if proc:
             proc.wait(timeout=5)
+
+    def test_spawn_includes_tmux_instruction(
+        self, store: Store, tmp_workdir: Path, tmp_config: Path,
+        env_with_mock_claude: None,
+    ) -> None:
+        """When task has a hash, spawn should inject tmux session instruction."""
+        import ilan.config as cfg_mod
+
+        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
+
+        runner = Runner(store)
+        t = Task(name="tmux-test", prompt="do work", task_hash="abc12345")
+        store.put_task(t)
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_proc = mock_popen.return_value
+            mock_proc.pid = 12345
+            runner._spawn(t, "do work", resume=False)
+            cmd = mock_popen.call_args[0][0]
+            # The -p argument (index 2) should contain the tmux instruction
+            prompt_arg = cmd[2]
+            assert "abc12345-claude-tmux-test" in prompt_arg
+            assert "TMUX SESSION REQUIREMENT" in prompt_arg
+
+    def test_spawn_no_tmux_instruction_without_hash(
+        self, store: Store, tmp_workdir: Path, tmp_config: Path,
+        env_with_mock_claude: None,
+    ) -> None:
+        """When task has no hash, spawn should not inject tmux instruction."""
+        import ilan.config as cfg_mod
+
+        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
+
+        runner = Runner(store)
+        t = Task(name="no-hash", prompt="do work")
+        store.put_task(t)
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_proc = mock_popen.return_value
+            mock_proc.pid = 12345
+            runner._spawn(t, "do work", resume=False)
+            cmd = mock_popen.call_args[0][0]
+            prompt_arg = cmd[2]
+            assert "TMUX SESSION REQUIREMENT" not in prompt_arg
 
 
 # ── schedule ────────────────────────────────────────────────────────────

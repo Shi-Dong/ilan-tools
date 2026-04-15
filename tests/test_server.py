@@ -258,6 +258,49 @@ class TestTaskStateTransitions:
         assert "error" in resp
 
 
+# ── Task Hash ──────────────────────────────────────────────────────────
+
+
+class TestTaskHash:
+    def test_task_gets_hash_on_creation(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "hash-test", "prompt": "P"})
+        task = _get(ilan_server, "/tasks/hash-test")["task"]
+        assert task["task_hash"] is not None
+        assert len(task["task_hash"]) == 8
+
+    def test_task_hash_is_hex(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "hex-test", "prompt": "P"})
+        task = _get(ilan_server, "/tasks/hex-test")["task"]
+        assert all(c in "0123456789abcdef" for c in task["task_hash"])
+
+    def test_done_calls_tmux_cleanup(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "tmux-done", "prompt": "P"})
+        task = _get(ilan_server, "/tasks/tmux-done")["task"]
+        task_hash = task["task_hash"]
+
+        with patch("ilan.server.kill_tmux_sessions_by_prefix") as mock_kill:
+            _post(ilan_server, "/tasks/tmux-done/done")
+            mock_kill.assert_called_once_with(task_hash)
+
+    def test_discard_calls_tmux_cleanup(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "tmux-disc", "prompt": "P"})
+        task = _get(ilan_server, "/tasks/tmux-disc")["task"]
+        task_hash = task["task_hash"]
+
+        with patch("ilan.server.kill_tmux_sessions_by_prefix") as mock_kill:
+            _post(ilan_server, "/tasks/tmux-disc/discard")
+            mock_kill.assert_called_once_with(task_hash)
+
+    def test_delete_calls_tmux_cleanup(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "tmux-del", "prompt": "P"})
+        task = _get(ilan_server, "/tasks/tmux-del")["task"]
+        task_hash = task["task_hash"]
+
+        with patch("ilan.server.kill_tmux_sessions_by_prefix") as mock_kill:
+            _delete(ilan_server, "/tasks/tmux-del")
+            mock_kill.assert_called_once_with(task_hash)
+
+
 # ── Reply ───────────────────────────────────────────────────────────────
 
 

@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import itertools
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
+
+
+def generate_task_hash() -> str:
+    """Generate an 8-character hex hash for a task."""
+    return os.urandom(4).hex()
 
 _TASK_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
@@ -68,6 +74,7 @@ class Task:
     pid: int | None = None
     cached_replies: list[str] = field(default_factory=list)
     alias: str | None = None
+    task_hash: str | None = None
     needs_review: bool = False
     input_tokens: int = 0
     output_tokens: int = 0
@@ -91,6 +98,7 @@ class Task:
             "pid": self.pid,
             "cached_replies": self.cached_replies,
             "alias": self.alias,
+            "task_hash": self.task_hash,
             "needs_review": self.needs_review,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
@@ -111,6 +119,7 @@ class Task:
             pid=d.get("pid"),
             cached_replies=d.get("cached_replies", []),
             alias=d.get("alias"),
+            task_hash=d.get("task_hash"),
             needs_review=d.get("needs_review", False),
             input_tokens=d.get("input_tokens", 0),
             output_tokens=d.get("output_tokens", 0),

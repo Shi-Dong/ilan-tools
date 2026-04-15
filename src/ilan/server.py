@@ -17,9 +17,10 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from ilan import __version__, config as cfg, get_git_commit
-from ilan.models import Task, TaskStatus, validate_task_name
+from ilan.models import Task, TaskStatus, generate_task_hash, validate_task_name
 from ilan.runner import Runner
 from ilan.store import Store
+from ilan.tmux import kill_tmux_sessions_by_prefix
 
 POLL_INTERVAL = 3  # seconds
 DEFAULT_PORT = 4526
@@ -260,6 +261,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     created_at=now,
                     status_changed_at=now,
                     alias=alias,
+                    task_hash=generate_task_hash(),
                 )
                 self._ilan.store.put_task(task)
             self._ilan.nudge()
@@ -276,9 +278,12 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task = self._get_task_or_404(name)
                 if task is None:
                     return
+                task_hash = task.task_hash
                 if task.status == TaskStatus.WORKING:
                     self._ilan.runner.kill(task)
                 self._ilan.store.delete_task(task.name)
+            if task_hash:
+                kill_tmux_sessions_by_prefix(task_hash)
             self._json({"ok": True, "name": task.name})
 
         def handle_task_done(self, name: str):
@@ -292,6 +297,8 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task.alias = None
                 task.needs_review = False
                 self._ilan.store.put_task(task)
+            if task.task_hash:
+                kill_tmux_sessions_by_prefix(task.task_hash)
             self._json({"ok": True, "name": task.name})
 
         def handle_task_discard(self, name: str):
@@ -305,6 +312,8 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task.alias = None
                 task.needs_review = False
                 self._ilan.store.put_task(task)
+            if task.task_hash:
+                kill_tmux_sessions_by_prefix(task.task_hash)
             self._json({"ok": True, "name": task.name})
 
         def handle_task_undone(self, name: str):
@@ -379,6 +388,8 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 self._ilan.runner.kill(task)
                 task.set_status(TaskStatus.ERROR)
                 self._ilan.store.put_task(task)
+            if task.task_hash:
+                kill_tmux_sessions_by_prefix(task.task_hash)
             self._json({"ok": True, "name": task.name})
 
         def handle_task_rename(self, name: str):
