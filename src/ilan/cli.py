@@ -6,10 +6,14 @@ from __future__ import annotations
 
 import os
 import re
+import select
 import shutil
 import subprocess
+import sys
 import tempfile
+import termios
 import time
+import tty
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -17,6 +21,7 @@ from zoneinfo import ZoneInfo
 import click
 from click.shell_completion import get_completion_class
 from rich.console import Console
+from rich.live import Live
 from rich.table import Table
 from rich.text import Text
 
@@ -864,6 +869,124 @@ def shortcut_log(name: str, path: bool) -> None:
 def shortcut_logs(name: str, path: bool) -> None:
     """Shorthand for 'ilan task logs'."""
     _open_log(name, path=path)
+
+
+# ── dashboard ────────────────────────────────────────────────────────
+
+def _build_dashboard_table(rows: list[dict], tz: ZoneInfo) -> Table:
+    """Build a Rich Table from task rows, reusing the _do_ls format."""
+    now = datetime.now(tz)
+    header = Text()
+    header.append("ilan dashboard", style="bold")
+    header.append("  —  refreshed at ", style="dim")
+    header.append(now.strftime("%H:%M:%S %Z"), style="bold green")
+    header.append("  —  ", style="dim")
+    header.append("q", style="bold")
+    header.append(" quit  ", style="dim")
+    header.append("r", style="bold")
+    header.append(" refresh", style="dim")
+
+    table = Table(title=header, expand=True)
+    table.add_column("(Alias) Name", style="bold")
+    table.add_column("Status")
+    table.add_column("Cost", justify="right")
+    table.add_column("Created")
+    table.add_column("Last Changed")
+
+    if not rows:
+        table.add_row(Text("No active tasks.", style="dim"), "", "", "", "")
+        return table
+
+    for r in rows:
+        status = TaskStatus(r["status"])
+        style = STYLE_FOR_STATUS.get(status, "")
+        alias = r.get("alias") or ""
+        name_cell = Text()
+        if alias:
+            name_cell.append(f"({alias}) ", style=ALIAS_STYLE)
+        name_cell.append(r["name"], style="bold")
+        if r.get("needs_review"):
+            name_cell.append(" \u26a0\ufe0f")
+        changed = _format_ts(r["status_changed_at"]) if r.get("status_changed_at") else ""
+        cost = r.get("cost_usd", 0.0)
+        cost_cell = f"${cost:.2f}" if cost else "[dim]-[/dim]"
+        table.add_row(
+            name_cell,
+            Text(status.value, style=style),
+            cost_cell,
+            _format_ts(r["created_at"]),
+            changed,
+        )
+    return table
+
+
+def _do_dashboard() -> None:
+    """Full-screen real-time task dashboard (like htop)."""
+    client = _client()
+    tz = ZoneInfo(str(cfg.load().get("time-zone", "US/Pacific")))
+
+    # Snapshot of previous statuses for change detection.
+    prev_statuses: dict[str, str] = {}
+
+    def fetch_and_render() -> Table:
+        nonlocal prev_statuses
+        try:
+            resp = client.list_tasks(show_all=False)
+            rows = resp["tasks"]
+        except Exception:
+            rows = []
+
+        # Detect status changes and ring the bell.
+        cur_statuses = {r["name"]: r["status"] for r in rows}
+        if prev_statuses:
+            for name, status in cur_statuses.items():
+                old = prev_statuses.get(name)
+                if old is not None and old != status:
+                    sys.stdout.write("\a")
+                    sys.stdout.flush()
+                    break
+            else:
+                # Also bell if a brand-new task appeared.
+                for name in cur_statuses:
+                    if name not in prev_statuses:
+                        sys.stdout.write("\a")
+                        sys.stdout.flush()
+                        break
+        prev_statuses = cur_statuses
+
+        return _build_dashboard_table(rows, tz)
+
+    # Put terminal in raw mode to capture single keypresses.
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd)
+        with Live(fetch_and_render(), console=console, screen=True, refresh_per_second=1) as live:
+            last_poll = time.monotonic()
+            while True:
+                # Check for keypress (non-blocking).
+                rlist, _, _ = select.select([sys.stdin], [], [], 0.1)
+                if rlist:
+                    ch = sys.stdin.read(1)
+                    if ch in ("q", "Q", "\x03"):  # q or Ctrl-C
+                        break
+                    if ch in ("r", "R"):
+                        live.update(fetch_and_render())
+                        last_poll = time.monotonic()
+                        continue
+
+                # Auto-refresh every 2 seconds.
+                if time.monotonic() - last_poll >= 2.0:
+                    live.update(fetch_and_render())
+                    last_poll = time.monotonic()
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+
+@main.command("dashboard")
+def dashboard() -> None:
+    """Full-screen, real-time task dashboard (like htop)."""
+    _do_dashboard()
 
 
 # ── clean ────────────────────────────────────────────────────────────
