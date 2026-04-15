@@ -167,9 +167,9 @@ class TestUpdateWithBranch:
                     return _make_run(0, stdout="")
                 if cmd[0] == "git" and cmd[1] == "fetch":
                     return _make_run(0)
-                if cmd[0] == "git" and cmd[1] == "checkout" and "-b" not in cmd:
+                if cmd[0] == "git" and cmd[1] == "checkout" and "-B" not in cmd:
                     return _make_run(1, stderr="error: pathspec did not match")
-                if cmd[0] == "git" and cmd[1] == "checkout" and "-b" in cmd:
+                if cmd[0] == "git" and cmd[1] == "checkout" and "-B" in cmd:
                     return _make_run(0, stdout="Switched to a new branch 'shi/new-feature'")
                 if cmd[0] == "git" and cmd[1] == "pull":
                     return _make_run(0, stdout="Already up to date.")
@@ -180,9 +180,37 @@ class TestUpdateWithBranch:
             result = runner.invoke(main, ["update", "shi/new-feature"])
         assert result.exit_code == 0
         assert "updated successfully" in result.output
-        # Verify the fallback checkout was attempted.
-        tracking_cmds = [c for c in call_log if c[:2] == ["git", "checkout"] and "-b" in c]
+        # Verify the fallback checkout was attempted with -B (not -b).
+        tracking_cmds = [c for c in call_log if c[:2] == ["git", "checkout"] and "-B" in c]
         assert len(tracking_cmds) == 1
+
+    def test_branch_checkout_existing_local_branch(self) -> None:
+        """When 'git checkout <branch>' fails and the branch already exists locally,
+        the -B flag should reset it to track origin instead of failing."""
+        runner = CliRunner()
+        call_log: list[list[str]] = []
+        with patch("ilan.cli.subprocess.run") as mock_run:
+            def side_effect(cmd, **kw):
+                call_log.append(list(cmd))
+                if cmd[0] == "git" and cmd[1] == "status":
+                    return _make_run(0, stdout="")
+                if cmd[0] == "git" and cmd[1] == "fetch":
+                    return _make_run(0)
+                if cmd[0] == "git" and cmd[1] == "checkout" and "-B" not in cmd:
+                    # First checkout fails (e.g. conflict with untracked files)
+                    return _make_run(1, stderr="error: cannot checkout")
+                if cmd[0] == "git" and cmd[1] == "checkout" and "-B" in cmd:
+                    # -B succeeds even though the branch already exists
+                    return _make_run(0, stdout="Reset branch 'shi/dashboard'")
+                if cmd[0] == "git" and cmd[1] == "pull":
+                    return _make_run(0, stdout="Already up to date.")
+                if cmd[0] == "uv":
+                    return _make_run(0)
+                return _make_run(0)
+            mock_run.side_effect = side_effect
+            result = runner.invoke(main, ["update", "shi/dashboard"])
+        assert result.exit_code == 0
+        assert "updated successfully" in result.output
 
     def test_branch_pull_failure(self) -> None:
         runner = CliRunner()

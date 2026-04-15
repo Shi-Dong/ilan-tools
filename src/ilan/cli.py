@@ -989,9 +989,11 @@ def update(branch: str | None) -> None:
             cwd=repo, capture_output=True, text=True,
         )
         if checkout.returncode != 0:
-            # Branch may only exist on remote — try creating a local tracking branch.
+            # Branch may only exist on remote, or may exist locally but be
+            # stale.  Use -B so the command works whether or not a local
+            # branch with this name already exists.
             checkout = subprocess.run(
-                ["git", "checkout", "-b", branch, f"origin/{branch}"],
+                ["git", "checkout", "-B", branch, f"origin/{branch}"],
                 cwd=repo, capture_output=True, text=True,
             )
             if checkout.returncode != 0:
