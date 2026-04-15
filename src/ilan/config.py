@@ -12,11 +12,12 @@ DEFAULTS: dict[str, str | int] = {
     "time-zone": "US/Pacific",
     "editor": "emacs",
     "api-key": "",
+    "dashboard-interval": 1,
 }
 
 VALID_KEYS = set(DEFAULTS)
 
-INT_KEYS = {"num-agents"}
+INT_KEYS = {"num-agents", "dashboard-interval"}
 
 _CONFIG_DIR = Path("~/.config/ilan").expanduser()
 _CONFIG_FILE = _CONFIG_DIR / "config.json"

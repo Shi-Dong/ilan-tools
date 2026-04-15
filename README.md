@@ -126,6 +126,14 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan undone NAME` | `ilan task undone NAME` |
 | `ilan undiscard NAME` | `ilan task undiscard NAME` |
 
+### Dashboard
+
+```bash
+ilan dashboard
+```
+
+Full-screen, real-time task table (like `htop`). Polls the server at the configured `dashboard-interval` (default: every 1 second) and rings the terminal bell when a task's status changes. Keybindings: **q** quit, **r** force-refresh. The "refreshed at" timestamp uses the configured `time-zone`.
+
 ### Server
 
 | Command | Description |
@@ -157,6 +165,7 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 | `effort` | `high` | Effort level for the model |
 | `editor` | `emacs` | Editor used by `ilan task log` |
 | `api-key` | _(empty)_ | Anthropic API key passed as `ANTHROPIC_API_KEY` to spawned agents |
+| `dashboard-interval` | `1` | Seconds between automatic refreshes in `ilan dashboard` |
 
 ## Task lifecycle
 

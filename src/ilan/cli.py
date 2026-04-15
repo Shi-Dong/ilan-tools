@@ -926,7 +926,9 @@ def _build_dashboard_table(rows: list[dict], tz: ZoneInfo) -> Table:
 def _do_dashboard() -> None:
     """Full-screen real-time task dashboard (like htop)."""
     client = _client()
-    tz = ZoneInfo(str(cfg.load().get("time-zone", "US/Pacific")))
+    conf = cfg.load()
+    tz = ZoneInfo(str(conf.get("time-zone", "US/Pacific")))
+    interval = max(1, int(conf.get("dashboard-interval", 1)))
 
     # Snapshot of previous statuses for change detection.
     prev_statuses: dict[str, str] = {}
@@ -994,8 +996,8 @@ def _do_dashboard() -> None:
                         last_poll = time.monotonic()
                         continue
 
-                # Auto-refresh every 1 second.
-                if time.monotonic() - last_poll >= 1.0:
+                # Auto-refresh at the configured interval.
+                if time.monotonic() - last_poll >= interval:
                     _refresh(live)
                     last_poll = time.monotonic()
     finally:
