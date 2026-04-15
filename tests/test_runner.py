@@ -95,7 +95,7 @@ class TestBuildPrompt:
 
 
 class TestTmuxInstruction:
-    def test_contains_session_name(self) -> None:
+    def test_contains_default_session_name(self) -> None:
         instr = _tmux_instruction("abc12345", "my-task")
         assert "abc12345-claude-my-task" in instr
 
@@ -106,6 +106,10 @@ class TestTmuxInstruction:
     def test_contains_requirement_keyword(self) -> None:
         instr = _tmux_instruction("abc12345", "my-task")
         assert "TMUX SESSION REQUIREMENT" in instr
+
+    def test_mentions_prefix_for_additional_sessions(self) -> None:
+        instr = _tmux_instruction("abc12345", "my-task")
+        assert "prefixed with `abc12345`" in instr
 
 
 # ── STATUS_SUFFIX ───────────────────────────────────────────────────────
