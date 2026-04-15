@@ -6,10 +6,14 @@ from __future__ import annotations
 
 import os
 import re
+import select
 import shutil
 import subprocess
+import sys
 import tempfile
+import termios
 import time
+import tty
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -17,6 +21,7 @@ from zoneinfo import ZoneInfo
 import click
 from click.shell_completion import get_completion_class
 from rich.console import Console
+from rich.live import Live
 from rich.table import Table
 from rich.text import Text
 
@@ -45,6 +50,21 @@ def _client() -> Client:
     if c.version_mismatch:
         console.print(f"[yellow]Warning: ilan commit mismatch ({c.version_mismatch})[/yellow]")
     return c
+
+
+def _format_elapsed(iso: str) -> str:
+    """Return a human-readable elapsed duration like ``01h23m06s``."""
+    try:
+        dt = datetime.fromisoformat(iso)
+        delta = datetime.now(timezone.utc) - dt.astimezone(timezone.utc)
+        total = int(delta.total_seconds())
+        if total < 0:
+            total = 0
+        h, rem = divmod(total, 3600)
+        m, s = divmod(rem, 60)
+        return f"{h:02d}h{m:02d}m{s:02d}s"
+    except Exception:
+        return ""
 
 
 def _format_ts(iso: str) -> str:
@@ -350,12 +370,17 @@ def _do_ls(show_all: bool) -> None:
         name_cell.append(r["name"], style="bold")
         if r.get("needs_review"):
             name_cell.append(" \u26a0\ufe0f")
+        status_cell = Text(status.value, style=style)
+        if status == TaskStatus.WORKING and r.get("status_changed_at"):
+            elapsed = _format_elapsed(r["status_changed_at"])
+            if elapsed:
+                status_cell.append(f" (for {elapsed})", style="dim")
         changed = _format_ts(r["status_changed_at"]) if r.get("status_changed_at") else ""
         cost = r.get("cost_usd", 0.0)
         cost_cell = f"${cost:.2f}" if cost else "[dim]-[/dim]"
         table.add_row(
             name_cell,
-            Text(status.value, style=style),
+            status_cell,
             cost_cell,
             _format_ts(r["created_at"]),
             changed,
@@ -864,6 +889,150 @@ def shortcut_log(name: str, path: bool) -> None:
 def shortcut_logs(name: str, path: bool) -> None:
     """Shorthand for 'ilan task logs'."""
     _open_log(name, path=path)
+
+
+# ── dashboard ────────────────────────────────────────────────────────
+
+def _build_dashboard_table(rows: list[dict], tz: ZoneInfo) -> Table:
+    """Build a Rich Table from task rows, reusing the _do_ls format."""
+    now = datetime.now(tz)
+    header = Text()
+    header.append("ilan dashboard", style="bold")
+    header.append("  —  refreshed at ", style="dim")
+    header.append(now.strftime("%H:%M:%S %Z"), style="bold green")
+    header.append("  —  ", style="dim")
+    header.append("q", style="bold")
+    header.append(" quit  ", style="dim")
+    header.append("r", style="bold")
+    header.append(" refresh", style="dim")
+
+    table = Table(title=header, expand=True)
+    table.add_column("(Alias) Name", style="bold")
+    table.add_column("Status")
+    table.add_column("Cost", justify="right")
+    table.add_column("Created")
+    table.add_column("Last Changed")
+
+    if not rows:
+        table.add_row(Text("No active tasks.", style="dim"), "", "", "", "")
+        return table
+
+    for r in rows:
+        status = TaskStatus(r["status"])
+        style = STYLE_FOR_STATUS.get(status, "")
+        alias = r.get("alias") or ""
+        name_cell = Text()
+        if alias:
+            name_cell.append(f"({alias}) ", style=ALIAS_STYLE)
+        name_cell.append(r["name"], style="bold")
+        if r.get("needs_review"):
+            # Use an ASCII marker instead of the ⚠️ emoji.  The emoji
+            # (U+26A0 + VS16) has unpredictable terminal width that
+            # causes table misalignment in Rich's Live display.
+            name_cell.append(" !!", style="bold yellow")
+        status_cell = Text(status.value, style=style)
+        if status == TaskStatus.WORKING and r.get("status_changed_at"):
+            elapsed = _format_elapsed(r["status_changed_at"])
+            if elapsed:
+                status_cell.append(f" (for {elapsed})", style="dim")
+        changed = _format_ts(r["status_changed_at"]) if r.get("status_changed_at") else ""
+        cost = r.get("cost_usd", 0.0)
+        cost_cell = f"${cost:.2f}" if cost else "[dim]-[/dim]"
+        table.add_row(
+            name_cell,
+            status_cell,
+            cost_cell,
+            _format_ts(r["created_at"]),
+            changed,
+        )
+    return table
+
+
+def _do_dashboard() -> None:
+    """Full-screen real-time task dashboard (like htop)."""
+    client = _client()
+    conf = cfg.load()
+    tz = ZoneInfo(str(conf.get("time-zone", "US/Pacific")))
+    interval = max(1, int(conf.get("dashboard-interval", 1)))
+
+    # Snapshot of previous statuses for change detection.
+    prev_statuses: dict[str, str] = {}
+
+    def fetch_and_render() -> tuple[Table, bool]:
+        """Poll tasks and build the table.
+
+        Returns ``(table, should_bell)`` — the bell flag is True when a
+        task's status changed or a new task appeared since the last poll.
+        The caller is responsible for ringing the bell *after*
+        ``live.update()`` so the raw ``\\a`` byte doesn't corrupt Rich's
+        escape-sequence stream.
+        """
+        nonlocal prev_statuses
+        try:
+            resp = client.list_tasks(show_all=False)
+            rows = resp["tasks"]
+        except Exception:
+            rows = []
+
+        # Detect status changes.
+        cur_statuses = {r["name"]: r["status"] for r in rows}
+        bell = False
+        if prev_statuses:
+            for name, status in cur_statuses.items():
+                old = prev_statuses.get(name)
+                if old is not None and old != status:
+                    bell = True
+                    break
+            else:
+                # Also bell if a brand-new task appeared.
+                for name in cur_statuses:
+                    if name not in prev_statuses:
+                        bell = True
+                        break
+        prev_statuses = cur_statuses
+
+        return _build_dashboard_table(rows, tz), bell
+
+    def _refresh(live: Live) -> None:
+        table, bell = fetch_and_render()
+        live.update(table)
+        if bell:
+            # Write directly to the underlying fd so the bell byte is
+            # emitted *after* Live has finished its screen update.
+            os.write(sys.stdout.fileno(), b"\a")
+
+    # Put terminal in raw mode to capture single keypresses.
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd)
+        initial_table, _ = fetch_and_render()
+        with Live(initial_table, console=console, screen=True, refresh_per_second=1) as live:
+            last_poll = time.monotonic()
+            while True:
+                # Check for keypress (non-blocking).
+                rlist, _, _ = select.select([sys.stdin], [], [], 0.1)
+                if rlist:
+                    ch = sys.stdin.read(1)
+                    if ch in ("q", "Q", "\x03"):  # q or Ctrl-C
+                        break
+                    if ch in ("r", "R"):
+                        _refresh(live)
+                        last_poll = time.monotonic()
+                        continue
+
+                # Auto-refresh at the configured interval.
+                if time.monotonic() - last_poll >= interval:
+                    _refresh(live)
+                    last_poll = time.monotonic()
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+
+@main.command("dashboard")
+def dashboard() -> None:
+    """Full-screen, real-time task dashboard (like htop)."""
+    _do_dashboard()
 
 
 # ── clean ────────────────────────────────────────────────────────────

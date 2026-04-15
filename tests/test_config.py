@@ -12,14 +12,14 @@ import ilan.config as cfg
 
 class TestDefaults:
     def test_default_keys(self) -> None:
-        expected = {"workdir", "num-agents", "model", "effort", "time-zone", "editor", "api-key"}
+        expected = {"workdir", "num-agents", "model", "effort", "time-zone", "editor", "api-key", "dashboard-interval"}
         assert set(cfg.DEFAULTS.keys()) == expected
 
     def test_valid_keys_matches_defaults(self) -> None:
         assert cfg.VALID_KEYS == set(cfg.DEFAULTS.keys())
 
     def test_int_keys(self) -> None:
-        assert cfg.INT_KEYS == {"num-agents"}
+        assert cfg.INT_KEYS == {"num-agents", "dashboard-interval"}
 
 
 class TestLoad:
