@@ -95,7 +95,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task path NAME` | Print the Claude Code session log path for a task |
 | `ilan task tail NAME` | Show the last assistant message + any user replies after it |
 | `ilan task reply NAME ["msg"]` | Send a reply to an agent (omit message to show tail) |
-| `ilan task tap NAME` | Ask a `WORKING` agent for a status update |
+| `ilan task tap NAME` | Ask for a status update (nudges `WORKING` agents; re-prompts `AGENT_FINISHED`/`NEEDS_ATTENTION` tasks) |
 | `ilan task log [-p] NAME` | Open the full conversation log in your editor (`-p` prints the log file path instead) |
 | `ilan task rename OLD NEW` | Rename a task |
 | `ilan task kill NAME` | Kill a `WORKING` agent, move task to `ERROR` |

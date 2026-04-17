@@ -480,6 +480,13 @@ def task_reply(name: str, message: str | None) -> None:
 TAP_MESSAGE = "How are things now? Give me a summary of the current situation."
 
 
+TAP_ALLOWED_STATUSES = (
+    TaskStatus.WORKING,
+    TaskStatus.AGENT_FINISHED,
+    TaskStatus.NEEDS_ATTENTION,
+)
+
+
 def _do_tap(name: str) -> None:
     client = _client()
     resp = client.get_task(name)
@@ -488,10 +495,11 @@ def _do_tap(name: str) -> None:
     t = resp["task"]
     task_name = t["name"]
     status = TaskStatus(t["status"])
-    if status != TaskStatus.WORKING:
+    if status not in TAP_ALLOWED_STATUSES:
+        allowed = ", ".join(s.value for s in TAP_ALLOWED_STATUSES)
         console.print(
-            f"[yellow]Task [bold]{task_name}[/bold] is {status.value}, not WORKING. "
-            f"Tap only works on WORKING tasks.[/yellow]"
+            f"[yellow]Task [bold]{task_name}[/bold] is {status.value}. "
+            f"Tap only works on tasks whose status is one of: {allowed}.[/yellow]"
         )
         return
     _do_reply(task_name, TAP_MESSAGE)
@@ -500,7 +508,7 @@ def _do_tap(name: str) -> None:
 @task_group.command("tap")
 @click.argument("name", shell_complete=_complete_task_names)
 def task_tap(name: str) -> None:
-    """Ask a WORKING agent for a status update."""
+    """Ask a WORKING / AGENT_FINISHED / NEEDS_ATTENTION agent for a status update."""
     _do_tap(name)
 
 
