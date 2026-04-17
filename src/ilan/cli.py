@@ -1206,7 +1206,6 @@ def update(branch: str | None) -> None:
         if pull.returncode != 0:
             console.print(f"[red]git pull failed:[/red]\n{pull.stderr.strip()}")
             raise SystemExit(1)
-        console.print(pull.stdout.strip())
     else:
         # Default: pull current branch (main).
         console.print("[dim]Pulling latest changes…[/dim]")
@@ -1217,7 +1216,6 @@ def update(branch: str | None) -> None:
         if pull.returncode != 0:
             console.print(f"[red]git pull failed:[/red]\n{pull.stderr.strip()}")
             raise SystemExit(1)
-        console.print(pull.stdout.strip())
 
     # reinstall
     console.print("[dim]Reinstalling…[/dim]")
