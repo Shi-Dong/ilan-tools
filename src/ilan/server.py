@@ -62,6 +62,7 @@ ROUTES: list[tuple[str, str, str]] = [
     ("POST",   r"^/tasks/([^/]+)/discard$",    "handle_task_discard"),
     ("POST",   r"^/tasks/([^/]+)/undone$",     "handle_task_undone"),
     ("POST",   r"^/tasks/([^/]+)/undiscard$",  "handle_task_undiscard"),
+    ("POST",   r"^/tasks/([^/]+)/unread$",     "handle_task_unread"),
     ("POST",   r"^/tasks/([^/]+)/reply$",      "handle_task_reply"),
     ("POST",   r"^/tasks/([^/]+)/kill$",       "handle_task_kill"),
     ("POST",   r"^/tasks/([^/]+)/rename$",     "handle_task_rename"),
@@ -340,6 +341,16 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task.set_status(TaskStatus.NEEDS_ATTENTION)
                 task.alias = self._ilan.store.next_available_alias()
                 self._ilan.store.put_task(task)
+            self._json({"ok": True, "name": task.name})
+
+        def handle_task_unread(self, name: str):
+            with self._ilan.lock:
+                task = self._get_task_or_404(name)
+                if task is None:
+                    return
+                if not task.needs_review:
+                    task.needs_review = True
+                    self._ilan.store.put_task(task)
             self._json({"ok": True, "name": task.name})
 
         def handle_task_reply(self, name: str):

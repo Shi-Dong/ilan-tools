@@ -213,3 +213,45 @@ class TestUndiscardShorthand:
     def test_undiscard_no_args_shows_usage(self, runner: CliRunner, tmp_config) -> None:
         result = runner.invoke(main, ["undiscard"])
         assert result.exit_code != 0
+
+
+# ── ilan unread ─────────────────────────────────────────────────────
+
+
+class TestUnreadShorthand:
+    def test_unread_success(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.mark_unread.return_value = {"name": "my-task"}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["unread", "my-task"])
+        assert result.exit_code == 0
+        assert "unread" in result.output
+        client.mark_unread.assert_called_once_with("my-task")
+
+    def test_task_unread_success(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.mark_unread.return_value = {"name": "my-task"}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["task", "unread", "my-task"])
+        assert result.exit_code == 0
+        assert "unread" in result.output
+
+    def test_unread_multiple(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.mark_unread.side_effect = [{"name": "a"}, {"name": "b"}]
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["unread", "a", "b"])
+        assert result.exit_code == 0
+        assert client.mark_unread.call_count == 2
+
+    def test_unread_error(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.mark_unread.return_value = {"error": "Task 'bad' not found"}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["unread", "bad"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_unread_no_args_shows_usage(self, runner: CliRunner, tmp_config) -> None:
+        result = runner.invoke(main, ["unread"])
+        assert result.exit_code != 0

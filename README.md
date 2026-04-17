@@ -104,6 +104,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task discard NAME [NAME...]` | Mark task(s) as `DISCARDED` |
 | `ilan task undone NAME` | Move a `DONE` task back to `NEEDS_ATTENTION` |
 | `ilan task undiscard NAME` | Move a `DISCARDED` task back to `NEEDS_ATTENTION` |
+| `ilan task unread NAME [NAME...]` | Restore the unread marker on task(s) |
 | `ilan task rm NAME [NAME...]` | Delete task(s) and all their data |
 
 ### Shorthands
@@ -125,6 +126,7 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan discard NAME [NAME...]` | `ilan task discard NAME [NAME...]` |
 | `ilan undone NAME` | `ilan task undone NAME` |
 | `ilan undiscard NAME` | `ilan task undiscard NAME` |
+| `ilan unread NAME [NAME...]` | `ilan task unread NAME [NAME...]` |
 
 ### Dashboard
 
