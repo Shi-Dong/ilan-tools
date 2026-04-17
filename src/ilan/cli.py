@@ -773,6 +773,29 @@ def task_undiscard(name: str) -> None:
     _do_undiscard(name)
 
 
+# ── task unread ──────────────────────────────────────────────────────
+
+def _do_unread(names: tuple[str, ...]) -> None:
+    client = _client()
+    failed = False
+    for name in names:
+        resp = client.mark_unread(name)
+        if _check_error(resp):
+            failed = True
+        else:
+            task_name = resp.get("name", name)
+            console.print(f"[yellow]Task [bold]{task_name}[/bold] marked unread.[/yellow]")
+    if failed:
+        raise SystemExit(1)
+
+
+@task_group.command("unread")
+@click.argument("names", nargs=-1, required=True, shell_complete=_complete_task_names)
+def task_unread(names: tuple[str, ...]) -> None:
+    """Restore the unread marker on one or more tasks."""
+    _do_unread(names)
+
+
 # ── top-level shorthands ─────────────────────────────────────────────
 
 @main.command("add")
@@ -851,6 +874,13 @@ def shortcut_undone(name: str) -> None:
 def shortcut_undiscard(name: str) -> None:
     """Shorthand for 'ilan task undiscard'."""
     _do_undiscard(name)
+
+
+@main.command("unread")
+@click.argument("names", nargs=-1, required=True, shell_complete=_complete_task_names)
+def shortcut_unread(names: tuple[str, ...]) -> None:
+    """Shorthand for 'ilan task unread'."""
+    _do_unread(names)
 
 
 @main.command("rename")

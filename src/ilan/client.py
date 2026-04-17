@@ -179,6 +179,7 @@ class Client:
     def mark_discard(self, name: str) -> dict:   return self.post(f"/tasks/{name}/discard")
     def undone(self, name: str) -> dict:         return self.post(f"/tasks/{name}/undone")
     def undiscard(self, name: str) -> dict:      return self.post(f"/tasks/{name}/undiscard")
+    def mark_unread(self, name: str) -> dict:    return self.post(f"/tasks/{name}/unread")
     def kill_task(self, name: str) -> dict:      return self.post(f"/tasks/{name}/kill")
     def get_logs(self, name: str) -> dict:       return self.get(f"/tasks/{name}/logs")
     def get_log_path(self, name: str) -> dict:   return self.get(f"/tasks/{name}/log-path")

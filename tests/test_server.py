@@ -461,6 +461,31 @@ class TestNeedsReview:
         task = _get(ilan_server, "/tasks/nr-disc")["task"]
         assert task["needs_review"] is False
 
+    def test_unread_restores_needs_review(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "nr-unread", "prompt": "P"})
+        _set_needs_review(ilan_server, "nr-unread")
+        ilan_server.store.append_log("nr-unread", "assistant", "done")
+        _get(ilan_server, "/tasks/nr-unread/tail")
+
+        task = _get(ilan_server, "/tasks/nr-unread")["task"]
+        assert task["needs_review"] is False
+
+        resp = _post(ilan_server, "/tasks/nr-unread/unread")
+        assert resp.get("ok") is True
+
+        task = _get(ilan_server, "/tasks/nr-unread")["task"]
+        assert task["needs_review"] is True
+
+    def test_unread_is_idempotent(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "nr-idem", "prompt": "P"})
+        _set_needs_review(ilan_server, "nr-idem")
+
+        resp = _post(ilan_server, "/tasks/nr-idem/unread")
+        assert resp.get("ok") is True
+
+        task = _get(ilan_server, "/tasks/nr-idem")["task"]
+        assert task["needs_review"] is True
+
 
 # ── Kill ────────────────────────────────────────────────────────────────
 
