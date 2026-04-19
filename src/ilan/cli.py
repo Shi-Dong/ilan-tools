@@ -432,14 +432,18 @@ def task_path(name: str) -> None:
 def _do_tail(name: str, n: int | None = None) -> None:
     client = _client()
     if n is not None:
-        # Slice client-side via /logs so the flag works against older servers
-        # that don't yet parse ?n=N on /tail.
+        # Fetch the full log buffer and slice locally. Trades bandwidth for
+        # compatibility with servers that predate `?n=N` on /tail — worth it
+        # because `ilan update` does not restart the long-running server.
         resp = client.get_logs(name)
         if _check_error(resp):
             raise SystemExit(1)
+        if resp.get("warning"):
+            console.print(f"[yellow]{resp['warning']}[/yellow]")
         entries = resp.get("logs", [])
         if not entries:
-            console.print("[yellow]No logs yet.[/yellow]")
+            if not resp.get("warning"):
+                console.print("[yellow]No logs yet.[/yellow]")
             return
         entries = entries[-n:]
     else:

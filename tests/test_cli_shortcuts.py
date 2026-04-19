@@ -264,6 +264,21 @@ class TestTailNFlag:
         assert result.exit_code == 0
         assert "No logs yet." in result.output
 
+    def test_tail_n_propagates_warning(self, runner: CliRunner, tmp_config) -> None:
+        """A warning on /logs should surface to `-n` users too."""
+        client = _make_client()
+        client.get_logs.return_value = {
+            "logs": [
+                {"role": "assistant", "content": "kept", "timestamp": "2026-04-13T00:00:00+00:00"},
+            ],
+            "warning": "Log was compacted.",
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["tail", "my-task", "-n", "1"])
+        assert result.exit_code == 0
+        assert "Log was compacted." in result.output
+        assert "kept" in result.output
+
     def test_tail_n_error_forwarded(self, runner: CliRunner, tmp_config) -> None:
         client = _make_client()
         client.get_logs.return_value = {"error": "Task 'no-such' not found"}
