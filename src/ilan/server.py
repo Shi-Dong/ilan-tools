@@ -443,6 +443,19 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             self._json({"path": str(path)})
 
         def handle_task_tail(self, name: str):
+            qs = self.path.split("?", 1)[1] if "?" in self.path else ""
+            n: int | None = None
+            for part in qs.split("&"):
+                if part.startswith("n="):
+                    try:
+                        n = int(part[2:])
+                    except ValueError:
+                        self._json({"error": "n must be an integer"}, 400)
+                        return
+                    if n <= 0:
+                        self._json({"error": "n must be positive"}, 400)
+                        return
+
             with self._ilan.lock:
                 task = self._get_task_or_404(name)
                 if task is None:
@@ -454,6 +467,11 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
 
             if not entries:
                 self._json({"entries": [], "warning": "No logs yet."})
+                return
+
+            if n is not None:
+                selected = entries[-n:]
+                self._json({"entries": [e.to_dict() for e in selected]})
                 return
 
             last_asst = None
