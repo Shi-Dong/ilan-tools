@@ -430,15 +430,32 @@ def task_path(name: str) -> None:
 # ── task tail ────────────────────────────────────────────────────────
 
 def _do_tail(name: str, n: int | None = None) -> None:
-    resp = _client().get_tail(name, n=n)
-    if _check_error(resp):
-        raise SystemExit(1)
+    client = _client()
+    if n is not None:
+        # Fetch the full log buffer and slice locally. Trades bandwidth for
+        # compatibility with servers that predate `?n=N` on /tail — worth it
+        # because `ilan update` does not restart the long-running server.
+        resp = client.get_logs(name)
+        if _check_error(resp):
+            raise SystemExit(1)
+        if resp.get("warning"):
+            console.print(f"[yellow]{resp['warning']}[/yellow]")
+        entries = resp.get("logs", [])
+        if not entries:
+            if not resp.get("warning"):
+                console.print("[yellow]No logs yet.[/yellow]")
+            return
+        entries = entries[-n:]
+    else:
+        resp = client.get_tail(name)
+        if _check_error(resp):
+            raise SystemExit(1)
+        if resp.get("warning"):
+            console.print(f"[yellow]{resp['warning']}[/yellow]")
+            return
+        entries = resp["entries"]
 
-    if resp.get("warning"):
-        console.print(f"[yellow]{resp['warning']}[/yellow]")
-        return
-
-    for entry in resp["entries"]:
+    for entry in entries:
         label = "Assistant" if entry["role"] == "assistant" else "User"
         style = "bold cyan" if entry["role"] == "assistant" else "bold green"
         ts = _format_ts(entry["timestamp"]) if entry.get("timestamp") else ""
