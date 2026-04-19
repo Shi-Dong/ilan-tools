@@ -98,7 +98,7 @@ class TestLsWithName:
             result = runner.invoke(main, ["ls", "my-task"])
         assert result.exit_code == 0
         assert "Hello from tail" in result.output
-        client.get_tail.assert_called_once_with("my-task")
+        client.get_tail.assert_called_once_with("my-task", n=None)
         client.list_tasks.assert_not_called()
 
     def test_task_ls_name_calls_tail(self, runner: CliRunner, tmp_config) -> None:
@@ -117,7 +117,7 @@ class TestLsWithName:
             result = runner.invoke(main, ["task", "ls", "my-task"])
         assert result.exit_code == 0
         assert "Tail via task subcommand" in result.output
-        client.get_tail.assert_called_once_with("my-task")
+        client.get_tail.assert_called_once_with("my-task", n=None)
 
     def test_ls_name_error_forwarded(self, runner: CliRunner, tmp_config) -> None:
         """If the task doesn't exist, the error from get_tail is shown."""
@@ -144,7 +144,101 @@ class TestLsWithName:
             result = runner.invoke(main, ["ls", "aa"])
         assert result.exit_code == 0
         assert "Alias tail" in result.output
-        client.get_tail.assert_called_once_with("aa")
+        client.get_tail.assert_called_once_with("aa", n=None)
+
+
+# ── -n flag on tail / ls / re ───────────────────────────────────────
+
+
+class TestTailNFlag:
+    @staticmethod
+    def _tail_response() -> dict:
+        return {
+            "entries": [
+                {"role": "user", "content": "u1", "timestamp": "2026-04-13T00:00:00+00:00"},
+                {"role": "assistant", "content": "a1", "timestamp": "2026-04-13T00:00:01+00:00"},
+                {"role": "user", "content": "u2", "timestamp": "2026-04-13T00:00:02+00:00"},
+                {"role": "assistant", "content": "a2", "timestamp": "2026-04-13T00:00:03+00:00"},
+            ],
+        }
+
+    def test_ilan_tail_n_passes_flag(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.get_tail.return_value = self._tail_response()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["tail", "my-task", "-n", "4"])
+        assert result.exit_code == 0
+        client.get_tail.assert_called_once_with("my-task", n=4)
+        assert "u1" in result.output
+        assert "a2" in result.output
+
+    def test_task_tail_n_passes_flag(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.get_tail.return_value = self._tail_response()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["task", "tail", "my-task", "-n", "2"])
+        assert result.exit_code == 0
+        client.get_tail.assert_called_once_with("my-task", n=2)
+
+    def test_ls_name_n_passes_flag(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.get_tail.return_value = self._tail_response()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["ls", "my-task", "-n", "3"])
+        assert result.exit_code == 0
+        client.get_tail.assert_called_once_with("my-task", n=3)
+        client.list_tasks.assert_not_called()
+
+    def test_task_ls_name_n_passes_flag(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.get_tail.return_value = self._tail_response()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["task", "ls", "my-task", "-n", "2"])
+        assert result.exit_code == 0
+        client.get_tail.assert_called_once_with("my-task", n=2)
+
+    def test_re_no_message_n_passes_flag(self, runner: CliRunner, tmp_config) -> None:
+        """`ilan re my-task -n 4` should tail with n=4 (no message → tail)."""
+        client = _make_client()
+        client.get_tail.return_value = self._tail_response()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["re", "my-task", "-n", "4"])
+        assert result.exit_code == 0
+        client.get_tail.assert_called_once_with("my-task", n=4)
+        client.reply.assert_not_called()
+
+    def test_reply_no_message_n_passes_flag(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.get_tail.return_value = self._tail_response()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["reply", "my-task", "-n", "2"])
+        assert result.exit_code == 0
+        client.get_tail.assert_called_once_with("my-task", n=2)
+
+    def test_task_reply_no_message_n_passes_flag(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.get_tail.return_value = self._tail_response()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["task", "reply", "my-task", "-n", "2"])
+        assert result.exit_code == 0
+        client.get_tail.assert_called_once_with("my-task", n=2)
+
+    def test_re_with_message_ignores_n(self, runner: CliRunner, tmp_config) -> None:
+        """When a message is given, -n is irrelevant and reply is called."""
+        client = _make_client()
+        client.reply.return_value = {"message": "replied"}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["re", "my-task", "hello"])
+        assert result.exit_code == 0
+        client.reply.assert_called_once_with("my-task", "hello")
+        client.get_tail.assert_not_called()
+
+    def test_tail_n_invalid_int(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["tail", "my-task", "-n", "abc"])
+        assert result.exit_code != 0
+        client.get_tail.assert_not_called()
 
 
 # ── ilan undone ─────────────────────────────────────────────────────

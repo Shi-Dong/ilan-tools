@@ -183,7 +183,11 @@ class Client:
     def kill_task(self, name: str) -> dict:      return self.post(f"/tasks/{name}/kill")
     def get_logs(self, name: str) -> dict:       return self.get(f"/tasks/{name}/logs")
     def get_log_path(self, name: str) -> dict:   return self.get(f"/tasks/{name}/log-path")
-    def get_tail(self, name: str) -> dict:       return self.get(f"/tasks/{name}/tail")
+    def get_tail(self, name: str, n: int | None = None) -> dict:
+        path = f"/tasks/{name}/tail"
+        if n is not None:
+            path = f"{path}?n={n}"
+        return self.get(path)
     def get_path(self, name: str) -> dict:       return self.get(f"/tasks/{name}/path")
 
     def rename_task(self, old_name: str, new_name: str) -> dict:

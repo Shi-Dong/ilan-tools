@@ -391,10 +391,12 @@ def _do_ls(show_all: bool) -> None:
 @task_group.command("ls")
 @click.argument("name", required=False, default=None, shell_complete=_complete_task_names)
 @click.option("-a", "--all", "show_all", is_flag=True, help="Include DONE and DISCARDED tasks.")
-def task_ls(name: str | None, show_all: bool) -> None:
+@click.option("-n", "--num", "num", type=int, default=None,
+              help="When a task name is given, show the final N messages.")
+def task_ls(name: str | None, show_all: bool, num: int | None) -> None:
     """List tasks, or tail a specific task."""
     if name is not None:
-        _do_tail(name)
+        _do_tail(name, n=num)
     else:
         _do_ls(show_all)
 
@@ -427,8 +429,8 @@ def task_path(name: str) -> None:
 
 # ── task tail ────────────────────────────────────────────────────────
 
-def _do_tail(name: str) -> None:
-    resp = _client().get_tail(name)
+def _do_tail(name: str, n: int | None = None) -> None:
+    resp = _client().get_tail(name, n=n)
     if _check_error(resp):
         raise SystemExit(1)
 
@@ -447,9 +449,14 @@ def _do_tail(name: str) -> None:
 
 @task_group.command("tail")
 @click.argument("name", shell_complete=_complete_task_names)
-def task_tail(name: str) -> None:
-    """Show the last assistant message and any user messages after it."""
-    _do_tail(name)
+@click.option("-n", "--num", "num", type=int, default=None,
+              help="Show the final N messages (assistant + user combined).")
+def task_tail(name: str, num: int | None) -> None:
+    """Show the last assistant message and any user messages after it.
+
+    With -n N, show the final N messages (assistant + user combined).
+    """
+    _do_tail(name, n=num)
 
 
 # ── task reply ───────────────────────────────────────────────────────
@@ -467,10 +474,12 @@ def _do_reply(name: str, message: str) -> None:
 @task_group.command("reply")
 @click.argument("name", shell_complete=_complete_task_names)
 @click.argument("message", required=False, default=None)
-def task_reply(name: str, message: str | None) -> None:
+@click.option("-n", "--num", "num", type=int, default=None,
+              help="When no message is given, show the final N messages.")
+def task_reply(name: str, message: str | None, num: int | None) -> None:
     """Send a response to a task. If no message is given, show the tail instead."""
     if message is None:
-        _do_tail(name)
+        _do_tail(name, n=num)
     else:
         _do_reply(name, message)
 
@@ -819,28 +828,34 @@ def shortcut_add(name: str, file_path: str | None, description: str | None) -> N
 @main.command("ls")
 @click.argument("name", required=False, default=None, shell_complete=_complete_task_names)
 @click.option("-a", "--all", "show_all", is_flag=True, help="Include DONE and DISCARDED tasks.")
-def shortcut_ls(name: str | None, show_all: bool) -> None:
+@click.option("-n", "--num", "num", type=int, default=None,
+              help="When a task name is given, show the final N messages.")
+def shortcut_ls(name: str | None, show_all: bool, num: int | None) -> None:
     """Shorthand for 'ilan task ls'. If a task name is given, acts as 'ilan tail'."""
     if name is not None:
-        _do_tail(name)
+        _do_tail(name, n=num)
     else:
         _do_ls(show_all)
 
 
 @main.command("tail")
 @click.argument("name", shell_complete=_complete_task_names)
-def shortcut_tail(name: str) -> None:
+@click.option("-n", "--num", "num", type=int, default=None,
+              help="Show the final N messages (assistant + user combined).")
+def shortcut_tail(name: str, num: int | None) -> None:
     """Shorthand for 'ilan task tail'."""
-    _do_tail(name)
+    _do_tail(name, n=num)
 
 
 @main.command("reply")
 @click.argument("name", shell_complete=_complete_task_names)
 @click.argument("message", required=False, default=None)
-def shortcut_reply(name: str, message: str | None) -> None:
+@click.option("-n", "--num", "num", type=int, default=None,
+              help="When no message is given, show the final N messages.")
+def shortcut_reply(name: str, message: str | None, num: int | None) -> None:
     """Shorthand for 'ilan task reply'."""
     if message is None:
-        _do_tail(name)
+        _do_tail(name, n=num)
     else:
         _do_reply(name, message)
 
@@ -848,10 +863,12 @@ def shortcut_reply(name: str, message: str | None) -> None:
 @main.command("re")
 @click.argument("name", shell_complete=_complete_task_names)
 @click.argument("message", required=False, default=None)
-def shortcut_re(name: str, message: str | None) -> None:
+@click.option("-n", "--num", "num", type=int, default=None,
+              help="When no message is given, show the final N messages.")
+def shortcut_re(name: str, message: str | None, num: int | None) -> None:
     """Shorthand for 'ilan task reply'."""
     if message is None:
-        _do_tail(name)
+        _do_tail(name, n=num)
     else:
         _do_reply(name, message)
 
