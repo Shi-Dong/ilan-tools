@@ -9,6 +9,8 @@ DEFAULTS: dict[str, str | int] = {
     "num-agents": 5,
     "model": "opus",
     "effort": "high",
+    "summarize-model": "sonnet",
+    "summarize-effort": "medium",
     "time-zone": "US/Pacific",
     "editor": "emacs",
     "api-key": "",

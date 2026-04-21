@@ -26,6 +26,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ilan import config as cfg
+from ilan import summarize as summarize_mod
 from ilan.client import Client
 from ilan.models import STYLE_FOR_STATUS, TaskStatus
 from ilan.runner import Runner
@@ -698,6 +699,59 @@ def task_logs(name: str, path: bool) -> None:
     _open_log(name, path=path)
 
 
+# ── task summarize ───────────────────────────────────────────────────
+
+def _do_summarize(name: str) -> None:
+    """Generate (or reuse) a summary for a task and open it in the editor."""
+    client = Client()
+    if client.is_remote:
+        console.print(
+            "[red]ilan summarize can only be run from the host machine "
+            "where the ilan server is running.[/red]"
+        )
+        raise SystemExit(1)
+
+    if shutil.which("claude") is None:
+        console.print(
+            "[red]claude CLI not found on PATH — ilan summarize needs it "
+            "to generate summaries.[/red]"
+        )
+        raise SystemExit(1)
+
+    try:
+        with console.status("[dim]Summarizing task…[/dim]", spinner="dots"):
+            result = summarize_mod.summarize(name)
+    except ValueError as exc:
+        console.print(f"[yellow]{exc}[/yellow]")
+        raise SystemExit(1)
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1)
+
+    if result.reused:
+        console.print(
+            f"[dim]Task unchanged since last summary — reusing[/dim] "
+            f"[bold]{result.summary_path}[/bold]"
+        )
+    else:
+        console.print(f"[green]Summary written to[/green] [bold]{result.summary_path}[/bold]")
+
+    editor = str(cfg.load().get("editor", "emacs"))
+    subprocess.run([editor, str(result.summary_path)])
+
+
+@task_group.command("summarize")
+@click.argument("name", shell_complete=_complete_task_names)
+def task_summarize(name: str) -> None:
+    """Summarize a task's log and open the summary in your editor.
+
+    The summary file is written next to the task log (e.g.
+    ``<workdir>/logs/<name>.summary.md``). Re-running the command on an
+    unchanged task just reopens the cached summary.
+    """
+    _do_summarize(name)
+
+
 # ── task rm ──────────────────────────────────────────────────────────
 
 @task_group.command("rm")
@@ -961,6 +1015,20 @@ def shortcut_log(name: str, path: bool) -> None:
 def shortcut_logs(name: str, path: bool) -> None:
     """Shorthand for 'ilan task logs'."""
     _open_log(name, path=path)
+
+
+@main.command("summarize")
+@click.argument("name", shell_complete=_complete_task_names)
+def shortcut_summarize(name: str) -> None:
+    """Shorthand for 'ilan task summarize'."""
+    _do_summarize(name)
+
+
+@main.command("sum")
+@click.argument("name", shell_complete=_complete_task_names)
+def shortcut_sum(name: str) -> None:
+    """Shorthand for 'ilan task summarize'."""
+    _do_summarize(name)
 
 
 # ── dashboard ────────────────────────────────────────────────────────

@@ -97,6 +97,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task reply NAME ["msg"]` | Send a reply to an agent (omit message to show tail) |
 | `ilan task tap NAME` | Ask for a status update (nudges `WORKING` agents; re-prompts `AGENT_FINISHED`/`NEEDS_ATTENTION` tasks) |
 | `ilan task log [-p] NAME` | Open the full conversation log in your editor (`-p` prints the log file path instead) |
+| `ilan task summarize NAME` | Summarize the task's log into a markdown file and open it in your editor |
 | `ilan task rename OLD NEW` | Rename a task |
 | `ilan task kill NAME` | Kill a `WORKING` agent, move task to `ERROR` |
 | `ilan task attach NAME` | Attach to a task's Claude Code session interactively |
@@ -122,6 +123,8 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan tap NAME` | `ilan task tap NAME` |
 | `ilan attach NAME` | `ilan task attach NAME` |
 | `ilan log [-p] NAME` | `ilan task log [-p] NAME` |
+| `ilan summarize NAME` | `ilan task summarize NAME` |
+| `ilan sum NAME` | `ilan task summarize NAME` |
 | `ilan done NAME [NAME...]` | `ilan task done NAME [NAME...]` |
 | `ilan discard NAME [NAME...]` | `ilan task discard NAME [NAME...]` |
 | `ilan undone NAME` | `ilan task undone NAME` |
@@ -165,9 +168,28 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 | `time-zone` | `US/Pacific` | Time zone for displayed timestamps |
 | `model` | `opus` | Claude model passed to `claude -p` |
 | `effort` | `high` | Effort level for the model |
-| `editor` | `emacs` | Editor used by `ilan task log` |
+| `summarize-model` | `sonnet` | Claude model used by `ilan task summarize` |
+| `summarize-effort` | `medium` | Effort level used by `ilan task summarize` |
+| `editor` | `emacs` | Editor used by `ilan task log` and `ilan task summarize` |
 | `api-key` | _(empty)_ | Anthropic API key passed as `ANTHROPIC_API_KEY` to spawned agents |
 | `dashboard-interval` | `1` | Seconds between automatic refreshes in `ilan dashboard` |
+
+### Summarize
+
+```bash
+ilan summarize fix-bug   # or: ilan sum fix-bug / ilan task summarize fix-bug
+```
+
+`ilan summarize` feeds the task's JSONL log into a fresh `claude -p`
+invocation (using `summarize-model` / `summarize-effort`) and writes a
+markdown summary next to the log at
+`<workdir>/logs/<task>.summary.md`. The summary surfaces GitHub PR links
+and wandb run links extracted from the log. Re-running on an unchanged
+task just reopens the cached summary.
+
+The prompt template is a plain file at
+`src/ilan/prompts/summarize.md` — edit it in place if you want to tweak
+what the summary looks like.
 
 ## Task lifecycle
 
