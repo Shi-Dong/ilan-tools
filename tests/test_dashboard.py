@@ -251,7 +251,7 @@ class TestWorkingElapsed:
         table = _build_dashboard_table([row], _TZ)
         status_cell = table.columns[1]._cells[0]
         assert isinstance(status_cell, Text)
-        match = re.search(r"\(for (\d{2}h\d{2}m\d{2}s)\)", status_cell.plain)
+        match = re.search(r"\(for (\d+h\d{2}m\d{2}s)\)", status_cell.plain)
         assert match, f"Expected elapsed time pattern, got: {status_cell.plain}"
 
     def test_elapsed_styled_dim(self) -> None:

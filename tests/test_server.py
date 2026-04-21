@@ -543,6 +543,73 @@ class TestNeedsReview:
         assert task["needs_review"] is True
 
 
+# ── Summarize ───────────────────────────────────────────────────────────
+
+
+class TestSummarize:
+    def _seed(self, server: IlanServer, name: str) -> None:
+        server.store.append_log(name, "user", "Do the thing.")
+        server.store.append_log(
+            name,
+            "assistant",
+            "Opened PR https://github.com/a/b/pull/42 for this.",
+        )
+
+    def test_summarize_writes_file_and_returns_text(
+        self,
+        ilan_server: IlanServer,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("MOCK_CLAUDE_RESPONSE", "## Summary\n\nLooks good.\n")
+        _post(ilan_server, "/tasks", {"name": "sum-task", "prompt": "P"})
+        self._seed(ilan_server, "sum-task")
+
+        resp = _post(ilan_server, "/tasks/sum-task/summarize")
+        assert resp.get("ok") is True
+        assert resp["name"] == "sum-task"
+        assert "Looks good." in resp["summary"]
+        assert resp["reused"] is False
+        assert Path(resp["summary_path"]).exists()
+
+    def test_summarize_reuses_cached_on_unchanged_log(
+        self,
+        ilan_server: IlanServer,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("MOCK_CLAUDE_RESPONSE", "first")
+        _post(ilan_server, "/tasks", {"name": "sum-cache", "prompt": "P"})
+        self._seed(ilan_server, "sum-cache")
+
+        first = _post(ilan_server, "/tasks/sum-cache/summarize")
+        assert first["reused"] is False
+
+        # Change mock response — if the server re-invokes claude, we'd
+        # see the new text. Reusing the cache means we keep "first".
+        monkeypatch.setenv("MOCK_CLAUDE_RESPONSE", "second")
+        second = _post(ilan_server, "/tasks/sum-cache/summarize")
+        assert second["reused"] is True
+        assert second["summary"] == first["summary"]
+
+    def test_summarize_unknown_task_404(self, ilan_server: IlanServer) -> None:
+        resp = _post(ilan_server, "/tasks/does-not-exist/summarize")
+        assert "error" in resp
+
+    def test_summarize_accepts_alias(
+        self,
+        ilan_server: IlanServer,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("MOCK_CLAUDE_RESPONSE", "alias-summary")
+        _post(ilan_server, "/tasks", {"name": "alias-task", "prompt": "P"})
+        self._seed(ilan_server, "alias-task")
+        alias = _get(ilan_server, "/tasks/alias-task")["task"]["alias"]
+        assert alias is not None
+
+        resp = _post(ilan_server, f"/tasks/{alias}/summarize")
+        assert resp.get("ok") is True
+        assert resp["name"] == "alias-task"
+
+
 # ── Kill ────────────────────────────────────────────────────────────────
 
 

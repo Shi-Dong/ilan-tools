@@ -135,25 +135,25 @@ class Client:
             self._base_url = f"http://127.0.0.1:{info['port']}"
         return f"{self._base_url}{path}"
 
-    def _request(self, method: str, path: str, body: dict | None = None) -> dict:
+    def _request(self, method: str, path: str, body: dict | None = None, *, timeout: float = 120) -> dict:
         url = self._url(path)
         data = json.dumps(body).encode() if body else None
         req = Request(url, data=data, method=method)
         if data:
             req.add_header("Content-Type", "application/json")
         try:
-            with urlopen(req, timeout=120) as resp:
+            with urlopen(req, timeout=timeout) as resp:
                 return json.loads(resp.read())
         except HTTPError as exc:
             return json.loads(exc.read())
         except URLError as exc:
             raise ConnectionError(f"Cannot reach ilan server: {exc}") from exc
 
-    def get(self, path: str) -> dict:
-        return self._request("GET", path)
+    def get(self, path: str, *, timeout: float = 120) -> dict:
+        return self._request("GET", path, timeout=timeout)
 
-    def post(self, path: str, body: dict | None = None) -> dict:
-        return self._request("POST", path, body)
+    def post(self, path: str, body: dict | None = None, *, timeout: float = 120) -> dict:
+        return self._request("POST", path, body, timeout=timeout)
 
     def delete(self, path: str) -> dict:
         return self._request("DELETE", path)
@@ -191,6 +191,11 @@ class Client:
 
     def reply(self, name: str, message: str) -> dict:
         return self.post(f"/tasks/{name}/reply", {"message": message})
+
+    def summarize_task(self, name: str) -> dict:
+        # Summarization runs claude -p on the server, which can take
+        # well over a minute on long logs. Give it a generous ceiling.
+        return self.post(f"/tasks/{name}/summarize", timeout=1200)
 
     def clear_everything(self) -> dict:          return self.post("/clear-everything")
     def stop_server(self) -> dict:               return self.post("/stop")

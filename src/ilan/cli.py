@@ -22,6 +22,7 @@ import click
 from click.shell_completion import get_completion_class
 from rich.console import Console
 from rich.live import Live
+from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 from rich.text import Text
 
@@ -698,6 +699,71 @@ def task_logs(name: str, path: bool) -> None:
     _open_log(name, path=path)
 
 
+# ── task summarize ───────────────────────────────────────────────────
+
+def _do_summarize(name: str) -> None:
+    """Generate (or reuse) a summary for a task and print it to stdout.
+
+    Summarization runs on the ilan server (so workdir, logs, and claude
+    all live on the host machine), which means the command works the
+    same from a local shell or from a client machine talking to a
+    remote server via ``ILAN_SERVER_URL``.
+    """
+    client = _client()
+
+    conf = cfg.load()
+    model = str(conf.get("summarize-model", "sonnet"))
+    effort = str(conf.get("summarize-effort", "medium"))
+    label = (
+        f"[dim]Summarizing[/dim] [bold]{name}[/bold] "
+        f"[dim]with[/dim] [cyan]{model}[/cyan]/[cyan]{effort}[/cyan] "
+        f"[dim](claude -p may take a minute or two)[/dim]"
+    )
+
+    # Animated spinner + elapsed clock so the user can tell the command
+    # is alive even when claude takes a while. ``transient=True`` wipes
+    # the progress bar once the call returns so it doesn't clutter the
+    # scrollback above the printed summary.
+    with Progress(
+        SpinnerColumn(style="cyan"),
+        TextColumn("{task.description}"),
+        TextColumn("[dim]•[/dim]"),
+        TimeElapsedColumn(),
+        console=console,
+        transient=True,
+    ) as progress:
+        progress.add_task(label, total=None)
+        resp = client.summarize_task(name)
+
+    if _check_error(resp):
+        raise SystemExit(1)
+
+    status_line = (
+        f"[dim]Task unchanged since last summary — reusing cached file:[/dim] "
+        f"[bold]{resp['summary_path']}[/bold]"
+        if resp.get("reused")
+        else f"[green]Summary written to[/green] [bold]{resp['summary_path']}[/bold]"
+    )
+    console.print(status_line)
+    console.print()
+    # Print the raw summary with ``click.echo`` so it's easy to pipe to
+    # ``less``, ``pbcopy``, etc. without Rich markup interference.
+    click.echo(resp.get("summary", ""))
+
+
+@task_group.command("summarize")
+@click.argument("name", shell_complete=_complete_task_names)
+def task_summarize(name: str) -> None:
+    """Summarize a task's log and print the summary.
+
+    The summary file is written next to the task log on the server
+    (e.g. ``<workdir>/logs/<name>.summary.md``). Re-running the command
+    on an unchanged task just reprints the cached summary without
+    re-invoking claude.
+    """
+    _do_summarize(name)
+
+
 # ── task rm ──────────────────────────────────────────────────────────
 
 @task_group.command("rm")
@@ -961,6 +1027,20 @@ def shortcut_log(name: str, path: bool) -> None:
 def shortcut_logs(name: str, path: bool) -> None:
     """Shorthand for 'ilan task logs'."""
     _open_log(name, path=path)
+
+
+@main.command("summarize")
+@click.argument("name", shell_complete=_complete_task_names)
+def shortcut_summarize(name: str) -> None:
+    """Shorthand for 'ilan task summarize'."""
+    _do_summarize(name)
+
+
+@main.command("sum")
+@click.argument("name", shell_complete=_complete_task_names)
+def shortcut_sum(name: str) -> None:
+    """Shorthand for 'ilan task summarize'."""
+    _do_summarize(name)
 
 
 # ── dashboard ────────────────────────────────────────────────────────
