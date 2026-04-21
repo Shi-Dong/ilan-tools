@@ -22,6 +22,7 @@ import click
 from click.shell_completion import get_completion_class
 from rich.console import Console
 from rich.live import Live
+from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 from rich.text import Text
 
@@ -709,8 +710,31 @@ def _do_summarize(name: str) -> None:
     remote server via ``ILAN_SERVER_URL``.
     """
     client = _client()
-    with console.status("[dim]Summarizing task…[/dim]", spinner="dots"):
+
+    conf = cfg.load()
+    model = str(conf.get("summarize-model", "sonnet"))
+    effort = str(conf.get("summarize-effort", "medium"))
+    label = (
+        f"[dim]Summarizing[/dim] [bold]{name}[/bold] "
+        f"[dim]with[/dim] [cyan]{model}[/cyan]/[cyan]{effort}[/cyan] "
+        f"[dim](claude -p may take a minute or two)[/dim]"
+    )
+
+    # Animated spinner + elapsed clock so the user can tell the command
+    # is alive even when claude takes a while. ``transient=True`` wipes
+    # the progress bar once the call returns so it doesn't clutter the
+    # scrollback above the printed summary.
+    with Progress(
+        SpinnerColumn(style="cyan"),
+        TextColumn("{task.description}"),
+        TextColumn("[dim]•[/dim]"),
+        TimeElapsedColumn(),
+        console=console,
+        transient=True,
+    ) as progress:
+        progress.add_task(label, total=None)
         resp = client.summarize_task(name)
+
     if _check_error(resp):
         raise SystemExit(1)
 
