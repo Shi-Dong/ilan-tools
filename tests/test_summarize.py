@@ -46,8 +46,9 @@ def test_summarize_writes_file_and_caches(
     result1 = sm.summarize(task.name)
     assert result1.summary_path.exists()
     assert result1.reused is False
+    assert "All good." in result1.summary_text
     body = result1.summary_path.read_text()
-    assert "All good." in body
+    assert result1.summary_text == body
 
     # Metadata sidecar should exist next to the summary.
     meta = sm.meta_path_for(Store(tmp_workdir).log_path(task.name))
@@ -59,6 +60,7 @@ def test_summarize_writes_file_and_caches(
     monkeypatch.setenv("MOCK_CLAUDE_RESPONSE", "## Summary\n\nDIFFERENT.\n")
     result2 = sm.summarize(task.name)
     assert result2.reused is True
+    assert result2.summary_text == body
     assert result2.summary_path.read_text() == body
 
 
@@ -83,6 +85,7 @@ def test_summarize_regenerates_after_log_change(
     monkeypatch.setenv("MOCK_CLAUDE_RESPONSE", "second summary")
     second = sm.summarize(task.name)
     assert second.reused is False
+    assert second.summary_text.startswith("second summary")
     assert second.summary_path.read_text().startswith("second summary")
 
 

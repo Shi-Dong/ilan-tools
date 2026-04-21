@@ -2,8 +2,8 @@ You are summarizing the conversation log of a Claude Code agent that was
 dispatched by the `ilan` CLI to work on a software engineering task.
 
 Write the summary as a concise markdown document that a human teammate can
-skim in 30 seconds to understand what happened. The document will be opened
-in a text editor, so use plain markdown — no HTML, no emoji.
+skim in 30 seconds to understand what happened. The output will be printed
+on the terminal, so use plain markdown — no HTML, no emoji.
 
 Your summary MUST include the following sections, in this order:
 
@@ -16,18 +16,30 @@ or blocked, say so clearly.
 
 ## PRs
 
-A bullet list of every GitHub pull request URL the agent produced or
-referenced as a direct output of this task. Use the full
-`https://github.com/<org>/<repo>/pull/<n>` form. If the PR URL cannot be
-recovered from the log but a branch was pushed, list the branch URL
-instead. If no PR was produced, write a single line: `- (none)`.
+A bullet list of every GitHub pull request the agent produced or
+referenced as a direct output of this task. For each PR, include:
+
+- a link to the PR, and
+- a one-sentence summary of what the PR does (what it changes and why).
+
+Prefer the full `https://github.com/<org>/<repo>/pull/<n>` URL when it
+appears in the log. If only a PR number or branch is available, it is fine
+to write a short reference like `PR #103 of some-repo` or to link the
+branch — do not omit the entry just because the full URL is not in the log.
+If no PR was produced, write a single line: `- (none)`.
 
 ## Wandb runs
 
-A bullet list of every Weights & Biases run or job URL the agent launched
-or monitored. Include the run name next to the URL when available, e.g.
-`- 260420-glm47-flash — https://wandb.ai/<entity>/<project>/runs/<id>`. If
-no wandb run was touched, write a single line: `- (none)`.
+A bullet list of every Weights & Biases run or job the agent launched or
+monitored. For each run, include:
+
+- a link (or identifier) for the run, preferably with the run name, e.g.
+  `- 260420-glm47-flash — https://wandb.ai/<entity>/<project>/runs/<id>`, and
+- the run's current status as reported in the task log (e.g. `running`,
+  `finished`, `crashed`, `killed`, or more specific info like step count,
+  loss, or error — whatever the log last said about it).
+
+If no wandb run was touched, write a single line: `- (none)`.
 
 ## Key actions
 
@@ -46,7 +58,6 @@ there is nothing open, write `- (none)`.
 
 Rules:
 
-- Extract links verbatim from the log — do not invent URLs.
 - Prefer quoting the agent's own words for decisions and blockers, rather
   than paraphrasing.
 - Do not copy large code blocks from the log. Reference the file path and

@@ -26,7 +26,6 @@ from rich.table import Table
 from rich.text import Text
 
 from ilan import config as cfg
-from ilan import summarize as summarize_mod
 from ilan.client import Client
 from ilan.models import STYLE_FOR_STATUS, TaskStatus
 from ilan.runner import Runner
@@ -702,52 +701,41 @@ def task_logs(name: str, path: bool) -> None:
 # ── task summarize ───────────────────────────────────────────────────
 
 def _do_summarize(name: str) -> None:
-    """Generate (or reuse) a summary for a task and open it in the editor."""
-    client = Client()
-    if client.is_remote:
-        console.print(
-            "[red]ilan summarize can only be run from the host machine "
-            "where the ilan server is running.[/red]"
-        )
+    """Generate (or reuse) a summary for a task and print it to stdout.
+
+    Summarization runs on the ilan server (so workdir, logs, and claude
+    all live on the host machine), which means the command works the
+    same from a local shell or from a client machine talking to a
+    remote server via ``ILAN_SERVER_URL``.
+    """
+    client = _client()
+    with console.status("[dim]Summarizing task…[/dim]", spinner="dots"):
+        resp = client.summarize_task(name)
+    if _check_error(resp):
         raise SystemExit(1)
 
-    if shutil.which("claude") is None:
-        console.print(
-            "[red]claude CLI not found on PATH — ilan summarize needs it "
-            "to generate summaries.[/red]"
-        )
-        raise SystemExit(1)
-
-    try:
-        with console.status("[dim]Summarizing task…[/dim]", spinner="dots"):
-            result = summarize_mod.summarize(name)
-    except ValueError as exc:
-        console.print(f"[yellow]{exc}[/yellow]")
-        raise SystemExit(1)
-    except RuntimeError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise SystemExit(1)
-
-    if result.reused:
-        console.print(
-            f"[dim]Task unchanged since last summary — reusing[/dim] "
-            f"[bold]{result.summary_path}[/bold]"
-        )
-    else:
-        console.print(f"[green]Summary written to[/green] [bold]{result.summary_path}[/bold]")
-
-    editor = str(cfg.load().get("editor", "emacs"))
-    subprocess.run([editor, str(result.summary_path)])
+    status_line = (
+        f"[dim]Task unchanged since last summary — reusing cached file:[/dim] "
+        f"[bold]{resp['summary_path']}[/bold]"
+        if resp.get("reused")
+        else f"[green]Summary written to[/green] [bold]{resp['summary_path']}[/bold]"
+    )
+    console.print(status_line)
+    console.print()
+    # Print the raw summary with ``click.echo`` so it's easy to pipe to
+    # ``less``, ``pbcopy``, etc. without Rich markup interference.
+    click.echo(resp.get("summary", ""))
 
 
 @task_group.command("summarize")
 @click.argument("name", shell_complete=_complete_task_names)
 def task_summarize(name: str) -> None:
-    """Summarize a task's log and open the summary in your editor.
+    """Summarize a task's log and print the summary.
 
-    The summary file is written next to the task log (e.g.
-    ``<workdir>/logs/<name>.summary.md``). Re-running the command on an
-    unchanged task just reopens the cached summary.
+    The summary file is written next to the task log on the server
+    (e.g. ``<workdir>/logs/<name>.summary.md``). Re-running the command
+    on an unchanged task just reprints the cached summary without
+    re-invoking claude.
     """
     _do_summarize(name)
 

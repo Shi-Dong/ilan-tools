@@ -5,7 +5,11 @@ at ``prompts/summarize.md`` plus the task's log contents. The resulting
 file lives alongside the log at ``<workdir>/logs/<task_name>.summary.md``
 and a sidecar ``.summary.meta.json`` remembers the log hash so that
 re-running ``ilan summarize`` on an unchanged task is a no-op (it just
-re-opens the existing summary).
+returns the cached text).
+
+This module is called from the ilan server so that the workdir / logs /
+claude invocation all live on the host machine, and client commands work
+the same way whether they are local or remote.
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ _PROMPT_FILE = Path(__file__).parent / "prompts" / "summarize.md"
 @dataclass
 class SummarizeResult:
     summary_path: Path
+    summary_text: str
     reused: bool  # True if we skipped regeneration and reused the cached summary
 
 
@@ -145,7 +150,11 @@ def summarize(task_name_or_alias: str) -> SummarizeResult:
             with open(meta_path) as f:
                 meta = json.load(f)
             if meta.get("log_hash") == current_hash:
-                return SummarizeResult(summary_path=summary_path, reused=True)
+                return SummarizeResult(
+                    summary_path=summary_path,
+                    summary_text=summary_path.read_text(),
+                    reused=True,
+                )
         except (json.JSONDecodeError, OSError):
             pass  # fall through and regenerate
 
@@ -156,11 +165,12 @@ def summarize(task_name_or_alias: str) -> SummarizeResult:
     prompt = _build_prompt(task.name, task.prompt, entries)
     summary_text = _run_claude(prompt, model=model, effort=effort)
 
-    summary_path.write_text(summary_text + ("\n" if not summary_text.endswith("\n") else ""))
+    body = summary_text if summary_text.endswith("\n") else summary_text + "\n"
+    summary_path.write_text(body)
     with open(meta_path, "w") as f:
         json.dump(
             {"log_hash": current_hash, "model": model, "effort": effort},
             f,
             indent=2,
         )
-    return SummarizeResult(summary_path=summary_path, reused=False)
+    return SummarizeResult(summary_path=summary_path, summary_text=body, reused=False)

@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from ilan import __version__, config as cfg, get_git_commit
+from ilan import summarize as summarize_mod
 from ilan.models import Task, TaskStatus, generate_task_hash, validate_task_name
 from ilan.runner import Runner
 from ilan.store import Store
@@ -70,6 +71,7 @@ ROUTES: list[tuple[str, str, str]] = [
     ("GET",    r"^/tasks/([^/]+)/log-path$",   "handle_task_log_path"),
     ("GET",    r"^/tasks/([^/]+)/tail$",       "handle_task_tail"),
     ("GET",    r"^/tasks/([^/]+)/path$",       "handle_task_path"),
+    ("POST",   r"^/tasks/([^/]+)/summarize$",  "handle_task_summarize"),
     ("POST",   r"^/clear-everything$",         "handle_clear_everything"),
     ("POST",   r"^/stop$",                     "handle_stop"),
 ]
@@ -500,6 +502,35 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 self._json({"error": f"No session log path for task {task.name}"}, 404)
                 return
             self._json({"path": task.session_log_path})
+
+        def handle_task_summarize(self, name: str):
+            # Resolve alias → real task name up front so subsequent calls
+            # into summarize_mod (which uses Store directly) see a name
+            # it can find.
+            with self._ilan.lock:
+                task = self._get_task_or_404(name)
+                if task is None:
+                    return
+                task_name = task.name
+
+            # Run outside the lock — claude -p can take a minute or more
+            # and we don't want to block unrelated scheduler / client work.
+            try:
+                result = summarize_mod.summarize(task_name)
+            except ValueError as exc:
+                self._json({"error": str(exc)}, 404)
+                return
+            except RuntimeError as exc:
+                self._json({"error": str(exc)}, 500)
+                return
+
+            self._json({
+                "ok": True,
+                "name": task_name,
+                "summary": result.summary_text,
+                "summary_path": str(result.summary_path),
+                "reused": result.reused,
+            })
 
         def handle_clear_everything(self):
             with self._ilan.lock:
