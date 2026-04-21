@@ -711,11 +711,18 @@ def _do_summarize(name: str) -> None:
     """
     client = _client()
 
+    # Resolve alias → real task name up front so the spinner label always
+    # shows the full task name (nicer to read than a two-letter alias).
+    task_resp = client.get_task(name)
+    if _check_error(task_resp):
+        raise SystemExit(1)
+    display_name = task_resp.get("task", {}).get("name", name)
+
     conf = cfg.load()
     model = str(conf.get("summarize-model", "sonnet"))
     effort = str(conf.get("summarize-effort", "medium"))
     label = (
-        f"[dim]Summarizing[/dim] [bold]{name}[/bold] "
+        f"[dim]Summarizing[/dim] [bold]{display_name}[/bold] "
         f"[dim]with[/dim] [cyan]{model}[/cyan]/[cyan]{effort}[/cyan] "
         f"[dim](claude -p may take a minute or two)[/dim]"
     )
