@@ -371,6 +371,12 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 store = self._ilan.store
                 runner = self._ilan.runner
 
+                # A plain reply overrides any in-flight sleep: the agent is
+                # no longer sleeping on behalf of an earlier ``ilan sleep``,
+                # so drop ``sleep_seconds`` in every branch below to make
+                # the ``(sleeping for N s)`` suffix disappear.
+                task.sleep_seconds = None
+
                 if task.status == TaskStatus.UNCLAIMED:
                     task.cached_replies.append(message)
                     store.append_log(task.name, "user", message)
