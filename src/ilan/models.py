@@ -80,12 +80,18 @@ class Task:
     output_tokens: int = 0
     cache_read_input_tokens: int = 0
     cost_usd: float = 0.0
-    sleep_until: str | None = None
+    sleep_seconds: int | None = None
 
     def set_status(self, status: TaskStatus) -> None:
-        """Set status and update the ``status_changed_at`` timestamp."""
+        """Set status and update the ``status_changed_at`` timestamp.
+
+        Also clears ``sleep_seconds`` — the sleep suffix should only
+        ride along with the WORKING state in which the sleep was set;
+        once the agent moves on, stale sleep metadata is dropped.
+        """
         self.status = status
         self.status_changed_at = datetime.now(timezone.utc).isoformat()
+        self.sleep_seconds = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -105,7 +111,7 @@ class Task:
             "output_tokens": self.output_tokens,
             "cache_read_input_tokens": self.cache_read_input_tokens,
             "cost_usd": self.cost_usd,
-            "sleep_until": self.sleep_until,
+            "sleep_seconds": self.sleep_seconds,
         }
 
     @classmethod
@@ -127,7 +133,7 @@ class Task:
             output_tokens=d.get("output_tokens", 0),
             cache_read_input_tokens=d.get("cache_read_input_tokens", 0),
             cost_usd=d.get("cost_usd", 0.0),
-            sleep_until=d.get("sleep_until"),
+            sleep_seconds=d.get("sleep_seconds"),
         )
 
 

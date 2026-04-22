@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -64,19 +63,11 @@ class TestFormatSleepSuffix:
     def test_none_returns_none(self) -> None:
         assert _format_sleep_suffix(None) is None
 
-    def test_empty_returns_none(self) -> None:
-        assert _format_sleep_suffix("") is None
+    def test_zero_returns_none(self) -> None:
+        assert _format_sleep_suffix(0) is None
 
-    def test_past_timestamp_returns_none(self) -> None:
-        past = (datetime.now(timezone.utc) - timedelta(seconds=10)).isoformat()
-        assert _format_sleep_suffix(past) is None
+    def test_negative_returns_none(self) -> None:
+        assert _format_sleep_suffix(-5) is None
 
-    def test_future_timestamp_shows_remaining(self) -> None:
-        future = (datetime.now(timezone.utc) + timedelta(seconds=300)).isoformat()
-        suffix = _format_sleep_suffix(future)
-        assert suffix is not None
-        assert "sleeping for" in suffix
-        assert "s)" in suffix
-
-    def test_malformed_timestamp_returns_none(self) -> None:
-        assert _format_sleep_suffix("not-a-timestamp") is None
+    def test_positive_shows_fixed_string(self) -> None:
+        assert _format_sleep_suffix(300) == " (sleeping for 300 s)"

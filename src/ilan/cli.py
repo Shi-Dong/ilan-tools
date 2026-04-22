@@ -372,7 +372,7 @@ def _do_ls(show_all: bool) -> None:
         if r.get("needs_review"):
             name_cell.append(" \u26a0\ufe0f")
         if status == TaskStatus.WORKING:
-            sleep_suffix = _format_sleep_suffix(r.get("sleep_until"))
+            sleep_suffix = _format_sleep_suffix(r.get("sleep_seconds"))
             if sleep_suffix:
                 name_cell.append(sleep_suffix, style=SLEEP_STYLE)
         status_cell = Text(status.value, style=style)
@@ -548,18 +548,11 @@ def task_tap(name: str) -> None:
 SLEEP_STYLE = "#ff8700"
 
 
-def _format_sleep_suffix(sleep_until: str | None) -> str | None:
-    """Return ``(sleeping for X s)`` if *sleep_until* is still in the future."""
-    if not sleep_until:
+def _format_sleep_suffix(sleep_seconds: int | None) -> str | None:
+    """Return ``(sleeping for X s)`` for a task that has an active sleep."""
+    if not sleep_seconds or sleep_seconds <= 0:
         return None
-    try:
-        wake = datetime.fromisoformat(sleep_until)
-    except ValueError:
-        return None
-    remaining = (wake.astimezone(timezone.utc) - datetime.now(timezone.utc)).total_seconds()
-    if remaining <= 0:
-        return None
-    return f" (sleeping for {int(remaining)} s)"
+    return f" (sleeping for {int(sleep_seconds)} s)"
 
 
 def _do_sleep(name: str, seconds: int) -> None:
@@ -1142,7 +1135,7 @@ def _build_dashboard_table(rows: list[dict], tz: ZoneInfo) -> Table:
             # causes table misalignment in Rich's Live display.
             name_cell.append(" !!", style="bold yellow")
         if status == TaskStatus.WORKING:
-            sleep_suffix = _format_sleep_suffix(r.get("sleep_until"))
+            sleep_suffix = _format_sleep_suffix(r.get("sleep_seconds"))
             if sleep_suffix:
                 name_cell.append(sleep_suffix, style=SLEEP_STYLE)
         status_cell = Text(status.value, style=style)

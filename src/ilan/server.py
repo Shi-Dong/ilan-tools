@@ -13,7 +13,7 @@ import re
 import signal
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from ilan import __version__, config as cfg, get_git_commit
@@ -239,7 +239,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     "alias": t.alias,
                     "needs_review": t.needs_review,
                     "cost_usd": t.cost_usd,
-                    "sleep_until": t.sleep_until,
+                    "sleep_seconds": t.sleep_seconds,
                 })
             self._json({"tasks": rows})
 
@@ -412,8 +412,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                         409,
                     )
                     return
-                wake_at = datetime.now(timezone.utc) + timedelta(seconds=seconds)
-                task.sleep_until = wake_at.isoformat()
+                task.sleep_seconds = seconds
                 self._ilan.store.put_task(task)
                 message = f"Sleep {seconds} seconds and report back"
                 self._ilan.runner.reply_to_working(task, message)
@@ -421,7 +420,6 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 "ok": True,
                 "name": task.name,
                 "seconds": seconds,
-                "sleep_until": task.sleep_until,
                 "message": f"Told {task.name} to sleep {seconds}s.",
             })
 
