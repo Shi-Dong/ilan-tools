@@ -28,16 +28,16 @@ class TestSleepCommand:
     def test_task_sleep_calls_client(self, runner: CliRunner, tmp_config) -> None:
         client = _make_client()
         with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["task", "sleep", "my-task", "300"])
+            result = runner.invoke(main, ["task", "sleep", "my-task", "5"])
         assert result.exit_code == 0
-        client.sleep_task.assert_called_once_with("my-task", 300)
+        client.sleep_task.assert_called_once_with("my-task", 5)
 
     def test_shorthand_sleep_calls_client(self, runner: CliRunner, tmp_config) -> None:
         client = _make_client()
         with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["sleep", "my-task", "300"])
+            result = runner.invoke(main, ["sleep", "my-task", "5"])
         assert result.exit_code == 0
-        client.sleep_task.assert_called_once_with("my-task", 300)
+        client.sleep_task.assert_called_once_with("my-task", 5)
 
     def test_sleep_rejects_non_positive_seconds(
         self, runner: CliRunner, tmp_config
@@ -54,7 +54,7 @@ class TestSleepCommand:
         client = _make_client()
         client.sleep_task.return_value = {"error": "Task is WORKING. Sleep only works on tasks in: NEEDS_ATTENTION, AGENT_FINISHED."}
         with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["sleep", "my-task", "300"])
+            result = runner.invoke(main, ["sleep", "my-task", "5"])
         assert result.exit_code == 1
         assert "NEEDS_ATTENTION" in result.output
 

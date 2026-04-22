@@ -410,6 +410,30 @@ class TestSleep:
         task = _get(ilan_server, "/tasks/sleep-clear")["task"]
         assert task["sleep_seconds"] is None
 
+    def test_done_on_sleeping_task_clears_sleep_seconds(
+        self, ilan_server: IlanServer
+    ) -> None:
+        self._make_task_in_status(ilan_server, "sleep-done", TaskStatus.NEEDS_ATTENTION)
+        _post(ilan_server, "/tasks/sleep-done/sleep", {"seconds": 5})
+        assert _get(ilan_server, "/tasks/sleep-done")["task"]["sleep_seconds"] == 5
+
+        _post(ilan_server, "/tasks/sleep-done/done")
+        task = _get(ilan_server, "/tasks/sleep-done")["task"]
+        assert task["status"] == "DONE"
+        assert task["sleep_seconds"] is None
+
+    def test_discard_on_sleeping_task_clears_sleep_seconds(
+        self, ilan_server: IlanServer
+    ) -> None:
+        self._make_task_in_status(ilan_server, "sleep-disc", TaskStatus.NEEDS_ATTENTION)
+        _post(ilan_server, "/tasks/sleep-disc/sleep", {"seconds": 5})
+        assert _get(ilan_server, "/tasks/sleep-disc")["task"]["sleep_seconds"] == 5
+
+        _post(ilan_server, "/tasks/sleep-disc/discard")
+        task = _get(ilan_server, "/tasks/sleep-disc")["task"]
+        assert task["status"] == "DISCARDED"
+        assert task["sleep_seconds"] is None
+
 
 # ── Logs ────────────────────────────────────────────────────────────────
 
