@@ -192,6 +192,9 @@ class Client:
     def reply(self, name: str, message: str) -> dict:
         return self.post(f"/tasks/{name}/reply", {"message": message})
 
+    def sleep_task(self, name: str, seconds: int) -> dict:
+        return self.post(f"/tasks/{name}/sleep", {"seconds": seconds})
+
     def summarize_task(self, name: str) -> dict:
         # Summarization runs claude -p on the server, which can take
         # well over a minute on long logs. Give it a generous ceiling.

@@ -80,11 +80,19 @@ class Task:
     output_tokens: int = 0
     cache_read_input_tokens: int = 0
     cost_usd: float = 0.0
+    sleep_seconds: int | None = None
 
     def set_status(self, status: TaskStatus) -> None:
-        """Set status and update the ``status_changed_at`` timestamp."""
+        """Set status and update the ``status_changed_at`` timestamp.
+
+        When the task leaves the sleep-visible states (``UNCLAIMED`` and
+        ``WORKING``), ``sleep_seconds`` is dropped so stale metadata
+        doesn't leak into a future non-sleep reply cycle.
+        """
         self.status = status
         self.status_changed_at = datetime.now(timezone.utc).isoformat()
+        if status not in (TaskStatus.UNCLAIMED, TaskStatus.WORKING):
+            self.sleep_seconds = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -104,6 +112,7 @@ class Task:
             "output_tokens": self.output_tokens,
             "cache_read_input_tokens": self.cache_read_input_tokens,
             "cost_usd": self.cost_usd,
+            "sleep_seconds": self.sleep_seconds,
         }
 
     @classmethod
@@ -125,6 +134,7 @@ class Task:
             output_tokens=d.get("output_tokens", 0),
             cache_read_input_tokens=d.get("cache_read_input_tokens", 0),
             cost_usd=d.get("cost_usd", 0.0),
+            sleep_seconds=d.get("sleep_seconds"),
         )
 
 
