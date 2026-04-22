@@ -96,6 +96,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task tail NAME` | Show the last assistant message + any user replies after it |
 | `ilan task reply NAME ["msg"]` | Send a reply to an agent (omit message to show tail) |
 | `ilan task tap NAME` | Ask for a status update (nudges `WORKING` agents; re-prompts `AGENT_FINISHED`/`NEEDS_ATTENTION` tasks) |
+| `ilan task sleep NAME SECONDS` | Tell a `WORKING` task to sleep for SECONDS and report back (shows `(sleeping for X s)` in `ilan ls` / `ilan dashboard`) |
 | `ilan task log [-p] NAME` | Open the full conversation log in your editor (`-p` prints the log file path instead) |
 | `ilan task summarize NAME` | Summarize the task's log and print the summary (works on local and remote clients) |
 | `ilan task rename OLD NEW` | Rename a task |
@@ -121,6 +122,7 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan re NAME ["msg"]` | `ilan task reply NAME ["msg"]` |
 | `ilan rename OLD NEW` | `ilan task rename OLD NEW` |
 | `ilan tap NAME` | `ilan task tap NAME` |
+| `ilan sleep NAME SECONDS` | `ilan task sleep NAME SECONDS` |
 | `ilan attach NAME` | `ilan task attach NAME` |
 | `ilan log [-p] NAME` | `ilan task log [-p] NAME` |
 | `ilan summarize NAME` | `ilan task summarize NAME` |

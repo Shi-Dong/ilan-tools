@@ -13,7 +13,7 @@ import re
 import signal
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from ilan import __version__, config as cfg, get_git_commit
@@ -65,6 +65,7 @@ ROUTES: list[tuple[str, str, str]] = [
     ("POST",   r"^/tasks/([^/]+)/undiscard$",  "handle_task_undiscard"),
     ("POST",   r"^/tasks/([^/]+)/unread$",     "handle_task_unread"),
     ("POST",   r"^/tasks/([^/]+)/reply$",      "handle_task_reply"),
+    ("POST",   r"^/tasks/([^/]+)/sleep$",      "handle_task_sleep"),
     ("POST",   r"^/tasks/([^/]+)/kill$",       "handle_task_kill"),
     ("POST",   r"^/tasks/([^/]+)/rename$",     "handle_task_rename"),
     ("GET",    r"^/tasks/([^/]+)/logs$",       "handle_task_logs"),
@@ -238,6 +239,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     "alias": t.alias,
                     "needs_review": t.needs_review,
                     "cost_usd": t.cost_usd,
+                    "sleep_until": t.sleep_until,
                 })
             self._json({"tasks": rows})
 
@@ -389,6 +391,39 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 store.put_task(task)
             self._ilan.nudge()
             self._json({"ok": True, "message": "Reply cached. Task set to UNCLAIMED."})
+
+        def handle_task_sleep(self, name: str):
+            body = self._body()
+            try:
+                seconds = int(body["seconds"])
+            except (KeyError, TypeError, ValueError):
+                self._json({"error": "seconds (positive integer) is required"}, 400)
+                return
+            if seconds <= 0:
+                self._json({"error": "seconds must be positive"}, 400)
+                return
+            with self._ilan.lock:
+                task = self._get_task_or_404(name)
+                if task is None:
+                    return
+                if task.status != TaskStatus.WORKING:
+                    self._json(
+                        {"error": f"Task is {task.status.value}, not WORKING. Sleep only works on WORKING tasks."},
+                        409,
+                    )
+                    return
+                wake_at = datetime.now(timezone.utc) + timedelta(seconds=seconds)
+                task.sleep_until = wake_at.isoformat()
+                self._ilan.store.put_task(task)
+                message = f"Sleep {seconds} seconds and report back"
+                self._ilan.runner.reply_to_working(task, message)
+            self._json({
+                "ok": True,
+                "name": task.name,
+                "seconds": seconds,
+                "sleep_until": task.sleep_until,
+                "message": f"Told {task.name} to sleep {seconds}s.",
+            })
 
         def handle_task_kill(self, name: str):
             with self._ilan.lock:

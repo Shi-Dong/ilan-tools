@@ -80,6 +80,7 @@ class Task:
     output_tokens: int = 0
     cache_read_input_tokens: int = 0
     cost_usd: float = 0.0
+    sleep_until: str | None = None
 
     def set_status(self, status: TaskStatus) -> None:
         """Set status and update the ``status_changed_at`` timestamp."""
@@ -104,6 +105,7 @@ class Task:
             "output_tokens": self.output_tokens,
             "cache_read_input_tokens": self.cache_read_input_tokens,
             "cost_usd": self.cost_usd,
+            "sleep_until": self.sleep_until,
         }
 
     @classmethod
@@ -125,6 +127,7 @@ class Task:
             output_tokens=d.get("output_tokens", 0),
             cache_read_input_tokens=d.get("cache_read_input_tokens", 0),
             cost_usd=d.get("cost_usd", 0.0),
+            sleep_until=d.get("sleep_until"),
         )
 
 
