@@ -434,6 +434,60 @@ class TestSleep:
         assert task["status"] == "DISCARDED"
         assert task["sleep_seconds"] is None
 
+    def test_reply_on_unclaimed_sleeping_task_clears_sleep_seconds(
+        self, ilan_server: IlanServer
+    ) -> None:
+        """``ilan re`` on an UNCLAIMED task that's still waiting to be
+        claimed on a sleep instruction should drop sleep_seconds so the
+        ``(sleeping for N s)`` suffix stops showing in ``ilan ls``."""
+        self._make_task_in_status(ilan_server, "sleep-re-uncl", TaskStatus.NEEDS_ATTENTION)
+        _post(ilan_server, "/tasks/sleep-re-uncl/sleep", {"seconds": 5})
+        assert _get(ilan_server, "/tasks/sleep-re-uncl")["task"]["sleep_seconds"] == 5
+
+        resp = _post(
+            ilan_server, "/tasks/sleep-re-uncl/reply", {"message": "never mind, do X"}
+        )
+        assert resp.get("ok") is True
+
+        task = _get(ilan_server, "/tasks/sleep-re-uncl")["task"]
+        assert task["status"] == "UNCLAIMED"
+        assert task["sleep_seconds"] is None
+        assert "never mind, do X" in task["cached_replies"]
+
+    def test_reply_on_working_sleeping_task_clears_sleep_seconds(
+        self, ilan_server: IlanServer
+    ) -> None:
+        """``ilan re`` on a WORKING task that's executing a sleep should
+        drop sleep_seconds so the suffix disappears once the agent is
+        interrupted and resumed with the new reply."""
+        self._make_task_in_status(ilan_server, "sleep-re-wk", TaskStatus.NEEDS_ATTENTION)
+        _post(ilan_server, "/tasks/sleep-re-wk/sleep", {"seconds": 5})
+        # Simulate the scheduler claiming the task: UNCLAIMED → WORKING,
+        # sleep_seconds preserved by set_status since WORKING is in the
+        # sleep-visible set.
+        with ilan_server.lock:
+            task = ilan_server.store.get_task("sleep-re-wk")
+            task.set_status(TaskStatus.WORKING)
+            ilan_server.store.put_task(task)
+        assert _get(ilan_server, "/tasks/sleep-re-wk")["task"]["sleep_seconds"] == 5
+
+        # reply_to_working spawns ``claude`` which isn't available in the
+        # test env; patch it out so we can assert the sleep_seconds
+        # bookkeeping without needing a real subprocess.
+        with patch.object(ilan_server.runner, "reply_to_working") as m:
+            def _fake(task, message):  # type: ignore[no-untyped-def]
+                # mirror what _spawn would do on a successful resume
+                ilan_server.store.append_log(task.name, "user", message)
+                task.set_status(TaskStatus.WORKING)
+                ilan_server.store.put_task(task)
+            m.side_effect = _fake
+            resp = _post(ilan_server, "/tasks/sleep-re-wk/reply", {"message": "stop sleeping"})
+        assert resp.get("ok") is True
+
+        task = _get(ilan_server, "/tasks/sleep-re-wk")["task"]
+        assert task["status"] == "WORKING"
+        assert task["sleep_seconds"] is None
+
 
 # ── Logs ────────────────────────────────────────────────────────────────
 
