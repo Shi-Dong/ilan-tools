@@ -371,7 +371,7 @@ def _do_ls(show_all: bool) -> None:
         name_cell.append(r["name"], style="bold")
         if r.get("needs_review"):
             name_cell.append(" \u26a0\ufe0f")
-        if status == TaskStatus.WORKING:
+        if status in (TaskStatus.UNCLAIMED, TaskStatus.WORKING):
             sleep_suffix = _format_sleep_suffix(r.get("sleep_seconds"))
             if sleep_suffix:
                 name_cell.append(sleep_suffix, style=SLEEP_STYLE)
@@ -1134,7 +1134,7 @@ def _build_dashboard_table(rows: list[dict], tz: ZoneInfo) -> Table:
             # (U+26A0 + VS16) has unpredictable terminal width that
             # causes table misalignment in Rich's Live display.
             name_cell.append(" !!", style="bold yellow")
-        if status == TaskStatus.WORKING:
+        if status in (TaskStatus.UNCLAIMED, TaskStatus.WORKING):
             sleep_suffix = _format_sleep_suffix(r.get("sleep_seconds"))
             if sleep_suffix:
                 name_cell.append(sleep_suffix, style=SLEEP_STYLE)

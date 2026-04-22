@@ -336,6 +336,81 @@ class TestReply:
         assert "error" in resp
 
 
+# ── Sleep ───────────────────────────────────────────────────────────────
+
+
+class TestSleep:
+    def _make_task_in_status(
+        self, ilan_server: IlanServer, name: str, status: TaskStatus
+    ) -> None:
+        _post(ilan_server, "/tasks", {"name": name, "prompt": "P"})
+        with ilan_server.lock:
+            task = ilan_server.store.get_task(name)
+            task.set_status(status)
+            ilan_server.store.put_task(task)
+
+    def test_sleep_on_needs_attention_caches_and_unclaims(
+        self, ilan_server: IlanServer
+    ) -> None:
+        self._make_task_in_status(ilan_server, "sleep-na", TaskStatus.NEEDS_ATTENTION)
+        resp = _post(ilan_server, "/tasks/sleep-na/sleep", {"seconds": 5})
+        assert resp.get("ok") is True
+
+        task = _get(ilan_server, "/tasks/sleep-na")["task"]
+        assert task["status"] == "UNCLAIMED"
+        assert task["sleep_seconds"] == 5
+        assert "Sleep 5 seconds and report back" in task["cached_replies"]
+
+    def test_sleep_on_agent_finished_caches_and_unclaims(
+        self, ilan_server: IlanServer
+    ) -> None:
+        self._make_task_in_status(ilan_server, "sleep-af", TaskStatus.AGENT_FINISHED)
+        resp = _post(ilan_server, "/tasks/sleep-af/sleep", {"seconds": 5})
+        assert resp.get("ok") is True
+
+        task = _get(ilan_server, "/tasks/sleep-af")["task"]
+        assert task["status"] == "UNCLAIMED"
+        assert task["sleep_seconds"] == 5
+
+    def test_sleep_on_working_rejected(self, ilan_server: IlanServer) -> None:
+        self._make_task_in_status(ilan_server, "sleep-wk", TaskStatus.WORKING)
+        resp = _post(ilan_server, "/tasks/sleep-wk/sleep", {"seconds": 5})
+        assert "error" in resp
+        assert "WORKING" in resp["error"]
+
+    def test_sleep_on_unclaimed_rejected(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "sleep-uncl", "prompt": "P"})
+        resp = _post(ilan_server, "/tasks/sleep-uncl/sleep", {"seconds": 5})
+        assert "error" in resp
+
+    def test_sleep_on_terminal_rejected(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "sleep-done", "prompt": "P"})
+        _post(ilan_server, "/tasks/sleep-done/done")
+        resp = _post(ilan_server, "/tasks/sleep-done/sleep", {"seconds": 5})
+        assert "error" in resp
+
+    def test_sleep_rejects_non_positive_seconds(
+        self, ilan_server: IlanServer
+    ) -> None:
+        self._make_task_in_status(ilan_server, "sleep-zero", TaskStatus.NEEDS_ATTENTION)
+        resp = _post(ilan_server, "/tasks/sleep-zero/sleep", {"seconds": 0})
+        assert "error" in resp
+
+    def test_sleep_seconds_cleared_on_exit_sleep_states(
+        self, ilan_server: IlanServer
+    ) -> None:
+        self._make_task_in_status(ilan_server, "sleep-clear", TaskStatus.NEEDS_ATTENTION)
+        _post(ilan_server, "/tasks/sleep-clear/sleep", {"seconds": 5})
+        # Task is now UNCLAIMED with sleep_seconds=5. Flip it to NEEDS_ATTENTION
+        # via set_status and verify sleep_seconds is dropped.
+        with ilan_server.lock:
+            task = ilan_server.store.get_task("sleep-clear")
+            task.set_status(TaskStatus.NEEDS_ATTENTION)
+            ilan_server.store.put_task(task)
+        task = _get(ilan_server, "/tasks/sleep-clear")["task"]
+        assert task["sleep_seconds"] is None
+
+
 # ── Logs ────────────────────────────────────────────────────────────────
 
 

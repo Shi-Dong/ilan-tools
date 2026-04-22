@@ -85,13 +85,14 @@ class Task:
     def set_status(self, status: TaskStatus) -> None:
         """Set status and update the ``status_changed_at`` timestamp.
 
-        Also clears ``sleep_seconds`` — the sleep suffix should only
-        ride along with the WORKING state in which the sleep was set;
-        once the agent moves on, stale sleep metadata is dropped.
+        When the task leaves the sleep-visible states (``UNCLAIMED`` and
+        ``WORKING``), ``sleep_seconds`` is dropped so stale metadata
+        doesn't leak into a future non-sleep reply cycle.
         """
         self.status = status
         self.status_changed_at = datetime.now(timezone.utc).isoformat()
-        self.sleep_seconds = None
+        if status not in (TaskStatus.UNCLAIMED, TaskStatus.WORKING):
+            self.sleep_seconds = None
 
     def to_dict(self) -> dict[str, Any]:
         return {

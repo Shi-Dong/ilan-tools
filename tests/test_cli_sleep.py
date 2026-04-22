@@ -52,11 +52,11 @@ class TestSleepCommand:
         self, runner: CliRunner, tmp_config
     ) -> None:
         client = _make_client()
-        client.sleep_task.return_value = {"error": "Task is UNCLAIMED, not WORKING."}
+        client.sleep_task.return_value = {"error": "Task is WORKING. Sleep only works on tasks in: NEEDS_ATTENTION, AGENT_FINISHED."}
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["sleep", "my-task", "300"])
         assert result.exit_code == 1
-        assert "UNCLAIMED" in result.output
+        assert "NEEDS_ATTENTION" in result.output
 
 
 class TestFormatSleepSuffix:

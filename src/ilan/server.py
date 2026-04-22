@@ -402,25 +402,31 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             if seconds <= 0:
                 self._json({"error": "seconds must be positive"}, 400)
                 return
+            allowed = (TaskStatus.NEEDS_ATTENTION, TaskStatus.AGENT_FINISHED)
             with self._ilan.lock:
                 task = self._get_task_or_404(name)
                 if task is None:
                     return
-                if task.status != TaskStatus.WORKING:
+                if task.status not in allowed:
+                    allowed_names = ", ".join(s.value for s in allowed)
                     self._json(
-                        {"error": f"Task is {task.status.value}, not WORKING. Sleep only works on WORKING tasks."},
+                        {"error": f"Task is {task.status.value}. Sleep only works on tasks in: {allowed_names}."},
                         409,
                     )
                     return
-                task.sleep_seconds = seconds
-                self._ilan.store.put_task(task)
                 message = f"Sleep {seconds} seconds and report back"
-                self._ilan.runner.reply_to_working(task, message)
+                task.cached_replies.append(message)
+                task.needs_review = False
+                task.sleep_seconds = seconds
+                task.set_status(TaskStatus.UNCLAIMED)
+                self._ilan.store.append_log(task.name, "user", message)
+                self._ilan.store.put_task(task)
+            self._ilan.nudge()
             self._json({
                 "ok": True,
                 "name": task.name,
                 "seconds": seconds,
-                "message": f"Told {task.name} to sleep {seconds}s.",
+                "message": f"Told {task.name} to sleep {seconds}s. Task set to UNCLAIMED.",
             })
 
         def handle_task_kill(self, name: str):
