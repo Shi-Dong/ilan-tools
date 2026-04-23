@@ -250,6 +250,36 @@ class TestTryReap:
         assert len(logs) == 0
 
 
+# ── reply_to_working ────────────────────────────────────────────────────
+
+
+class TestReplyToWorking:
+    def test_clears_needs_review_after_reap(self, store: Store, runner: Runner) -> None:
+        """`ilan re` on a WORKING task must not leave the unread marker on.
+
+        When the running agent is killed mid-turn, ``_try_reap`` parses the
+        interrupted output as if the agent had voluntarily finished, which
+        flips ``needs_review`` to True. ``reply_to_working`` must clear it
+        so the user isn't re-notified about output they're already replying to.
+        """
+        t = Task(name="re-wk", prompt="p", status=TaskStatus.WORKING,
+                 session_id="sid-rw", session_log_path="/fake/sid-rw.jsonl")
+        store.put_task(t)
+        # Simulate a valid JSON result written by the (soon-to-be-killed) agent.
+        out = {"session_id": "sid-rw", "result": "partial output", "is_error": False}
+        store.output_path("re-wk").write_text(json.dumps(out))
+
+        with patch.object(Runner, "kill", lambda self, task: None), \
+             patch.object(Runner, "_spawn", lambda self, task, prompt, resume: True), \
+             patch.object(Runner, "_find_session_log",
+                          return_value=Path("/fake/sid-rw.jsonl")):
+            runner.reply_to_working(t, "new instructions")
+
+        updated = store.get_task("re-wk")
+        assert updated is not None
+        assert updated.needs_review is False
+
+
 # ── _output_complete ────────────────────────────────────────────────────
 
 
