@@ -685,7 +685,7 @@ def _do_sleep(name: str, seconds: int) -> None:
 @click.argument("name", shell_complete=_complete_task_names)
 @click.argument("seconds", type=int)
 def task_sleep(name: str, seconds: int) -> None:
-    """Tell a WORKING task to sleep SECONDS seconds and report back."""
+    """Tell a NEEDS_ATTENTION / AGENT_FINISHED task to sleep SECONDS seconds and report back."""
     _do_sleep(name, seconds)
 
 
