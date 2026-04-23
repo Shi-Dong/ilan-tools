@@ -345,6 +345,86 @@ def task_add(name: str, file_path: str | None, description: str | None) -> None:
 # ── task ls ──────────────────────────────────────────────────────────
 
 ALIAS_STYLE = "bold magenta"
+TREE_STYLE = "dim"
+
+
+def _order_tasks_as_forest(rows: list[dict]) -> list[tuple[dict, str]]:
+    """Return rows in DFS order with per-row tree-drawing prefixes.
+
+    Parent/child links come from ``parent_name``.  Rows whose parent is
+    not in *rows* (filtered out or deleted) are treated as roots.
+    Roots preserve the incoming ``rows`` ordering (the server sorts by
+    status-changed-at); siblings under a parent are sorted by
+    ``created_at`` ascending so the branching order is easy to read.
+    """
+    by_name = {r["name"]: r for r in rows}
+    present = set(by_name)
+    children: dict[str, list[str]] = {}
+    for r in rows:
+        p = r.get("parent_name")
+        if p is not None and p in present:
+            children.setdefault(p, []).append(r["name"])
+    for siblings in children.values():
+        siblings.sort(key=lambda n: by_name[n].get("created_at", ""))
+
+    root_order = [r["name"] for r in rows if r.get("parent_name") not in present]
+
+    result: list[tuple[dict, str]] = []
+
+    def walk(name: str, ancestor_has_next: list[bool]) -> None:
+        depth = len(ancestor_has_next)
+        if depth == 0:
+            prefix = ""
+        else:
+            parts = ["\u2502  " if flag else "   " for flag in ancestor_has_next[:-1]]
+            parts.append("\u251c\u2500 " if ancestor_has_next[-1] else "\u2514\u2500 ")
+            prefix = "".join(parts)
+        result.append((by_name[name], prefix))
+        kids = children.get(name, [])
+        for i, kid in enumerate(kids):
+            walk(kid, ancestor_has_next + [i < len(kids) - 1])
+
+    for root in root_order:
+        walk(root, [])
+    return result
+
+
+def _build_name_cell(row: dict, prefix: str, *, ascii_review: bool = False) -> Text:
+    """Build the styled "(alias) name" cell with an optional tree prefix.
+
+    ``ascii_review=True`` replaces the \u26a0\ufe0f emoji with ``!!`` for the
+    dashboard \u2014 the emoji has unpredictable terminal width that breaks
+    Rich's Live layout.
+    """
+    status = TaskStatus(row["status"])
+    alias = row.get("alias") or ""
+    cell = Text()
+    if prefix:
+        cell.append(prefix, style=TREE_STYLE)
+    if alias:
+        cell.append(f"({alias}) ", style=ALIAS_STYLE)
+    cell.append(row["name"], style="bold")
+    if row.get("needs_review"):
+        if ascii_review:
+            cell.append(" !!", style="bold yellow")
+        else:
+            cell.append(" \u26a0\ufe0f")
+    if status in (TaskStatus.UNCLAIMED, TaskStatus.WORKING):
+        sleep_suffix = _format_sleep_suffix(row.get("sleep_seconds"))
+        if sleep_suffix:
+            cell.append(sleep_suffix, style=SLEEP_STYLE)
+    return cell
+
+
+def _build_status_cell(row: dict) -> Text:
+    status = TaskStatus(row["status"])
+    style = STYLE_FOR_STATUS.get(status, "")
+    cell = Text(status.value, style=style)
+    if status == TaskStatus.WORKING and row.get("status_changed_at"):
+        elapsed = _format_elapsed(row["status_changed_at"])
+        if elapsed:
+            cell.append(f" (for {elapsed})", style="dim")
+    return cell
 
 
 def _do_ls(show_all: bool) -> None:
@@ -361,33 +441,15 @@ def _do_ls(show_all: bool) -> None:
     table.add_column("Cost", justify="right")
     table.add_column("Created")
     table.add_column("Last Changed")
-    for r in rows:
-        status = TaskStatus(r["status"])
-        style = STYLE_FOR_STATUS.get(status, "")
-        alias = r.get("alias") or ""
-        name_cell = Text()
-        if alias:
-            name_cell.append(f"({alias}) ", style=ALIAS_STYLE)
-        name_cell.append(r["name"], style="bold")
-        if r.get("needs_review"):
-            name_cell.append(" \u26a0\ufe0f")
-        if status in (TaskStatus.UNCLAIMED, TaskStatus.WORKING):
-            sleep_suffix = _format_sleep_suffix(r.get("sleep_seconds"))
-            if sleep_suffix:
-                name_cell.append(sleep_suffix, style=SLEEP_STYLE)
-        status_cell = Text(status.value, style=style)
-        if status == TaskStatus.WORKING and r.get("status_changed_at"):
-            elapsed = _format_elapsed(r["status_changed_at"])
-            if elapsed:
-                status_cell.append(f" (for {elapsed})", style="dim")
-        changed = _format_ts(r["status_changed_at"]) if r.get("status_changed_at") else ""
-        cost = r.get("cost_usd", 0.0)
+    for row, prefix in _order_tasks_as_forest(rows):
+        changed = _format_ts(row["status_changed_at"]) if row.get("status_changed_at") else ""
+        cost = row.get("cost_usd", 0.0)
         cost_cell = f"${cost:.2f}" if cost else "[dim]-[/dim]"
         table.add_row(
-            name_cell,
-            status_cell,
+            _build_name_cell(row, prefix),
+            _build_status_cell(row),
             cost_cell,
-            _format_ts(r["created_at"]),
+            _format_ts(row["created_at"]),
             changed,
         )
     console.print(table)
@@ -608,6 +670,48 @@ def task_rename(old_name: str, new_name: str) -> None:
     _do_rename(old_name, new_name)
 
 
+# ── task branch ─────────────────────────────────────────────────────
+
+def _do_branch(
+    old_name: str,
+    new_name: str,
+    file_path: str | None,
+    description: str | None,
+) -> None:
+    if file_path is not None and description is not None:
+        console.print("[red]Pass at most one of --file / --description.[/red]")
+        raise SystemExit(1)
+    message: str | None = None
+    if file_path is not None:
+        message = Path(file_path).read_text()
+    elif description is not None:
+        message = description
+
+    resp = _client().branch_task(old_name, new_name, message)
+    if _check_error(resp):
+        raise SystemExit(1)
+    child = resp.get("name", new_name)
+    parent = resp.get("parent_name", old_name)
+    console.print(
+        f"[green]Branched [bold]{child}[/bold] from [bold]{parent}[/bold].[/green]"
+    )
+
+
+@task_group.command("branch")
+@click.argument("old_name", shell_complete=_complete_task_names)
+@click.option("-n", "--name", "new_name", required=True,
+              help="Short name for the branched (new) task.")
+@click.option("-f", "--file", "file_path", type=click.Path(exists=True), default=None,
+              help="Path to a file containing the first reply to the child task.")
+@click.option("-d", "--description", default=None,
+              help="Inline first reply to the child task.")
+def task_branch(
+    old_name: str, new_name: str, file_path: str | None, description: str | None
+) -> None:
+    """Branch a new task from OLD_NAME, inheriting its full context."""
+    _do_branch(old_name, new_name, file_path, description)
+
+
 # ── task attach ─────────────────────────────────────────────────────
 
 def _do_attach(name: str) -> None:
@@ -813,8 +917,16 @@ def task_summarize(name: str) -> None:
 @task_group.command("rm")
 @click.argument("names", nargs=-1, required=True, shell_complete=_complete_task_names)
 @click.option("-y", "--yes", is_flag=True, help="Skip confirmation.")
-def task_rm(names: tuple[str, ...], yes: bool) -> None:
-    """Remove one or more tasks and all their data."""
+@click.option("-f", "--force", is_flag=True,
+              help="Delete even if the task has active (non-terminal) descendants.")
+def task_rm(names: tuple[str, ...], yes: bool, force: bool) -> None:
+    """Remove one or more tasks and all their data.
+
+    Refuses if any target has active descendants that are not also in the
+    batch — e.g. ``ilan task rm parent child`` is allowed when parent's only
+    active descendant is child, but ``ilan task rm parent`` on its own is not.
+    ``-f`` overrides the check entirely.
+    """
     client = _client()
 
     found: list[str] = []
@@ -831,13 +943,68 @@ def task_rm(names: tuple[str, ...], yes: bool) -> None:
     if not found:
         return
 
+    if not force:
+        all_rows = client.list_tasks(show_all=True).get("tasks", [])
+        by_name = {r["name"]: r for r in all_rows}
+        children_map: dict[str, list[str]] = {}
+        for r in all_rows:
+            parent = r.get("parent_name")
+            if parent:
+                children_map.setdefault(parent, []).append(r["name"])
+
+        batch = set(found)
+        blockers: dict[str, list[str]] = {}
+        for target in found:
+            outside_active: list[str] = []
+            stack = list(children_map.get(target, []))
+            seen: set[str] = set()
+            while stack:
+                d = stack.pop()
+                if d in seen:
+                    continue
+                seen.add(d)
+                stack.extend(children_map.get(d, []))
+                if d in batch:
+                    continue  # caller is deleting this too
+                info = by_name.get(d)
+                if info is None:
+                    continue
+                if not TaskStatus(info["status"]).is_terminal:
+                    outside_active.append(d)
+            if outside_active:
+                blockers[target] = sorted(outside_active)
+
+        if blockers:
+            console.print(
+                "[yellow]Refusing to delete: some targets have active "
+                "descendants outside this batch.[/yellow]"
+            )
+            for target, outside in blockers.items():
+                console.print(f"  [bold]{target}[/bold] → {', '.join(outside)}")
+            console.print("[dim]Re-run with [bold]-f[/bold] to force delete.[/dim]")
+            raise SystemExit(1)
+
     if not yes:
         if not click.confirm(f"Remove {len(found)} task(s): {', '.join(found)}?"):
             return
 
+    # We've already validated the batch above (or the user passed -f), so
+    # pass force=True to the server to bypass its per-task descendant check
+    # — otherwise deleting the outer ancestor in a parent+child batch would
+    # trip the single-task guard on the server side.
+    removed: list[str] = []
+    failed: list[str] = []
     for n in found:
-        client.delete_task(n)
-    console.print(f"[green]Removed: {', '.join(found)}[/green]")
+        resp = client.delete_task(n, force=True)
+        if "error" in resp:
+            console.print(f"[yellow]{resp['error']}[/yellow]")
+            failed.append(n)
+        else:
+            removed.append(n)
+    if removed:
+        console.print(f"[green]Removed: {', '.join(removed)}[/green]")
+    if failed:
+        raise SystemExit(1)
 
 
 # ── task done / discard ──────────────────────────────────────────────
@@ -1043,6 +1210,21 @@ def shortcut_rename(old_name: str, new_name: str) -> None:
     _do_rename(old_name, new_name)
 
 
+@main.command("branch")
+@click.argument("old_name", shell_complete=_complete_task_names)
+@click.option("-n", "--name", "new_name", required=True,
+              help="Short name for the branched (new) task.")
+@click.option("-f", "--file", "file_path", type=click.Path(exists=True), default=None,
+              help="Path to a file containing the first reply to the child task.")
+@click.option("-d", "--description", default=None,
+              help="Inline first reply to the child task.")
+def shortcut_branch(
+    old_name: str, new_name: str, file_path: str | None, description: str | None
+) -> None:
+    """Shorthand for 'ilan task branch'."""
+    _do_branch(old_name, new_name, file_path, description)
+
+
 @main.command("tap")
 @click.argument("name", shell_complete=_complete_task_names)
 def shortcut_tap(name: str) -> None:
@@ -1121,36 +1303,15 @@ def _build_dashboard_table(rows: list[dict], tz: ZoneInfo) -> Table:
         table.add_row(Text("No active tasks.", style="dim"), "", "", "", "")
         return table
 
-    for r in rows:
-        status = TaskStatus(r["status"])
-        style = STYLE_FOR_STATUS.get(status, "")
-        alias = r.get("alias") or ""
-        name_cell = Text()
-        if alias:
-            name_cell.append(f"({alias}) ", style=ALIAS_STYLE)
-        name_cell.append(r["name"], style="bold")
-        if r.get("needs_review"):
-            # Use an ASCII marker instead of the ⚠️ emoji.  The emoji
-            # (U+26A0 + VS16) has unpredictable terminal width that
-            # causes table misalignment in Rich's Live display.
-            name_cell.append(" !!", style="bold yellow")
-        if status in (TaskStatus.UNCLAIMED, TaskStatus.WORKING):
-            sleep_suffix = _format_sleep_suffix(r.get("sleep_seconds"))
-            if sleep_suffix:
-                name_cell.append(sleep_suffix, style=SLEEP_STYLE)
-        status_cell = Text(status.value, style=style)
-        if status == TaskStatus.WORKING and r.get("status_changed_at"):
-            elapsed = _format_elapsed(r["status_changed_at"])
-            if elapsed:
-                status_cell.append(f" (for {elapsed})", style="dim")
-        changed = _format_ts(r["status_changed_at"]) if r.get("status_changed_at") else ""
-        cost = r.get("cost_usd", 0.0)
+    for row, prefix in _order_tasks_as_forest(rows):
+        changed = _format_ts(row["status_changed_at"]) if row.get("status_changed_at") else ""
+        cost = row.get("cost_usd", 0.0)
         cost_cell = f"${cost:.2f}" if cost else "[dim]-[/dim]"
         table.add_row(
-            name_cell,
-            status_cell,
+            _build_name_cell(row, prefix, ascii_review=True),
+            _build_status_cell(row),
             cost_cell,
-            _format_ts(r["created_at"]),
+            _format_ts(row["created_at"]),
             changed,
         )
     return table
@@ -1257,14 +1418,27 @@ def clean(duration: str, yes: bool) -> None:
     resp = client.list_tasks(show_all=True)
     rows = resp["tasks"]
 
+    parent_names = {r["parent_name"] for r in rows if r.get("parent_name")}
+
     stale: list[dict] = []
+    skipped_with_children: list[str] = []
     for r in rows:
         changed = r.get("status_changed_at") or r.get("created_at", "")
         if not changed:
             continue
         ts = datetime.fromisoformat(changed)
-        if ts < cutoff:
-            stale.append(r)
+        if ts >= cutoff:
+            continue
+        if r["name"] in parent_names:
+            skipped_with_children.append(r["name"])
+            continue
+        stale.append(r)
+
+    if skipped_with_children:
+        console.print(
+            "[dim]Skipped (has children — use [bold]ilan task rm -f[/bold] to drop the whole subtree):"
+            f" {', '.join(skipped_with_children)}[/dim]"
+        )
 
     if not stale:
         console.print(f"[dim]No tasks older than {duration}.[/dim]")

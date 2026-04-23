@@ -174,7 +174,9 @@ class Client:
         return self.post("/tasks", {"name": name, "prompt": prompt})
 
     def get_task(self, name: str) -> dict:       return self.get(f"/tasks/{name}")
-    def delete_task(self, name: str) -> dict:    return self.delete(f"/tasks/{name}")
+    def delete_task(self, name: str, force: bool = False) -> dict:
+        path = f"/tasks/{name}?force=true" if force else f"/tasks/{name}"
+        return self.delete(path)
     def mark_done(self, name: str) -> dict:      return self.post(f"/tasks/{name}/done")
     def mark_discard(self, name: str) -> dict:   return self.post(f"/tasks/{name}/discard")
     def undone(self, name: str) -> dict:         return self.post(f"/tasks/{name}/undone")
@@ -188,6 +190,12 @@ class Client:
 
     def rename_task(self, old_name: str, new_name: str) -> dict:
         return self.post(f"/tasks/{old_name}/rename", {"new_name": new_name})
+
+    def branch_task(self, old_name: str, new_name: str, message: str | None = None) -> dict:
+        body: dict = {"new_name": new_name}
+        if message is not None:
+            body["message"] = message
+        return self.post(f"/tasks/{old_name}/branch", body)
 
     def reply(self, name: str, message: str) -> dict:
         return self.post(f"/tasks/{name}/reply", {"message": message})

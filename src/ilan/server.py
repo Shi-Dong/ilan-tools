@@ -68,6 +68,7 @@ ROUTES: list[tuple[str, str, str]] = [
     ("POST",   r"^/tasks/([^/]+)/sleep$",      "handle_task_sleep"),
     ("POST",   r"^/tasks/([^/]+)/kill$",       "handle_task_kill"),
     ("POST",   r"^/tasks/([^/]+)/rename$",     "handle_task_rename"),
+    ("POST",   r"^/tasks/([^/]+)/branch$",     "handle_task_branch"),
     ("GET",    r"^/tasks/([^/]+)/logs$",       "handle_task_logs"),
     ("GET",    r"^/tasks/([^/]+)/log-path$",   "handle_task_log_path"),
     ("GET",    r"^/tasks/([^/]+)/tail$",       "handle_task_tail"),
@@ -227,9 +228,28 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             show_all = "all=true" in qs
             with self._ilan.lock:
                 tasks = self._ilan.store.load_tasks()
+
+            # Keep terminal ancestors of any non-terminal task so the branch
+            # tree stays readable in ls/dashboard even after a middle node is
+            # marked DONE/DISCARDED.  Walk up from each active task; the first
+            # already-seen ancestor stops the climb.
+            keep_terminal_ancestors: set[str] = set()
+            if not show_all:
+                for t in tasks.values():
+                    if t.status.is_terminal:
+                        continue
+                    cur = t.parent_name
+                    while cur and cur not in keep_terminal_ancestors:
+                        parent = tasks.get(cur)
+                        if parent is None:
+                            break
+                        if parent.status.is_terminal:
+                            keep_terminal_ancestors.add(cur)
+                        cur = parent.parent_name
+
             rows = []
             for t in sorted(tasks.values(), key=lambda t: t.status_changed_at or t.created_at, reverse=True):
-                if not show_all and t.status.is_terminal:
+                if not show_all and t.status.is_terminal and t.name not in keep_terminal_ancestors:
                     continue
                 rows.append({
                     "name": t.name,
@@ -240,6 +260,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     "needs_review": t.needs_review,
                     "cost_usd": t.cost_usd,
                     "sleep_seconds": t.sleep_seconds,
+                    "parent_name": t.parent_name,
                 })
             self._json({"tasks": rows})
 
@@ -279,10 +300,28 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 self._json({"task": task.to_dict()})
 
         def handle_delete_task(self, name: str):
+            qs = self.path.split("?", 1)[1] if "?" in self.path else ""
+            force = "force=true" in qs
             with self._ilan.lock:
                 task = self._get_task_or_404(name)
                 if task is None:
                     return
+                if not force:
+                    tasks = self._ilan.store.load_tasks()
+                    descendants = self._ilan.store.collect_descendants(task.name, tasks)
+                    active = sorted(
+                        d for d in descendants
+                        if d in tasks and not tasks[d].status.is_terminal
+                    )
+                    if active:
+                        self._json(
+                            {"error": (
+                                f"Task {task.name} has active descendant(s): "
+                                f"{', '.join(active)}. Pass -f to force delete."
+                            )},
+                            409,
+                        )
+                        return
                 task_hash = task.task_hash
                 if task.status == TaskStatus.WORKING:
                     self._ilan.runner.kill(task)
@@ -469,6 +508,65 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 old_task_name = task.name
                 task = self._ilan.store.rename_task(task.name, new_name)
             self._json({"ok": True, "old_name": old_task_name, "new_name": task.name})
+
+        def handle_task_branch(self, name: str):
+            body = self._body()
+            new_name = (body.get("new_name") or "").strip()
+            err = validate_task_name(new_name)
+            if err:
+                self._json({"error": err}, 400)
+                return
+            message = body.get("message")
+            with self._ilan.lock:
+                parent = self._get_task_or_404(name)
+                if parent is None:
+                    return
+                if self._ilan.store.get_task(new_name) is not None:
+                    self._json({"error": f"Task {new_name} already exists"}, 409)
+                    return
+                if not parent.session_id:
+                    self._json(
+                        {"error": (
+                            f"Task {parent.name} has no Claude Code session yet. "
+                            "Branching requires an established session to inherit."
+                        )},
+                        409,
+                    )
+                    return
+                if Runner._find_session_log(parent.session_id) is None:
+                    self._json(
+                        {"error": (
+                            f"Session log for task {parent.name} not found on disk. "
+                            "The session may have been lost; cannot branch."
+                        )},
+                        409,
+                    )
+                    return
+                alias = self._ilan.store.next_available_alias()
+                if alias is None:
+                    self._json(
+                        {"error": "Alias pool exhausted. Free up an alias before branching."},
+                        409,
+                    )
+                    return
+                now = datetime.now(timezone.utc).isoformat()
+                child = self._ilan.store.branch_task(
+                    parent,
+                    new_name,
+                    alias=alias,
+                    task_hash=generate_task_hash(),
+                    now=now,
+                )
+                if message:
+                    child.cached_replies.append(message)
+                    self._ilan.store.append_log(child.name, "user", message)
+                    self._ilan.store.put_task(child)
+            self._ilan.nudge()
+            self._json({
+                "ok": True,
+                "name": child.name,
+                "parent_name": parent.name,
+            })
 
         def handle_task_logs(self, name: str):
             with self._ilan.lock:
