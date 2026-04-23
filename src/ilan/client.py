@@ -189,6 +189,12 @@ class Client:
     def rename_task(self, old_name: str, new_name: str) -> dict:
         return self.post(f"/tasks/{old_name}/rename", {"new_name": new_name})
 
+    def branch_task(self, old_name: str, new_name: str, message: str | None = None) -> dict:
+        body: dict = {"new_name": new_name}
+        if message is not None:
+            body["message"] = message
+        return self.post(f"/tasks/{old_name}/branch", body)
+
     def reply(self, name: str, message: str) -> dict:
         return self.post(f"/tasks/{name}/reply", {"message": message})
 

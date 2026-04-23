@@ -345,6 +345,86 @@ def task_add(name: str, file_path: str | None, description: str | None) -> None:
 # ── task ls ──────────────────────────────────────────────────────────
 
 ALIAS_STYLE = "bold magenta"
+TREE_STYLE = "dim"
+
+
+def _order_tasks_as_forest(rows: list[dict]) -> list[tuple[dict, str]]:
+    """Return rows in DFS order with per-row tree-drawing prefixes.
+
+    Parent/child links come from ``parent_name``.  Rows whose parent is
+    not in *rows* (filtered out or deleted) are treated as roots.
+    Roots preserve the incoming ``rows`` ordering (the server sorts by
+    status-changed-at); siblings under a parent are sorted by
+    ``created_at`` ascending so the branching order is easy to read.
+    """
+    by_name = {r["name"]: r for r in rows}
+    present = set(by_name)
+    children: dict[str, list[str]] = {}
+    for r in rows:
+        p = r.get("parent_name")
+        if p is not None and p in present:
+            children.setdefault(p, []).append(r["name"])
+    for siblings in children.values():
+        siblings.sort(key=lambda n: by_name[n].get("created_at", ""))
+
+    root_order = [r["name"] for r in rows if r.get("parent_name") not in present]
+
+    result: list[tuple[dict, str]] = []
+
+    def walk(name: str, ancestor_has_next: list[bool]) -> None:
+        depth = len(ancestor_has_next)
+        if depth == 0:
+            prefix = ""
+        else:
+            parts = ["\u2502  " if flag else "   " for flag in ancestor_has_next[:-1]]
+            parts.append("\u251c\u2500 " if ancestor_has_next[-1] else "\u2514\u2500 ")
+            prefix = "".join(parts)
+        result.append((by_name[name], prefix))
+        kids = children.get(name, [])
+        for i, kid in enumerate(kids):
+            walk(kid, ancestor_has_next + [i < len(kids) - 1])
+
+    for root in root_order:
+        walk(root, [])
+    return result
+
+
+def _build_name_cell(row: dict, prefix: str, *, ascii_review: bool = False) -> Text:
+    """Build the styled "(alias) name" cell with an optional tree prefix.
+
+    ``ascii_review=True`` replaces the \u26a0\ufe0f emoji with ``!!`` for the
+    dashboard \u2014 the emoji has unpredictable terminal width that breaks
+    Rich's Live layout.
+    """
+    status = TaskStatus(row["status"])
+    alias = row.get("alias") or ""
+    cell = Text()
+    if prefix:
+        cell.append(prefix, style=TREE_STYLE)
+    if alias:
+        cell.append(f"({alias}) ", style=ALIAS_STYLE)
+    cell.append(row["name"], style="bold")
+    if row.get("needs_review"):
+        if ascii_review:
+            cell.append(" !!", style="bold yellow")
+        else:
+            cell.append(" \u26a0\ufe0f")
+    if status in (TaskStatus.UNCLAIMED, TaskStatus.WORKING):
+        sleep_suffix = _format_sleep_suffix(row.get("sleep_seconds"))
+        if sleep_suffix:
+            cell.append(sleep_suffix, style=SLEEP_STYLE)
+    return cell
+
+
+def _build_status_cell(row: dict) -> Text:
+    status = TaskStatus(row["status"])
+    style = STYLE_FOR_STATUS.get(status, "")
+    cell = Text(status.value, style=style)
+    if status == TaskStatus.WORKING and row.get("status_changed_at"):
+        elapsed = _format_elapsed(row["status_changed_at"])
+        if elapsed:
+            cell.append(f" (for {elapsed})", style="dim")
+    return cell
 
 
 def _do_ls(show_all: bool) -> None:
@@ -361,33 +441,15 @@ def _do_ls(show_all: bool) -> None:
     table.add_column("Cost", justify="right")
     table.add_column("Created")
     table.add_column("Last Changed")
-    for r in rows:
-        status = TaskStatus(r["status"])
-        style = STYLE_FOR_STATUS.get(status, "")
-        alias = r.get("alias") or ""
-        name_cell = Text()
-        if alias:
-            name_cell.append(f"({alias}) ", style=ALIAS_STYLE)
-        name_cell.append(r["name"], style="bold")
-        if r.get("needs_review"):
-            name_cell.append(" \u26a0\ufe0f")
-        if status in (TaskStatus.UNCLAIMED, TaskStatus.WORKING):
-            sleep_suffix = _format_sleep_suffix(r.get("sleep_seconds"))
-            if sleep_suffix:
-                name_cell.append(sleep_suffix, style=SLEEP_STYLE)
-        status_cell = Text(status.value, style=style)
-        if status == TaskStatus.WORKING and r.get("status_changed_at"):
-            elapsed = _format_elapsed(r["status_changed_at"])
-            if elapsed:
-                status_cell.append(f" (for {elapsed})", style="dim")
-        changed = _format_ts(r["status_changed_at"]) if r.get("status_changed_at") else ""
-        cost = r.get("cost_usd", 0.0)
+    for row, prefix in _order_tasks_as_forest(rows):
+        changed = _format_ts(row["status_changed_at"]) if row.get("status_changed_at") else ""
+        cost = row.get("cost_usd", 0.0)
         cost_cell = f"${cost:.2f}" if cost else "[dim]-[/dim]"
         table.add_row(
-            name_cell,
-            status_cell,
+            _build_name_cell(row, prefix),
+            _build_status_cell(row),
             cost_cell,
-            _format_ts(r["created_at"]),
+            _format_ts(row["created_at"]),
             changed,
         )
     console.print(table)
@@ -606,6 +668,47 @@ def _do_rename(old_name: str, new_name: str) -> None:
 def task_rename(old_name: str, new_name: str) -> None:
     """Rename a task."""
     _do_rename(old_name, new_name)
+
+
+# ── task branch ─────────────────────────────────────────────────────
+
+def _do_branch(
+    old_name: str,
+    new_name: str,
+    file_path: str | None,
+    description: str | None,
+) -> None:
+    if file_path is not None and description is not None:
+        console.print("[red]Pass at most one of --file / --description.[/red]")
+        raise SystemExit(1)
+    message: str | None = None
+    if file_path is not None:
+        message = Path(file_path).read_text()
+    elif description is not None:
+        message = description
+
+    resp = _client().branch_task(old_name, new_name, message)
+    if _check_error(resp):
+        raise SystemExit(1)
+    child = resp.get("name", new_name)
+    parent = resp.get("parent_name", old_name)
+    console.print(
+        f"[green]Branched [bold]{child}[/bold] from [bold]{parent}[/bold].[/green]"
+    )
+
+
+@task_group.command("branch")
+@click.argument("old_name", shell_complete=_complete_task_names)
+@click.argument("new_name")
+@click.option("-f", "--file", "file_path", type=click.Path(exists=True), default=None,
+              help="Path to a file containing the first reply to the child task.")
+@click.option("-d", "--description", default=None,
+              help="Inline first reply to the child task.")
+def task_branch(
+    old_name: str, new_name: str, file_path: str | None, description: str | None
+) -> None:
+    """Branch a new task from an existing one, inheriting its full context."""
+    _do_branch(old_name, new_name, file_path, description)
 
 
 # ── task attach ─────────────────────────────────────────────────────
@@ -1043,6 +1146,20 @@ def shortcut_rename(old_name: str, new_name: str) -> None:
     _do_rename(old_name, new_name)
 
 
+@main.command("branch")
+@click.argument("old_name", shell_complete=_complete_task_names)
+@click.argument("new_name")
+@click.option("-f", "--file", "file_path", type=click.Path(exists=True), default=None,
+              help="Path to a file containing the first reply to the child task.")
+@click.option("-d", "--description", default=None,
+              help="Inline first reply to the child task.")
+def shortcut_branch(
+    old_name: str, new_name: str, file_path: str | None, description: str | None
+) -> None:
+    """Shorthand for 'ilan task branch'."""
+    _do_branch(old_name, new_name, file_path, description)
+
+
 @main.command("tap")
 @click.argument("name", shell_complete=_complete_task_names)
 def shortcut_tap(name: str) -> None:
@@ -1121,36 +1238,15 @@ def _build_dashboard_table(rows: list[dict], tz: ZoneInfo) -> Table:
         table.add_row(Text("No active tasks.", style="dim"), "", "", "", "")
         return table
 
-    for r in rows:
-        status = TaskStatus(r["status"])
-        style = STYLE_FOR_STATUS.get(status, "")
-        alias = r.get("alias") or ""
-        name_cell = Text()
-        if alias:
-            name_cell.append(f"({alias}) ", style=ALIAS_STYLE)
-        name_cell.append(r["name"], style="bold")
-        if r.get("needs_review"):
-            # Use an ASCII marker instead of the ⚠️ emoji.  The emoji
-            # (U+26A0 + VS16) has unpredictable terminal width that
-            # causes table misalignment in Rich's Live display.
-            name_cell.append(" !!", style="bold yellow")
-        if status in (TaskStatus.UNCLAIMED, TaskStatus.WORKING):
-            sleep_suffix = _format_sleep_suffix(r.get("sleep_seconds"))
-            if sleep_suffix:
-                name_cell.append(sleep_suffix, style=SLEEP_STYLE)
-        status_cell = Text(status.value, style=style)
-        if status == TaskStatus.WORKING and r.get("status_changed_at"):
-            elapsed = _format_elapsed(r["status_changed_at"])
-            if elapsed:
-                status_cell.append(f" (for {elapsed})", style="dim")
-        changed = _format_ts(r["status_changed_at"]) if r.get("status_changed_at") else ""
-        cost = r.get("cost_usd", 0.0)
+    for row, prefix in _order_tasks_as_forest(rows):
+        changed = _format_ts(row["status_changed_at"]) if row.get("status_changed_at") else ""
+        cost = row.get("cost_usd", 0.0)
         cost_cell = f"${cost:.2f}" if cost else "[dim]-[/dim]"
         table.add_row(
-            name_cell,
-            status_cell,
+            _build_name_cell(row, prefix, ascii_review=True),
+            _build_status_cell(row),
             cost_cell,
-            _format_ts(r["created_at"]),
+            _format_ts(row["created_at"]),
             changed,
         )
     return table

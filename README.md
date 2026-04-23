@@ -100,6 +100,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task log [-p] NAME` | Open the full conversation log in your editor (`-p` prints the log file path instead) |
 | `ilan task summarize NAME` | Summarize the task's log and print the summary (works on local and remote clients) |
 | `ilan task rename OLD NEW` | Rename a task |
+| `ilan task branch OLD NEW [-d "msg" \| -f FILE]` | Branch a new task from `OLD`, inheriting its full Claude Code context (both tasks stay repliable and diverge from there) |
 | `ilan task kill NAME` | Kill a `WORKING` agent, move task to `ERROR` |
 | `ilan task attach NAME` | Attach to a task's Claude Code session interactively |
 | `ilan task done NAME [NAME...]` | Mark task(s) as `DONE` |
@@ -121,6 +122,7 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan reply NAME ["msg"]` | `ilan task reply NAME ["msg"]` |
 | `ilan re NAME ["msg"]` | `ilan task reply NAME ["msg"]` |
 | `ilan rename OLD NEW` | `ilan task rename OLD NEW` |
+| `ilan branch OLD NEW` | `ilan task branch OLD NEW` |
 | `ilan tap NAME` | `ilan task tap NAME` |
 | `ilan sleep NAME SECONDS` | `ilan task sleep NAME SECONDS` |
 | `ilan attach NAME` | `ilan task attach NAME` |

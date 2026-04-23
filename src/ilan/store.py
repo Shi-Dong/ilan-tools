@@ -60,12 +60,49 @@ class Store:
         tasks[task.name] = task
         self.save_tasks(tasks)
 
+    def branch_task(
+        self,
+        parent: Task,
+        new_name: str,
+        *,
+        alias: str,
+        task_hash: str,
+        now: str,
+    ) -> Task:
+        """Create a child task that inherits *parent*'s Claude Code session.
+
+        Copies the parent's ilan conversation log so ``tail``/``log`` on the
+        child show the full inherited history; after this point the two logs
+        diverge.  The parent task is not modified.
+        """
+        child = Task(
+            name=new_name,
+            prompt=parent.prompt,
+            created_at=now,
+            status_changed_at=now,
+            session_id=parent.session_id,
+            session_log_path=parent.session_log_path,
+            alias=alias,
+            task_hash=task_hash,
+            parent_name=parent.name,
+        )
+        self.put_task(child)
+
+        parent_log = self.log_path(parent.name)
+        if parent_log.exists():
+            shutil.copyfile(parent_log, self.log_path(new_name))
+
+        return child
+
     def rename_task(self, old_name: str, new_name: str) -> Task:
         """Rename a task, updating the tasks dict, log file, and output file."""
         tasks = self.load_tasks()
         task = tasks.pop(old_name)
         task.name = new_name
         tasks[new_name] = task
+        for other in tasks.values():
+            if other.parent_name == old_name:
+                other.parent_name = new_name
         self.save_tasks(tasks)
 
         old_log = self.log_path(old_name)
@@ -80,7 +117,14 @@ class Store:
 
     def delete_task(self, name: str) -> None:
         tasks = self.load_tasks()
-        tasks.pop(name, None)
+        removed = tasks.pop(name, None)
+        if removed is not None:
+            # Re-parent surviving children onto their grandparent so the
+            # branch tree stays connected after a mid-branch delete.
+            new_parent = removed.parent_name
+            for other in tasks.values():
+                if other.parent_name == name:
+                    other.parent_name = new_parent
         self.save_tasks(tasks)
         self.log_path(name).unlink(missing_ok=True)
         self.output_path(name).unlink(missing_ok=True)
