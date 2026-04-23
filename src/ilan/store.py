@@ -94,6 +94,30 @@ class Store:
 
         return child
 
+    @staticmethod
+    def build_children_map(tasks: dict[str, Task]) -> dict[str, list[str]]:
+        """Return ``{parent_name: [child_name, ...]}`` over *tasks*."""
+        children: dict[str, list[str]] = {}
+        for t in tasks.values():
+            if t.parent_name:
+                children.setdefault(t.parent_name, []).append(t.name)
+        return children
+
+    def collect_descendants(self, name: str, tasks: dict[str, Task] | None = None) -> set[str]:
+        """Return all transitive descendants of *name* in *tasks* (or the store)."""
+        if tasks is None:
+            tasks = self.load_tasks()
+        children = self.build_children_map(tasks)
+        result: set[str] = set()
+        stack = list(children.get(name, []))
+        while stack:
+            n = stack.pop()
+            if n in result:
+                continue
+            result.add(n)
+            stack.extend(children.get(n, []))
+        return result
+
     def rename_task(self, old_name: str, new_name: str) -> Task:
         """Rename a task, updating the tasks dict, log file, and output file."""
         tasks = self.load_tasks()

@@ -387,3 +387,248 @@ class TestServerBranchEndpoint:
         by_name = {row["name"]: row for row in rows}
         assert by_name["child-task"]["parent_name"] == "parent-task"
         assert by_name["parent-task"]["parent_name"] is None
+
+
+# ── list filtering: terminal ancestors kept when descendants are active ─
+
+
+def _list_default(server: IlanServer) -> list[dict]:
+    url = f"{server._test_url}/tasks"  # type: ignore[attr-defined]
+    with urlopen(Request(url), timeout=5) as r:
+        return json.loads(r.read())["tasks"]
+
+
+class TestListTerminalAncestors:
+    def test_done_middle_kept_when_grandchild_active(self, ilan_server: IlanServer) -> None:
+        """A→B→C where B is DONE but C is active: default ls must keep B."""
+        parent = Task(
+            name="A", prompt="p", session_id="sid-1",
+            status=TaskStatus.UNCLAIMED, alias="aa",
+            created_at="2026-01-01T00:00:00+00:00",
+            status_changed_at="2026-01-01T00:00:00+00:00",
+        )
+        mid = Task(
+            name="B", prompt="p", session_id="sid-1",
+            status=TaskStatus.DONE, parent_name="A",
+            created_at="2026-01-02T00:00:00+00:00",
+            status_changed_at="2026-01-02T00:00:00+00:00",
+        )
+        child = Task(
+            name="C", prompt="p", session_id="sid-1",
+            status=TaskStatus.WORKING, parent_name="B", alias="bb",
+            created_at="2026-01-03T00:00:00+00:00",
+            status_changed_at="2026-01-03T00:00:00+00:00",
+        )
+        for t in (parent, mid, child):
+            ilan_server.store.put_task(t)
+
+        names = {r["name"] for r in _list_default(ilan_server)}
+        assert names == {"A", "B", "C"}
+
+    def test_done_leaf_hidden_without_active_descendants(self, ilan_server: IlanServer) -> None:
+        """A DONE task with no descendants is hidden from default ls."""
+        ilan_server.store.put_task(Task(
+            name="solo", prompt="p",
+            status=TaskStatus.DONE,
+            created_at="2026-01-01T00:00:00+00:00",
+            status_changed_at="2026-01-01T00:00:00+00:00",
+        ))
+        ilan_server.store.put_task(Task(
+            name="active-solo", prompt="p", alias="aa",
+            status=TaskStatus.UNCLAIMED,
+            created_at="2026-01-01T00:00:00+00:00",
+            status_changed_at="2026-01-01T00:00:00+00:00",
+        ))
+        names = {r["name"] for r in _list_default(ilan_server)}
+        assert names == {"active-solo"}
+
+
+# ── delete refuses active descendants unless force ─────────────────────
+
+
+def _delete(server: IlanServer, path: str) -> tuple[int, dict]:
+    url = f"{server._test_url}{path}"  # type: ignore[attr-defined]
+    req = Request(url, method="DELETE")
+    try:
+        with urlopen(req, timeout=5) as resp:
+            return resp.status, json.loads(resp.read())
+    except HTTPError as exc:
+        return exc.code, json.loads(exc.read())
+
+
+class TestDeleteWithDescendants:
+    def _seed_chain(self, server: IlanServer) -> None:
+        server.store.put_task(Task(
+            name="A", prompt="p", status=TaskStatus.UNCLAIMED, alias="aa",
+            created_at="2026-01-01T00:00:00+00:00",
+        ))
+        server.store.put_task(Task(
+            name="B", prompt="p", status=TaskStatus.DONE, parent_name="A",
+            created_at="2026-01-02T00:00:00+00:00",
+        ))
+        server.store.put_task(Task(
+            name="C", prompt="p", status=TaskStatus.WORKING, parent_name="B", alias="bb",
+            created_at="2026-01-03T00:00:00+00:00",
+        ))
+
+    def test_refuses_when_active_descendant(self, ilan_server: IlanServer) -> None:
+        self._seed_chain(ilan_server)
+        code, resp = _delete(ilan_server, "/tasks/A")
+        assert code == 409
+        assert "active descendant" in resp["error"]
+        assert "C" in resp["error"]
+        # Nothing was removed.
+        assert ilan_server.store.get_task("A") is not None
+
+    def test_allows_when_only_terminal_descendants(self, ilan_server: IlanServer) -> None:
+        """A→B where both are DONE: deletion allowed without --force."""
+        ilan_server.store.put_task(Task(
+            name="A", prompt="p", status=TaskStatus.DONE,
+            created_at="2026-01-01T00:00:00+00:00",
+        ))
+        ilan_server.store.put_task(Task(
+            name="B", prompt="p", status=TaskStatus.DONE, parent_name="A",
+            created_at="2026-01-02T00:00:00+00:00",
+        ))
+        code, resp = _delete(ilan_server, "/tasks/A")
+        assert code == 200
+        assert resp["ok"] is True
+        assert ilan_server.store.get_task("A") is None
+
+    def test_force_overrides_refusal(self, ilan_server: IlanServer) -> None:
+        self._seed_chain(ilan_server)
+        code, resp = _delete(ilan_server, "/tasks/A?force=true")
+        assert code == 200
+        assert resp["ok"] is True
+        assert ilan_server.store.get_task("A") is None
+        # Child's parent_name re-parented onto grandparent (None here).
+        b = ilan_server.store.get_task("B")
+        assert b is not None
+        assert b.parent_name is None
+
+
+# ── CLI: branch -n flag, rm -f, clean skips parents ────────────────────
+
+
+def _make_cli_client(**overrides):
+    from unittest.mock import MagicMock
+    client = MagicMock()
+    client.ensure_server.return_value = {}
+    client.version_mismatch = None
+    client.is_remote = False
+    for k, v in overrides.items():
+        setattr(client, k, v)
+    return client
+
+
+class TestBranchCliFlags:
+    def test_branch_requires_dash_n(self, tmp_config) -> None:
+        from click.testing import CliRunner
+        from ilan.cli import main
+        runner = CliRunner()
+        client = _make_cli_client()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["branch", "parent"])
+        assert result.exit_code != 0
+        assert "Missing option" in result.output or "-n" in result.output
+
+    def test_branch_with_dash_n_invokes_client(self, tmp_config) -> None:
+        from click.testing import CliRunner
+        from ilan.cli import main
+        runner = CliRunner()
+        client = _make_cli_client()
+        client.branch_task.return_value = {
+            "ok": True, "name": "child", "parent_name": "parent",
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["branch", "parent", "-n", "child"])
+        assert result.exit_code == 0, result.output
+        client.branch_task.assert_called_once_with("parent", "child", None)
+        assert "Branched" in result.output
+
+    def test_branch_with_dash_n_and_description(self, tmp_config) -> None:
+        from click.testing import CliRunner
+        from ilan.cli import main
+        runner = CliRunner()
+        client = _make_cli_client()
+        client.branch_task.return_value = {"ok": True, "name": "child", "parent_name": "parent"}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, [
+                "task", "branch", "parent", "-n", "child", "-d", "try plan B",
+            ])
+        assert result.exit_code == 0, result.output
+        client.branch_task.assert_called_once_with("parent", "child", "try plan B")
+
+
+class TestRmForceFlag:
+    def test_rm_without_force_forwards_to_server(self, tmp_config) -> None:
+        from click.testing import CliRunner
+        from ilan.cli import main
+        runner = CliRunner()
+        client = _make_cli_client()
+        client.get_task.return_value = {"task": {"name": "X"}}
+        client.delete_task.return_value = {"ok": True}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["task", "rm", "X", "-y"])
+        assert result.exit_code == 0
+        client.delete_task.assert_called_once_with("X", force=False)
+
+    def test_rm_with_force_passes_through(self, tmp_config) -> None:
+        from click.testing import CliRunner
+        from ilan.cli import main
+        runner = CliRunner()
+        client = _make_cli_client()
+        client.get_task.return_value = {"task": {"name": "X"}}
+        client.delete_task.return_value = {"ok": True}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["task", "rm", "X", "-y", "-f"])
+        assert result.exit_code == 0
+        client.delete_task.assert_called_once_with("X", force=True)
+
+    def test_rm_surfaces_server_refusal(self, tmp_config) -> None:
+        from click.testing import CliRunner
+        from ilan.cli import main
+        runner = CliRunner()
+        client = _make_cli_client()
+        client.get_task.return_value = {"task": {"name": "A"}}
+        client.delete_task.return_value = {
+            "error": "Task A has active descendant(s): C. Pass -f to force delete.",
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["task", "rm", "A", "-y"])
+        assert result.exit_code == 1
+        assert "active descendant" in result.output
+
+
+class TestCleanSkipsParents:
+    def test_clean_skips_tasks_with_children(self, tmp_config) -> None:
+        from click.testing import CliRunner
+        from ilan.cli import main
+        runner = CliRunner()
+        client = _make_cli_client()
+        # A is the parent; B is the child. Both old enough to be eligible,
+        # but A must be spared because it has a child.
+        old_ts = "2020-01-01T00:00:00+00:00"
+        client.list_tasks.return_value = {"tasks": [
+            {
+                "name": "A", "status": "DONE", "alias": None,
+                "created_at": old_ts, "status_changed_at": old_ts,
+                "needs_review": False, "cost_usd": 0.0, "sleep_seconds": None,
+                "parent_name": None,
+            },
+            {
+                "name": "B", "status": "DONE", "alias": None,
+                "created_at": old_ts, "status_changed_at": old_ts,
+                "needs_review": False, "cost_usd": 0.0, "sleep_seconds": None,
+                "parent_name": "A",
+            },
+        ]}
+        client.delete_task.return_value = {"ok": True}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["clean", "1h", "-y"])
+        assert result.exit_code == 0, result.output
+        # Only B should be deleted; A is spared because it has a child.
+        deleted_names = [c.args[0] for c in client.delete_task.call_args_list]
+        assert deleted_names == ["B"]
+        assert "Skipped" in result.output
+        assert "A" in result.output

@@ -699,7 +699,8 @@ def _do_branch(
 
 @task_group.command("branch")
 @click.argument("old_name", shell_complete=_complete_task_names)
-@click.argument("new_name")
+@click.option("-n", "--name", "new_name", required=True,
+              help="Short name for the branched (new) task.")
 @click.option("-f", "--file", "file_path", type=click.Path(exists=True), default=None,
               help="Path to a file containing the first reply to the child task.")
 @click.option("-d", "--description", default=None,
@@ -707,7 +708,7 @@ def _do_branch(
 def task_branch(
     old_name: str, new_name: str, file_path: str | None, description: str | None
 ) -> None:
-    """Branch a new task from an existing one, inheriting its full context."""
+    """Branch a new task from OLD_NAME, inheriting its full context."""
     _do_branch(old_name, new_name, file_path, description)
 
 
@@ -916,7 +917,9 @@ def task_summarize(name: str) -> None:
 @task_group.command("rm")
 @click.argument("names", nargs=-1, required=True, shell_complete=_complete_task_names)
 @click.option("-y", "--yes", is_flag=True, help="Skip confirmation.")
-def task_rm(names: tuple[str, ...], yes: bool) -> None:
+@click.option("-f", "--force", is_flag=True,
+              help="Delete even if the task has active (non-terminal) descendants.")
+def task_rm(names: tuple[str, ...], yes: bool, force: bool) -> None:
     """Remove one or more tasks and all their data."""
     client = _client()
 
@@ -938,9 +941,19 @@ def task_rm(names: tuple[str, ...], yes: bool) -> None:
         if not click.confirm(f"Remove {len(found)} task(s): {', '.join(found)}?"):
             return
 
+    removed: list[str] = []
+    blocked: list[str] = []
     for n in found:
-        client.delete_task(n)
-    console.print(f"[green]Removed: {', '.join(found)}[/green]")
+        resp = client.delete_task(n, force=force)
+        if "error" in resp:
+            console.print(f"[yellow]{resp['error']}[/yellow]")
+            blocked.append(n)
+        else:
+            removed.append(n)
+    if removed:
+        console.print(f"[green]Removed: {', '.join(removed)}[/green]")
+    if blocked:
+        raise SystemExit(1)
 
 
 # ── task done / discard ──────────────────────────────────────────────
@@ -1148,7 +1161,8 @@ def shortcut_rename(old_name: str, new_name: str) -> None:
 
 @main.command("branch")
 @click.argument("old_name", shell_complete=_complete_task_names)
-@click.argument("new_name")
+@click.option("-n", "--name", "new_name", required=True,
+              help="Short name for the branched (new) task.")
 @click.option("-f", "--file", "file_path", type=click.Path(exists=True), default=None,
               help="Path to a file containing the first reply to the child task.")
 @click.option("-d", "--description", default=None,
@@ -1353,14 +1367,27 @@ def clean(duration: str, yes: bool) -> None:
     resp = client.list_tasks(show_all=True)
     rows = resp["tasks"]
 
+    parent_names = {r["parent_name"] for r in rows if r.get("parent_name")}
+
     stale: list[dict] = []
+    skipped_with_children: list[str] = []
     for r in rows:
         changed = r.get("status_changed_at") or r.get("created_at", "")
         if not changed:
             continue
         ts = datetime.fromisoformat(changed)
-        if ts < cutoff:
-            stale.append(r)
+        if ts >= cutoff:
+            continue
+        if r["name"] in parent_names:
+            skipped_with_children.append(r["name"])
+            continue
+        stale.append(r)
+
+    if skipped_with_children:
+        console.print(
+            "[dim]Skipped (has children — use [bold]ilan rm -f[/bold] to drop the whole subtree):"
+            f" {', '.join(skipped_with_children)}[/dim]"
+        )
 
     if not stale:
         console.print(f"[dim]No tasks older than {duration}.[/dim]")

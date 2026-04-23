@@ -100,7 +100,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task log [-p] NAME` | Open the full conversation log in your editor (`-p` prints the log file path instead) |
 | `ilan task summarize NAME` | Summarize the task's log and print the summary (works on local and remote clients) |
 | `ilan task rename OLD NEW` | Rename a task |
-| `ilan task branch OLD NEW [-d "msg" \| -f FILE]` | Branch a new task from `OLD`, inheriting its full Claude Code context (both tasks stay repliable and diverge from there) |
+| `ilan task branch OLD -n NEW [-d "msg" \| -f FILE]` | Branch a new task from `OLD`, inheriting its full Claude Code context (both tasks stay repliable and diverge from there) |
 | `ilan task kill NAME` | Kill a `WORKING` agent, move task to `ERROR` |
 | `ilan task attach NAME` | Attach to a task's Claude Code session interactively |
 | `ilan task done NAME [NAME...]` | Mark task(s) as `DONE` |
@@ -108,7 +108,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task undone NAME` | Move a `DONE` task back to `NEEDS_ATTENTION` |
 | `ilan task undiscard NAME` | Move a `DISCARDED` task back to `NEEDS_ATTENTION` |
 | `ilan task unread NAME [NAME...]` | Restore the unread marker on task(s) |
-| `ilan task rm NAME [NAME...]` | Delete task(s) and all their data |
+| `ilan task rm [-f] NAME [NAME...]` | Delete task(s) and all their data (refuses if any has an active descendant; `-f` overrides) |
 
 ### Shorthands
 
@@ -122,7 +122,7 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan reply NAME ["msg"]` | `ilan task reply NAME ["msg"]` |
 | `ilan re NAME ["msg"]` | `ilan task reply NAME ["msg"]` |
 | `ilan rename OLD NEW` | `ilan task rename OLD NEW` |
-| `ilan branch OLD NEW` | `ilan task branch OLD NEW` |
+| `ilan branch OLD -n NEW` | `ilan task branch OLD -n NEW` |
 | `ilan tap NAME` | `ilan task tap NAME` |
 | `ilan sleep NAME SECONDS` | `ilan task sleep NAME SECONDS` |
 | `ilan attach NAME` | `ilan task attach NAME` |
@@ -157,7 +157,7 @@ Full-screen, real-time task table (like `htop`). Polls the server at the configu
 |---|---|
 | `ilan config show` | Print current configuration |
 | `ilan config set KEY VALUE` | Set a config value |
-| `ilan clean DURATION` | Delete tasks whose last change is older than DURATION (e.g. `5h`, `3d`) |
+| `ilan clean DURATION` | Delete tasks whose last change is older than DURATION (e.g. `5h`, `3d`); never touches tasks that have children |
 | `ilan clear-everything` | Delete all tasks, logs, and data (requires confirmation) |
 | `ilan update` | Pull the latest ilan-tools from remote and reinstall |
 

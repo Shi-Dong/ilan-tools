@@ -228,9 +228,28 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             show_all = "all=true" in qs
             with self._ilan.lock:
                 tasks = self._ilan.store.load_tasks()
+
+            # Keep terminal ancestors of any non-terminal task so the branch
+            # tree stays readable in ls/dashboard even after a middle node is
+            # marked DONE/DISCARDED.  Walk up from each active task; the first
+            # already-seen ancestor stops the climb.
+            keep_terminal_ancestors: set[str] = set()
+            if not show_all:
+                for t in tasks.values():
+                    if t.status.is_terminal:
+                        continue
+                    cur = t.parent_name
+                    while cur and cur not in keep_terminal_ancestors:
+                        parent = tasks.get(cur)
+                        if parent is None:
+                            break
+                        if parent.status.is_terminal:
+                            keep_terminal_ancestors.add(cur)
+                        cur = parent.parent_name
+
             rows = []
             for t in sorted(tasks.values(), key=lambda t: t.status_changed_at or t.created_at, reverse=True):
-                if not show_all and t.status.is_terminal:
+                if not show_all and t.status.is_terminal and t.name not in keep_terminal_ancestors:
                     continue
                 rows.append({
                     "name": t.name,
@@ -281,10 +300,28 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 self._json({"task": task.to_dict()})
 
         def handle_delete_task(self, name: str):
+            qs = self.path.split("?", 1)[1] if "?" in self.path else ""
+            force = "force=true" in qs
             with self._ilan.lock:
                 task = self._get_task_or_404(name)
                 if task is None:
                     return
+                if not force:
+                    tasks = self._ilan.store.load_tasks()
+                    descendants = self._ilan.store.collect_descendants(task.name, tasks)
+                    active = sorted(
+                        d for d in descendants
+                        if d in tasks and not tasks[d].status.is_terminal
+                    )
+                    if active:
+                        self._json(
+                            {"error": (
+                                f"Task {task.name} has active descendant(s): "
+                                f"{', '.join(active)}. Pass -f to force delete."
+                            )},
+                            409,
+                        )
+                        return
                 task_hash = task.task_hash
                 if task.status == TaskStatus.WORKING:
                     self._ilan.runner.kill(task)
