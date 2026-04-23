@@ -110,6 +110,12 @@ class Runner:
         self.kill(task)
         time.sleep(0.5)
         self._try_reap(task)
+        # The reap above parses the interrupted turn as if the agent had
+        # voluntarily finished, which flips ``needs_review`` to True. But the
+        # user just typed a reply — they don't need to be re-notified about
+        # output they're already looking at — so clear the flag here.
+        task.needs_review = False
+        self.store.put_task(task)
 
         self.store.append_log(task.name, "user", message)
 
