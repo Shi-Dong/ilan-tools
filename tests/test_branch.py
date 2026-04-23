@@ -560,44 +560,102 @@ class TestBranchCliFlags:
         client.branch_task.assert_called_once_with("parent", "child", "try plan B")
 
 
+def _row_for_rm(name: str, status: str = "DONE", parent: str | None = None) -> dict:
+    return {
+        "name": name, "status": status, "alias": None,
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "status_changed_at": "2026-01-01T00:00:00+00:00",
+        "needs_review": False, "cost_usd": 0.0, "sleep_seconds": None,
+        "parent_name": parent,
+    }
+
+
 class TestRmForceFlag:
-    def test_rm_without_force_forwards_to_server(self, tmp_config) -> None:
+    def test_rm_leaf_deletes(self, tmp_config) -> None:
         from click.testing import CliRunner
         from ilan.cli import main
         runner = CliRunner()
         client = _make_cli_client()
         client.get_task.return_value = {"task": {"name": "X"}}
+        client.list_tasks.return_value = {"tasks": [_row_for_rm("X")]}
         client.delete_task.return_value = {"ok": True}
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["task", "rm", "X", "-y"])
         assert result.exit_code == 0
-        client.delete_task.assert_called_once_with("X", force=False)
-
-    def test_rm_with_force_passes_through(self, tmp_config) -> None:
-        from click.testing import CliRunner
-        from ilan.cli import main
-        runner = CliRunner()
-        client = _make_cli_client()
-        client.get_task.return_value = {"task": {"name": "X"}}
-        client.delete_task.return_value = {"ok": True}
-        with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["task", "rm", "X", "-y", "-f"])
-        assert result.exit_code == 0
+        # Batch pre-check cleared, so the server call uses force=True.
         client.delete_task.assert_called_once_with("X", force=True)
 
-    def test_rm_surfaces_server_refusal(self, tmp_config) -> None:
+    def test_rm_refuses_when_active_descendant_outside_batch(self, tmp_config) -> None:
         from click.testing import CliRunner
         from ilan.cli import main
         runner = CliRunner()
         client = _make_cli_client()
         client.get_task.return_value = {"task": {"name": "A"}}
-        client.delete_task.return_value = {
-            "error": "Task A has active descendant(s): C. Pass -f to force delete.",
-        }
+        client.list_tasks.return_value = {"tasks": [
+            _row_for_rm("A", status="DONE"),
+            _row_for_rm("C", status="WORKING", parent="A"),
+        ]}
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["task", "rm", "A", "-y"])
         assert result.exit_code == 1
-        assert "active descendant" in result.output
+        assert "active" in result.output
+        assert "C" in result.output
+        client.delete_task.assert_not_called()
+
+    def test_rm_allows_parent_and_child_together(self, tmp_config) -> None:
+        """Active descendants are fine as long as they're also being deleted."""
+        from click.testing import CliRunner
+        from ilan.cli import main
+        runner = CliRunner()
+        client = _make_cli_client()
+        # Return canonical names for both lookups.
+        client.get_task.side_effect = [
+            {"task": {"name": "A"}}, {"task": {"name": "C"}},
+        ]
+        client.list_tasks.return_value = {"tasks": [
+            _row_for_rm("A", status="DONE"),
+            _row_for_rm("C", status="WORKING", parent="A"),
+        ]}
+        client.delete_task.return_value = {"ok": True}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["task", "rm", "A", "C", "-y"])
+        assert result.exit_code == 0, result.output
+        deleted = [c.args[0] for c in client.delete_task.call_args_list]
+        assert set(deleted) == {"A", "C"}
+
+    def test_rm_refuses_when_grandchild_active_outside_batch(self, tmp_config) -> None:
+        """A→B→C; deleting {A, B} leaves C active → refuse."""
+        from click.testing import CliRunner
+        from ilan.cli import main
+        runner = CliRunner()
+        client = _make_cli_client()
+        client.get_task.side_effect = [
+            {"task": {"name": "A"}}, {"task": {"name": "B"}},
+        ]
+        client.list_tasks.return_value = {"tasks": [
+            _row_for_rm("A", status="DONE"),
+            _row_for_rm("B", status="DONE", parent="A"),
+            _row_for_rm("C", status="WORKING", parent="B"),
+        ]}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["task", "rm", "A", "B", "-y"])
+        assert result.exit_code == 1
+        assert "C" in result.output
+        client.delete_task.assert_not_called()
+
+    def test_rm_force_skips_client_check(self, tmp_config) -> None:
+        from click.testing import CliRunner
+        from ilan.cli import main
+        runner = CliRunner()
+        client = _make_cli_client()
+        client.get_task.return_value = {"task": {"name": "A"}}
+        client.delete_task.return_value = {"ok": True}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["task", "rm", "A", "-y", "-f"])
+        assert result.exit_code == 0
+        # With -f, we must not bother list_tasks for a pre-check.
+        client.list_tasks.assert_not_called()
+        client.delete_task.assert_called_once_with("A", force=True)
 
 
 class TestCleanSkipsParents:

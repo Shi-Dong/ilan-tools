@@ -920,7 +920,13 @@ def task_summarize(name: str) -> None:
 @click.option("-f", "--force", is_flag=True,
               help="Delete even if the task has active (non-terminal) descendants.")
 def task_rm(names: tuple[str, ...], yes: bool, force: bool) -> None:
-    """Remove one or more tasks and all their data."""
+    """Remove one or more tasks and all their data.
+
+    Refuses if any target has active descendants that are not also in the
+    batch — e.g. ``ilan task rm parent child`` is allowed when parent's only
+    active descendant is child, but ``ilan task rm parent`` on its own is not.
+    ``-f`` overrides the check entirely.
+    """
     client = _client()
 
     found: list[str] = []
@@ -937,22 +943,67 @@ def task_rm(names: tuple[str, ...], yes: bool, force: bool) -> None:
     if not found:
         return
 
+    if not force:
+        all_rows = client.list_tasks(show_all=True).get("tasks", [])
+        by_name = {r["name"]: r for r in all_rows}
+        children_map: dict[str, list[str]] = {}
+        for r in all_rows:
+            parent = r.get("parent_name")
+            if parent:
+                children_map.setdefault(parent, []).append(r["name"])
+
+        batch = set(found)
+        blockers: dict[str, list[str]] = {}
+        for target in found:
+            outside_active: list[str] = []
+            stack = list(children_map.get(target, []))
+            seen: set[str] = set()
+            while stack:
+                d = stack.pop()
+                if d in seen:
+                    continue
+                seen.add(d)
+                stack.extend(children_map.get(d, []))
+                if d in batch:
+                    continue  # caller is deleting this too
+                info = by_name.get(d)
+                if info is None:
+                    continue
+                if not TaskStatus(info["status"]).is_terminal:
+                    outside_active.append(d)
+            if outside_active:
+                blockers[target] = sorted(outside_active)
+
+        if blockers:
+            console.print(
+                "[yellow]Refusing to delete: some targets have active "
+                "descendants outside this batch.[/yellow]"
+            )
+            for target, outside in blockers.items():
+                console.print(f"  [bold]{target}[/bold] → {', '.join(outside)}")
+            console.print("[dim]Re-run with [bold]-f[/bold] to force delete.[/dim]")
+            raise SystemExit(1)
+
     if not yes:
         if not click.confirm(f"Remove {len(found)} task(s): {', '.join(found)}?"):
             return
 
+    # We've already validated the batch above (or the user passed -f), so
+    # pass force=True to the server to bypass its per-task descendant check
+    # — otherwise deleting the outer ancestor in a parent+child batch would
+    # trip the single-task guard on the server side.
     removed: list[str] = []
-    blocked: list[str] = []
+    failed: list[str] = []
     for n in found:
-        resp = client.delete_task(n, force=force)
+        resp = client.delete_task(n, force=True)
         if "error" in resp:
             console.print(f"[yellow]{resp['error']}[/yellow]")
-            blocked.append(n)
+            failed.append(n)
         else:
             removed.append(n)
     if removed:
         console.print(f"[green]Removed: {', '.join(removed)}[/green]")
-    if blocked:
+    if failed:
         raise SystemExit(1)
 
 
@@ -1385,7 +1436,7 @@ def clean(duration: str, yes: bool) -> None:
 
     if skipped_with_children:
         console.print(
-            "[dim]Skipped (has children — use [bold]ilan rm -f[/bold] to drop the whole subtree):"
+            "[dim]Skipped (has children — use [bold]ilan task rm -f[/bold] to drop the whole subtree):"
             f" {', '.join(skipped_with_children)}[/dim]"
         )
 
