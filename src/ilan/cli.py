@@ -96,6 +96,32 @@ def _check_error(resp: dict) -> bool:
 
 _DURATION_RE = re.compile(r"^(\d+)\s*([hd])$", re.IGNORECASE)
 
+# Matches ``@<digits>`` references used to quote assistant lines in replies
+# when line-number mode is on.  The negative lookbehind prevents chewing
+# things like email addresses (``user@123.com``).
+_AT_REF_RE = re.compile(r"(?<![A-Za-z0-9_])@(\d+)")
+
+
+def _line_number_enabled() -> bool:
+    return cfg.parse_bool(cfg.load().get("line-number", False))
+
+
+def _expand_at_refs(message: str, lines: list[str]) -> str:
+    """Replace ``@N`` tokens with the Nth cached assistant line, double-quoted.
+
+    Out-of-range references are left untouched so the user can spot a typo.
+    """
+    if not lines:
+        return message
+
+    def repl(m: re.Match) -> str:
+        idx = int(m.group(1))
+        if 1 <= idx <= len(lines):
+            return f"\"{lines[idx - 1]}\""
+        return m.group(0)
+
+    return _AT_REF_RE.sub(repl, message)
+
 
 def _parse_duration(spec: str) -> timedelta:
     """Parse a human duration like ``5h`` or ``3d`` into a timedelta."""
@@ -522,12 +548,35 @@ def _do_tail(name: str, n: int | None = None) -> None:
             return
         entries = resp["entries"]
 
+    line_number_on = _line_number_enabled()
+    numbered_lines: list[str] = []
+    if line_number_on:
+        for entry in entries:
+            if entry["role"] == "assistant":
+                numbered_lines.extend(entry["content"].splitlines())
+        cfg.save_last_tail(name, numbered_lines)
+    width = max(len(str(len(numbered_lines))), 1)
+
+    line_idx = 0
     for entry in entries:
         label = "Assistant" if entry["role"] == "assistant" else "User"
         style = "bold cyan" if entry["role"] == "assistant" else "bold green"
         ts = _format_ts(entry["timestamp"]) if entry.get("timestamp") else ""
         console.print(f"[{style}]{label}[/{style}] [dim]({ts})[/dim]")
-        console.print(entry["content"])
+        if line_number_on and entry["role"] == "assistant":
+            lines = entry["content"].splitlines()
+            if not lines:
+                console.print(entry["content"])
+            else:
+                for line in lines:
+                    line_idx += 1
+                    text = Text()
+                    text.append(f"[{line_idx:>{width}}]", style="yellow")
+                    text.append(" ")
+                    text.append(line)
+                    console.print(text)
+        else:
+            console.print(entry["content"])
         console.print()
 
 
@@ -546,6 +595,8 @@ def task_tail(name: str, num: int | None) -> None:
 # ── task reply ───────────────────────────────────────────────────────
 
 def _do_reply(name: str, message: str) -> None:
+    if _line_number_enabled():
+        message = _expand_at_refs(message, cfg.load_last_tail(name))
     resp = _client().reply(name, message)
     if _check_error(resp):
         raise SystemExit(1)

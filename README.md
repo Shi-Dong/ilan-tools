@@ -177,6 +177,23 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 | `editor` | `emacs` | Editor used by `ilan task log` |
 | `api-key` | _(empty)_ | Anthropic API key passed as `ANTHROPIC_API_KEY` to spawned agents |
 | `dashboard-interval` | `1` | Seconds between automatic refreshes in `ilan dashboard` |
+| `line-number` | `false` | When `true`, `ilan tail` prefixes each assistant line with a yellow `[N]` marker and `ilan reply` expands `@N` into the Nth line, double-quoted |
+
+### Line-number mode
+
+Turn it on with:
+
+```bash
+ilan config set line-number true
+```
+
+Then `ilan tail <task>` prints each line of every shown assistant message with
+a yellow `[N]` prefix; numbering is continuous across all assistant messages
+when `-n` surfaces more than one. `ilan reply` (and its `re` shorthand) then
+looks up the most recent tail for that task and replaces every `@N` in your
+reply with the Nth line wrapped in double quotes — so `ilan reply my-task "about @12, ..."`
+becomes `about "the 12th line ...", ...` before being sent. Out-of-range
+references pass through unchanged.
 
 ### Summarize
 

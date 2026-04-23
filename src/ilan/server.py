@@ -217,7 +217,12 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 self._json({"error": f"Unknown config key: {key}"}, 400)
                 return
             conf = cfg.load()
-            conf[key] = int(value) if key in cfg.INT_KEYS else value
+            if key in cfg.INT_KEYS:
+                conf[key] = int(value)
+            elif key in cfg.BOOL_KEYS:
+                conf[key] = cfg.parse_bool(value)
+            else:
+                conf[key] = value
             cfg.save(conf)
             self._json({"ok": True, "key": key, "value": conf[key]})
 
