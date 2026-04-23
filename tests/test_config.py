@@ -16,6 +16,7 @@ class TestDefaults:
             "workdir", "num-agents", "model", "effort",
             "summarize-model", "summarize-effort",
             "time-zone", "editor", "api-key", "dashboard-interval",
+            "line-number",
         }
         assert set(cfg.DEFAULTS.keys()) == expected
 
@@ -24,6 +25,43 @@ class TestDefaults:
 
     def test_int_keys(self) -> None:
         assert cfg.INT_KEYS == {"num-agents", "dashboard-interval"}
+
+    def test_bool_keys(self) -> None:
+        assert cfg.BOOL_KEYS == {"line-number"}
+
+    def test_line_number_default_false(self) -> None:
+        assert cfg.DEFAULTS["line-number"] is False
+
+
+class TestParseBool:
+    @pytest.mark.parametrize("value", ["true", "TRUE", "1", "yes", "on", True])
+    def test_truthy(self, value) -> None:
+        assert cfg.parse_bool(value) is True
+
+    @pytest.mark.parametrize("value", ["false", "0", "no", "off", "", False])
+    def test_falsy(self, value) -> None:
+        assert cfg.parse_bool(value) is False
+
+
+class TestLastTailCache:
+    def test_save_and_load_roundtrip(self, tmp_config: Path) -> None:
+        cfg.save_last_tail("my-task", ["first", "second", "third"])
+        assert cfg.load_last_tail("my-task") == ["first", "second", "third"]
+
+    def test_load_returns_empty_when_missing(self, tmp_config: Path) -> None:
+        assert cfg.load_last_tail("never-saved") == []
+
+    def test_path_sanitises_task_name(self, tmp_config: Path) -> None:
+        """Task names with slashes or spaces must not escape the cache dir."""
+        cfg.save_last_tail("weird/name with spaces", ["x"])
+        p = cfg.last_tail_path("weird/name with spaces")
+        assert p.parent == cfg._last_tail_dir()
+        assert cfg.load_last_tail("weird/name with spaces") == ["x"]
+
+    def test_overwrite_previous_cache(self, tmp_config: Path) -> None:
+        cfg.save_last_tail("t", ["a", "b"])
+        cfg.save_last_tail("t", ["c"])
+        assert cfg.load_last_tail("t") == ["c"]
 
 
 class TestLoad:
