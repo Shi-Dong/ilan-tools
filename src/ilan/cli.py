@@ -699,32 +699,36 @@ def _format_sleep_suffix(sleep_seconds: int | None) -> str | None:
 _SLEEP_SECOND_UNITS = frozenset({"s", "sec", "second", "seconds"})
 _SLEEP_MINUTE_UNITS = frozenset({"m", "min", "mins", "minute", "minutes"})
 _SLEEP_HOUR_UNITS = frozenset({"h", "hr", "hrs", "hour", "hours"})
-_SLEEP_DURATION_RE = re.compile(r"^(\d+)([A-Za-z]*)$")
+_SLEEP_DURATION_RE = re.compile(r"^(\d+(?:\.\d+)?)([A-Za-z]*)$")
 
 
 def _parse_sleep_duration(value: str) -> int:
-    """Parse a sleep duration like ``300s``, ``5m``, ``2h``, or bare ``300``.
+    """Parse a sleep duration like ``300s``, ``5m``, ``2h``, or ``1.5h``.
 
-    No whitespace is allowed between the number and the unit. A bare number
-    is interpreted as seconds. Returns the duration in seconds.
+    The number may be an integer or a decimal (e.g. ``1.5h`` → 5400s). No
+    whitespace is allowed between the number and the unit. A bare number
+    is interpreted as seconds. Returns the duration in whole seconds
+    (rounded to the nearest second).
     """
     match = _SLEEP_DURATION_RE.match(value)
     if not match:
         raise ValueError(
-            f"invalid duration {value!r}: expected e.g. '300', '300s', '5m', '2h'"
+            f"invalid duration {value!r}: expected e.g. '300', '300s', '5m', '1.5h'"
         )
-    number = int(match.group(1))
+    number = float(match.group(1))
     unit = match.group(2).lower()
     if unit == "" or unit in _SLEEP_SECOND_UNITS:
-        return number
-    if unit in _SLEEP_MINUTE_UNITS:
-        return number * 60
-    if unit in _SLEEP_HOUR_UNITS:
-        return number * 3600
-    raise ValueError(
-        f"invalid duration unit {match.group(2)!r} in {value!r}: "
-        "use s/sec/second(s), m/min(s)/minute(s), or h/hr(s)/hour(s)"
-    )
+        multiplier = 1
+    elif unit in _SLEEP_MINUTE_UNITS:
+        multiplier = 60
+    elif unit in _SLEEP_HOUR_UNITS:
+        multiplier = 3600
+    else:
+        raise ValueError(
+            f"invalid duration unit {match.group(2)!r} in {value!r}: "
+            "use s/sec/second(s), m/min(s)/minute(s), or h/hr(s)/hour(s)"
+        )
+    return int(round(number * multiplier))
 
 
 def _do_sleep(name: str, duration: str) -> None:
@@ -751,10 +755,10 @@ def _do_sleep(name: str, duration: str) -> None:
 def task_sleep(name: str, duration: str) -> None:
     """Tell a NEEDS_ATTENTION / AGENT_FINISHED task to sleep for DURATION and report back.
 
-    DURATION accepts a bare integer (seconds) or a number with a unit suffix
-    (no whitespace): e.g. ``300``, ``300s``, ``5m``, ``2h``. Unit aliases:
-    seconds = s/sec/second/seconds, minutes = m/min/mins/minute/minutes,
-    hours = h/hr/hrs/hour/hours.
+    DURATION accepts an integer or decimal with an optional unit suffix
+    (no whitespace): e.g. ``300``, ``300s``, ``5m``, ``2h``, ``1.5h``.
+    Bare numbers are seconds. Unit aliases: seconds = s/sec/second/seconds,
+    minutes = m/min/mins/minute/minutes, hours = h/hr/hrs/hour/hours.
     """
     _do_sleep(name, duration)
 
