@@ -1371,15 +1371,15 @@ def _build_dashboard_table(rows: list[dict], tz: ZoneInfo) -> Table:
     header.append("r", style="bold")
     header.append(" refresh", style="dim")
 
-    # Fixed column ratios: name gets 2/5 of the terminal, the other four
-    # columns split the remaining 3/5 equally (8/20 = 2/5; 3/20 each). This
-    # keeps the name column from ballooning past its share when a task has
-    # a long "(sleeping for X s)" suffix; overlong cells fold onto the next
-    # line within the column.
+    # Fixed column ratios (total 20): name=2/5, Status=4/20, Cost=2/20,
+    # Created=3/20, Last Changed=3/20. Status needs extra room for the
+    # "(for HHhMMmSSs)" suffix; Cost is always a compact "$X.XX" and can
+    # be narrow. Overlong name cells fold onto the next line within the
+    # column instead of pushing it wider.
     table = Table(title=header, expand=True)
     table.add_column("(Alias) Name", style="bold", ratio=8)
-    table.add_column("Status", ratio=3)
-    table.add_column("Cost", justify="right", ratio=3)
+    table.add_column("Status", ratio=4)
+    table.add_column("Cost", justify="right", ratio=2)
     table.add_column("Created", ratio=3)
     table.add_column("Last Changed", ratio=3)
 
