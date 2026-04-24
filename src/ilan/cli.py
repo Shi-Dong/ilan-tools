@@ -696,9 +696,49 @@ def _format_sleep_suffix(sleep_seconds: int | None) -> str | None:
     return f" (sleeping for {int(sleep_seconds)} s)"
 
 
-def _do_sleep(name: str, seconds: int) -> None:
+_SLEEP_SECOND_UNITS = frozenset({"s", "sec", "second", "seconds"})
+_SLEEP_MINUTE_UNITS = frozenset({"m", "min", "mins", "minute", "minutes"})
+_SLEEP_HOUR_UNITS = frozenset({"h", "hr", "hrs", "hour", "hours"})
+_SLEEP_DURATION_RE = re.compile(r"^(\d+\.?\d*|\.\d+)([A-Za-z]*)$")
+
+
+def _parse_sleep_duration(value: str) -> int:
+    """Parse a sleep duration like ``300s``, ``5m``, ``2h``, or ``1.5h``.
+
+    The number may be an integer or a decimal (e.g. ``1.5h`` → 5400s). No
+    whitespace is allowed between the number and the unit. A bare number
+    is interpreted as seconds. Returns the duration in whole seconds
+    (rounded to the nearest second).
+    """
+    match = _SLEEP_DURATION_RE.match(value)
+    if not match:
+        raise ValueError(
+            f"invalid duration {value!r}: expected e.g. '300', '300s', '5m', '1.5h'"
+        )
+    number = float(match.group(1))
+    unit = match.group(2).lower()
+    if unit == "" or unit in _SLEEP_SECOND_UNITS:
+        multiplier = 1
+    elif unit in _SLEEP_MINUTE_UNITS:
+        multiplier = 60
+    elif unit in _SLEEP_HOUR_UNITS:
+        multiplier = 3600
+    else:
+        raise ValueError(
+            f"invalid duration unit {match.group(2)!r} in {value!r}: "
+            "use s/sec/second(s), m/min(s)/minute(s), or h/hr(s)/hour(s)"
+        )
+    return int(round(number * multiplier))
+
+
+def _do_sleep(name: str, duration: str) -> None:
+    try:
+        seconds = _parse_sleep_duration(duration)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1)
     if seconds <= 0:
-        console.print("[red]seconds must be a positive integer[/red]")
+        console.print("[red]duration must be positive[/red]")
         raise SystemExit(1)
     resp = _client().sleep_task(name, seconds)
     if _check_error(resp):
@@ -711,10 +751,16 @@ def _do_sleep(name: str, seconds: int) -> None:
 
 @task_group.command("sleep")
 @click.argument("name", shell_complete=_complete_task_names)
-@click.argument("seconds", type=int)
-def task_sleep(name: str, seconds: int) -> None:
-    """Tell a NEEDS_ATTENTION / AGENT_FINISHED task to sleep SECONDS seconds and report back."""
-    _do_sleep(name, seconds)
+@click.argument("duration")
+def task_sleep(name: str, duration: str) -> None:
+    """Tell a NEEDS_ATTENTION / AGENT_FINISHED task to sleep for DURATION and report back.
+
+    DURATION accepts an integer or decimal with an optional unit suffix
+    (no whitespace): e.g. ``300``, ``300s``, ``5m``, ``2h``, ``1.5h``.
+    Bare numbers are seconds. Unit aliases: seconds = s/sec/second/seconds,
+    minutes = m/min/mins/minute/minutes, hours = h/hr/hrs/hour/hours.
+    """
+    _do_sleep(name, duration)
 
 
 # ── task kill ────────────────────────────────────────────────────────
@@ -1313,10 +1359,10 @@ def shortcut_tap(name: str) -> None:
 
 @main.command("sleep")
 @click.argument("name", shell_complete=_complete_task_names)
-@click.argument("seconds", type=int)
-def shortcut_sleep(name: str, seconds: int) -> None:
+@click.argument("duration")
+def shortcut_sleep(name: str, duration: str) -> None:
     """Shorthand for 'ilan task sleep'."""
-    _do_sleep(name, seconds)
+    _do_sleep(name, duration)
 
 
 @main.command("attach")

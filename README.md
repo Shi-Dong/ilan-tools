@@ -96,7 +96,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task tail NAME` | Show the last assistant message + any user replies after it |
 | `ilan task reply NAME ["msg"]` | Send a reply to an agent (omit message to show tail) |
 | `ilan task tap NAME` | Ask for a status update (nudges `WORKING` agents; re-prompts `AGENT_FINISHED`/`NEEDS_ATTENTION` tasks) |
-| `ilan task sleep NAME SECONDS` | Re-prompt a `NEEDS_ATTENTION` / `AGENT_FINISHED` task to sleep for SECONDS and report back. The task transitions to `UNCLAIMED` and shows `(sleeping for X s)` in `ilan ls` / `ilan dashboard` while `UNCLAIMED` / `WORKING`. |
+| `ilan task sleep NAME DURATION` | Re-prompt a `NEEDS_ATTENTION` / `AGENT_FINISHED` task to sleep for DURATION and report back. DURATION is an integer or decimal with an optional unit suffix — no whitespace — e.g. `300`, `300s`, `5m`, `2h`, `1.5h`. Units: `s`/`sec`/`second`/`seconds`, `m`/`min`/`mins`/`minute`/`minutes`, `h`/`hr`/`hrs`/`hour`/`hours`; bare numbers are seconds. The task transitions to `UNCLAIMED` and shows `(sleeping for X s)` in `ilan ls` / `ilan dashboard` while `UNCLAIMED` / `WORKING`. |
 | `ilan task log [-p] NAME` | Open the full conversation log in your editor (`-p` prints the log file path instead) |
 | `ilan task summarize NAME` | Summarize the task's log and print the summary (works on local and remote clients) |
 | `ilan task rename OLD NEW` | Rename a task |
@@ -124,7 +124,7 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan rename OLD NEW` | `ilan task rename OLD NEW` |
 | `ilan branch OLD -n NEW` | `ilan task branch OLD -n NEW` |
 | `ilan tap NAME` | `ilan task tap NAME` |
-| `ilan sleep NAME SECONDS` | `ilan task sleep NAME SECONDS` |
+| `ilan sleep NAME DURATION` | `ilan task sleep NAME DURATION` |
 | `ilan attach NAME` | `ilan task attach NAME` |
 | `ilan log [-p] NAME` | `ilan task log [-p] NAME` |
 | `ilan summarize NAME` | `ilan task summarize NAME` |
