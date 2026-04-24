@@ -24,6 +24,12 @@ VALID_KEYS = set(DEFAULTS)
 INT_KEYS = {"num-agents", "dashboard-interval"}
 BOOL_KEYS = {"line-number"}
 
+# Keys whose effect is purely on the CLI running on the user's machine
+# (rendering, input rewriting, etc.).  ``ilan config set`` writes these to
+# the local config file instead of routing them through the server, so the
+# toggle works the same way whether the server is local or remote.
+CLIENT_SIDE_KEYS = {"line-number"}
+
 _CONFIG_DIR = Path("~/.config/ilan").expanduser()
 _CONFIG_FILE = _CONFIG_DIR / "config.json"
 

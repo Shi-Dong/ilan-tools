@@ -29,6 +29,10 @@ class TestDefaults:
     def test_bool_keys(self) -> None:
         assert cfg.BOOL_KEYS == {"line-number"}
 
+    def test_client_side_keys(self) -> None:
+        assert cfg.CLIENT_SIDE_KEYS == {"line-number"}
+        assert cfg.CLIENT_SIDE_KEYS <= cfg.VALID_KEYS
+
     def test_line_number_default_false(self) -> None:
         assert cfg.DEFAULTS["line-number"] is False
 
