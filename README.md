@@ -195,6 +195,11 @@ reply with the Nth line wrapped in double quotes — so `ilan reply my-task "abo
 becomes `about "the 12th line ...", ...` before being sent. Out-of-range
 references pass through unchanged.
 
+`line-number` is a **client-side** config: `ilan config set line-number true`
+writes to the local `~/.config/ilan/config.json` instead of going through the
+server, so the toggle works the same way whether you're driving a local or
+remote `ilan` server (set it on the machine you're running the CLI on).
+
 ### Summarize
 
 ```bash

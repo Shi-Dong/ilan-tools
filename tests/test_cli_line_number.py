@@ -184,3 +184,54 @@ class TestSetConfigLineNumber:
         assert cfg.load()["line-number"] is True
         cfg.save({**cfg.DEFAULTS, "line-number": cfg.parse_bool("false")})
         assert cfg.load()["line-number"] is False
+
+
+# ── client-side routing for ``ilan config set`` ─────────────────────
+
+
+class TestClientSideConfigSet:
+    def test_line_number_writes_local_not_server(self, runner: CliRunner, tmp_config: Path) -> None:
+        """``ilan config set line-number true`` must never hit the server."""
+        client = _make_client()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["config", "set", "line-number", "true"])
+        assert result.exit_code == 0
+        client.set_config.assert_not_called()
+        assert cfg.load()["line-number"] is True
+        assert "client-side" in result.output
+
+    def test_line_number_false_writes_local(self, runner: CliRunner, tmp_config: Path) -> None:
+        cfg.save({**cfg.DEFAULTS, "line-number": True})
+        client = _make_client()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["config", "set", "line-number", "false"])
+        assert result.exit_code == 0
+        client.set_config.assert_not_called()
+        assert cfg.load()["line-number"] is False
+
+    def test_server_side_key_still_routes_to_server(self, runner: CliRunner, tmp_config: Path) -> None:
+        """Non-client-side keys continue to go through the server."""
+        client = _make_client()
+        client.set_config.return_value = {"ok": True, "key": "num-agents", "value": 7}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["config", "set", "num-agents", "7"])
+        assert result.exit_code == 0
+        client.set_config.assert_called_once_with("num-agents", "7")
+
+    def test_show_overlays_client_side_keys(self, runner: CliRunner, tmp_config: Path) -> None:
+        """``config show`` should surface the local value for client-side keys,
+        not whatever stale value the server reports."""
+        cfg.save({**cfg.DEFAULTS, "line-number": True})
+        client = _make_client()
+        # Server reports the stale default.
+        client.get_config.return_value = {"config": {**cfg.DEFAULTS, "line-number": False}}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["config", "show"])
+        assert result.exit_code == 0
+        # The row for line-number must show True (local), not False (server).
+        line = [l for l in result.output.splitlines() if "line-number" in l][0]
+        assert "True" in line
+
+    def test_client_side_keys_set_matches_bool_keys(self) -> None:
+        """Sanity check: every client-side bool toggle lives in BOOL_KEYS too."""
+        assert cfg.CLIENT_SIDE_KEYS <= cfg.VALID_KEYS

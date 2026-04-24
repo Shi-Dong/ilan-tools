@@ -216,6 +216,13 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             if key not in cfg.VALID_KEYS:
                 self._json({"error": f"Unknown config key: {key}"}, 400)
                 return
+            if key in cfg.CLIENT_SIDE_KEYS:
+                self._json(
+                    {"error": f"'{key}' is a client-side config; set it on the machine "
+                              f"running the CLI, not the server."},
+                    400,
+                )
+                return
             conf = cfg.load()
             if key in cfg.INT_KEYS:
                 conf[key] = int(value)

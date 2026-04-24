@@ -132,6 +132,12 @@ class TestConfig:
         resp = _post(ilan_server, "/config/set", {"key": "bad-key", "value": "x"})
         assert "error" in resp
 
+    def test_set_config_rejects_client_side_key(self, ilan_server: IlanServer) -> None:
+        """Client-side keys (e.g. line-number) must not be settable via the server."""
+        resp = _post(ilan_server, "/config/set", {"key": "line-number", "value": "true"})
+        assert "error" in resp
+        assert "client-side" in resp["error"]
+
 
 # ── Tasks CRUD ──────────────────────────────────────────────────────────
 

@@ -303,11 +303,31 @@ def config_group() -> None:
     """View or modify ilan configuration."""
 
 
+def _set_local_config(key: str, value: str) -> object:
+    """Write a client-side config key to the local config file and return the coerced value."""
+    conf = cfg.load()
+    if key in cfg.INT_KEYS:
+        conf[key] = int(value)
+    elif key in cfg.BOOL_KEYS:
+        conf[key] = cfg.parse_bool(value)
+    else:
+        conf[key] = value
+    cfg.save(conf)
+    return conf[key]
+
+
 @config_group.command("set")
 @click.argument("key", shell_complete=_complete_config_keys)
 @click.argument("value")
 def config_set(key: str, value: str) -> None:
     """Set a configuration value (e.g. ilan config set num-agents 3)."""
+    if key in cfg.CLIENT_SIDE_KEYS:
+        if key not in cfg.VALID_KEYS:
+            console.print(f"[yellow]Unknown config key: {key}[/yellow]")
+            raise SystemExit(1)
+        coerced = _set_local_config(key, value)
+        console.print(f"[green]Set[/green] {key} = {coerced} [dim](client-side)[/dim]")
+        return
     resp = _client().set_config(key, value)
     if _check_error(resp):
         raise SystemExit(1)
@@ -316,9 +336,17 @@ def config_set(key: str, value: str) -> None:
 
 @config_group.command("show")
 def config_show() -> None:
-    """Show current configuration."""
+    """Show current configuration.
+
+    Server-managed keys come from the server; client-side keys (rendering
+    toggles like ``line-number``) come from the local config file and
+    override whatever the server might report for the same key.
+    """
     resp = _client().get_config()
-    conf = resp["config"]
+    conf = dict(resp["config"])
+    local = cfg.load()
+    for k in cfg.CLIENT_SIDE_KEYS:
+        conf[k] = local.get(k, cfg.DEFAULTS.get(k))
     table = Table()
     table.add_column("Key", style="bold")
     table.add_column("Value")
