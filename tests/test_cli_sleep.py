@@ -84,7 +84,7 @@ class TestSleepCommand:
 
     @pytest.mark.parametrize(
         "arg",
-        ["5 m", "5 ", "m5", "5mx", "", "abc", "-5", "1.5.0h", "5.", ".5"],
+        ["5 m", "5 ", "m5", "5mx", "", "abc", "-5", "1.5.0h", ".", ".m"],
     )
     def test_sleep_rejects_bad_duration(
         self, runner: CliRunner, tmp_config, arg: str
@@ -124,6 +124,11 @@ class TestParseSleepDuration:
             ("2.5hours", 9000),
             ("5.5", 6),
             ("1.5s", 2),
+            ("5.m", 300),
+            (".5m", 30),
+            ("5.", 5),
+            (".5", 0),  # 0.5s rounds to 0 (banker's rounding)
+            ("5.h", 18000),
         ],
     )
     def test_valid(self, value: str, expected: int) -> None:
@@ -138,8 +143,8 @@ class TestParseSleepDuration:
             "5m ",
             "m5",
             "5mx",
-            "5.",
-            ".5",
+            ".",
+            ".m",
             "1..5m",
             "1.5.0h",
             "-5",

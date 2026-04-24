@@ -699,7 +699,7 @@ def _format_sleep_suffix(sleep_seconds: int | None) -> str | None:
 _SLEEP_SECOND_UNITS = frozenset({"s", "sec", "second", "seconds"})
 _SLEEP_MINUTE_UNITS = frozenset({"m", "min", "mins", "minute", "minutes"})
 _SLEEP_HOUR_UNITS = frozenset({"h", "hr", "hrs", "hour", "hours"})
-_SLEEP_DURATION_RE = re.compile(r"^(\d+(?:\.\d+)?)([A-Za-z]*)$")
+_SLEEP_DURATION_RE = re.compile(r"^(\d+\.?\d*|\.\d+)([A-Za-z]*)$")
 
 
 def _parse_sleep_duration(value: str) -> int:
