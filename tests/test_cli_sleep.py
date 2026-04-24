@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from ilan.cli import _format_sleep_suffix, main
+from ilan.cli import _format_sleep_suffix, _parse_sleep_duration, main
 
 
 @pytest.fixture()
@@ -57,6 +57,94 @@ class TestSleepCommand:
             result = runner.invoke(main, ["sleep", "my-task", "5"])
         assert result.exit_code == 1
         assert "NEEDS_ATTENTION" in result.output
+
+    @pytest.mark.parametrize(
+        ("arg", "expected_seconds"),
+        [
+            ("300s", 300),
+            ("5m", 300),
+            ("2h", 7200),
+            ("90sec", 90),
+            ("3MIN", 180),
+            ("1Hour", 3600),
+        ],
+    )
+    def test_sleep_accepts_unit_suffix(
+        self,
+        runner: CliRunner,
+        tmp_config,
+        arg: str,
+        expected_seconds: int,
+    ) -> None:
+        client = _make_client()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["sleep", "my-task", arg])
+        assert result.exit_code == 0, result.output
+        client.sleep_task.assert_called_once_with("my-task", expected_seconds)
+
+    @pytest.mark.parametrize(
+        "arg",
+        ["5 m", "5 ", "m5", "5mx", "5.5m", "", "abc", "-5"],
+    )
+    def test_sleep_rejects_bad_duration(
+        self, runner: CliRunner, tmp_config, arg: str
+    ) -> None:
+        client = _make_client()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["sleep", "my-task", arg])
+        assert result.exit_code != 0
+        client.sleep_task.assert_not_called()
+
+
+class TestParseSleepDuration:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("0", 0),
+            ("300", 300),
+            ("300s", 300),
+            ("300sec", 300),
+            ("300second", 300),
+            ("300seconds", 300),
+            ("5m", 300),
+            ("5min", 300),
+            ("5mins", 300),
+            ("5minute", 300),
+            ("5minutes", 300),
+            ("2h", 7200),
+            ("2hr", 7200),
+            ("2hrs", 7200),
+            ("2hour", 7200),
+            ("2hours", 7200),
+            ("1S", 1),
+            ("1Min", 60),
+            ("1HR", 3600),
+        ],
+    )
+    def test_valid(self, value: str, expected: int) -> None:
+        assert _parse_sleep_duration(value) == expected
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "",
+            "5 m",
+            " 5m",
+            "5m ",
+            "m5",
+            "5mx",
+            "5.5",
+            "5.5m",
+            "-5",
+            "-5m",
+            "5day",
+            "5d",
+            "abc",
+        ],
+    )
+    def test_invalid(self, value: str) -> None:
+        with pytest.raises(ValueError):
+            _parse_sleep_duration(value)
 
 
 class TestFormatSleepSuffix:
