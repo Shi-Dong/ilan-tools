@@ -452,12 +452,11 @@ class TestDashboardTableProperties:
     def test_table_expands_with_fixed_column_ratios(self) -> None:
         """Dashboard table fills the terminal with fixed column ratios.
 
-        The name column takes 2/5 of the width (ratio=8 of 20) and the four
-        other columns split the remaining 3/5 equally (ratio=3 each). This
-        prevents the name column from ballooning when a task has a long
-        ``(sleeping for X s)`` suffix.
+        The name column takes 2/5 of the width (ratio=8 of 20). Status gets
+        an extra slot (ratio=4) for its "(for HHhMMmSSs)" suffix, Cost is
+        narrow (ratio=2), and Created / Last Changed stay at ratio=3 each.
         """
         table = _build_dashboard_table([], _TZ)
         assert table.expand is True
         ratios = [c.ratio for c in table.columns]
-        assert ratios == [8, 3, 3, 3, 3]
+        assert ratios == [8, 4, 2, 3, 3]
