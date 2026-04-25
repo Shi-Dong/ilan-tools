@@ -587,7 +587,9 @@ def task_path(name: str) -> None:
 
 def _print_reply_hint(handle: str) -> None:
     """Print the ``ilan re <handle>`` reminder shown at the end of tail output."""
-    console.print(f"[dim]To reply to the task, run ilan re {handle}[/dim]")
+    console.print(
+        f"[dim]To reply to the task, run [/dim][dim cyan]ilan re {handle}[/dim cyan]"
+    )
 
 
 def _do_tail(name: str, n: int | None = None, markdown: bool | None = None) -> None:

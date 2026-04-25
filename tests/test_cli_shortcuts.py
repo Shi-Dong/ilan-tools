@@ -4,12 +4,26 @@
 
 from __future__ import annotations
 
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
 
 from ilan.cli import main
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _strip_ansi(s: str) -> str:
+    """Remove ANSI escape sequences so substring asserts survive Rich styling.
+
+    The reply hint splits its prose and the ``ilan re <handle>`` command into
+    two differently-styled spans; the resulting reset codes break a literal
+    contiguous substring match against the rendered output.
+    """
+    return _ANSI_RE.sub("", s)
 
 
 @pytest.fixture()
@@ -170,7 +184,7 @@ class TestTailReplyHint:
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["tail", "my-task"])
         assert result.exit_code == 0
-        assert "To reply to the task, run ilan re aa" in result.output
+        assert "To reply to the task, run ilan re aa" in _strip_ansi(result.output)
 
     def test_tail_hint_falls_back_to_name_without_alias(
         self, runner: CliRunner, tmp_config
@@ -191,7 +205,7 @@ class TestTailReplyHint:
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["tail", "my-task"])
         assert result.exit_code == 0
-        assert "To reply to the task, run ilan re my-task" in result.output
+        assert "To reply to the task, run ilan re my-task" in _strip_ansi(result.output)
 
     def test_tail_hint_falls_back_to_input_for_old_server(
         self, runner: CliRunner, tmp_config
@@ -210,7 +224,7 @@ class TestTailReplyHint:
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["tail", "my-task"])
         assert result.exit_code == 0
-        assert "To reply to the task, run ilan re my-task" in result.output
+        assert "To reply to the task, run ilan re my-task" in _strip_ansi(result.output)
 
     def test_tail_n_prints_reply_hint(self, runner: CliRunner, tmp_config) -> None:
         """The hint also appears when ``-n`` routes through ``/logs``."""
@@ -229,7 +243,7 @@ class TestTailReplyHint:
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["tail", "my-task", "-n", "1"])
         assert result.exit_code == 0
-        assert "To reply to the task, run ilan re aa" in result.output
+        assert "To reply to the task, run ilan re aa" in _strip_ansi(result.output)
 
     def test_tail_hint_shown_when_no_logs_yet(self, runner: CliRunner, tmp_config) -> None:
         """Even when the server warns there are no logs, show the hint."""
@@ -243,7 +257,38 @@ class TestTailReplyHint:
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["tail", "my-task"])
         assert result.exit_code == 0
-        assert "To reply to the task, run ilan re aa" in result.output
+        assert "To reply to the task, run ilan re aa" in _strip_ansi(result.output)
+
+    def test_tail_hint_command_uses_distinct_color(self) -> None:
+        """The ``ilan re <alias>`` portion is styled distinctly from the prose.
+
+        Both halves stay dim (SGR 2), but only the command portion carries the
+        cyan foreground (SGR 36) — verifies the two-tone hint. We render
+        through a real Rich console with forced truecolor so the styling
+        actually emits (CliRunner's captured output runs Rich in a degraded
+        color mode that drops standalone foreground colors).
+        """
+        import io
+
+        from rich.console import Console
+
+        from ilan import cli as cli_mod
+
+        buf = io.StringIO()
+        forced = Console(
+            file=buf,
+            force_terminal=True,
+            color_system="truecolor",
+            no_color=False,
+            width=120,
+        )
+        with patch.object(cli_mod, "console", forced):
+            cli_mod._print_reply_hint("aa")
+        out = buf.getvalue()
+        # Rich emits one SGR per span. The prose span is plain dim
+        # (``\x1b[2m``); the command span pairs dim with cyan (``\x1b[2;36m``).
+        assert "\x1b[2mTo reply to the task, run " in out
+        assert "\x1b[2;36milan re aa" in out
 
 
 # ── -n flag on tail / ls / re ───────────────────────────────────────
