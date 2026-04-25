@@ -22,6 +22,7 @@ import click
 from click.shell_completion import get_completion_class
 from rich.console import Console
 from rich.live import Live
+from rich.markdown import Markdown
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 from rich.text import Text
@@ -104,6 +105,10 @@ _AT_REF_RE = re.compile(r"(?<![A-Za-z0-9_])@(\d+)")
 
 def _line_number_enabled() -> bool:
     return cfg.parse_bool(cfg.load().get("line-number", False))
+
+
+def _markdown_enabled() -> bool:
+    return cfg.parse_bool(cfg.load().get("markdown", False))
 
 
 def _expand_at_refs(message: str, lines: list[str]) -> str:
@@ -550,7 +555,7 @@ def task_path(name: str) -> None:
 
 # ── task tail ────────────────────────────────────────────────────────
 
-def _do_tail(name: str, n: int | None = None) -> None:
+def _do_tail(name: str, n: int | None = None, markdown: bool | None = None) -> None:
     client = _client()
     if n is not None:
         # Fetch the full log buffer and slice locally. Trades bandwidth for
@@ -577,6 +582,8 @@ def _do_tail(name: str, n: int | None = None) -> None:
         entries = resp["entries"]
 
     line_number_on = _line_number_enabled()
+    if markdown is None:
+        markdown = _markdown_enabled()
     numbered_lines: list[str] = []
     if line_number_on:
         for entry in entries:
@@ -591,7 +598,13 @@ def _do_tail(name: str, n: int | None = None) -> None:
         style = "bold cyan" if entry["role"] == "assistant" else "bold green"
         ts = _format_ts(entry["timestamp"]) if entry.get("timestamp") else ""
         console.print(f"[{style}]{label}[/{style}] [dim]({ts})[/dim]")
-        if line_number_on and entry["role"] == "assistant":
+        if markdown and entry["role"] == "assistant":
+            # Markdown rendering takes precedence over per-line numbering;
+            # the latter prints prefixed raw lines, which can't be reconciled
+            # with a single Markdown block. The numbered_lines cache above is
+            # still populated so ``@N`` refs in subsequent replies keep working.
+            console.print(Markdown(entry["content"]))
+        elif line_number_on and entry["role"] == "assistant":
             lines = entry["content"].splitlines()
             if not lines:
                 console.print(entry["content"])
@@ -612,12 +625,15 @@ def _do_tail(name: str, n: int | None = None) -> None:
 @click.argument("name", shell_complete=_complete_task_names)
 @click.option("-n", "--num", "num", type=int, default=None,
               help="Show the final N messages (assistant + user combined).")
-def task_tail(name: str, num: int | None) -> None:
+@click.option("-m", "--md", "markdown", is_flag=True, default=False,
+              help="Render assistant messages as Markdown (overrides the "
+                   "``markdown`` config key for this invocation).")
+def task_tail(name: str, num: int | None, markdown: bool) -> None:
     """Show the last assistant message and any user messages after it.
 
     With -n N, show the final N messages (assistant + user combined).
     """
-    _do_tail(name, n=num)
+    _do_tail(name, n=num, markdown=markdown or None)
 
 
 # ── task reply ───────────────────────────────────────────────────────
@@ -639,10 +655,12 @@ def _do_reply(name: str, message: str) -> None:
 @click.argument("message", required=False, default=None)
 @click.option("-n", "--num", "num", type=int, default=None,
               help="When no message is given, show the final N messages.")
-def task_reply(name: str, message: str | None, num: int | None) -> None:
+@click.option("-m", "--md", "markdown", is_flag=True, default=False,
+              help="When no message is given, render assistant messages as Markdown.")
+def task_reply(name: str, message: str | None, num: int | None, markdown: bool) -> None:
     """Send a response to a task. If no message is given, show the tail instead."""
     if message is None:
-        _do_tail(name, n=num)
+        _do_tail(name, n=num, markdown=markdown or None)
     else:
         _do_reply(name, message)
 
@@ -1262,9 +1280,12 @@ def shortcut_ls(name: str | None, show_all: bool, num: int | None) -> None:
 @click.argument("name", shell_complete=_complete_task_names)
 @click.option("-n", "--num", "num", type=int, default=None,
               help="Show the final N messages (assistant + user combined).")
-def shortcut_tail(name: str, num: int | None) -> None:
+@click.option("-m", "--md", "markdown", is_flag=True, default=False,
+              help="Render assistant messages as Markdown (overrides the "
+                   "``markdown`` config key for this invocation).")
+def shortcut_tail(name: str, num: int | None, markdown: bool) -> None:
     """Shorthand for 'ilan task tail'."""
-    _do_tail(name, n=num)
+    _do_tail(name, n=num, markdown=markdown or None)
 
 
 @main.command("reply")
@@ -1272,10 +1293,12 @@ def shortcut_tail(name: str, num: int | None) -> None:
 @click.argument("message", required=False, default=None)
 @click.option("-n", "--num", "num", type=int, default=None,
               help="When no message is given, show the final N messages.")
-def shortcut_reply(name: str, message: str | None, num: int | None) -> None:
+@click.option("-m", "--md", "markdown", is_flag=True, default=False,
+              help="When no message is given, render assistant messages as Markdown.")
+def shortcut_reply(name: str, message: str | None, num: int | None, markdown: bool) -> None:
     """Shorthand for 'ilan task reply'."""
     if message is None:
-        _do_tail(name, n=num)
+        _do_tail(name, n=num, markdown=markdown or None)
     else:
         _do_reply(name, message)
 
@@ -1285,10 +1308,12 @@ def shortcut_reply(name: str, message: str | None, num: int | None) -> None:
 @click.argument("message", required=False, default=None)
 @click.option("-n", "--num", "num", type=int, default=None,
               help="When no message is given, show the final N messages.")
-def shortcut_re(name: str, message: str | None, num: int | None) -> None:
+@click.option("-m", "--md", "markdown", is_flag=True, default=False,
+              help="When no message is given, render assistant messages as Markdown.")
+def shortcut_re(name: str, message: str | None, num: int | None, markdown: bool) -> None:
     """Shorthand for 'ilan task reply'."""
     if message is None:
-        _do_tail(name, n=num)
+        _do_tail(name, n=num, markdown=markdown or None)
     else:
         _do_reply(name, message)
 
