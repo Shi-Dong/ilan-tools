@@ -656,6 +656,7 @@ TAP_ALLOWED_STATUSES = (
     TaskStatus.WORKING,
     TaskStatus.AGENT_FINISHED,
     TaskStatus.NEEDS_ATTENTION,
+    TaskStatus.ERROR,
 )
 
 
@@ -680,7 +681,7 @@ def _do_tap(name: str) -> None:
 @task_group.command("tap")
 @click.argument("name", shell_complete=_complete_task_names)
 def task_tap(name: str) -> None:
-    """Ask a WORKING / AGENT_FINISHED / NEEDS_ATTENTION agent for a status update."""
+    """Ask a WORKING / AGENT_FINISHED / NEEDS_ATTENTION / ERROR agent for a status update."""
     _do_tap(name)
 
 
