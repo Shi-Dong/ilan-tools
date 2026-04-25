@@ -263,7 +263,7 @@ class TestTailReplyHint:
         """The ``ilan re <alias>`` portion is styled distinctly from the prose.
 
         Both halves stay dim (SGR 2), but only the command portion carries the
-        cyan foreground (SGR 36) — verifies the two-tone hint. We render
+        red foreground (SGR 31) — verifies the two-tone hint. We render
         through a real Rich console with forced truecolor so the styling
         actually emits (CliRunner's captured output runs Rich in a degraded
         color mode that drops standalone foreground colors).
@@ -286,9 +286,9 @@ class TestTailReplyHint:
             cli_mod._print_reply_hint("aa")
         out = buf.getvalue()
         # Rich emits one SGR per span. The prose span is plain dim
-        # (``\x1b[2m``); the command span pairs dim with cyan (``\x1b[2;36m``).
+        # (``\x1b[2m``); the command span pairs dim with red (``\x1b[2;31m``).
         assert "\x1b[2mTo reply to the task, run " in out
-        assert "\x1b[2;36milan re aa" in out
+        assert "\x1b[2;31milan re aa" in out
 
 
 # ── -n flag on tail / ls / re ───────────────────────────────────────
