@@ -1721,6 +1721,42 @@ def _find_repo_root() -> Path:
         return src_dir.parent.parent  # fallback: src/ilan -> src -> repo root
 
 
+def _branch_in_other_worktree(repo: Path, branch: str) -> Path | None:
+    """Return the path of another worktree where ``branch`` is checked out.
+
+    Returns ``None`` if ``branch`` is not checked out anywhere, or if it is
+    only checked out in ``repo`` itself. ``git checkout`` (with or without
+    ``-B``) refuses to act on a branch that is checked out in another
+    worktree, so we detect that case to fall back to a detached checkout.
+    """
+    result = subprocess.run(
+        ["git", "worktree", "list", "--porcelain"],
+        cwd=repo, capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return None
+    target_ref = f"refs/heads/{branch}"
+    try:
+        repo_resolved = repo.resolve()
+    except OSError:
+        repo_resolved = repo
+    current_worktree: str | None = None
+    for line in result.stdout.splitlines():
+        if line.startswith("worktree "):
+            current_worktree = line[len("worktree "):].strip()
+        elif line.startswith("branch "):
+            ref = line[len("branch "):].strip()
+            if ref == target_ref and current_worktree is not None:
+                wt_path = Path(current_worktree)
+                try:
+                    wt_resolved = wt_path.resolve()
+                except OSError:
+                    wt_resolved = wt_path
+                if wt_resolved != repo_resolved:
+                    return wt_path
+    return None
+
+
 @main.command("update")
 @click.argument("branch", required=False, default=None)
 def update(branch: str | None) -> None:
@@ -1757,30 +1793,52 @@ def update(branch: str | None) -> None:
         if fetch.returncode != 0:
             console.print(f"[red]git fetch failed:[/red]\n{fetch.stderr.strip()}")
             raise SystemExit(1)
-        console.print(f"[dim]Checking out [bold]{branch}[/bold]…[/dim]")
-        checkout = subprocess.run(
-            ["git", "checkout", branch],
-            cwd=repo, capture_output=True, text=True,
-        )
-        if checkout.returncode != 0:
-            # Branch may only exist on remote, or may exist locally but be
-            # stale.  Use -B so the command works whether or not a local
-            # branch with this name already exists.
+
+        other_wt = _branch_in_other_worktree(repo, branch)
+        if other_wt is not None:
+            # Branch is checked out in another worktree — `git checkout` (even
+            # with -B) would refuse, and we don't want to disturb that
+            # worktree's HEAD anyway. Detach onto origin/<branch> so the
+            # working directory matches the latest fetched code.
+            console.print(
+                f"[yellow]Branch [bold]{branch}[/bold] is checked out at "
+                f"{other_wt}; using detached HEAD at "
+                f"[bold]origin/{branch}[/bold].[/yellow]"
+            )
             checkout = subprocess.run(
-                ["git", "checkout", "-B", branch, f"origin/{branch}"],
+                ["git", "checkout", "--detach", f"origin/{branch}"],
                 cwd=repo, capture_output=True, text=True,
             )
             if checkout.returncode != 0:
                 console.print(f"[red]git checkout failed:[/red]\n{checkout.stderr.strip()}")
                 raise SystemExit(1)
-        # Pull latest for the checked-out branch.
-        pull = subprocess.run(
-            ["git", "pull", "origin", branch],
-            cwd=repo, capture_output=True, text=True,
-        )
-        if pull.returncode != 0:
-            console.print(f"[red]git pull failed:[/red]\n{pull.stderr.strip()}")
-            raise SystemExit(1)
+        else:
+            console.print(f"[dim]Checking out [bold]{branch}[/bold]…[/dim]")
+            checkout = subprocess.run(
+                ["git", "checkout", branch],
+                cwd=repo, capture_output=True, text=True,
+            )
+            if checkout.returncode != 0:
+                # Branch may only exist on remote, or may exist locally but be
+                # stale.  Use -B so the command works whether or not a local
+                # branch with this name already exists.
+                checkout = subprocess.run(
+                    ["git", "checkout", "-B", branch, f"origin/{branch}"],
+                    cwd=repo, capture_output=True, text=True,
+                )
+                if checkout.returncode != 0:
+                    console.print(f"[red]git checkout failed:[/red]\n{checkout.stderr.strip()}")
+                    raise SystemExit(1)
+            # Pull latest for the checked-out branch. (Skipped in the
+            # detached-HEAD path above because `checkout --detach
+            # origin/<branch>` already lands us at the freshly-fetched tip.)
+            pull = subprocess.run(
+                ["git", "pull", "origin", branch],
+                cwd=repo, capture_output=True, text=True,
+            )
+            if pull.returncode != 0:
+                console.print(f"[red]git pull failed:[/red]\n{pull.stderr.strip()}")
+                raise SystemExit(1)
     else:
         # Default: pull current branch (main).
         console.print("[dim]Pulling latest changes…[/dim]")
