@@ -175,6 +175,104 @@ class TestReplyExpansion:
         client.reply.assert_called_once_with("t", 're: "foo"')
 
 
+class TestBranchExpansion:
+    """``ilan task branch`` should expand ``@N`` against the parent's cached tail."""
+
+    def _branch_resp(self) -> dict:
+        return {"name": "child", "parent_name": "parent"}
+
+    def test_off_no_expansion(self, runner: CliRunner, tmp_config: Path) -> None:
+        cfg.save_last_tail("parent", ["cached-line"])
+        client = _make_client()
+        client.branch_task.return_value = self._branch_resp()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main, ["task", "branch", "parent", "-n", "child", "-d", "see @1"]
+            )
+        assert result.exit_code == 0
+        client.branch_task.assert_called_once_with("parent", "child", "see @1")
+
+    def test_description_expands_refs(self, runner: CliRunner, tmp_config: Path) -> None:
+        _enable_line_number(tmp_config)
+        cfg.save_last_tail("parent", ["first line", "second line"])
+        client = _make_client()
+        client.branch_task.return_value = self._branch_resp()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main,
+                ["task", "branch", "parent", "-n", "child", "-d", "redo @1 and @2"],
+            )
+        assert result.exit_code == 0
+        client.branch_task.assert_called_once_with(
+            "parent", "child", 'redo "first line" and "second line"'
+        )
+
+    def test_file_input_expands_refs(
+        self, runner: CliRunner, tmp_config: Path, tmp_path: Path
+    ) -> None:
+        _enable_line_number(tmp_config)
+        cfg.save_last_tail("parent", ["alpha", "beta"])
+        msg_file = tmp_path / "msg.txt"
+        msg_file.write_text("dig into @2 please")
+        client = _make_client()
+        client.branch_task.return_value = self._branch_resp()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main,
+                ["task", "branch", "parent", "-n", "child", "-f", str(msg_file)],
+            )
+        assert result.exit_code == 0
+        client.branch_task.assert_called_once_with(
+            "parent", "child", 'dig into "beta" please'
+        )
+
+    def test_no_message_no_expansion(self, runner: CliRunner, tmp_config: Path) -> None:
+        _enable_line_number(tmp_config)
+        cfg.save_last_tail("parent", ["x"])
+        client = _make_client()
+        client.branch_task.return_value = self._branch_resp()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main, ["task", "branch", "parent", "-n", "child"]
+            )
+        assert result.exit_code == 0
+        client.branch_task.assert_called_once_with("parent", "child", None)
+
+    def test_shortcut_branch_also_expands(
+        self, runner: CliRunner, tmp_config: Path
+    ) -> None:
+        _enable_line_number(tmp_config)
+        cfg.save_last_tail("parent", ["only-line"])
+        client = _make_client()
+        client.branch_task.return_value = self._branch_resp()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main, ["branch", "parent", "-n", "child", "-d", "fix @1"]
+            )
+        assert result.exit_code == 0
+        client.branch_task.assert_called_once_with(
+            "parent", "child", 'fix "only-line"'
+        )
+
+    def test_uses_parent_tail_not_child(
+        self, runner: CliRunner, tmp_config: Path
+    ) -> None:
+        """The cached tail must be looked up by the parent's name, not the child's."""
+        _enable_line_number(tmp_config)
+        cfg.save_last_tail("parent", ["from-parent"])
+        cfg.save_last_tail("child", ["from-child"])
+        client = _make_client()
+        client.branch_task.return_value = self._branch_resp()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main, ["task", "branch", "parent", "-n", "child", "-d", "see @1"]
+            )
+        assert result.exit_code == 0
+        client.branch_task.assert_called_once_with(
+            "parent", "child", 'see "from-parent"'
+        )
+
+
 # ── config set for line-number ───────────────────────────────────────
 
 

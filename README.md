@@ -177,7 +177,7 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 | `editor` | `emacs` | Editor used by `ilan task log` |
 | `api-key` | _(empty)_ | Anthropic API key passed as `ANTHROPIC_API_KEY` to spawned agents |
 | `dashboard-interval` | `1` | Seconds between automatic refreshes in `ilan dashboard` |
-| `line-number` | `false` | When `true`, `ilan tail` prefixes each assistant line with a yellow `[N]` marker and `ilan reply` expands `@N` into the Nth line, double-quoted |
+| `line-number` | `false` | When `true`, `ilan tail` prefixes each assistant line with a yellow `[N]` marker and `ilan reply` / `ilan task branch` expand `@N` into the Nth line, double-quoted |
 
 ### Line-number mode
 
@@ -194,6 +194,12 @@ looks up the most recent tail for that task and replaces every `@N` in your
 reply with the Nth line wrapped in double quotes — so `ilan reply my-task "about @12, ..."`
 becomes `about "the 12th line ...", ...` before being sent. Out-of-range
 references pass through unchanged.
+
+`ilan task branch` (and its `branch` shorthand) does the same expansion on its
+first reply (`-d "..."` or `-f FILE`), looking up the cached tail of the parent
+task — so you can `ilan tail parent` and then
+`ilan task branch parent -n child -d "redo @12 differently"` and the child task
+starts with the parent's 12th line already quoted.
 
 `line-number` is a **client-side** config: `ilan config set line-number true`
 writes to the local `~/.config/ilan/config.json` instead of going through the
