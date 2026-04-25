@@ -28,7 +28,7 @@ def _make_client(status: str) -> MagicMock:
 
 
 class TestTapAllowedStatuses:
-    @pytest.mark.parametrize("status", ["WORKING", "AGENT_FINISHED", "NEEDS_ATTENTION"])
+    @pytest.mark.parametrize("status", ["WORKING", "AGENT_FINISHED", "NEEDS_ATTENTION", "ERROR"])
     def test_tap_replies_with_tap_message(
         self, runner: CliRunner, tmp_config, status: str
     ) -> None:
@@ -38,7 +38,7 @@ class TestTapAllowedStatuses:
         assert result.exit_code == 0
         client.reply.assert_called_once_with("my-task", TAP_MESSAGE)
 
-    @pytest.mark.parametrize("status", ["WORKING", "AGENT_FINISHED", "NEEDS_ATTENTION"])
+    @pytest.mark.parametrize("status", ["WORKING", "AGENT_FINISHED", "NEEDS_ATTENTION", "ERROR"])
     def test_task_tap_replies_with_tap_message(
         self, runner: CliRunner, tmp_config, status: str
     ) -> None:
@@ -50,7 +50,7 @@ class TestTapAllowedStatuses:
 
 
 class TestTapDisallowedStatuses:
-    @pytest.mark.parametrize("status", ["UNCLAIMED", "DONE", "DISCARDED", "ERROR"])
+    @pytest.mark.parametrize("status", ["UNCLAIMED", "DONE", "DISCARDED"])
     def test_tap_rejects_other_statuses(
         self, runner: CliRunner, tmp_config, status: str
     ) -> None:
