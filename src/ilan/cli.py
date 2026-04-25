@@ -585,6 +585,11 @@ def task_path(name: str) -> None:
 
 # ── task tail ────────────────────────────────────────────────────────
 
+def _print_reply_hint(handle: str) -> None:
+    """Print the ``ilan re <handle>`` reminder shown at the end of tail output."""
+    console.print(f"[dim]To reply to the task, run ilan re {handle}[/dim]")
+
+
 def _do_tail(name: str, n: int | None = None, markdown: bool | None = None) -> None:
     client = _client()
     if n is not None:
@@ -594,20 +599,24 @@ def _do_tail(name: str, n: int | None = None, markdown: bool | None = None) -> N
         resp = client.get_logs(name)
         if _check_error(resp):
             raise SystemExit(1)
+        reply_handle = resp.get("alias") or resp.get("name") or name
         if resp.get("warning"):
             console.print(f"[yellow]{resp['warning']}[/yellow]")
         entries = resp.get("logs", [])
         if not entries:
             if not resp.get("warning"):
                 console.print("[yellow]No logs yet.[/yellow]")
+            _print_reply_hint(reply_handle)
             return
         entries = entries[-n:]
     else:
         resp = client.get_tail(name)
         if _check_error(resp):
             raise SystemExit(1)
+        reply_handle = resp.get("alias") or resp.get("name") or name
         if resp.get("warning"):
             console.print(f"[yellow]{resp['warning']}[/yellow]")
+            _print_reply_hint(reply_handle)
             return
         entries = resp["entries"]
 
@@ -670,6 +679,8 @@ def _do_tail(name: str, n: int | None = None, markdown: bool | None = None) -> N
         else:
             console.print(entry["content"])
         console.print()
+
+    _print_reply_hint(reply_handle)
 
 
 @task_group.command("tail")

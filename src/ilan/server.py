@@ -589,7 +589,11 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     task.needs_review = False
                     self._ilan.store.put_task(task)
                 entries = self._ilan.store.read_logs(task.name)
-            self._json({"logs": [e.to_dict() for e in entries]})
+            self._json({
+                "name": task.name,
+                "alias": task.alias,
+                "logs": [e.to_dict() for e in entries],
+            })
 
         def handle_task_log_path(self, name: str):
             with self._ilan.lock:
@@ -622,13 +626,15 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     self._ilan.store.put_task(task)
                 entries = self._ilan.store.read_logs(task.name)
 
+            meta = {"name": task.name, "alias": task.alias}
+
             if not entries:
-                self._json({"entries": [], "warning": "No logs yet."})
+                self._json({**meta, "entries": [], "warning": "No logs yet."})
                 return
 
             if n is not None:
                 selected = entries[-n:]
-                self._json({"entries": [e.to_dict() for e in selected]})
+                self._json({**meta, "entries": [e.to_dict() for e in selected]})
                 return
 
             last_asst = None
@@ -637,10 +643,10 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     last_asst = i
                     break
             if last_asst is None:
-                self._json({"entries": [], "warning": "No assistant messages yet."})
+                self._json({**meta, "entries": [], "warning": "No assistant messages yet."})
                 return
 
-            self._json({"entries": [e.to_dict() for e in entries[last_asst:]]})
+            self._json({**meta, "entries": [e.to_dict() for e in entries[last_asst:]]})
 
         def handle_task_path(self, name: str):
             with self._ilan.lock:

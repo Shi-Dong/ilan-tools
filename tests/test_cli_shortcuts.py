@@ -147,6 +147,105 @@ class TestLsWithName:
         client.get_tail.assert_called_once_with("aa")
 
 
+# ── reply hint at end of tail ───────────────────────────────────────
+
+
+class TestTailReplyHint:
+    """``ilan tail`` ends with a reminder line pointing at ``ilan re <alias>``."""
+
+    def test_tail_prints_reply_hint_with_alias(self, runner: CliRunner, tmp_config) -> None:
+        """When the server returns an alias, the hint uses it."""
+        client = _make_client()
+        client.get_tail.return_value = {
+            "name": "my-task",
+            "alias": "aa",
+            "entries": [
+                {
+                    "role": "assistant",
+                    "content": "Hello",
+                    "timestamp": "2026-04-13T01:00:00+00:00",
+                },
+            ],
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["tail", "my-task"])
+        assert result.exit_code == 0
+        assert "To reply to the task, run ilan re aa" in result.output
+
+    def test_tail_hint_falls_back_to_name_without_alias(
+        self, runner: CliRunner, tmp_config
+    ) -> None:
+        """If the task has no alias, fall back to the task name."""
+        client = _make_client()
+        client.get_tail.return_value = {
+            "name": "my-task",
+            "alias": None,
+            "entries": [
+                {
+                    "role": "assistant",
+                    "content": "Hi",
+                    "timestamp": "2026-04-13T01:00:00+00:00",
+                },
+            ],
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["tail", "my-task"])
+        assert result.exit_code == 0
+        assert "To reply to the task, run ilan re my-task" in result.output
+
+    def test_tail_hint_falls_back_to_input_for_old_server(
+        self, runner: CliRunner, tmp_config
+    ) -> None:
+        """Old servers omit ``alias``/``name``; fall back to the user-supplied arg."""
+        client = _make_client()
+        client.get_tail.return_value = {
+            "entries": [
+                {
+                    "role": "assistant",
+                    "content": "Hi",
+                    "timestamp": "2026-04-13T01:00:00+00:00",
+                },
+            ],
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["tail", "my-task"])
+        assert result.exit_code == 0
+        assert "To reply to the task, run ilan re my-task" in result.output
+
+    def test_tail_n_prints_reply_hint(self, runner: CliRunner, tmp_config) -> None:
+        """The hint also appears when ``-n`` routes through ``/logs``."""
+        client = _make_client()
+        client.get_logs.return_value = {
+            "name": "my-task",
+            "alias": "aa",
+            "logs": [
+                {
+                    "role": "assistant",
+                    "content": "Hi",
+                    "timestamp": "2026-04-13T01:00:00+00:00",
+                },
+            ],
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["tail", "my-task", "-n", "1"])
+        assert result.exit_code == 0
+        assert "To reply to the task, run ilan re aa" in result.output
+
+    def test_tail_hint_shown_when_no_logs_yet(self, runner: CliRunner, tmp_config) -> None:
+        """Even when the server warns there are no logs, show the hint."""
+        client = _make_client()
+        client.get_tail.return_value = {
+            "name": "my-task",
+            "alias": "aa",
+            "entries": [],
+            "warning": "No logs yet.",
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["tail", "my-task"])
+        assert result.exit_code == 0
+        assert "To reply to the task, run ilan re aa" in result.output
+
+
 # ── -n flag on tail / ls / re ───────────────────────────────────────
 
 
