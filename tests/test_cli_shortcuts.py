@@ -263,7 +263,7 @@ class TestTailReplyHint:
         """The ``ilan re <alias>`` portion is styled distinctly from the prose.
 
         The prose stays dim (SGR 2); the command portion drops dim and
-        switches to plain red (SGR 31) so it actually pops against the gray
+        switches to bright red (SGR 91) so it actually pops against the gray
         prose. We render
         through a real Rich console with forced truecolor so the styling
         actually emits (CliRunner's captured output runs Rich in a degraded
@@ -287,9 +287,9 @@ class TestTailReplyHint:
             cli_mod._print_reply_hint("aa")
         out = buf.getvalue()
         # Rich emits one SGR per span. The prose span is plain dim
-        # (``\x1b[2m``); the command span is plain red (``\x1b[31m``).
+        # (``\x1b[2m``); the command span is bright red (``\x1b[91m``).
         assert "\x1b[2mTo reply to the task, run " in out
-        assert "\x1b[31milan re aa" in out
+        assert "\x1b[91milan re aa" in out
 
 
 # ── -n flag on tail / ls / re ───────────────────────────────────────
