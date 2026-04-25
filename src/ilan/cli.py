@@ -813,6 +813,9 @@ def _do_branch(
     elif description is not None:
         message = description
 
+    if message is not None and _line_number_enabled():
+        message = _expand_at_refs(message, cfg.load_last_tail(old_name))
+
     resp = _client().branch_task(old_name, new_name, message)
     if _check_error(resp):
         raise SystemExit(1)
