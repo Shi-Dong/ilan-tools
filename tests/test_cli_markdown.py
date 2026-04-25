@@ -160,9 +160,35 @@ class TestTailMarkdown:
         # Cached strings are plain text — no ANSI escape sequences.
         for c in cached:
             assert "\x1b[" not in c
+        # ...and no leading/trailing whitespace from Rich's row padding.
+        for c in cached:
+            assert c == c.strip()
         # Data rows include the cell values verbatim.
         assert any("pod-0" in c and "Pending" in c for c in cached)
         assert any("pod-1" in c and "Running" in c for c in cached)
+
+    def test_md_with_line_numbers_at_ref_in_reply_uses_stripped_form(
+        self, runner: CliRunner, tmp_config: Path
+    ) -> None:
+        """Follow-up `ilan re NAME "@N ..."` should quote the stripped row."""
+        _enable_line_number_and_markdown(tmp_config)
+        client = _make_client()
+        client.get_logs.return_value = self._logs()
+        client.reply.return_value = {"message": "ok"}
+        with patch("ilan.cli._client", return_value=client):
+            # Step 1: render the tail so the @N cache is populated.
+            tail_result = runner.invoke(main, ["tail", "my-task", "-n", "1"])
+            assert tail_result.exit_code == 0
+            # Step 2: send a reply that references row 3 (the pod-0 row).
+            reply_result = runner.invoke(main, ["re", "my-task", "look at @3"])
+        assert reply_result.exit_code == 0
+        # The expanded message Reply received should embed the stripped row,
+        # *not* the padded version Rich emits to the screen.
+        sent_msg = client.reply.call_args[0][1]
+        assert "pod-0  Pending" in sent_msg
+        assert "  pod-0" not in sent_msg  # i.e. no leading double-space pad
+        # And of course the literal `@3` should be gone after expansion.
+        assert "@3" not in sent_msg
 
 
 class TestSetConfigMarkdown:
