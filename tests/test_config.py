@@ -16,7 +16,7 @@ class TestDefaults:
             "workdir", "num-agents", "model", "effort",
             "summarize-model", "summarize-effort",
             "time-zone", "editor", "api-key", "dashboard-interval",
-            "line-number",
+            "line-number", "markdown",
         }
         assert set(cfg.DEFAULTS.keys()) == expected
 
@@ -27,14 +27,17 @@ class TestDefaults:
         assert cfg.INT_KEYS == {"num-agents", "dashboard-interval"}
 
     def test_bool_keys(self) -> None:
-        assert cfg.BOOL_KEYS == {"line-number"}
+        assert cfg.BOOL_KEYS == {"line-number", "markdown"}
 
     def test_client_side_keys(self) -> None:
-        assert cfg.CLIENT_SIDE_KEYS == {"line-number"}
+        assert cfg.CLIENT_SIDE_KEYS == {"line-number", "markdown"}
         assert cfg.CLIENT_SIDE_KEYS <= cfg.VALID_KEYS
 
     def test_line_number_default_false(self) -> None:
         assert cfg.DEFAULTS["line-number"] is False
+
+    def test_markdown_default_false(self) -> None:
+        assert cfg.DEFAULTS["markdown"] is False
 
 
 class TestParseBool:
