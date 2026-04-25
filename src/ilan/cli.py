@@ -628,10 +628,12 @@ def _do_tail(name: str, n: int | None = None, markdown: bool | None = None) -> N
             if markdown:
                 visuals = _render_markdown_visual_lines(entry["content"])
                 md_visuals_by_entry[i] = visuals
-                # Cache the ANSI-stripped text so @N expansion produces clean
-                # quoted content rather than raw escape sequences.
+                # Cache the ANSI-stripped, edge-trimmed text. Stripping the
+                # whitespace Rich pads each visual row with keeps `@N` reply
+                # expansion tidy: e.g. `@3` → `"pod-0  Pending"` instead of
+                # `"  pod-0  Pending  "`.
                 for vl in visuals:
-                    numbered_lines.append(Text.from_ansi(vl).plain)
+                    numbered_lines.append(Text.from_ansi(vl).plain.strip())
             else:
                 numbered_lines.extend(entry["content"].splitlines())
         cfg.save_last_tail(name, numbered_lines)
