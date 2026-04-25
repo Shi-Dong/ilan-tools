@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import io
 import os
 import re
 import select
@@ -109,6 +110,35 @@ def _line_number_enabled() -> bool:
 
 def _markdown_enabled() -> bool:
     return cfg.parse_bool(cfg.load().get("markdown", False))
+
+
+def _render_markdown_visual_lines(content: str) -> list[str]:
+    """Render ``content`` as Markdown and return the rendered visual lines.
+
+    Each line carries the ANSI escape codes Rich produced, so callers can
+    feed the result through :meth:`rich.text.Text.from_ansi` to re-apply the
+    styling on top of an extra prefix (e.g. a ``[N]`` line number).
+    """
+    buf = io.StringIO()
+    tmp = Console(
+        file=buf,
+        force_terminal=True,
+        color_system="truecolor",
+        width=console.width or 80,
+    )
+    tmp.print(Markdown(content))
+    lines = buf.getvalue().rstrip("\n").splitlines()
+    # Rich adds vertical padding above/below block elements like tables, which
+    # would inflate the [N] counter with invisible rows. Drop leading/trailing
+    # whitespace-only lines while preserving any internal blank rows the user
+    # actually wrote.
+    def _is_blank(s: str) -> bool:
+        return Text.from_ansi(s).plain.strip() == ""
+    while lines and _is_blank(lines[0]):
+        lines.pop(0)
+    while lines and _is_blank(lines[-1]):
+        lines.pop()
+    return lines
 
 
 def _expand_at_refs(message: str, lines: list[str]) -> str:
@@ -584,25 +614,44 @@ def _do_tail(name: str, n: int | None = None, markdown: bool | None = None) -> N
     line_number_on = _line_number_enabled()
     if markdown is None:
         markdown = _markdown_enabled()
+
+    # When both modes are on, the line-number scheme indexes the *visual*
+    # rendered lines, not the raw source. We render once up-front so the
+    # cache (used by ``@N`` reply expansion) stores exactly what the user
+    # saw on screen, and re-use the same rendered lines when printing.
+    md_visuals_by_entry: dict[int, list[str]] = {}
     numbered_lines: list[str] = []
     if line_number_on:
-        for entry in entries:
-            if entry["role"] == "assistant":
+        for i, entry in enumerate(entries):
+            if entry["role"] != "assistant":
+                continue
+            if markdown:
+                visuals = _render_markdown_visual_lines(entry["content"])
+                md_visuals_by_entry[i] = visuals
+                # Cache the ANSI-stripped text so @N expansion produces clean
+                # quoted content rather than raw escape sequences.
+                for vl in visuals:
+                    numbered_lines.append(Text.from_ansi(vl).plain)
+            else:
                 numbered_lines.extend(entry["content"].splitlines())
         cfg.save_last_tail(name, numbered_lines)
     width = max(len(str(len(numbered_lines))), 1)
 
     line_idx = 0
-    for entry in entries:
+    for i, entry in enumerate(entries):
         label = "Assistant" if entry["role"] == "assistant" else "User"
         style = "bold cyan" if entry["role"] == "assistant" else "bold green"
         ts = _format_ts(entry["timestamp"]) if entry.get("timestamp") else ""
         console.print(f"[{style}]{label}[/{style}] [dim]({ts})[/dim]")
-        if markdown and entry["role"] == "assistant":
-            # Markdown rendering takes precedence over per-line numbering;
-            # the latter prints prefixed raw lines, which can't be reconciled
-            # with a single Markdown block. The numbered_lines cache above is
-            # still populated so ``@N`` refs in subsequent replies keep working.
+        if markdown and line_number_on and entry["role"] == "assistant":
+            for vl in md_visuals_by_entry.get(i, []):
+                line_idx += 1
+                text = Text()
+                text.append(f"[{line_idx:>{width}}]", style="yellow")
+                text.append(" ")
+                text.append(Text.from_ansi(vl))
+                console.print(text)
+        elif markdown and entry["role"] == "assistant":
             console.print(Markdown(entry["content"]))
         elif line_number_on and entry["role"] == "assistant":
             lines = entry["content"].splitlines()

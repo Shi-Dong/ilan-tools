@@ -117,27 +117,52 @@ class TestTailMarkdown:
         assert result.exit_code == 0
         assert "raw |---| pipes" in result.output
 
-    def test_md_flag_with_line_numbers_caches_lines_for_at_refs(
+    def test_md_with_line_numbers_prefixes_each_visual_line(
         self, runner: CliRunner, tmp_config: Path
     ) -> None:
-        # `--md` suppresses the on-screen [N] prefixes, but the cache that
-        # backs `@N` reply expansion must still be populated when
-        # line-number mode is on.
+        """Each rendered visual line of the Markdown output gets a ``[N]`` prefix.
+
+        For a pipe-table the rendered output collapses to one visual row per
+        source row, so the prefix counter ranges from ``[1]`` through ``[4]``.
+        """
         _enable_line_number_and_markdown(tmp_config)
         client = _make_client()
-        client.get_logs.return_value = {
-            "logs": [
-                {"role": "assistant", "content": "first\nsecond",
-                 "timestamp": "2026-04-25T00:00:00+00:00"},
-            ],
-        }
+        client.get_logs.return_value = self._logs()  # the 4-row pipe table
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["tail", "my-task", "-n", "1"])
         assert result.exit_code == 0
-        # The numbered prefix `[1]` must NOT appear on screen — Markdown wins.
-        assert "[1] first" not in result.output
-        # But the cache must be populated so `@1` still works on next reply.
-        assert cfg.load_last_tail("my-task") == ["first", "second"]
+        # Table rendered (no raw separator survives) AND each visual row
+        # carries a [N] prefix.
+        assert "|---|---|" not in result.output
+        for n in (1, 2, 3, 4):
+            assert f"[{n}]" in result.output
+        # The two data rows still show their cell values, alongside the prefix.
+        out_lines = result.output.splitlines()
+        pod0_line = next(l for l in out_lines if "pod-0" in l)
+        pod1_line = next(l for l in out_lines if "pod-1" in l)
+        assert "[3]" in pod0_line
+        assert "[4]" in pod1_line
+
+    def test_md_with_line_numbers_caches_visual_lines_for_at_refs(
+        self, runner: CliRunner, tmp_config: Path
+    ) -> None:
+        """The ``@N`` cache stores the visual rendered lines (clean, no ANSI)
+        so that a subsequent reply's ``@N`` quotes exactly what the user saw."""
+        _enable_line_number_and_markdown(tmp_config)
+        client = _make_client()
+        client.get_logs.return_value = self._logs()  # 4-row pipe table
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["tail", "my-task", "-n", "1"])
+        assert result.exit_code == 0
+        cached = cfg.load_last_tail("my-task")
+        # Four visual rows for four source rows in the rendered table.
+        assert len(cached) == 4
+        # Cached strings are plain text — no ANSI escape sequences.
+        for c in cached:
+            assert "\x1b[" not in c
+        # Data rows include the cell values verbatim.
+        assert any("pod-0" in c and "Pending" in c for c in cached)
+        assert any("pod-1" in c and "Running" in c for c in cached)
 
 
 class TestSetConfigMarkdown:
