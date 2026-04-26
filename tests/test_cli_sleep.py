@@ -171,4 +171,4 @@ class TestFormatSleepSuffix:
         assert _format_sleep_suffix(-5) is None
 
     def test_positive_shows_fixed_string(self) -> None:
-        assert _format_sleep_suffix(300) == " (sleeping for 300 s)"
+        assert _format_sleep_suffix(300) == " (sleeping for 300s)"

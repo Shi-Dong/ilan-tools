@@ -773,10 +773,10 @@ SLEEP_STYLE = "#ff8700"
 
 
 def _format_sleep_suffix(sleep_seconds: int | None) -> str | None:
-    """Return ``(sleeping for X s)`` for a task that has an active sleep."""
+    """Return ``(sleeping for Xs)`` for a task that has an active sleep."""
     if not sleep_seconds or sleep_seconds <= 0:
         return None
-    return f" (sleeping for {int(sleep_seconds)} s)"
+    return f" (sleeping for {int(sleep_seconds)}s)"
 
 
 _SLEEP_SECOND_UNITS = frozenset({"s", "sec", "second", "seconds"})
