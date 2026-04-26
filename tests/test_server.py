@@ -445,7 +445,7 @@ class TestSleep:
     ) -> None:
         """``ilan re`` on an UNCLAIMED task that's still waiting to be
         claimed on a sleep instruction should drop sleep_seconds so the
-        ``(sleeping for N s)`` suffix stops showing in ``ilan ls``."""
+        ``(sleeping for Ns)`` suffix stops showing in ``ilan ls``."""
         self._make_task_in_status(ilan_server, "sleep-re-uncl", TaskStatus.NEEDS_ATTENTION)
         _post(ilan_server, "/tasks/sleep-re-uncl/sleep", {"seconds": 5})
         assert _get(ilan_server, "/tasks/sleep-re-uncl")["task"]["sleep_seconds"] == 5

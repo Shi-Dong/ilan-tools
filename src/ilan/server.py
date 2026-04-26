@@ -425,7 +425,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 # A plain reply overrides any in-flight sleep: the agent is
                 # no longer sleeping on behalf of an earlier ``ilan sleep``,
                 # so drop ``sleep_seconds`` in every branch below to make
-                # the ``(sleeping for N s)`` suffix disappear.
+                # the ``(sleeping for Ns)`` suffix disappear.
                 task.sleep_seconds = None
 
                 if task.status == TaskStatus.UNCLAIMED:
