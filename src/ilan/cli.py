@@ -443,7 +443,7 @@ def _order_tasks_as_forest(rows: list[dict]) -> list[tuple[dict, str]]:
     Parent/child links come from ``parent_name``.  Rows whose parent is
     not in *rows* (filtered out or deleted) are treated as roots.
     Roots preserve the incoming ``rows`` ordering (the server sorts by
-    status-changed-at); siblings under a parent are sorted by
+    ``created_at`` ascending); siblings under a parent are sorted by
     ``created_at`` ascending so the branching order is easy to read.
     """
     by_name = {r["name"]: r for r in rows}
