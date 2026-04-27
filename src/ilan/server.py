@@ -260,7 +260,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                         cur = parent.parent_name
 
             rows = []
-            for t in sorted(tasks.values(), key=lambda t: t.status_changed_at or t.created_at, reverse=True):
+            for t in sorted(tasks.values(), key=lambda t: t.created_at):
                 if not show_all and t.status.is_terminal and t.name not in keep_terminal_ancestors:
                     continue
                 rows.append({
