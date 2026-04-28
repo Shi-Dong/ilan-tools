@@ -710,7 +710,8 @@ def _do_tail(
 @click.option("--line-number/--no-line-number", "line_number", default=None,
               help="Override the ``line-number`` config for this invocation.")
 def task_tail(name: str, num: int | None, markdown: bool, line_number: bool | None) -> None:
-    """Show the last assistant message and any user messages after it.
+    """Show the last assistant message, the user prompt that elicited it,
+    and any user messages after it.
 
     With -n N, show the final N messages (assistant + user combined).
     """
