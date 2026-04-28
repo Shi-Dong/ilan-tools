@@ -471,7 +471,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                         409,
                     )
                     return
-                message = f"Sleep {seconds} seconds and report back"
+                message = f"Sleep {seconds} seconds and give me a quick report after the sleep finishes."
                 task.cached_replies.append(message)
                 task.needs_review = False
                 task.sleep_seconds = seconds

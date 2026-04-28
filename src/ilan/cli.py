@@ -766,7 +766,7 @@ def task_reply(
 
 # ── task tap ─────────────────────────────────────────────────────────
 
-TAP_MESSAGE = "How are things now? Give me a summary of the current situation."
+TAP_MESSAGE = "How are things now? Pause what you are doing and give me a quick summary of the current situation."
 
 
 TAP_ALLOWED_STATUSES = (
