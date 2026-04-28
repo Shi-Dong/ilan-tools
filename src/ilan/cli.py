@@ -665,10 +665,15 @@ def _do_tail(
         cfg.save_last_tail(name, numbered_lines)
     width = max(len(str(len(numbered_lines))), 1)
 
+    console.print()
     line_idx = 0
     for i, entry in enumerate(entries):
         label = "Assistant" if entry["role"] == "assistant" else "User"
-        style = "bold cyan" if entry["role"] == "assistant" else "bold green"
+        style = (
+            "bold underline cyan"
+            if entry["role"] == "assistant"
+            else "bold underline green"
+        )
         ts = _format_ts(entry["timestamp"]) if entry.get("timestamp") else ""
         console.print(f"[{style}]{label}[/{style}] [dim]({ts})[/dim]")
         if markdown and line_number_on and entry["role"] == "assistant":
