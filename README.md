@@ -201,6 +201,19 @@ task — so you can `ilan tail parent` and then
 `ilan task branch parent -n child -d "redo @12 differently"` and the child task
 starts with the parent's 12th line already quoted.
 
+You can override the config for a single invocation with the
+`--line-number` / `--no-line-number` flags on `ilan tail` (and on `ilan re` /
+`ilan ls` when only a task name — no response message — is given):
+
+```bash
+ilan tail my-task --line-number       # force line numbers on
+ilan re my-task --no-line-number      # tail without line numbers
+```
+
+Passing the flag together with a response message
+(`ilan re my-task "some response" --no-line-number`) is rejected, since
+the flag only affects how tail output is rendered.
+
 `line-number` is a **client-side** config: `ilan config set line-number true`
 writes to the local `~/.config/ilan/config.json` instead of going through the
 server, so the toggle works the same way whether you're driving a local or

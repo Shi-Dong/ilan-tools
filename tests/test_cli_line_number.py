@@ -333,3 +333,200 @@ class TestClientSideConfigSet:
     def test_client_side_keys_set_matches_bool_keys(self) -> None:
         """Sanity check: every client-side bool toggle lives in BOOL_KEYS too."""
         assert cfg.CLIENT_SIDE_KEYS <= cfg.VALID_KEYS
+
+
+# ── --line-number / --no-line-number flag overrides ─────────────────
+
+
+class TestTailFlagOverride:
+    """The ``--line-number`` / ``--no-line-number`` flags override the config
+    on a per-invocation basis when tailing a task's output."""
+
+    def _logs(self) -> dict:
+        return {
+            "logs": [
+                {"role": "assistant", "content": "alpha\nbeta",
+                 "timestamp": "2026-04-13T00:00:00+00:00"},
+            ],
+        }
+
+    def test_tail_flag_enables_when_config_off(
+        self, runner: CliRunner, tmp_config: Path
+    ) -> None:
+        client = _make_client()
+        client.get_logs.return_value = self._logs()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main, ["tail", "my-task", "-n", "1", "--line-number"]
+            )
+        assert result.exit_code == 0
+        assert "[1]" in result.output
+        assert "[2]" in result.output
+        # Config wasn't touched — still default off.
+        assert cfg.load()["line-number"] is False
+
+    def test_tail_flag_disables_when_config_on(
+        self, runner: CliRunner, tmp_config: Path
+    ) -> None:
+        _enable_line_number(tmp_config)
+        client = _make_client()
+        client.get_logs.return_value = self._logs()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main, ["tail", "my-task", "-n", "1", "--no-line-number"]
+            )
+        assert result.exit_code == 0
+        assert "[1]" not in result.output
+        assert "[2]" not in result.output
+
+    def test_task_tail_flag_enables(
+        self, runner: CliRunner, tmp_config: Path
+    ) -> None:
+        client = _make_client()
+        client.get_logs.return_value = self._logs()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main, ["task", "tail", "my-task", "-n", "1", "--line-number"]
+            )
+        assert result.exit_code == 0
+        assert "[1]" in result.output
+
+
+class TestReplyFlagOverride:
+    """``ilan re`` / ``ilan reply`` accept ``--line-number`` only in
+    tail-display mode (no response provided)."""
+
+    def _logs(self) -> dict:
+        return {
+            "logs": [
+                {"role": "assistant", "content": "x\ny",
+                 "timestamp": "2026-04-13T00:00:00+00:00"},
+            ],
+        }
+
+    def test_re_no_message_flag_enables(
+        self, runner: CliRunner, tmp_config: Path
+    ) -> None:
+        client = _make_client()
+        client.get_logs.return_value = self._logs()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main, ["re", "my-task", "-n", "1", "--line-number"]
+            )
+        assert result.exit_code == 0
+        assert "[1]" in result.output
+        client.reply.assert_not_called()
+
+    def test_re_no_message_no_flag_disables(
+        self, runner: CliRunner, tmp_config: Path
+    ) -> None:
+        _enable_line_number(tmp_config)
+        client = _make_client()
+        client.get_logs.return_value = self._logs()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main, ["re", "my-task", "-n", "1", "--no-line-number"]
+            )
+        assert result.exit_code == 0
+        assert "[1]" not in result.output
+
+    def test_re_with_message_and_flag_errors(
+        self, runner: CliRunner, tmp_config: Path
+    ) -> None:
+        client = _make_client()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main, ["re", "my-task", "some response", "--no-line-number"]
+            )
+        assert result.exit_code != 0
+        # Console may wrap the message; check a stable substring.
+        assert "cannot be used when a response" in result.output.replace("\n", " ")
+        client.reply.assert_not_called()
+
+    def test_re_with_message_and_line_number_flag_errors(
+        self, runner: CliRunner, tmp_config: Path
+    ) -> None:
+        client = _make_client()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main, ["re", "my-task", "some response", "--line-number"]
+            )
+        assert result.exit_code != 0
+        client.reply.assert_not_called()
+
+    def test_reply_with_message_and_flag_errors(
+        self, runner: CliRunner, tmp_config: Path
+    ) -> None:
+        client = _make_client()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main, ["reply", "my-task", "some response", "--no-line-number"]
+            )
+        assert result.exit_code != 0
+        client.reply.assert_not_called()
+
+    def test_task_reply_with_message_and_flag_errors(
+        self, runner: CliRunner, tmp_config: Path
+    ) -> None:
+        client = _make_client()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main, ["task", "reply", "my-task", "msg", "--line-number"]
+            )
+        assert result.exit_code != 0
+        client.reply.assert_not_called()
+
+    def test_re_no_message_no_response_still_calls_reply_when_message_given(
+        self, runner: CliRunner, tmp_config: Path
+    ) -> None:
+        """Regression: without the flag, providing a message still works."""
+        client = _make_client()
+        client.reply.return_value = {"message": "ok"}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["re", "my-task", "some response"])
+        assert result.exit_code == 0
+        client.reply.assert_called_once_with("my-task", "some response")
+
+
+class TestLsFlagOverride:
+    """``ilan ls`` accepts ``--line-number`` only when a task name is given."""
+
+    def _logs(self) -> dict:
+        return {
+            "logs": [
+                {"role": "assistant", "content": "p\nq",
+                 "timestamp": "2026-04-13T00:00:00+00:00"},
+            ],
+        }
+
+    def test_ls_with_name_flag_enables(
+        self, runner: CliRunner, tmp_config: Path
+    ) -> None:
+        client = _make_client()
+        client.get_logs.return_value = self._logs()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main, ["ls", "my-task", "-n", "1", "--line-number"]
+            )
+        assert result.exit_code == 0
+        assert "[1]" in result.output
+
+    def test_ls_no_name_with_flag_errors(
+        self, runner: CliRunner, tmp_config: Path
+    ) -> None:
+        client = _make_client()
+        client.list_tasks.return_value = {"tasks": []}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["ls", "--line-number"])
+        assert result.exit_code != 0
+        assert "requires a task name" in result.output.replace("\n", " ")
+
+    def test_task_ls_no_name_with_flag_errors(
+        self, runner: CliRunner, tmp_config: Path
+    ) -> None:
+        client = _make_client()
+        client.list_tasks.return_value = {"tasks": []}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["task", "ls", "--no-line-number"])
+        assert result.exit_code != 0
+        assert "requires a task name" in result.output.replace("\n", " ")
