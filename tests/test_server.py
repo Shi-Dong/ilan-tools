@@ -365,7 +365,10 @@ class TestSleep:
         task = _get(ilan_server, "/tasks/sleep-na")["task"]
         assert task["status"] == "UNCLAIMED"
         assert task["sleep_seconds"] == 5
-        assert "Sleep 5 seconds and report back" in task["cached_replies"]
+        assert (
+            "Sleep 5 seconds and give me a quick report after the sleep finishes."
+            in task["cached_replies"]
+        )
 
     def test_sleep_on_agent_finished_caches_and_unclaims(
         self, ilan_server: IlanServer
