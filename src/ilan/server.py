@@ -646,7 +646,16 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 self._json({**meta, "entries": [], "warning": "No assistant messages yet."})
                 return
 
-            self._json({**meta, "entries": [e.to_dict() for e in entries[last_asst:]]})
+            # Also include the most recent user message before the last
+            # assistant, so the user has the prompt that elicited the reply
+            # in view (and can tell the conversation apart at a glance).
+            start = last_asst
+            for j in range(last_asst - 1, -1, -1):
+                if entries[j].role == "user":
+                    start = j
+                    break
+
+            self._json({**meta, "entries": [e.to_dict() for e in entries[start:]]})
 
         def handle_task_path(self, name: str):
             with self._ilan.lock:

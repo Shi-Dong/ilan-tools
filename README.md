@@ -93,7 +93,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task ls [-a] [NAME]` | List active tasks (`-a` includes `DONE`/`DISCARDED`); if `NAME` is given, show its tail instead |
 | `ilan task show NAME` | Print the full prompt of a task |
 | `ilan task path NAME` | Print the Claude Code session log path for a task |
-| `ilan task tail NAME` | Show the last assistant message + any user replies after it |
+| `ilan task tail NAME` | Show the last assistant message together with the user prompt that elicited it and any user replies after it |
 | `ilan task reply NAME ["msg"]` | Send a reply to an agent (omit message to show tail) |
 | `ilan task tap NAME` | Ask for a status update (nudges `WORKING` agents; re-prompts `AGENT_FINISHED`/`NEEDS_ATTENTION`/`ERROR` tasks) |
 | `ilan task sleep NAME DURATION` | Re-prompt a `NEEDS_ATTENTION` / `AGENT_FINISHED` task to sleep for DURATION and report back. DURATION is an integer or decimal with an optional unit suffix — no whitespace — e.g. `300`, `300s`, `5m`, `2h`, `1.5h`. Units: `s`/`sec`/`second`/`seconds`, `m`/`min`/`mins`/`minute`/`minutes`, `h`/`hr`/`hrs`/`hour`/`hours`; bare numbers are seconds. The task transitions to `UNCLAIMED` and shows `(sleeping for Xs)` in `ilan ls` / `ilan dashboard` while `UNCLAIMED` / `WORKING`. |

@@ -531,10 +531,39 @@ class TestLogs:
 
         resp = _get(ilan_server, "/tasks/tail-test/tail")
         entries = resp["entries"]
-        assert len(entries) == 2  # last assistant + user after
-        assert entries[0]["role"] == "assistant"
-        assert entries[0]["content"] == "a2"
-        assert entries[1]["role"] == "user"
+        assert [(e["role"], e["content"]) for e in entries] == [
+            ("user", "u2"),
+            ("assistant", "a2"),
+            ("user", "u3"),
+        ]
+
+    def test_tail_last_msg_is_assistant(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "tail-asst-last", "prompt": "P"})
+        ilan_server.store.append_log("tail-asst-last", "user", "u1")
+        ilan_server.store.append_log("tail-asst-last", "assistant", "a1")
+        ilan_server.store.append_log("tail-asst-last", "user", "u2")
+        ilan_server.store.append_log("tail-asst-last", "assistant", "a2")
+
+        resp = _get(ilan_server, "/tasks/tail-asst-last/tail")
+        entries = resp["entries"]
+        assert [(e["role"], e["content"]) for e in entries] == [
+            ("user", "u2"),
+            ("assistant", "a2"),
+        ]
+
+    def test_tail_no_user_before_assistant(self, ilan_server: IlanServer) -> None:
+        # Conversation that opens with the assistant — there's no preceding
+        # user message to prepend, so we just return the assistant + after.
+        _post(ilan_server, "/tasks", {"name": "tail-asst-first", "prompt": "P"})
+        ilan_server.store.append_log("tail-asst-first", "assistant", "a1")
+        ilan_server.store.append_log("tail-asst-first", "user", "u1")
+
+        resp = _get(ilan_server, "/tasks/tail-asst-first/tail")
+        entries = resp["entries"]
+        assert [(e["role"], e["content"]) for e in entries] == [
+            ("assistant", "a1"),
+            ("user", "u1"),
+        ]
 
     def test_tail_empty(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "tail-empty", "prompt": "P"})
