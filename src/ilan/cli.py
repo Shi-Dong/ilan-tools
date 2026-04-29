@@ -1619,17 +1619,17 @@ def _build_dashboard_table(rows: list[dict], tz: ZoneInfo) -> Table:
     header.append("r", style="bold")
     header.append(" refresh", style="dim")
 
-    # Fixed column ratios (total 20): name=2/5, Status=4/20, Cost=2/20,
-    # Created=3/20, Last Changed=3/20. Status needs extra room for the
+    # Fixed column ratios (total 40): name=14/40, Status=8/40, Cost=4/40,
+    # Created=7/40, Last Changed=7/40. Status needs extra room for the
     # "(for HHhMMmSSs)" suffix; Cost is always a compact "$X.XX" and can
     # be narrow. Overlong name cells fold onto the next line within the
     # column instead of pushing it wider.
     table = Table(title=header, expand=True)
-    table.add_column("(Alias) Name", style="bold", ratio=8)
-    table.add_column("Status", ratio=4)
-    table.add_column("Cost", justify="right", ratio=2)
-    table.add_column("Created", ratio=3)
-    table.add_column("Last Changed", ratio=3)
+    table.add_column("(Alias) Name", style="bold", ratio=14)
+    table.add_column("Status", ratio=8)
+    table.add_column("Cost", justify="right", ratio=4)
+    table.add_column("Created", ratio=7)
+    table.add_column("Last Changed", ratio=7)
 
     if not rows:
         table.add_row(Text("No active tasks.", style="dim"), "", "", "", "")
