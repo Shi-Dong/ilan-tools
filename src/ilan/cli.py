@@ -24,6 +24,7 @@ from click.shell_completion import get_completion_class
 from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
+from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 from rich.text import Text
@@ -112,19 +113,24 @@ def _markdown_enabled() -> bool:
     return cfg.parse_bool(cfg.load().get("markdown", False))
 
 
-def _render_markdown_visual_lines(content: str) -> list[str]:
+def _render_markdown_visual_lines(content: str, width: int | None = None) -> list[str]:
     """Render ``content`` as Markdown and return the rendered visual lines.
 
     Each line carries the ANSI escape codes Rich produced, so callers can
     feed the result through :meth:`rich.text.Text.from_ansi` to re-apply the
     styling on top of an extra prefix (e.g. a ``[N]`` line number).
+
+    ``width`` overrides the rendering width — useful when the caller plans
+    to embed the result inside a Rich Panel and needs the visual lines to
+    fit within the panel's inner width.
     """
     buf = io.StringIO()
+    target_width = width if width is not None else (console.width or 80)
     tmp = Console(
         file=buf,
         force_terminal=True,
         color_system="truecolor",
-        width=console.width or 80,
+        width=target_width,
     )
     tmp.print(Markdown(content))
     lines = buf.getvalue().rstrip("\n").splitlines()
@@ -641,6 +647,18 @@ def _do_tail(
     if markdown is None:
         markdown = _markdown_enabled()
 
+    # Each entry is rendered inside a Rich Panel, so any pre-rendered
+    # markdown visuals (line-number + markdown mode) must fit within the
+    # panel's inner width. ``_PANEL_CHROME`` accounts for the two border
+    # columns + the one column of left/right padding we pass below.
+    _PANEL_CHROME = 4
+    # Reserve some columns for the ``[N] `` line-number prefix so prefixed
+    # visuals don't wrap inside the panel. 5 is enough for line counts up
+    # to 99 (``[NN] ``); larger counts may wrap by a column or two.
+    _PREFIX_BUDGET = 5
+    panel_inner_width = max((console.width or 80) - _PANEL_CHROME, 20)
+    md_render_width = max(panel_inner_width - _PREFIX_BUDGET, 20)
+
     # When both modes are on, the line-number scheme indexes the *visual*
     # rendered lines, not the raw source. We render once up-front so the
     # cache (used by ``@N`` reply expansion) stores exactly what the user
@@ -652,7 +670,9 @@ def _do_tail(
             if entry["role"] != "assistant":
                 continue
             if markdown:
-                visuals = _render_markdown_visual_lines(entry["content"])
+                visuals = _render_markdown_visual_lines(
+                    entry["content"], width=md_render_width
+                )
                 md_visuals_by_entry[i] = visuals
                 # Cache the ANSI-stripped, edge-trimmed text. Stripping the
                 # whitespace Rich pads each visual row with keeps `@N` reply
@@ -668,38 +688,54 @@ def _do_tail(
     console.print()
     line_idx = 0
     for i, entry in enumerate(entries):
-        label = "Assistant" if entry["role"] == "assistant" else "User"
-        style = (
-            "bold underline cyan"
-            if entry["role"] == "assistant"
-            else "bold underline green"
-        )
+        is_assistant = entry["role"] == "assistant"
+        label = "Assistant" if is_assistant else "User"
+        border_style = "cyan" if is_assistant else "green"
         ts = _format_ts(entry["timestamp"]) if entry.get("timestamp") else ""
-        console.print(f"[{style}]{label}[/{style}] [dim]({ts})[/dim]")
-        if markdown and line_number_on and entry["role"] == "assistant":
-            for vl in md_visuals_by_entry.get(i, []):
+        title = Text()
+        title.append(label, style=f"bold {border_style}")
+        if ts:
+            title.append(f"  ({ts})", style="dim")
+
+        body: object
+        if markdown and line_number_on and is_assistant:
+            text = Text()
+            for j, vl in enumerate(md_visuals_by_entry.get(i, [])):
                 line_idx += 1
-                text = Text()
+                if j > 0:
+                    text.append("\n")
                 text.append(f"[{line_idx:>{width}}]", style="yellow")
                 text.append(" ")
                 text.append(Text.from_ansi(vl))
-                console.print(text)
-        elif markdown and entry["role"] == "assistant":
-            console.print(Markdown(entry["content"]))
-        elif line_number_on and entry["role"] == "assistant":
+            body = text
+        elif markdown and is_assistant:
+            body = Markdown(entry["content"])
+        elif line_number_on and is_assistant:
             lines = entry["content"].splitlines()
             if not lines:
-                console.print(entry["content"])
+                body = Text(entry["content"])
             else:
-                for line in lines:
+                text = Text()
+                for j, line in enumerate(lines):
                     line_idx += 1
-                    text = Text()
+                    if j > 0:
+                        text.append("\n")
                     text.append(f"[{line_idx:>{width}}]", style="yellow")
                     text.append(" ")
                     text.append(line)
-                    console.print(text)
+                body = text
         else:
-            console.print(entry["content"])
+            body = Text(entry["content"])
+
+        console.print(
+            Panel(
+                body,
+                title=title,
+                title_align="left",
+                border_style=border_style,
+                padding=(0, 1),
+            )
+        )
         console.print()
 
     _print_reply_hint(reply_handle)
