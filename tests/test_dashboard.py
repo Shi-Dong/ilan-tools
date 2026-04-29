@@ -452,11 +452,11 @@ class TestDashboardTableProperties:
     def test_table_expands_with_fixed_column_ratios(self) -> None:
         """Dashboard table fills the terminal with fixed column ratios.
 
-        The name column takes 2/5 of the width (ratio=8 of 20). Status gets
-        an extra slot (ratio=4) for its "(for HHhMMmSSs)" suffix, Cost is
-        narrow (ratio=2), and Created / Last Changed stay at ratio=3 each.
+        The name column takes 14/40 of the width. Status gets an extra slot
+        (ratio=8) for its "(for HHhMMmSSs)" suffix, Cost is narrow
+        (ratio=4), and Created / Last Changed stay at ratio=7 each.
         """
         table = _build_dashboard_table([], _TZ)
         assert table.expand is True
         ratios = [c.ratio for c in table.columns]
-        assert ratios == [8, 4, 2, 3, 3]
+        assert ratios == [14, 8, 4, 7, 7]
