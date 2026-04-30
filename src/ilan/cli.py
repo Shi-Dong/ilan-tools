@@ -1176,9 +1176,15 @@ def _do_summarize(name: str) -> None:
     )
     console.print(status_line)
     console.print()
-    # Print the raw summary with ``click.echo`` so it's easy to pipe to
-    # ``less``, ``pbcopy``, etc. without Rich markup interference.
-    click.echo(resp.get("summary", ""))
+    summary = resp.get("summary", "")
+    # Render the markdown summary with Rich when writing to a terminal so
+    # headings/code blocks/lists look nice. When stdout is piped (``less``,
+    # ``pbcopy``, file redirect, etc.) fall back to the raw markdown text
+    # so downstream tools see the source instead of ANSI-rendered output.
+    if sys.stdout.isatty():
+        console.print(Markdown(summary))
+    else:
+        click.echo(summary)
 
 
 @task_group.command("summarize")
