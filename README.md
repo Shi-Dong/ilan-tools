@@ -141,7 +141,7 @@ Frequently used task commands have top-level aliases to save typing:
 ilan dashboard
 ```
 
-Full-screen, real-time task table (like `htop`). Polls the server at the configured `dashboard-interval` (default: every 1 second) and rings the terminal bell when a task's status changes. Keybindings: **q** quit, **r** force-refresh. The "refreshed at" timestamp uses the configured `time-zone`.
+Full-screen, real-time task table (like `htop`). Polls the server at the configured `dashboard-interval` (default: every 1 second). Keybindings: **q** quit, **r** force-refresh. The "refreshed at" timestamp uses the configured `time-zone`.
 
 ### Server
 

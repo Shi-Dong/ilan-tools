@@ -1703,59 +1703,23 @@ def _do_dashboard() -> None:
     tz = ZoneInfo(str(conf.get("time-zone", "US/Pacific")))
     interval = max(1, int(conf.get("dashboard-interval", 1)))
 
-    # Snapshot of previous statuses for change detection.
-    prev_statuses: dict[str, str] = {}
-
-    def fetch_and_render() -> tuple[Table, bool]:
-        """Poll tasks and build the table.
-
-        Returns ``(table, should_bell)`` — the bell flag is True when a
-        task's status changed or a new task appeared since the last poll.
-        The caller is responsible for ringing the bell *after*
-        ``live.update()`` so the raw ``\\a`` byte doesn't corrupt Rich's
-        escape-sequence stream.
-        """
-        nonlocal prev_statuses
+    def fetch_and_render() -> Table:
         try:
             resp = client.list_tasks(show_all=False)
             rows = resp["tasks"]
         except Exception:
             rows = []
-
-        # Detect status changes.
-        cur_statuses = {r["name"]: r["status"] for r in rows}
-        bell = False
-        if prev_statuses:
-            for name, status in cur_statuses.items():
-                old = prev_statuses.get(name)
-                if old is not None and old != status:
-                    bell = True
-                    break
-            else:
-                # Also bell if a brand-new task appeared.
-                for name in cur_statuses:
-                    if name not in prev_statuses:
-                        bell = True
-                        break
-        prev_statuses = cur_statuses
-
-        return _build_dashboard_table(rows, tz), bell
+        return _build_dashboard_table(rows, tz)
 
     def _refresh(live: Live) -> None:
-        table, bell = fetch_and_render()
-        live.update(table)
-        if bell:
-            # Write directly to the underlying fd so the bell byte is
-            # emitted *after* Live has finished its screen update.
-            os.write(sys.stdout.fileno(), b"\a")
+        live.update(fetch_and_render())
 
     # Put terminal in raw mode to capture single keypresses.
     fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(fd)
     try:
         tty.setcbreak(fd)
-        initial_table, _ = fetch_and_render()
-        with Live(initial_table, console=console, screen=True, refresh_per_second=1) as live:
+        with Live(fetch_and_render(), console=console, screen=True, refresh_per_second=1) as live:
             last_poll = time.monotonic()
             while True:
                 # Check for keypress (non-blocking).
