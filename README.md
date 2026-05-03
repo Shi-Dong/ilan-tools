@@ -170,7 +170,7 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 |---|---|---|
 | `workdir` | `~/.ilan` | Where all ilan data is stored |
 | `num-agents` | `5` | Max concurrent Claude Code agents |
-| `time-zone` | `US/Pacific` | Time zone for displayed timestamps |
+| `time-zone` | `US/Pacific` | Time zone for displayed timestamps (client-side: set on each machine running the CLI) |
 | `model` | `opus` | Claude model passed to `claude -p` |
 | `effort` | `high` | Effort level for the model |
 | `summarize-model` | `sonnet` | Claude model used by `ilan task summarize` |

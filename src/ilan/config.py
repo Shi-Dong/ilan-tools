@@ -29,7 +29,7 @@ BOOL_KEYS = {"line-number", "markdown"}
 # (rendering, input rewriting, etc.).  ``ilan config set`` writes these to
 # the local config file instead of routing them through the server, so the
 # toggle works the same way whether the server is local or remote.
-CLIENT_SIDE_KEYS = {"line-number", "markdown"}
+CLIENT_SIDE_KEYS = {"line-number", "markdown", "time-zone"}
 
 _CONFIG_DIR = Path("~/.config/ilan").expanduser()
 _CONFIG_FILE = _CONFIG_DIR / "config.json"
