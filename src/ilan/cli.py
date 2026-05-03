@@ -345,7 +345,7 @@ def server_status() -> None:
     "-c",
     "--count",
     type=click.IntRange(min=1),
-    default=5,
+    default=3,
     show_default=True,
     help="Number of pings to send.",
 )
@@ -353,38 +353,29 @@ def ping(count: int) -> None:
     """Measure round-trip time to the ilan server.
 
     For a remote server (``ILAN_SERVER_URL`` set), sends ``count`` health
-    requests and prints per-request and average latencies. For a local
-    server, just notes that no network ping is needed.
+    requests and prints the average round-trip time in milliseconds. For
+    a local server, just notes that no network ping is needed.
     """
     c = Client()
     if not c.is_remote:
         console.print("[dim]Server is local — no network ping needed.[/dim]")
         return
 
-    console.print(f"[dim]Pinging {c._base_url} ...[/dim]")
     samples_ms: list[float] = []
-    for i in range(1, count + 1):
+    for _ in range(count):
         start = time.perf_counter()
         try:
             c.health()
-        except Exception as exc:
-            console.print(f"  [red]{i}/{count}: error — {exc}[/red]")
+        except Exception:
             continue
-        elapsed_ms = (time.perf_counter() - start) * 1000
-        samples_ms.append(elapsed_ms)
-        console.print(f"  {i}/{count}: [green]{elapsed_ms:.1f} ms[/green]")
+        samples_ms.append((time.perf_counter() - start) * 1000)
 
     if not samples_ms:
-        console.print("[red]All pings failed.[/red]")
+        console.print(f"[red]All {count} pings to {c._base_url} failed.[/red]")
         raise SystemExit(1)
 
-    lo = min(samples_ms)
-    hi = max(samples_ms)
-    avg = sum(samples_ms) / len(samples_ms)
-    console.print(
-        f"[bold]{len(samples_ms)}/{count} ok[/bold] — "
-        f"min {lo:.1f} ms, avg {avg:.1f} ms, max {hi:.1f} ms"
-    )
+    avg = round(sum(samples_ms) / len(samples_ms))
+    console.print(f"Average of {len(samples_ms)} pings: [green]{avg} ms[/green]")
 
 
 # ── config ───────────────────────────────────────────────────────────

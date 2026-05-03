@@ -150,7 +150,7 @@ Full-screen, real-time task table (like `htop`). Polls the server at the configu
 | `ilan server status` | Show whether the background server is running |
 | `ilan server restart` | Restart the server (picks up code changes) |
 | `ilan server stop` | Stop the background server |
-| `ilan ping [-c N]` | Measure round-trip latency to the server. With `ILAN_SERVER_URL` set, sends `N` health requests (default 5) and prints per-request and min/avg/max in ms. Without it, just notes that the server is local. |
+| `ilan ping [-c N]` | Measure round-trip latency to the server. With `ILAN_SERVER_URL` set, sends `N` health requests (default 3) and prints the rounded average round-trip time in ms. Without it, just notes that the server is local. |
 
 ### Config
 
