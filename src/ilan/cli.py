@@ -1699,11 +1699,14 @@ def _build_dashboard_table(rows: list[dict], tz: ZoneInfo) -> Table:
 def _do_dashboard() -> None:
     """Full-screen real-time task dashboard (like htop)."""
     client = _client()
-    conf = cfg.load()
-    tz = ZoneInfo(str(conf.get("time-zone", "US/Pacific")))
-    interval = max(1, int(conf.get("dashboard-interval", 1)))
+    interval = max(1, int(cfg.load().get("dashboard-interval", 1)))
 
     def fetch_and_render() -> Table:
+        # Re-read the time-zone on each render so the header stays in sync
+        # with `_format_ts` (which also reloads per call) — otherwise editing
+        # `time-zone` while the dashboard is running leaves the header stuck
+        # on whatever zone was loaded at startup.
+        tz = ZoneInfo(str(cfg.load().get("time-zone", "US/Pacific")))
         try:
             resp = client.list_tasks(show_all=False)
             rows = resp["tasks"]
