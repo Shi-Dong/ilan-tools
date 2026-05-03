@@ -315,6 +315,88 @@ class TestDashboardTimezone:
         # Should contain BST or GMT depending on time of year.
         assert "BST" in plain or "GMT" in plain
 
+    def test_dashboard_reloads_timezone_per_render(
+        self, tmp_config, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``_do_dashboard`` should re-read ``time-zone`` on every render.
+
+        Otherwise, editing ``time-zone`` while the dashboard is running leaves
+        the header stuck on whatever zone was loaded at startup, even though
+        the per-row ``Created`` / ``Last Changed`` cells (rendered via
+        ``_format_ts``) follow the new value because they reload on each call.
+        """
+        import sys as _sys
+
+        import ilan.cli as cli_mod
+        import ilan.config as cfg_mod
+
+        cfg_mod.save({**cfg_mod.DEFAULTS, "time-zone": "US/Pacific"})
+
+        captured: list[str] = []
+        real_build = cli_mod._build_dashboard_table
+
+        def spy_build(rows, tz):
+            captured.append(str(tz))
+            # Switch the configured zone once the first render has captured
+            # the original. The next render must pick up the new value.
+            if len(captured) == 1:
+                cfg_mod.save({**cfg_mod.DEFAULTS, "time-zone": "Europe/London"})
+            return real_build(rows, tz)
+
+        class _FakeLive:
+            def __init__(self, renderable, **_kw):
+                self.renderable = renderable
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_a):
+                return False
+
+            def update(self, renderable):
+                self.renderable = renderable
+
+        client = _make_client()
+        client.list_tasks.return_value = {"tasks": []}
+
+        monkeypatch.setattr(cli_mod, "_build_dashboard_table", spy_build)
+        monkeypatch.setattr(cli_mod, "Live", _FakeLive)
+        monkeypatch.setattr(cli_mod, "Client", lambda: client)
+        monkeypatch.setattr(cli_mod.termios, "tcgetattr", lambda _fd: [])
+        monkeypatch.setattr(cli_mod.termios, "tcsetattr", lambda *_a, **_kw: None)
+        monkeypatch.setattr(cli_mod.tty, "setcbreak", lambda _fd: None)
+
+        fake_stdin = MagicMock()
+        fake_stdin.fileno.return_value = 0
+        fake_stdin.read.return_value = "q"
+        monkeypatch.setattr(cli_mod.sys, "stdin", fake_stdin)
+        # Avoid touching the real fileno when the test runs under pytest's
+        # captured stdout.
+        del _sys
+
+        # First select call: no key (drives the auto-refresh branch).
+        # Second select call: signal a keypress so the loop exits via 'q'.
+        select_returns = iter([([], [], []), ([fake_stdin], [], [])])
+        monkeypatch.setattr(
+            cli_mod.select,
+            "select",
+            lambda *_a, **_kw: next(select_returns),
+        )
+
+        # Make every monotonic() call advance well past the 1-second
+        # interval so the auto-refresh fires immediately on the first loop.
+        ticks = iter([0.0, 100.0, 100.0, 200.0])
+        monkeypatch.setattr(
+            cli_mod.time, "monotonic", lambda: next(ticks)
+        )
+
+        cli_mod._do_dashboard()
+
+        # First render captured at startup, second after the auto-refresh.
+        assert len(captured) >= 2, captured
+        assert captured[0] == "US/Pacific"
+        assert captured[-1] == "Europe/London"
+
 
 # ── table expand property ────────────────────────────────────────────
 
