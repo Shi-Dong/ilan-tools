@@ -30,7 +30,7 @@ class TestDefaults:
         assert cfg.BOOL_KEYS == {"line-number", "markdown"}
 
     def test_client_side_keys(self) -> None:
-        assert cfg.CLIENT_SIDE_KEYS == {"line-number", "markdown"}
+        assert cfg.CLIENT_SIDE_KEYS == {"line-number", "markdown", "time-zone"}
         assert cfg.CLIENT_SIDE_KEYS <= cfg.VALID_KEYS
 
     def test_line_number_default_false(self) -> None:
