@@ -337,6 +337,47 @@ def server_status() -> None:
         console.print("[yellow]PID file exists but server is not responding.[/yellow]")
 
 
+# ── ping ─────────────────────────────────────────────────────────────
+
+
+@main.command("ping")
+@click.option(
+    "-c",
+    "--count",
+    type=click.IntRange(min=1),
+    default=3,
+    show_default=True,
+    help="Number of pings to send.",
+)
+def ping(count: int) -> None:
+    """Measure round-trip time to the ilan server.
+
+    For a remote server (``ILAN_SERVER_URL`` set), sends ``count`` health
+    requests and prints the average round-trip time in milliseconds. For
+    a local server, just notes that no network ping is needed.
+    """
+    c = Client()
+    if not c.is_remote:
+        console.print("[dim]Server is local — no network ping needed.[/dim]")
+        return
+
+    samples_ms: list[float] = []
+    for _ in range(count):
+        start = time.perf_counter()
+        try:
+            c.health()
+        except Exception:
+            continue
+        samples_ms.append((time.perf_counter() - start) * 1000)
+
+    if not samples_ms:
+        console.print(f"[red]All {count} pings to {c._base_url} failed.[/red]")
+        raise SystemExit(1)
+
+    avg = round(sum(samples_ms) / len(samples_ms))
+    console.print(f"Average of {len(samples_ms)} pings: [green]{avg} ms[/green]")
+
+
 # ── config ───────────────────────────────────────────────────────────
 
 @main.group("config")
