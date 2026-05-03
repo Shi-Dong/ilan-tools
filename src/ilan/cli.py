@@ -337,6 +337,56 @@ def server_status() -> None:
         console.print("[yellow]PID file exists but server is not responding.[/yellow]")
 
 
+# ── ping ─────────────────────────────────────────────────────────────
+
+
+@main.command("ping")
+@click.option(
+    "-c",
+    "--count",
+    type=click.IntRange(min=1),
+    default=5,
+    show_default=True,
+    help="Number of pings to send.",
+)
+def ping(count: int) -> None:
+    """Measure round-trip time to the ilan server.
+
+    For a remote server (``ILAN_SERVER_URL`` set), sends ``count`` health
+    requests and prints per-request and average latencies. For a local
+    server, just notes that no network ping is needed.
+    """
+    c = Client()
+    if not c.is_remote:
+        console.print("[dim]Server is local — no network ping needed.[/dim]")
+        return
+
+    console.print(f"[dim]Pinging {c._base_url} ...[/dim]")
+    samples_ms: list[float] = []
+    for i in range(1, count + 1):
+        start = time.perf_counter()
+        try:
+            c.health()
+        except Exception as exc:
+            console.print(f"  [red]{i}/{count}: error — {exc}[/red]")
+            continue
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        samples_ms.append(elapsed_ms)
+        console.print(f"  {i}/{count}: [green]{elapsed_ms:.1f} ms[/green]")
+
+    if not samples_ms:
+        console.print("[red]All pings failed.[/red]")
+        raise SystemExit(1)
+
+    lo = min(samples_ms)
+    hi = max(samples_ms)
+    avg = sum(samples_ms) / len(samples_ms)
+    console.print(
+        f"[bold]{len(samples_ms)}/{count} ok[/bold] — "
+        f"min {lo:.1f} ms, avg {avg:.1f} ms, max {hi:.1f} ms"
+    )
+
+
 # ── config ───────────────────────────────────────────────────────────
 
 @main.group("config")
