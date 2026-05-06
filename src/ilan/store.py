@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import random
 import shutil
+import uuid
 from pathlib import Path
 
 from ilan.models import ALIAS_POOL, LogEntry, Task
@@ -71,17 +72,41 @@ class Store:
     ) -> Task:
         """Create a child task that inherits *parent*'s Claude Code session.
 
-        Copies the parent's ilan conversation log so ``tail``/``log`` on the
-        child show the full inherited history; after this point the two logs
-        diverge.  The parent task is not modified.
+        Forks the parent's Claude Code session log onto a fresh UUID so the
+        two tasks evolve independently after this point.  ``claude --resume``
+        appends in place to the session log it was given, so sharing
+        ``session_id`` between parent and child would cause turns from either
+        side to leak into the other's context.  Copying the JSONL to a new
+        UUID-named file in the same directory gives the child its own
+        session.  Claude resolves sessions by filename, so stale ``sessionId``
+        fields inside the copied records are harmless; on APFS this is an
+        O(1) clonefile.
+
+        Also copies the parent's ilan conversation log so ``tail``/``log`` on
+        the child show the full inherited history.  The parent task is not
+        modified.
         """
+        child_session_id = parent.session_id
+        child_session_log_path = parent.session_log_path
+
+        parent_session_log = (
+            Path(parent.session_log_path) if parent.session_log_path else None
+        )
+        if parent_session_log is not None and parent_session_log.exists():
+            child_session_id = str(uuid.uuid4())
+            new_session_log = parent_session_log.with_name(
+                f"{child_session_id}.jsonl"
+            )
+            shutil.copyfile(parent_session_log, new_session_log)
+            child_session_log_path = str(new_session_log)
+
         child = Task(
             name=new_name,
             prompt=parent.prompt,
             created_at=now,
             status_changed_at=now,
-            session_id=parent.session_id,
-            session_log_path=parent.session_log_path,
+            session_id=child_session_id,
+            session_log_path=child_session_log_path,
             alias=alias,
             task_hash=task_hash,
             parent_name=parent.name,
