@@ -6,6 +6,7 @@ import json
 import signal
 import threading
 import time
+import uuid
 from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
@@ -29,12 +30,23 @@ def store(tmp_workdir: Path) -> Store:
 
 
 class TestStoreBranch:
-    def test_branch_copies_session_and_logs(self, store: Store) -> None:
+    def test_branch_forks_session_and_copies_logs(
+        self, store: Store, tmp_path: Path,
+    ) -> None:
+        # Stage a real on-disk Claude session log so the fork path runs.
+        sessions_dir = tmp_path / "claude_sessions"
+        sessions_dir.mkdir()
+        parent_session = sessions_dir / "sid-1.jsonl"
+        parent_session.write_text(
+            '{"sessionId": "sid-1", "type": "user", "message": "hello"}\n'
+            '{"sessionId": "sid-1", "type": "assistant", "message": "hi"}\n'
+        )
+
         parent = Task(
             name="parent",
             prompt="root prompt",
             session_id="sid-1",
-            session_log_path="/fake/sid-1.jsonl",
+            session_log_path=str(parent_session),
             alias="aa",
             task_hash="abcd1234",
         )
@@ -49,13 +61,27 @@ class TestStoreBranch:
 
         assert child.name == "child"
         assert child.parent_name == "parent"
-        assert child.session_id == "sid-1"
-        assert child.session_log_path == "/fake/sid-1.jsonl"
         assert child.alias == "bb"
         assert child.task_hash == "deadbeef"
         assert child.status == TaskStatus.UNCLAIMED
         assert child.cached_replies == []
         assert child.cost_usd == 0.0
+
+        # Child got its own session_id (a UUID) distinct from the parent.
+        assert child.session_id != "sid-1"
+        assert child.session_id is not None
+        uuid.UUID(child.session_id)  # raises if not a valid UUID
+        # Child's session log lives next to the parent's, named by the new UUID,
+        # and contains a copy of the parent's history.
+        assert child.session_log_path is not None
+        child_session = Path(child.session_log_path)
+        assert child_session.parent == parent_session.parent
+        assert child_session.name == f"{child.session_id}.jsonl"
+        assert child_session.exists()
+        assert child_session.read_text() == parent_session.read_text()
+        # The two paths refer to different files so post-branch writes diverge.
+        child_session.write_text(child_session.read_text() + "child line\n")
+        assert "child line" not in parent_session.read_text()
 
         child_logs = store.read_logs("child")
         assert len(child_logs) == 2
@@ -66,7 +92,32 @@ class TestStoreBranch:
         parent_reloaded = store.get_task("parent")
         assert parent_reloaded is not None
         assert parent_reloaded.session_id == "sid-1"
+        assert parent_reloaded.session_log_path == str(parent_session)
         assert parent_reloaded.parent_name is None
+
+    def test_branch_without_parent_session_log_skips_fork(
+        self, store: Store,
+    ) -> None:
+        """No on-disk Claude session log → child inherits parent's id verbatim.
+
+        This path is reached via the public API only when the server-side
+        endpoint's ``_find_session_log`` check is bypassed (e.g. tests calling
+        ``branch_task`` directly with a fake path).  We keep it as a
+        pass-through so unit tests stay decoupled from the filesystem.
+        """
+        parent = Task(
+            name="parent", prompt="p",
+            session_id="sid-1",
+            session_log_path="/does/not/exist.jsonl",
+        )
+        store.put_task(parent)
+
+        child = store.branch_task(
+            parent, "child",
+            alias="cc", task_hash="1111aaaa", now="2026-01-01T00:00:00+00:00",
+        )
+        assert child.session_id == "sid-1"
+        assert child.session_log_path == "/does/not/exist.jsonl"
 
     def test_branch_without_parent_log(self, store: Store) -> None:
         """Branching a task with no ilan log yet yields an empty child log."""
