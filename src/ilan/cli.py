@@ -525,12 +525,13 @@ def _order_tasks_as_forest(rows: list[dict]) -> list[tuple[dict, str]]:
     return result
 
 
-def _build_name_cell(row: dict, prefix: str, *, ascii_review: bool = False) -> Text:
+def _build_name_cell(row: dict, prefix: str) -> Text:
     """Build the styled "(alias) name" cell with an optional tree prefix.
 
-    ``ascii_review=True`` replaces the \u26a0\ufe0f emoji with ``!!`` for the
-    dashboard \u2014 the emoji has unpredictable terminal width that breaks
-    Rich's Live layout.
+    ``needs_review`` rows are flagged with a ``!!`` ASCII marker rather
+    than the \u26a0\ufe0f emoji, whose unpredictable terminal width breaks
+    Rich's Live layout in ``ilan dashboard`` and visually misaligns the
+    ``ilan ls`` table.
     """
     status = TaskStatus(row["status"])
     alias = row.get("alias") or ""
@@ -541,10 +542,7 @@ def _build_name_cell(row: dict, prefix: str, *, ascii_review: bool = False) -> T
         cell.append(f"({alias}) ", style=ALIAS_STYLE)
     cell.append(row["name"], style="bold")
     if row.get("needs_review"):
-        if ascii_review:
-            cell.append(" !!", style="bold yellow")
-        else:
-            cell.append(" \u26a0\ufe0f")
+        cell.append(" !!", style="bold yellow")
     if status in (TaskStatus.UNCLAIMED, TaskStatus.WORKING):
         sleep_suffix = _format_sleep_suffix(row.get("sleep_seconds"))
         if sleep_suffix:
@@ -1687,7 +1685,7 @@ def _build_dashboard_table(rows: list[dict], tz: ZoneInfo) -> Table:
         cost = row.get("cost_usd", 0.0)
         cost_cell = f"${cost:.2f}" if cost else "[dim]-[/dim]"
         table.add_row(
-            _build_name_cell(row, prefix, ascii_review=True),
+            _build_name_cell(row, prefix),
             _build_status_cell(row),
             cost_cell,
             _format_ts(row["created_at"]),
