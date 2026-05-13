@@ -211,6 +211,13 @@ ilan tail my-task --line-number       # force line numbers on
 ilan re my-task --no-line-number      # tail without line numbers
 ```
 
+`--no-line-number` also drops the Rich Panel border around each entry —
+just a plain `Assistant` / `User` header followed by the message body —
+so you can copy the content straight out of the terminal without
+sweeping up any box-drawing characters. `--line-number` keeps the full
+boxed rendering since the `[N]` prefixes need a panel-relative width to
+not wrap.
+
 Passing the flag together with a response message
 (`ilan re my-task "some response" --no-line-number`) is rejected, since
 the flag only affects how tail output is rendered.
