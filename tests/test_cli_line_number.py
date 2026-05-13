@@ -391,6 +391,55 @@ class TestTailFlagOverride:
         assert result.exit_code == 0
         assert "[1]" in result.output
 
+    def test_no_line_number_drops_panel_chrome(
+        self, runner: CliRunner, tmp_config: Path
+    ) -> None:
+        """``--no-line-number`` also drops the Rich Panel box around each
+        entry so the output is easy to copy out of the terminal without
+        picking up box-drawing characters."""
+        _enable_line_number(tmp_config)
+        client = _make_client()
+        client.get_logs.return_value = {
+            "logs": [
+                {"role": "assistant", "content": "hello\nworld",
+                 "timestamp": "2026-04-13T00:00:00+00:00"},
+                {"role": "user", "content": "thanks",
+                 "timestamp": "2026-04-13T00:00:01+00:00"},
+            ],
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main, ["tail", "my-task", "-n", "2", "--no-line-number"]
+            )
+        assert result.exit_code == 0
+        # No box-drawing characters anywhere in the output.
+        for ch in "╭╮╰╯│":
+            assert ch not in result.output, f"unexpected {ch!r} in output"
+        # Role labels still survive as plain-text headers so attribution
+        # remains visible when -n surfaces multiple entries.
+        assert "Assistant" in result.output
+        assert "User" in result.output
+        # Body content is printed flush-left, ready to copy.
+        assert "hello" in result.output
+        assert "world" in result.output
+        assert "thanks" in result.output
+
+    def test_line_number_keeps_panel_chrome(
+        self, runner: CliRunner, tmp_config: Path
+    ) -> None:
+        """Sanity check: ``--line-number`` still renders the Panel border."""
+        client = _make_client()
+        client.get_logs.return_value = self._logs()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main, ["tail", "my-task", "-n", "1", "--line-number"]
+            )
+        assert result.exit_code == 0
+        # Some box-drawing character must appear (Rich Panel border).
+        assert any(ch in result.output for ch in "╭╮╰╯│"), (
+            "expected Panel box-drawing chars when --line-number is on"
+        )
+
 
 class TestReplyFlagOverride:
     """``ilan re`` / ``ilan reply`` accept ``--line-number`` only in

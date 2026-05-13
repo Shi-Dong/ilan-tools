@@ -766,15 +766,24 @@ def _do_tail(
         else:
             body = Text(entry["content"])
 
-        console.print(
-            Panel(
-                body,
-                title=title,
-                title_align="left",
-                border_style=border_style,
-                padding=(0, 1),
+        if line_number_on:
+            console.print(
+                Panel(
+                    body,
+                    title=title,
+                    title_align="left",
+                    border_style=border_style,
+                    padding=(0, 1),
+                )
             )
-        )
+        else:
+            # Line numbers off → drop the Panel chrome too so the output is
+            # easy to copy straight out of the terminal without picking up
+            # box-drawing characters. Keep the role/timestamp as a plain
+            # header line to preserve attribution when ``-n`` shows more
+            # than one entry.
+            console.print(title)
+            console.print(body)
         console.print()
 
     _print_reply_hint(reply_handle)
