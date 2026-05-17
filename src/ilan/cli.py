@@ -558,6 +558,10 @@ def _build_status_cell(row: dict) -> Text:
         elapsed = _format_elapsed(row["status_changed_at"])
         if elapsed:
             cell.append(f" (for {elapsed})", style="dim")
+    one_liner = (row.get("summary_one_liner") or "").strip()
+    if one_liner:
+        cell.append("\n")
+        cell.append(one_liner, style="dim italic")
     return cell
 
 
@@ -569,7 +573,7 @@ def _do_ls(show_all: bool) -> None:
         console.print(msg)
         return
 
-    table = Table()
+    table = Table(show_lines=True)
     table.add_column("(Alias) Name", style="bold")
     table.add_column("Status")
     table.add_column("Cost", justify="right")
@@ -1678,7 +1682,7 @@ def _build_dashboard_table(rows: list[dict], tz: ZoneInfo) -> Table:
     # "(for HHhMMmSSs)" suffix; Cost is always a compact "$X.XX" and can
     # be narrow. Overlong name cells fold onto the next line within the
     # column instead of pushing it wider.
-    table = Table(title=header, expand=True)
+    table = Table(title=header, expand=True, show_lines=True)
     table.add_column("(Alias) Name", style="bold", ratio=14)
     table.add_column("Status", ratio=8)
     table.add_column("Cost", justify="right", ratio=4)

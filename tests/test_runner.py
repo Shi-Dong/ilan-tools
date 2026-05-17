@@ -249,6 +249,90 @@ class TestTryReap:
         logs = store.read_logs("t7")
         assert len(logs) == 0
 
+    def test_reap_sets_one_liner_on_agent_finished(
+        self, store: Store, runner: Runner,
+    ) -> None:
+        t = Task(name="ol-fin", prompt="p", status=TaskStatus.WORKING, pid=99999)
+        store.put_task(t)
+        store.append_log("ol-fin", "user", "please summarize this")
+        out = {
+            "session_id": "sid-ol",
+            "result": "Sure, all set.\n[STATUS: DONE]",
+            "is_error": False,
+        }
+        store.output_path("ol-fin").write_text(json.dumps(out))
+
+        with patch(
+            "ilan.runner.generate_one_liner",
+            return_value="Summary done.",
+        ) as mock_gen:
+            runner._try_reap(t)
+
+        updated = store.get_task("ol-fin")
+        assert updated is not None
+        assert updated.summary_one_liner == "Summary done."
+        last_user, last_assistant = mock_gen.call_args[0]
+        assert last_user == "please summarize this"
+        assert last_assistant.startswith("Sure, all set.")
+
+    def test_reap_sets_one_liner_on_needs_attention(
+        self, store: Store, runner: Runner,
+    ) -> None:
+        t = Task(name="ol-na", prompt="p", status=TaskStatus.WORKING, pid=99999)
+        store.put_task(t)
+        out = {
+            "session_id": "sid-ol2",
+            "result": "I am stuck.\n[STATUS: NEEDS_ATTENTION]",
+            "is_error": False,
+        }
+        store.output_path("ol-na").write_text(json.dumps(out))
+
+        with patch(
+            "ilan.runner.generate_one_liner", return_value="Blocked on input.",
+        ):
+            runner._try_reap(t)
+
+        updated = store.get_task("ol-na")
+        assert updated is not None
+        assert updated.status == TaskStatus.NEEDS_ATTENTION
+        assert updated.summary_one_liner == "Blocked on input."
+
+    def test_reap_skips_one_liner_on_error(
+        self, store: Store, runner: Runner,
+    ) -> None:
+        t = Task(name="ol-err", prompt="p", status=TaskStatus.WORKING, pid=99999)
+        store.put_task(t)
+        out = {"session_id": "sid-ole", "result": "boom", "is_error": True}
+        store.output_path("ol-err").write_text(json.dumps(out))
+
+        with patch("ilan.runner.generate_one_liner") as mock_gen:
+            runner._try_reap(t)
+
+        mock_gen.assert_not_called()
+        updated = store.get_task("ol-err")
+        assert updated is not None
+        assert updated.summary_one_liner is None
+
+    def test_reap_one_liner_none_when_not_configured(
+        self, store: Store, runner: Runner,
+    ) -> None:
+        t = Task(name="ol-noapi", prompt="p", status=TaskStatus.WORKING, pid=99999)
+        store.put_task(t)
+        out = {
+            "session_id": "sid-ol3",
+            "result": "All good.\n[STATUS: DONE]",
+            "is_error": False,
+        }
+        store.output_path("ol-noapi").write_text(json.dumps(out))
+
+        with patch("ilan.runner.generate_one_liner", return_value=None):
+            runner._try_reap(t)
+
+        updated = store.get_task("ol-noapi")
+        assert updated is not None
+        assert updated.summary_one_liner is None
+        assert updated.status == TaskStatus.AGENT_FINISHED
+
 
 # ── reply_to_working ────────────────────────────────────────────────────
 

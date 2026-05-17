@@ -143,6 +143,8 @@ ilan dashboard
 
 Full-screen, real-time task table (like `htop`). Polls the server at the configured `dashboard-interval` (default: every 1 second). Keybindings: **q** quit, **r** force-refresh. The "refreshed at" timestamp uses the configured `time-zone`.
 
+Each row's `Status` cell carries a Haiku-generated one-line summary of the agent's most recent reply (≤ 20 words). The summary is refreshed only on `WORKING → NEEDS_ATTENTION` / `AGENT_FINISHED` transitions and requires the `api-key` config to be set; without a key the summary line is simply omitted. A thin separator is drawn between every task row in both `ilan ls` and `ilan dashboard`; branched (child) tasks remain visually nested under their parent via the existing tree-prefix indentation.
+
 ### Server
 
 | Command | Description |
@@ -176,7 +178,7 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 | `summarize-model` | `sonnet` | Claude model used by `ilan task summarize` |
 | `summarize-effort` | `medium` | Effort level used by `ilan task summarize` |
 | `editor` | `emacs` | Editor used by `ilan task log` |
-| `api-key` | _(empty)_ | Anthropic API key passed as `ANTHROPIC_API_KEY` to spawned agents |
+| `api-key` | _(empty)_ | Anthropic API key passed as `ANTHROPIC_API_KEY` to spawned agents; also used to call Haiku for the one-line status summary in `ilan ls` and `ilan dashboard` |
 | `dashboard-interval` | `1` | Seconds between automatic refreshes in `ilan dashboard` |
 | `line-number` | `false` | When `true`, `ilan tail` prefixes each assistant line with a yellow `[N]` marker and `ilan reply` / `ilan task branch` expand `@N` into the Nth line, double-quoted |
 

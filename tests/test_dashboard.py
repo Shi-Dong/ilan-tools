@@ -43,6 +43,7 @@ def _task_row(
     needs_review: bool = False,
     created_at: str = _EARLIER_ISO,
     status_changed_at: str = _NOW_ISO,
+    summary_one_liner: str | None = None,
 ) -> dict:
     return {
         "name": name,
@@ -52,6 +53,7 @@ def _task_row(
         "needs_review": needs_review,
         "created_at": created_at,
         "status_changed_at": status_changed_at,
+        "summary_one_liner": summary_one_liner,
     }
 
 
@@ -413,3 +415,51 @@ class TestDashboardTableProperties:
         assert table.expand is True
         ratios = [c.ratio for c in table.columns]
         assert ratios == [14, 8, 4, 7, 7]
+
+    def test_table_draws_separator_between_rows(self) -> None:
+        """``show_lines=True`` draws a horizontal rule between every task row."""
+        table = _build_dashboard_table([], _TZ)
+        assert table.show_lines is True
+
+
+# ── one-liner summary rendering ──────────────────────────────────────
+
+
+class TestOneLinerSummary:
+    def test_one_liner_shown_under_status(self) -> None:
+        row = _task_row(
+            name="t-ol",
+            status="AGENT_FINISHED",
+            summary_one_liner="Opened PR with the feature flag.",
+        )
+        table = _build_dashboard_table([row], _TZ)
+        status_cell = table.columns[1]._cells[0]
+        assert isinstance(status_cell, Text)
+        plain = status_cell.plain
+        assert plain.startswith("AGENT_FINISHED")
+        assert "\n" in plain
+        assert "Opened PR with the feature flag." in plain
+
+    def test_no_one_liner_when_missing(self) -> None:
+        row = _task_row(name="t-no-ol", status="AGENT_FINISHED", summary_one_liner=None)
+        table = _build_dashboard_table([row], _TZ)
+        status_cell = table.columns[1]._cells[0]
+        assert isinstance(status_cell, Text)
+        assert "\n" not in status_cell.plain
+
+    def test_blank_one_liner_treated_as_missing(self) -> None:
+        row = _task_row(status="AGENT_FINISHED", summary_one_liner="   ")
+        table = _build_dashboard_table([row], _TZ)
+        status_cell = table.columns[1]._cells[0]
+        assert isinstance(status_cell, Text)
+        assert "\n" not in status_cell.plain
+
+    def test_one_liner_styled_dim_italic(self) -> None:
+        row = _task_row(status="AGENT_FINISHED", summary_one_liner="Did the thing.")
+        table = _build_dashboard_table([row], _TZ)
+        status_cell = table.columns[1]._cells[0]
+        assert isinstance(status_cell, Text)
+        liner_start = status_cell.plain.index("Did the thing.")
+        spans = status_cell._spans
+        matched = [s for s in spans if s.start <= liner_start < s.end and s.style == "dim italic"]
+        assert matched, "Expected a dim italic span over the one-liner"
