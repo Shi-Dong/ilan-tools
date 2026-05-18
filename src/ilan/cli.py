@@ -1706,18 +1706,33 @@ def _build_dashboard_table(
     header.append("r", style="bold")
     header.append(" refresh", style="dim")
 
-    # Column sizing: Cost is a fixed 7-column slot (just enough for "$X.XX"
-    # or "-"); the remaining four columns split the leftover width in
-    # 10:16:6:6 — name=10/38, Status=16/38, Created=6/38, Last Changed=6/38.
-    # Status needs the largest slot for its "(for HHhMMmSSs)" suffix.
-    # Rich's expand=True + ratio path ignores min_width, which is why Cost
-    # has to be set as a fixed width rather than a tiny ratio.
+    # Column sizing depends on whether the Haiku one-line summary is
+    # rendered inside the Status cell:
+    #   * one-liner ON  → Status needs a much wider slot to fit the summary
+    #     under the status label, so we give it 16/38 of the proportional
+    #     space and shrink Name to 10/38. Cost becomes a fixed 7-column
+    #     slot (just enough for "$X.XX" / "-") because Rich's expand=True
+    #     + ratio path silently ignores min_width, so a tiny ratio would
+    #     truncate the cell.
+    #   * one-liner OFF → Status only holds a short label + duration
+    #     suffix, so we keep the original 14:8:4:7:7 ratios (Cost stays a
+    #     normal ratio column at 4/40, which is wide enough at typical
+    #     terminal widths).
+    # In both cases overlong name cells fold within the column instead of
+    # pushing it wider.
     table = Table(title=header, expand=True, show_lines=True)
-    table.add_column("(Alias) Name", style="bold", ratio=10)
-    table.add_column("Status", ratio=16)
-    table.add_column("Cost", justify="right", width=7)
-    table.add_column("Created", ratio=6)
-    table.add_column("Last Changed", ratio=6)
+    if show_one_liner:
+        table.add_column("(Alias) Name", style="bold", ratio=10)
+        table.add_column("Status", ratio=16)
+        table.add_column("Cost", justify="right", width=7)
+        table.add_column("Created", ratio=6)
+        table.add_column("Last Changed", ratio=6)
+    else:
+        table.add_column("(Alias) Name", style="bold", ratio=14)
+        table.add_column("Status", ratio=8)
+        table.add_column("Cost", justify="right", ratio=4)
+        table.add_column("Created", ratio=7)
+        table.add_column("Last Changed", ratio=7)
 
     if not rows:
         table.add_row(Text("No active tasks.", style="dim"), "", "", "", "")

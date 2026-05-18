@@ -409,19 +409,25 @@ class TestDashboardTimezone:
 
 
 class TestDashboardTableProperties:
-    def test_table_expands_with_fixed_column_ratios(self) -> None:
-        """Dashboard table fills the terminal with fixed column ratios.
-
-        Cost is a fixed 7-column slot (just enough for "$X.XX" / "-"); the
-        remaining four columns split the leftover width 10:16:6:6 — Status
-        gets the biggest slot for its "(for HHhMMmSSs)" suffix.
+    def test_table_expands_with_one_liner_on(self) -> None:
+        """One-liner ON: Status gets the biggest slot and Cost is a fixed
+        7-column width so "$X.XX" never truncates.
         """
-        table = _build_dashboard_table([], _TZ)
+        table = _build_dashboard_table([], _TZ, show_one_liner=True)
         assert table.expand is True
         ratios = [c.ratio for c in table.columns]
         assert ratios == [10, 16, None, 6, 6]
         cost_col = table.columns[2]
         assert cost_col.width == 7
+
+    def test_table_expands_with_one_liner_off(self) -> None:
+        """One-liner OFF: keep the original 14:8:4:7:7 ratios since Status
+        only holds a short label + duration suffix.
+        """
+        table = _build_dashboard_table([], _TZ, show_one_liner=False)
+        assert table.expand is True
+        ratios = [c.ratio for c in table.columns]
+        assert ratios == [14, 8, 4, 7, 7]
 
     def test_table_draws_separator_between_rows(self) -> None:
         """``show_lines=True`` draws a horizontal rule between every task row."""
