@@ -561,7 +561,7 @@ def _build_status_cell(row: dict) -> Text:
     one_liner = (row.get("summary_one_liner") or "").strip()
     if one_liner:
         cell.append("\n")
-        cell.append(one_liner, style="dim italic")
+        cell.append(one_liner, style="yellow italic")
     return cell
 
 
