@@ -412,14 +412,16 @@ class TestDashboardTableProperties:
     def test_table_expands_with_fixed_column_ratios(self) -> None:
         """Dashboard table fills the terminal with fixed column ratios.
 
-        The name column takes 14/40 of the width. Status gets an extra slot
-        (ratio=8) for its "(for HHhMMmSSs)" suffix, Cost is narrow
-        (ratio=4), and Created / Last Changed stay at ratio=7 each.
+        Cost is a fixed 7-column slot (just enough for "$X.XX" / "-"); the
+        remaining four columns split the leftover width 10:16:6:6 — Status
+        gets the biggest slot for its "(for HHhMMmSSs)" suffix.
         """
         table = _build_dashboard_table([], _TZ)
         assert table.expand is True
         ratios = [c.ratio for c in table.columns]
-        assert ratios == [14, 8, 4, 7, 7]
+        assert ratios == [10, 16, None, 6, 6]
+        cost_col = table.columns[2]
+        assert cost_col.width == 7
 
     def test_table_draws_separator_between_rows(self) -> None:
         """``show_lines=True`` draws a horizontal rule between every task row."""
