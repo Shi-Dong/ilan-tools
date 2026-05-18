@@ -454,12 +454,12 @@ class TestOneLinerSummary:
         assert isinstance(status_cell, Text)
         assert "\n" not in status_cell.plain
 
-    def test_one_liner_styled_dim_italic(self) -> None:
+    def test_one_liner_styled_yellow_italic(self) -> None:
         row = _task_row(status="AGENT_FINISHED", summary_one_liner="Did the thing.")
         table = _build_dashboard_table([row], _TZ)
         status_cell = table.columns[1]._cells[0]
         assert isinstance(status_cell, Text)
         liner_start = status_cell.plain.index("Did the thing.")
         spans = status_cell._spans
-        matched = [s for s in spans if s.start <= liner_start < s.end and s.style == "dim italic"]
-        assert matched, "Expected a dim italic span over the one-liner"
+        matched = [s for s in spans if s.start <= liner_start < s.end and s.style == "yellow italic"]
+        assert matched, "Expected a yellow italic span over the one-liner"
