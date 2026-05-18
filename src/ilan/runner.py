@@ -10,6 +10,7 @@ from pathlib import Path
 
 from ilan import config as cfg
 from ilan.models import Task, TaskStatus
+from ilan.oneliner import generate_one_liner
 from ilan.store import Store
 
 _CLAUDE_STATIC_FLAGS = [
@@ -244,7 +245,23 @@ class Runner:
             task.set_status(new_status)
             if new_status in (TaskStatus.NEEDS_ATTENTION, TaskStatus.AGENT_FINISHED):
                 task.needs_review = True
+                task.summary_one_liner = self._generate_one_liner(task, response)
         self.store.put_task(task)
+
+    def _generate_one_liner(self, task: Task, assistant_response: str) -> str | None:
+        """Best-effort one-line summary of the WORKING→finished transition.
+
+        Reads the last user message from the task's log and feeds it +
+        the assistant's new reply to Haiku. Returns ``None`` if there is
+        no API key or the request fails — the field stays unset and the
+        display falls back to status-only.
+        """
+        last_user = ""
+        for entry in reversed(self.store.read_logs(task.name)):
+            if entry.role == "user":
+                last_user = entry.content
+                break
+        return generate_one_liner(last_user, assistant_response)
 
     def _output_complete(self, task_name: str) -> bool:
         """Return True if the output file contains a valid JSON result."""

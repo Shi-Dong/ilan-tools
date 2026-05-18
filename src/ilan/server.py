@@ -273,6 +273,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     "cost_usd": t.cost_usd,
                     "sleep_seconds": t.sleep_seconds,
                     "parent_name": t.parent_name,
+                    "summary_one_liner": t.summary_one_liner,
                 })
             self._json({"tasks": rows})
 
