@@ -113,6 +113,10 @@ def _markdown_enabled() -> bool:
     return cfg.parse_bool(cfg.load().get("markdown", False))
 
 
+def _one_liner_enabled() -> bool:
+    return cfg.parse_bool(cfg.load().get("one-line-summary", True))
+
+
 def _render_markdown_visual_lines(content: str, width: int | None = None) -> list[str]:
     """Render ``content`` as Markdown and return the rendered visual lines.
 
@@ -550,7 +554,7 @@ def _build_name_cell(row: dict, prefix: str) -> Text:
     return cell
 
 
-def _build_status_cell(row: dict) -> Text:
+def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
     status = TaskStatus(row["status"])
     style = STYLE_FOR_STATUS.get(status, "")
     cell = Text(status.value, style=style)
@@ -558,21 +562,44 @@ def _build_status_cell(row: dict) -> Text:
         elapsed = _format_elapsed(row["status_changed_at"])
         if elapsed:
             cell.append(f" (for {elapsed})", style="dim")
-    one_liner = (row.get("summary_one_liner") or "").strip()
-    if one_liner:
-        cell.append("\n")
-        cell.append(one_liner, style="yellow italic")
+    if show_one_liner:
+        one_liner = (row.get("summary_one_liner") or "").strip()
+        if one_liner:
+            cell.append("\n")
+            cell.append(one_liner, style="yellow italic")
     return cell
 
 
+_ONE_LINER_NO_API_KEY_WARNING = (
+    "[yellow]Warning: `one-line-summary` is on but the server has no `api-key` "
+    "set, so no summaries are generated. Set the api-key on the server, or "
+    "run `ilan config set one-line-summary false` to hide this warning.[/yellow]"
+)
+
+
+def _maybe_warn_one_liner_unconfigured(client: Client) -> None:
+    """Print a one-time warning if one-line-summary is on but server has no api-key."""
+    if not _one_liner_enabled():
+        return
+    try:
+        server_cfg = client.get_config().get("config", {})
+    except Exception:
+        return
+    if not str(server_cfg.get("api-key", "")).strip():
+        console.print(_ONE_LINER_NO_API_KEY_WARNING)
+
+
 def _do_ls(show_all: bool) -> None:
-    resp = _client().list_tasks(show_all=show_all)
+    client = _client()
+    _maybe_warn_one_liner_unconfigured(client)
+    resp = client.list_tasks(show_all=show_all)
     rows = resp["tasks"]
     if not rows:
         msg = "[dim]No tasks.[/dim]" if show_all else "[dim]No active tasks. Use -a to see all.[/dim]"
         console.print(msg)
         return
 
+    show_one_liner = _one_liner_enabled()
     table = Table(show_lines=True)
     table.add_column("(Alias) Name", style="bold")
     table.add_column("Status")
@@ -585,7 +612,7 @@ def _do_ls(show_all: bool) -> None:
         cost_cell = f"${cost:.2f}" if cost else "[dim]-[/dim]"
         table.add_row(
             _build_name_cell(row, prefix),
-            _build_status_cell(row),
+            _build_status_cell(row, show_one_liner=show_one_liner),
             cost_cell,
             _format_ts(row["created_at"]),
             changed,
@@ -1664,7 +1691,9 @@ def shortcut_sum(name: str) -> None:
 
 # ── dashboard ────────────────────────────────────────────────────────
 
-def _build_dashboard_table(rows: list[dict], tz: ZoneInfo) -> Table:
+def _build_dashboard_table(
+    rows: list[dict], tz: ZoneInfo, show_one_liner: bool = True,
+) -> Table:
     """Build a Rich Table from task rows, reusing the _do_ls format."""
     now = datetime.now(tz)
     header = Text()
@@ -1699,7 +1728,7 @@ def _build_dashboard_table(rows: list[dict], tz: ZoneInfo) -> Table:
         cost_cell = f"${cost:.2f}" if cost else "[dim]-[/dim]"
         table.add_row(
             _build_name_cell(row, prefix),
-            _build_status_cell(row),
+            _build_status_cell(row, show_one_liner=show_one_liner),
             cost_cell,
             _format_ts(row["created_at"]),
             changed,
@@ -1710,20 +1739,22 @@ def _build_dashboard_table(rows: list[dict], tz: ZoneInfo) -> Table:
 def _do_dashboard() -> None:
     """Full-screen real-time task dashboard (like htop)."""
     client = _client()
+    _maybe_warn_one_liner_unconfigured(client)
     interval = max(1, int(cfg.load().get("dashboard-interval", 1)))
 
     def fetch_and_render() -> Table:
-        # Re-read the time-zone on each render so the header stays in sync
-        # with `_format_ts` (which also reloads per call) — otherwise editing
-        # `time-zone` while the dashboard is running leaves the header stuck
-        # on whatever zone was loaded at startup.
+        # Re-read the time-zone (and one-line-summary) on each render so the
+        # dashboard stays in sync with `_format_ts` and the cell builders.
+        # Otherwise editing `time-zone` or `one-line-summary` while the
+        # dashboard is running leaves it stuck on the values loaded at startup.
         tz = ZoneInfo(str(cfg.load().get("time-zone", "US/Pacific")))
+        show_one_liner = _one_liner_enabled()
         try:
             resp = client.list_tasks(show_all=False)
             rows = resp["tasks"]
         except Exception:
             rows = []
-        return _build_dashboard_table(rows, tz)
+        return _build_dashboard_table(rows, tz, show_one_liner=show_one_liner)
 
     def _refresh(live: Live) -> None:
         live.update(fetch_and_render())

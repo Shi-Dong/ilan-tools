@@ -11,7 +11,12 @@ from click.testing import CliRunner
 from rich.console import Console
 from rich.text import Text
 
-from ilan.cli import ALIAS_STYLE, _build_dashboard_table, main
+from ilan.cli import (
+    ALIAS_STYLE,
+    _build_dashboard_table,
+    _maybe_warn_one_liner_unconfigured,
+    main,
+)
 from ilan.models import STYLE_FOR_STATUS, TaskStatus
 
 
@@ -337,13 +342,13 @@ class TestDashboardTimezone:
         captured: list[str] = []
         real_build = cli_mod._build_dashboard_table
 
-        def spy_build(rows, tz):
+        def spy_build(rows, tz, **kw):
             captured.append(str(tz))
             # Switch the configured zone once the first render has captured
             # the original. The next render must pick up the new value.
             if len(captured) == 1:
                 cfg_mod.save({**cfg_mod.DEFAULTS, "time-zone": "Europe/London"})
-            return real_build(rows, tz)
+            return real_build(rows, tz, **kw)
 
         class _FakeLive:
             def __init__(self, renderable, **_kw):
@@ -463,3 +468,98 @@ class TestOneLinerSummary:
         spans = status_cell._spans
         matched = [s for s in spans if s.start <= liner_start < s.end and s.style == "yellow italic"]
         assert matched, "Expected a yellow italic span over the one-liner"
+
+    def test_one_liner_hidden_when_disabled(self) -> None:
+        row = _task_row(status="AGENT_FINISHED", summary_one_liner="should not show")
+        table = _build_dashboard_table([row], _TZ, show_one_liner=False)
+        status_cell = table.columns[1]._cells[0]
+        assert isinstance(status_cell, Text)
+        assert "should not show" not in status_cell.plain
+        assert "\n" not in status_cell.plain
+
+    def test_one_liner_shown_when_enabled_explicit(self) -> None:
+        row = _task_row(status="AGENT_FINISHED", summary_one_liner="visible line")
+        table = _build_dashboard_table([row], _TZ, show_one_liner=True)
+        status_cell = table.columns[1]._cells[0]
+        assert isinstance(status_cell, Text)
+        assert "visible line" in status_cell.plain
+
+
+# ── one-line-summary client toggle warning ───────────────────────────
+
+
+class TestOneLinerWarning:
+    def _capture(self) -> tuple[Console, io.StringIO]:
+        buf = io.StringIO()
+        return Console(file=buf, width=120, force_terminal=False), buf
+
+    def test_warning_when_enabled_but_no_api_key(
+        self, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import ilan.cli as cli_mod
+        import ilan.config as cfg_mod
+
+        cfg_mod.save({**cfg_mod.DEFAULTS, "one-line-summary": True})
+
+        console_, buf = self._capture()
+        monkeypatch.setattr(cli_mod, "console", console_)
+
+        client = _make_client()
+        client.get_config.return_value = {"config": {"api-key": ""}}
+
+        _maybe_warn_one_liner_unconfigured(client)
+        assert "Warning" in buf.getvalue()
+        assert "one-line-summary" in buf.getvalue()
+
+    def test_no_warning_when_api_key_is_set(
+        self, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import ilan.cli as cli_mod
+        import ilan.config as cfg_mod
+
+        cfg_mod.save({**cfg_mod.DEFAULTS, "one-line-summary": True})
+
+        console_, buf = self._capture()
+        monkeypatch.setattr(cli_mod, "console", console_)
+
+        client = _make_client()
+        client.get_config.return_value = {"config": {"api-key": "sk-secret"}}
+
+        _maybe_warn_one_liner_unconfigured(client)
+        assert buf.getvalue() == ""
+
+    def test_no_warning_when_one_liner_disabled(
+        self, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import ilan.cli as cli_mod
+        import ilan.config as cfg_mod
+
+        cfg_mod.save({**cfg_mod.DEFAULTS, "one-line-summary": False})
+
+        console_, buf = self._capture()
+        monkeypatch.setattr(cli_mod, "console", console_)
+
+        client = _make_client()
+        client.get_config.return_value = {"config": {"api-key": ""}}
+
+        _maybe_warn_one_liner_unconfigured(client)
+        assert buf.getvalue() == ""
+
+    def test_silent_when_get_config_fails(
+        self, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A failing get_config must not raise — the warning is best-effort."""
+        import ilan.cli as cli_mod
+        import ilan.config as cfg_mod
+
+        cfg_mod.save({**cfg_mod.DEFAULTS, "one-line-summary": True})
+
+        console_, buf = self._capture()
+        monkeypatch.setattr(cli_mod, "console", console_)
+
+        client = _make_client()
+        client.get_config.side_effect = RuntimeError("boom")
+
+        # Should not raise.
+        _maybe_warn_one_liner_unconfigured(client)
+        assert buf.getvalue() == ""

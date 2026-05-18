@@ -143,7 +143,7 @@ ilan dashboard
 
 Full-screen, real-time task table (like `htop`). Polls the server at the configured `dashboard-interval` (default: every 1 second). Keybindings: **q** quit, **r** force-refresh. The "refreshed at" timestamp uses the configured `time-zone`.
 
-Each row's `Status` cell carries a Haiku-generated one-line summary of the agent's most recent reply (≤ 20 words). The summary is refreshed only on `WORKING → NEEDS_ATTENTION` / `AGENT_FINISHED` transitions and requires the `api-key` config to be set; without a key the summary line is simply omitted. A thin separator is drawn between every task row in both `ilan ls` and `ilan dashboard`; branched (child) tasks remain visually nested under their parent via the existing tree-prefix indentation.
+Each row's `Status` cell carries a Haiku-generated one-line summary of the agent's most recent reply (≤ 20 words). The summary is refreshed only on `WORKING → NEEDS_ATTENTION` / `AGENT_FINISHED` transitions and requires the server's `api-key` to be set. Toggle whether the client renders it with `ilan config set one-line-summary true|false` (default `true`); if the toggle is on but the server has no `api-key`, the client prints a warning above the table. A thin separator is drawn between every task row in both `ilan ls` and `ilan dashboard`; branched (child) tasks remain visually nested under their parent via the existing tree-prefix indentation.
 
 ### Server
 
@@ -181,6 +181,7 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 | `api-key` | _(empty)_ | Anthropic API key passed as `ANTHROPIC_API_KEY` to spawned agents; also used to call Haiku for the one-line status summary in `ilan ls` and `ilan dashboard` |
 | `dashboard-interval` | `1` | Seconds between automatic refreshes in `ilan dashboard` |
 | `line-number` | `false` | When `true`, `ilan tail` prefixes each assistant line with a yellow `[N]` marker and `ilan reply` / `ilan task branch` expand `@N` into the Nth line, double-quoted |
+| `one-line-summary` | `true` | Client-side: render the Haiku-generated one-line summary in the Status column of `ilan ls` and `ilan dashboard`. The summary is always produced by the server when `api-key` is set; this flag only controls whether the client shows it. If on while the server has no `api-key`, the client prints a warning. |
 
 ### Line-number mode
 
