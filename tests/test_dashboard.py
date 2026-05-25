@@ -478,7 +478,7 @@ class TestOneLinerSummary:
         assert isinstance(status_cell, Text)
         assert "\n" not in status_cell.plain
 
-    def test_one_liner_styled_dim_yellow_italic(self) -> None:
+    def test_one_liner_styled_yellow_italic(self) -> None:
         row = _task_row(status="AGENT_FINISHED", summary_one_liner="Did the thing.")
         table = _build_dashboard_table([row], _TZ)
         status_cell = table.columns[1]._cells[0]
@@ -487,15 +487,17 @@ class TestOneLinerSummary:
         spans = status_cell._spans
         matched = [
             s for s in spans
-            if s.start <= liner_start < s.end and s.style == "dim yellow italic"
+            if s.start <= liner_start < s.end and s.style == "yellow italic"
         ]
-        assert matched, "Expected a dim yellow italic span over the one-liner"
+        assert matched, "Expected a yellow italic span over the one-liner"
 
-    def test_one_liner_always_dim(self) -> None:
-        """The one-liner must render dim for every status, including those
-        whose status style does NOT include `dim` (e.g. WORKING, AGENT_FINISHED).
-        The parent Text must have no base style so the explicit dim span on the
-        one-liner isn't doubled by a status-derived base style."""
+    def test_one_liner_brightness_uniform_across_statuses(self) -> None:
+        """The one-liner must render at the same brightness for every status.
+
+        The parent Text must have no base style and the one-liner span must
+        carry exactly `yellow italic` (no `dim`) — so DONE / DISCARDED rows
+        don't get a `dim`-bleed from the status style and every row's
+        one-liner looks identical regardless of status."""
         for status in TaskStatus:
             row = _task_row(status=status.value, summary_one_liner="visible summary")
             table = _build_dashboard_table([row], _TZ)
@@ -508,11 +510,15 @@ class TestOneLinerSummary:
             covering = [
                 s for s in status_cell._spans if s.start <= liner_start < s.end
             ]
-            dim_yellow = [s for s in covering if s.style == "dim yellow italic"]
-            assert dim_yellow, (
-                f"{status.value}: expected a dim yellow italic span over the one-liner, "
+            yellow_italic = [s for s in covering if s.style == "yellow italic"]
+            assert yellow_italic, (
+                f"{status.value}: expected a yellow italic span over the one-liner, "
                 f"got {covering!r}"
             )
+            for span in covering:
+                assert "dim" not in str(span.style), (
+                    f"{status.value}: one-liner covered by dim span {span!r}"
+                )
 
     def test_one_liner_hidden_when_disabled(self) -> None:
         row = _task_row(status="AGENT_FINISHED", summary_one_liner="should not show")
