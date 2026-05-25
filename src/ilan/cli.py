@@ -558,8 +558,8 @@ def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
     status = TaskStatus(row["status"])
     style = STYLE_FOR_STATUS.get(status, "")
     # Apply the status style only to the status span (not as a base style on
-    # the parent Text), so a `dim` status style (DONE / DISCARDED) doesn't
-    # bleed onto the one-liner and render it darker than other rows.
+    # the parent Text), so it doesn't compose with the explicitly-dim styles
+    # of appended spans (the elapsed-time hint and the one-liner).
     cell = Text()
     cell.append(status.value, style=style)
     if status == TaskStatus.WORKING and row.get("status_changed_at"):
@@ -570,7 +570,7 @@ def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
         one_liner = (row.get("summary_one_liner") or "").strip()
         if one_liner:
             cell.append("\n")
-            cell.append(one_liner, style="yellow italic")
+            cell.append(one_liner, style="dim yellow italic")
     return cell
 
 
