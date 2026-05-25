@@ -557,7 +557,11 @@ def _build_name_cell(row: dict, prefix: str) -> Text:
 def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
     status = TaskStatus(row["status"])
     style = STYLE_FOR_STATUS.get(status, "")
-    cell = Text(status.value, style=style)
+    # Apply the status style only to the status span (not as a base style on
+    # the parent Text), so a `dim` status style (DONE / DISCARDED) doesn't
+    # bleed onto the one-liner and render it darker than other rows.
+    cell = Text()
+    cell.append(status.value, style=style)
     if status == TaskStatus.WORKING and row.get("status_changed_at"):
         elapsed = _format_elapsed(row["status_changed_at"])
         if elapsed:

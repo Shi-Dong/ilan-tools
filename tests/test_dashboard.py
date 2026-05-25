@@ -219,7 +219,7 @@ class TestNeedsReviewMarker:
         assert name_cell.plain.isascii()
 
     def test_status_styling_applied(self) -> None:
-        """Each status should get the correct Rich style from STYLE_FOR_STATUS."""
+        """Each status's label span should get the correct Rich style from STYLE_FOR_STATUS."""
         for status in TaskStatus:
             expected_style = STYLE_FOR_STATUS.get(status, "")
             row = _task_row(status=status.value)
@@ -227,7 +227,18 @@ class TestNeedsReviewMarker:
             status_cell = table.columns[1]._cells[0]
             assert isinstance(status_cell, Text)
             assert status_cell.plain.startswith(status.value)
-            assert str(status_cell.style) == expected_style
+            # The base Text carries no style; the status style is attached only
+            # to the status-label span. Otherwise a `dim` base style (DONE /
+            # DISCARDED) would bleed onto appended spans like the one-liner.
+            assert str(status_cell.style) == ""
+            label_spans = [
+                s for s in status_cell._spans
+                if s.start == 0 and s.end == len(status.value)
+            ]
+            assert label_spans, (
+                f"Expected a span covering the status label, got {status_cell._spans}"
+            )
+            assert str(label_spans[0].style) == expected_style
 
 
 class TestWorkingElapsed:
@@ -476,6 +487,26 @@ class TestOneLinerSummary:
         spans = status_cell._spans
         matched = [s for s in spans if s.start <= liner_start < s.end and s.style == "yellow italic"]
         assert matched, "Expected a yellow italic span over the one-liner"
+
+    def test_one_liner_not_dimmed_for_dim_status(self) -> None:
+        """For DONE / DISCARDED (whose status style includes `dim`), the
+        one-liner span must not inherit `dim` from a parent base style."""
+        for status_name in ("DONE", "DISCARDED"):
+            row = _task_row(status=status_name, summary_one_liner="visible summary")
+            table = _build_dashboard_table([row], _TZ)
+            status_cell = table.columns[1]._cells[0]
+            assert isinstance(status_cell, Text)
+            assert str(status_cell.style) == "", (
+                f"{status_name}: base Text style must be empty, got {status_cell.style!r}"
+            )
+            liner_start = status_cell.plain.index("visible summary")
+            covering = [
+                s for s in status_cell._spans if s.start <= liner_start < s.end
+            ]
+            for span in covering:
+                assert "dim" not in str(span.style), (
+                    f"{status_name}: one-liner covered by dim span {span!r}"
+                )
 
     def test_one_liner_hidden_when_disabled(self) -> None:
         row = _task_row(status="AGENT_FINISHED", summary_one_liner="should not show")
