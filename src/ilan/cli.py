@@ -551,6 +551,17 @@ def _build_name_cell(row: dict, prefix: str) -> Text:
         sleep_suffix = _format_sleep_suffix(row.get("sleep_seconds"))
         if sleep_suffix:
             cell.append(sleep_suffix, style=SLEEP_STYLE)
+    return cell
+
+
+def _build_cost_cell(row: dict) -> Text:
+    """Build the right-justified cost cell.
+
+    Tasks running on the Fable model get a red ``FABLE`` note on a separate
+    line beneath the cost.
+    """
+    cost = row.get("cost_usd", 0.0)
+    cell = Text(f"${cost:.2f}") if cost else Text("-", style="dim")
     if is_fable_model(row.get("model")):
         cell.append("\nFABLE", style="bold red")
     return cell
@@ -615,12 +626,10 @@ def _do_ls(show_all: bool) -> None:
     table.add_column("Last Changed")
     for row, prefix in _order_tasks_as_forest(rows):
         changed = _format_ts(row["status_changed_at"]) if row.get("status_changed_at") else ""
-        cost = row.get("cost_usd", 0.0)
-        cost_cell = f"${cost:.2f}" if cost else "[dim]-[/dim]"
         table.add_row(
             _build_name_cell(row, prefix),
             _build_status_cell(row, show_one_liner=show_one_liner),
-            cost_cell,
+            _build_cost_cell(row),
             _format_ts(row["created_at"]),
             changed,
         )
@@ -1799,12 +1808,10 @@ def _build_dashboard_table(
 
     for row, prefix in _order_tasks_as_forest(rows):
         changed = _format_ts(row["status_changed_at"]) if row.get("status_changed_at") else ""
-        cost = row.get("cost_usd", 0.0)
-        cost_cell = f"${cost:.2f}" if cost else "[dim]-[/dim]"
         table.add_row(
             _build_name_cell(row, prefix),
             _build_status_cell(row, show_one_liner=show_one_liner),
-            cost_cell,
+            _build_cost_cell(row),
             _format_ts(row["created_at"]),
             changed,
         )

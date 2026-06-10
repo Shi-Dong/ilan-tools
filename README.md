@@ -108,7 +108,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task undone NAME` | Move a `DONE` task back to `NEEDS_ATTENTION` |
 | `ilan task undiscard NAME` | Move a `DISCARDED` task back to `NEEDS_ATTENTION` |
 | `ilan task unread NAME [NAME...]` | Restore the unread marker on task(s) |
-| `ilan task max NAME` | Run this task on the Fable model (`claude-fable-5`) instead of the default; a red `FABLE` tag shows under its name in `ilan ls` / `ilan dashboard`. Takes effect on the task's next agent spawn. |
+| `ilan task max NAME` | Run this task on the Fable model (`claude-fable-5`) instead of the default; a red `FABLE` tag shows in the Cost column in `ilan ls` / `ilan dashboard`. Takes effect on the task's next agent spawn. |
 | `ilan task unmax NAME` | Reset the task's model back to the `model` config default |
 | `ilan task rm [-f] NAME [NAME...]` | Delete task(s) and all their data (refuses if any has an active descendant; `-f` overrides) |
 
@@ -264,7 +264,7 @@ ilan unmax my-task    # back to the default model
 `ilan max` pins a single task to Anthropic's Mythos-class **Fable** model
 (`claude-fable-5`), leaving every other task on the configured `model`
 default. While a task is maxed, a red `FABLE` tag is rendered on its own
-line under the task name in `ilan ls` and `ilan dashboard`. The override
+line in the Cost column (beneath the cost) in `ilan ls` and `ilan dashboard`. The override
 is per task and persists across replies until you run `ilan unmax`, which
 clears it back to the `model` config default. A change takes effect on
 the task's next agent spawn (the next reply / scheduled run), not on an

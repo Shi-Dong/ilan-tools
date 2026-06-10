@@ -663,3 +663,30 @@ class TestFableRendering:
             result = runner.invoke(main, ["ls"])
         assert result.exit_code == 0
         assert "FABLE" not in result.output
+
+    def test_fable_note_is_in_cost_cell_not_name_cell(self) -> None:
+        """The FABLE note lives in the Cost column, on its own line."""
+        from ilan.cli import _build_cost_cell, _build_name_cell
+
+        row = {
+            "name": "maxed-task",
+            "alias": "aa",
+            "status": "WORKING",
+            "cost_usd": 1.23,
+            "needs_review": False,
+            "model": "claude-fable-5",
+        }
+        name_cell = _build_name_cell(row, "")
+        cost_cell = _build_cost_cell(row)
+        assert "FABLE" not in name_cell.plain
+        assert "FABLE" in cost_cell.plain
+        # The note sits on a separate line beneath the cost.
+        assert cost_cell.plain.splitlines() == ["$1.23", "FABLE"]
+
+    def test_cost_cell_no_fable_for_default_task(self) -> None:
+        from ilan.cli import _build_cost_cell
+
+        row = {"cost_usd": 0.0, "model": None}
+        cost_cell = _build_cost_cell(row)
+        assert "FABLE" not in cost_cell.plain
+        assert cost_cell.plain == "-"
