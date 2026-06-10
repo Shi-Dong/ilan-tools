@@ -6,7 +6,16 @@ from datetime import datetime
 
 import pytest
 
-from ilan.models import ALIAS_POOL, LogEntry, Task, TaskStatus, generate_task_hash, validate_task_name
+from ilan.models import (
+    ALIAS_POOL,
+    FABLE_MODEL,
+    LogEntry,
+    Task,
+    TaskStatus,
+    generate_task_hash,
+    is_fable_model,
+    validate_task_name,
+)
 
 
 # ── TaskStatus ──────────────────────────────────────────────────────────
@@ -172,7 +181,7 @@ class TestTask:
             "session_id", "session_log_path", "pid", "cached_replies", "alias",
             "task_hash", "needs_review", "input_tokens", "output_tokens",
             "cache_read_input_tokens", "cost_usd", "sleep_seconds",
-            "parent_name", "summary_one_liner",
+            "parent_name", "summary_one_liner", "model",
         }
         assert set(d.keys()) == expected_keys
 
@@ -220,6 +229,40 @@ class TestTask:
         d = {"name": "old", "prompt": "p", "status": "UNCLAIMED"}
         t = Task.from_dict(d)
         assert t.task_hash is None
+
+    def test_model_default_none(self) -> None:
+        t = Task(name="x", prompt="y")
+        assert t.model is None
+
+    def test_model_roundtrip(self) -> None:
+        t = self._make_task(model=FABLE_MODEL)
+        d = t.to_dict()
+        assert d["model"] == FABLE_MODEL
+        t2 = Task.from_dict(d)
+        assert t2.model == FABLE_MODEL
+
+    def test_from_dict_missing_model(self) -> None:
+        d = {"name": "old", "prompt": "p", "status": "UNCLAIMED"}
+        t = Task.from_dict(d)
+        assert t.model is None
+
+
+# ── Fable model ─────────────────────────────────────────────────────────
+
+
+class TestFableModel:
+    def test_fable_model_value(self) -> None:
+        assert FABLE_MODEL == "claude-fable-5"
+
+    def test_is_fable_model_true(self) -> None:
+        assert is_fable_model(FABLE_MODEL)
+
+    def test_is_fable_model_false(self) -> None:
+        assert not is_fable_model("opus")
+        assert not is_fable_model("sonnet")
+
+    def test_is_fable_model_none(self) -> None:
+        assert not is_fable_model(None)
 
 
 # ── generate_task_hash ─────────────────────────────────────────────────

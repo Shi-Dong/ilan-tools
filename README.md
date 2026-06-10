@@ -108,6 +108,8 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task undone NAME` | Move a `DONE` task back to `NEEDS_ATTENTION` |
 | `ilan task undiscard NAME` | Move a `DISCARDED` task back to `NEEDS_ATTENTION` |
 | `ilan task unread NAME [NAME...]` | Restore the unread marker on task(s) |
+| `ilan task max NAME` | Run this task on the Fable model (`claude-fable-5`) instead of the default; a red `FABLE` tag shows under its name in `ilan ls` / `ilan dashboard`. Takes effect on the task's next agent spawn. |
+| `ilan task unmax NAME` | Reset the task's model back to the `model` config default |
 | `ilan task rm [-f] NAME [NAME...]` | Delete task(s) and all their data (refuses if any has an active descendant; `-f` overrides) |
 
 ### Shorthands
@@ -134,6 +136,8 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan undone NAME` | `ilan task undone NAME` |
 | `ilan undiscard NAME` | `ilan task undiscard NAME` |
 | `ilan unread NAME [NAME...]` | `ilan task unread NAME [NAME...]` |
+| `ilan max NAME` | `ilan task max NAME` |
+| `ilan unmax NAME` | `ilan task unmax NAME` |
 
 ### Dashboard
 
@@ -249,6 +253,22 @@ task skips the claude call and reprints the cached summary.
 The prompt template is a plain file at
 `src/ilan/prompts/summarize.md` — edit it in place if you want to tweak
 what the summary looks like.
+
+### Fable model (`ilan max` / `ilan unmax`)
+
+```bash
+ilan max my-task      # run my-task on claude-fable-5
+ilan unmax my-task    # back to the default model
+```
+
+`ilan max` pins a single task to Anthropic's Mythos-class **Fable** model
+(`claude-fable-5`), leaving every other task on the configured `model`
+default. While a task is maxed, a red `FABLE` tag is rendered on its own
+line under the task name in `ilan ls` and `ilan dashboard`. The override
+is per task and persists across replies until you run `ilan unmax`, which
+clears it back to the `model` config default. A change takes effect on
+the task's next agent spawn (the next reply / scheduled run), not on an
+already-running agent.
 
 ## Task lifecycle
 

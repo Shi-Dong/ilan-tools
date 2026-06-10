@@ -811,6 +811,58 @@ class TestKill:
         assert "error" in resp
 
 
+# ── Max / Unmax (Fable model) ───────────────────────────────────────────
+
+
+class TestMaxUnmax:
+    def test_max_sets_fable_model(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "max-test", "prompt": "P"})
+        resp = _post(ilan_server, "/tasks/max-test/max")
+        assert resp.get("ok") is True
+        assert resp["model"] == "claude-fable-5"
+
+        task = _get(ilan_server, "/tasks/max-test")["task"]
+        assert task["model"] == "claude-fable-5"
+
+    def test_unmax_clears_model(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "unmax-test", "prompt": "P"})
+        _post(ilan_server, "/tasks/unmax-test/max")
+        resp = _post(ilan_server, "/tasks/unmax-test/unmax")
+        assert resp.get("ok") is True
+        assert resp["model"] is None
+
+        task = _get(ilan_server, "/tasks/unmax-test")["task"]
+        assert task["model"] is None
+
+    def test_new_task_has_no_model(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "model-fresh", "prompt": "P"})
+        task = _get(ilan_server, "/tasks/model-fresh")["task"]
+        assert task["model"] is None
+
+    def test_list_includes_model(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "model-list", "prompt": "P"})
+        _post(ilan_server, "/tasks/model-list/max")
+        resp = _get(ilan_server, "/tasks")
+        row = next(t for t in resp["tasks"] if t["name"] == "model-list")
+        assert row["model"] == "claude-fable-5"
+
+    def test_max_accepts_alias(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "max-alias", "prompt": "P"})
+        alias = _get(ilan_server, "/tasks/max-alias")["task"]["alias"]
+        assert alias is not None
+        resp = _post(ilan_server, f"/tasks/{alias}/max")
+        assert resp.get("ok") is True
+        assert resp["name"] == "max-alias"
+
+    def test_max_unknown_task_404(self, ilan_server: IlanServer) -> None:
+        resp = _post(ilan_server, "/tasks/does-not-exist/max")
+        assert "error" in resp
+
+    def test_unmax_unknown_task_404(self, ilan_server: IlanServer) -> None:
+        resp = _post(ilan_server, "/tasks/does-not-exist/unmax")
+        assert "error" in resp
+
+
 # ── Clear Everything ────────────────────────────────────────────────────
 
 

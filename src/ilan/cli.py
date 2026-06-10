@@ -31,7 +31,7 @@ from rich.text import Text
 
 from ilan import config as cfg
 from ilan.client import Client
-from ilan.models import STYLE_FOR_STATUS, TaskStatus
+from ilan.models import STYLE_FOR_STATUS, TaskStatus, is_fable_model
 from ilan.runner import Runner
 from ilan.server import read_server_info
 from ilan.store import Store
@@ -551,6 +551,8 @@ def _build_name_cell(row: dict, prefix: str) -> Text:
         sleep_suffix = _format_sleep_suffix(row.get("sleep_seconds"))
         if sleep_suffix:
             cell.append(sleep_suffix, style=SLEEP_STYLE)
+    if is_fable_model(row.get("model")):
+        cell.append("\nFABLE", style="bold red")
     return cell
 
 
@@ -1479,6 +1481,44 @@ def task_unread(names: tuple[str, ...]) -> None:
     _do_unread(names)
 
 
+# ── task max / unmax ─────────────────────────────────────────────────
+
+def _do_max(name: str) -> None:
+    resp = _client().max_task(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    task_name = resp.get("name", name)
+    model = resp.get("model", "")
+    console.print(
+        f"[green]Task [bold]{task_name}[/bold] set to [bold red]FABLE[/bold red] "
+        f"([cyan]{model}[/cyan]).[/green]"
+    )
+
+
+def _do_unmax(name: str) -> None:
+    resp = _client().unmax_task(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    task_name = resp.get("name", name)
+    console.print(
+        f"[green]Task [bold]{task_name}[/bold] reset to the default model.[/green]"
+    )
+
+
+@task_group.command("max")
+@click.argument("name", shell_complete=_complete_task_names)
+def task_max(name: str) -> None:
+    """Run a task on the Fable model (claude-fable-5)."""
+    _do_max(name)
+
+
+@task_group.command("unmax")
+@click.argument("name", shell_complete=_complete_task_names)
+def task_unmax(name: str) -> None:
+    """Reset a task's model back to the config default."""
+    _do_unmax(name)
+
+
 # ── top-level shorthands ─────────────────────────────────────────────
 
 @main.command("add")
@@ -1617,6 +1657,20 @@ def shortcut_undiscard(name: str) -> None:
 def shortcut_unread(names: tuple[str, ...]) -> None:
     """Shorthand for 'ilan task unread'."""
     _do_unread(names)
+
+
+@main.command("max")
+@click.argument("name", shell_complete=_complete_task_names)
+def shortcut_max(name: str) -> None:
+    """Shorthand for 'ilan task max'."""
+    _do_max(name)
+
+
+@main.command("unmax")
+@click.argument("name", shell_complete=_complete_task_names)
+def shortcut_unmax(name: str) -> None:
+    """Shorthand for 'ilan task unmax'."""
+    _do_unmax(name)
 
 
 @main.command("rename")

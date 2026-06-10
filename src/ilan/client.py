@@ -197,6 +197,9 @@ class Client:
             body["message"] = message
         return self.post(f"/tasks/{old_name}/branch", body)
 
+    def max_task(self, name: str) -> dict:        return self.post(f"/tasks/{name}/max")
+    def unmax_task(self, name: str) -> dict:      return self.post(f"/tasks/{name}/unmax")
+
     def reply(self, name: str, message: str) -> dict:
         return self.post(f"/tasks/{name}/reply", {"message": message})
 
