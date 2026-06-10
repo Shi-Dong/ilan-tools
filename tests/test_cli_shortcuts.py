@@ -549,3 +549,117 @@ class TestUnreadShorthand:
     def test_unread_no_args_shows_usage(self, runner: CliRunner, tmp_config) -> None:
         result = runner.invoke(main, ["unread"])
         assert result.exit_code != 0
+
+
+# ── ilan max / unmax (Fable model) ──────────────────────────────────
+
+
+class TestMaxShorthand:
+    def test_max_success(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.max_task.return_value = {"name": "my-task", "model": "claude-fable-5"}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["max", "my-task"])
+        assert result.exit_code == 0
+        assert "FABLE" in result.output
+        client.max_task.assert_called_once_with("my-task")
+
+    def test_task_max_success(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.max_task.return_value = {"name": "my-task", "model": "claude-fable-5"}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["task", "max", "my-task"])
+        assert result.exit_code == 0
+        assert "FABLE" in result.output
+        client.max_task.assert_called_once_with("my-task")
+
+    def test_max_error(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.max_task.return_value = {"error": "Task 'bad' not found"}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["max", "bad"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_max_no_args_shows_usage(self, runner: CliRunner, tmp_config) -> None:
+        result = runner.invoke(main, ["max"])
+        assert result.exit_code != 0
+
+
+class TestUnmaxShorthand:
+    def test_unmax_success(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.unmax_task.return_value = {"name": "my-task", "model": None}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["unmax", "my-task"])
+        assert result.exit_code == 0
+        assert "default model" in result.output
+        client.unmax_task.assert_called_once_with("my-task")
+
+    def test_task_unmax_success(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.unmax_task.return_value = {"name": "my-task", "model": None}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["task", "unmax", "my-task"])
+        assert result.exit_code == 0
+        assert "default model" in result.output
+        client.unmax_task.assert_called_once_with("my-task")
+
+    def test_unmax_error(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.unmax_task.return_value = {"error": "Task 'bad' not found"}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["unmax", "bad"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_unmax_no_args_shows_usage(self, runner: CliRunner, tmp_config) -> None:
+        result = runner.invoke(main, ["unmax"])
+        assert result.exit_code != 0
+
+
+# ── FABLE rendering in ilan ls ──────────────────────────────────────
+
+
+class TestFableRendering:
+    def test_ls_shows_fable_for_maxed_task(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.list_tasks.return_value = {
+            "tasks": [
+                {
+                    "name": "maxed-task",
+                    "alias": "aa",
+                    "status": "WORKING",
+                    "cost_usd": 1.23,
+                    "created_at": "2026-04-13T00:00:00+00:00",
+                    "status_changed_at": "2026-04-13T01:00:00+00:00",
+                    "needs_review": False,
+                    "model": "claude-fable-5",
+                },
+            ],
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["ls"])
+        assert result.exit_code == 0
+        assert "FABLE" in result.output
+
+    def test_ls_no_fable_for_default_task(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.list_tasks.return_value = {
+            "tasks": [
+                {
+                    "name": "plain-task",
+                    "alias": "aa",
+                    "status": "WORKING",
+                    "cost_usd": 1.23,
+                    "created_at": "2026-04-13T00:00:00+00:00",
+                    "status_changed_at": "2026-04-13T01:00:00+00:00",
+                    "needs_review": False,
+                    "model": None,
+                },
+            ],
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["ls"])
+        assert result.exit_code == 0
+        assert "FABLE" not in result.output

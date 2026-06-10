@@ -519,6 +519,48 @@ class TestSpawn:
             prompt_arg = cmd[2]
             assert "TMUX SESSION REQUIREMENT" not in prompt_arg
 
+    def test_spawn_uses_task_model_override(
+        self, store: Store, tmp_workdir: Path, tmp_config: Path,
+        env_with_mock_claude: None,
+    ) -> None:
+        """A task with a model set (via ilan max) should pass --model <model>."""
+        import ilan.config as cfg_mod
+
+        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir), "model": "opus"})
+
+        runner = Runner(store)
+        t = Task(name="model-override", prompt="do work", model="claude-fable-5")
+        store.put_task(t)
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_proc = mock_popen.return_value
+            mock_proc.pid = 12345
+            runner._spawn(t, "do work", resume=False)
+            cmd = mock_popen.call_args[0][0]
+            assert "--model" in cmd
+            assert cmd[cmd.index("--model") + 1] == "claude-fable-5"
+
+    def test_spawn_falls_back_to_config_model(
+        self, store: Store, tmp_workdir: Path, tmp_config: Path,
+        env_with_mock_claude: None,
+    ) -> None:
+        """A task without a model override should use the configured default."""
+        import ilan.config as cfg_mod
+
+        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir), "model": "opus"})
+
+        runner = Runner(store)
+        t = Task(name="model-default", prompt="do work")
+        store.put_task(t)
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_proc = mock_popen.return_value
+            mock_proc.pid = 12345
+            runner._spawn(t, "do work", resume=False)
+            cmd = mock_popen.call_args[0][0]
+            assert "--model" in cmd
+            assert cmd[cmd.index("--model") + 1] == "opus"
+
 
 # ── schedule ────────────────────────────────────────────────────────────
 

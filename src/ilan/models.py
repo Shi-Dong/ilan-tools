@@ -51,6 +51,15 @@ class TaskStatus(str, Enum):
         return self == TaskStatus.UNCLAIMED
 
 
+# Anthropic's Mythos-class "Fable" model. Tasks "maxed" via ``ilan max`` run
+# on this model instead of the configured default; ``ilan unmax`` clears it.
+FABLE_MODEL = "claude-fable-5"
+
+
+def is_fable_model(model: str | None) -> bool:
+    return model == FABLE_MODEL
+
+
 STYLE_FOR_STATUS: dict[TaskStatus, str] = {
     TaskStatus.UNCLAIMED: "yellow",
     TaskStatus.WORKING: "bold cyan",
@@ -83,6 +92,7 @@ class Task:
     sleep_seconds: int | None = None
     parent_name: str | None = None
     summary_one_liner: str | None = None
+    model: str | None = None
 
     def set_status(self, status: TaskStatus) -> None:
         """Set status and update the ``status_changed_at`` timestamp.
@@ -117,6 +127,7 @@ class Task:
             "sleep_seconds": self.sleep_seconds,
             "parent_name": self.parent_name,
             "summary_one_liner": self.summary_one_liner,
+            "model": self.model,
         }
 
     @classmethod
@@ -141,6 +152,7 @@ class Task:
             sleep_seconds=d.get("sleep_seconds"),
             parent_name=d.get("parent_name"),
             summary_one_liner=d.get("summary_one_liner"),
+            model=d.get("model"),
         )
 
 

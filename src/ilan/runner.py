@@ -19,12 +19,17 @@ _CLAUDE_STATIC_FLAGS = [
 ]
 
 
-def _claude_flags() -> list[str]:
-    """Build claude flags, reading model/effort from config at call time."""
+def _claude_flags(model_override: str | None = None) -> list[str]:
+    """Build claude flags, reading model/effort from config at call time.
+
+    *model_override* (a task's ``model``, set via ``ilan max``) takes
+    precedence over the configured default; ``None`` falls back to config.
+    """
     conf = cfg.load()
+    model = model_override or str(conf.get("model", "opus"))
     return [
         *_CLAUDE_STATIC_FLAGS,
-        "--model", str(conf.get("model", "opus")),
+        "--model", model,
         "--effort", str(conf.get("effort", "high")),
     ]
 
@@ -143,7 +148,7 @@ class Runner:
     def _spawn(self, task: Task, prompt: str, *, resume: bool) -> bool:
         """Spawn a claude process. Returns True on success."""
         tmux_instr = _tmux_instruction(task.task_hash, task.name) if task.task_hash else ""
-        cmd = ["claude", "-p", prompt + tmux_instr + STATUS_SUFFIX, *_claude_flags()]
+        cmd = ["claude", "-p", prompt + tmux_instr + STATUS_SUFFIX, *_claude_flags(task.model)]
         if resume and task.session_id:
             cmd.extend(["--resume", task.session_id])
 

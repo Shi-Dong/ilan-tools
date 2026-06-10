@@ -18,7 +18,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from ilan import __version__, config as cfg, get_git_commit
 from ilan import summarize as summarize_mod
-from ilan.models import Task, TaskStatus, generate_task_hash, validate_task_name
+from ilan.models import (
+    FABLE_MODEL,
+    Task,
+    TaskStatus,
+    generate_task_hash,
+    validate_task_name,
+)
 from ilan.runner import Runner
 from ilan.store import Store
 from ilan.tmux import kill_tmux_sessions_by_prefix
@@ -69,6 +75,8 @@ ROUTES: list[tuple[str, str, str]] = [
     ("POST",   r"^/tasks/([^/]+)/kill$",       "handle_task_kill"),
     ("POST",   r"^/tasks/([^/]+)/rename$",     "handle_task_rename"),
     ("POST",   r"^/tasks/([^/]+)/branch$",     "handle_task_branch"),
+    ("POST",   r"^/tasks/([^/]+)/max$",        "handle_task_max"),
+    ("POST",   r"^/tasks/([^/]+)/unmax$",      "handle_task_unmax"),
     ("GET",    r"^/tasks/([^/]+)/logs$",       "handle_task_logs"),
     ("GET",    r"^/tasks/([^/]+)/log-path$",   "handle_task_log_path"),
     ("GET",    r"^/tasks/([^/]+)/tail$",       "handle_task_tail"),
@@ -274,6 +282,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     "sleep_seconds": t.sleep_seconds,
                     "parent_name": t.parent_name,
                     "summary_one_liner": t.summary_one_liner,
+                    "model": t.model,
                 })
             self._json({"tasks": rows})
 
@@ -580,6 +589,24 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 "name": child.name,
                 "parent_name": parent.name,
             })
+
+        def handle_task_max(self, name: str):
+            with self._ilan.lock:
+                task = self._get_task_or_404(name)
+                if task is None:
+                    return
+                task.model = FABLE_MODEL
+                self._ilan.store.put_task(task)
+            self._json({"ok": True, "name": task.name, "model": task.model})
+
+        def handle_task_unmax(self, name: str):
+            with self._ilan.lock:
+                task = self._get_task_or_404(name)
+                if task is None:
+                    return
+                task.model = None
+                self._ilan.store.put_task(task)
+            self._json({"ok": True, "name": task.name, "model": task.model})
 
         def handle_task_logs(self, name: str):
             with self._ilan.lock:
