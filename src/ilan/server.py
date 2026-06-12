@@ -19,6 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from ilan import __version__, config as cfg, get_git_commit
 from ilan import summarize as summarize_mod
 from ilan.models import (
+    ALIAS_POOL,
     FABLE_MODEL,
     Task,
     TaskStatus,
@@ -74,6 +75,7 @@ ROUTES: list[tuple[str, str, str]] = [
     ("POST",   r"^/tasks/([^/]+)/sleep$",      "handle_task_sleep"),
     ("POST",   r"^/tasks/([^/]+)/kill$",       "handle_task_kill"),
     ("POST",   r"^/tasks/([^/]+)/rename$",     "handle_task_rename"),
+    ("POST",   r"^/tasks/([^/]+)/alias$",      "handle_task_set_alias"),
     ("POST",   r"^/tasks/([^/]+)/branch$",     "handle_task_branch"),
     ("POST",   r"^/tasks/([^/]+)/max$",        "handle_task_max"),
     ("POST",   r"^/tasks/([^/]+)/unmax$",      "handle_task_unmax"),
@@ -530,6 +532,52 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 old_task_name = task.name
                 task = self._ilan.store.rename_task(task.name, new_name)
             self._json({"ok": True, "old_name": old_task_name, "new_name": task.name})
+
+        def handle_task_set_alias(self, name: str):
+            body = self._body()
+            new_alias = (body.get("alias") or "").strip().lower()
+            with self._ilan.lock:
+                task = self._get_task_or_404(name)
+                if task is None:
+                    return
+                # DONE / DISCARDED tasks have their alias dropped (see
+                # handle_task_done / handle_task_discard), so there is no
+                # alias to change.
+                if task.status.is_terminal:
+                    self._json(
+                        {"error": (
+                            f"Task {task.name} is {task.status.value} and has no "
+                            "alias. Only active tasks carry an alias."
+                        )},
+                        409,
+                    )
+                    return
+                if new_alias and new_alias == task.alias:
+                    self._json({"ok": True, "name": task.name, "alias": task.alias})
+                    return
+                if new_alias not in ALIAS_POOL:
+                    self._json(
+                        {"error": (
+                            f"Invalid alias {new_alias!r}. An alias must be exactly "
+                            "two letters drawn from 'asdfghjkl'."
+                        )},
+                        400,
+                    )
+                    return
+                tasks = self._ilan.store.load_tasks()
+                for other in tasks.values():
+                    if other.name != task.name and other.alias == new_alias:
+                        self._json(
+                            {"error": (
+                                f"Alias {new_alias!r} is already in use by task "
+                                f"{other.name}."
+                            )},
+                            409,
+                        )
+                        return
+                task.alias = new_alias
+                self._ilan.store.put_task(task)
+            self._json({"ok": True, "name": task.name, "alias": task.alias})
 
         def handle_task_branch(self, name: str):
             body = self._body()

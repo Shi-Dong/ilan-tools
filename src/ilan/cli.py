@@ -1044,6 +1044,26 @@ def task_rename(old_name: str, new_name: str) -> None:
     _do_rename(old_name, new_name)
 
 
+# ── task alias ──────────────────────────────────────────────────────
+
+def _do_set_alias(name: str, new_alias: str) -> None:
+    resp = _client().set_alias(name, new_alias)
+    if _check_error(resp):
+        raise SystemExit(1)
+    console.print(
+        f"[green]Alias for [bold]{resp['name']}[/bold] set to "
+        f"[bold]{resp['alias']}[/bold].[/green]"
+    )
+
+
+@task_group.command("alias")
+@click.argument("name", shell_complete=_complete_task_names)
+@click.argument("new_alias")
+def task_alias(name: str, new_alias: str) -> None:
+    """Set the two-letter alias of an active task."""
+    _do_set_alias(name, new_alias)
+
+
 # ── task branch ─────────────────────────────────────────────────────
 
 def _do_branch(
@@ -1688,6 +1708,14 @@ def shortcut_unmax(name: str) -> None:
 def shortcut_rename(old_name: str, new_name: str) -> None:
     """Shorthand for 'ilan task rename'."""
     _do_rename(old_name, new_name)
+
+
+@main.command("alias")
+@click.argument("name", shell_complete=_complete_task_names)
+@click.argument("new_alias")
+def shortcut_alias(name: str, new_alias: str) -> None:
+    """Shorthand for 'ilan task alias'."""
+    _do_set_alias(name, new_alias)
 
 
 @main.command("branch")
