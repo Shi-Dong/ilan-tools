@@ -79,7 +79,7 @@ ilan re sd "try v2"   # instead of: ilan re fix-bug "try v2"
 ilan done sd
 ```
 
-Aliases are assigned when a task is created and released when it transitions to `DONE` or `DISCARDED`. If a task is moved back out of a terminal state (via `undone` / `undiscard`), it receives a new alias. The alias pool supports up to 81 concurrent non-terminal tasks.
+Aliases are assigned when a task is created and released when it transitions to `DONE` or `DISCARDED`. If a task is moved back out of a terminal state (via `undone` / `undiscard`), it receives a new alias. The alias pool supports up to 81 concurrent non-terminal tasks. To pick a specific alias for an active task, use `ilan task alias NAME NEW_ALIAS` (or the `ilan alias` shorthand); the new alias must be two letters from `asdfghjkl` and not already taken by another task.
 
 Task names must be at least 3 characters long (to avoid ambiguity with aliases) and may only contain letters, digits, hyphens (`-`), and underscores (`_`). Aliases are not included in shell tab-completion.
 
@@ -100,6 +100,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task log [-p] NAME` | Open the full conversation log in your editor (`-p` prints the log file path instead) |
 | `ilan task summarize NAME` | Summarize the task's log and print the summary (works on local and remote clients) |
 | `ilan task rename OLD NEW` | Rename a task |
+| `ilan task alias NAME NEW_ALIAS` | Change the two-letter alias of an active task (`NEW_ALIAS` must be two letters from `asdfghjkl` and not already in use) |
 | `ilan task branch OLD -n NEW [-d "msg" \| -f FILE]` | Branch a new task from `OLD`, inheriting its full Claude Code context (both tasks stay repliable and diverge from there) |
 | `ilan task kill NAME` | Kill a `WORKING` agent, move task to `ERROR` |
 | `ilan task attach NAME` | Attach to a task's Claude Code session interactively |
@@ -124,6 +125,7 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan reply NAME ["msg"]` | `ilan task reply NAME ["msg"]` |
 | `ilan re NAME ["msg"]` | `ilan task reply NAME ["msg"]` |
 | `ilan rename OLD NEW` | `ilan task rename OLD NEW` |
+| `ilan alias NAME NEW_ALIAS` | `ilan task alias NAME NEW_ALIAS` |
 | `ilan branch OLD -n NEW` | `ilan task branch OLD -n NEW` |
 | `ilan tap NAME` | `ilan task tap NAME` |
 | `ilan sleep NAME DURATION` | `ilan task sleep NAME DURATION` |

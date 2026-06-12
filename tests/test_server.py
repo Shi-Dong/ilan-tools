@@ -264,6 +264,83 @@ class TestTaskStateTransitions:
         assert "error" in resp
 
 
+# ── Set Alias ──────────────────────────────────────────────────────────
+
+
+class TestSetAlias:
+    def test_set_alias_success(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "alias-set", "prompt": "P"})
+        resp = _post(ilan_server, "/tasks/alias-set/alias", {"alias": "aa"})
+        assert resp.get("ok") is True
+        assert resp["alias"] == "aa"
+        task = _get(ilan_server, "/tasks/alias-set")["task"]
+        assert task["alias"] == "aa"
+        # The task is now reachable by its new alias.
+        assert _get(ilan_server, "/tasks/aa")["task"]["name"] == "alias-set"
+
+    def test_set_alias_uppercase_normalized(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "alias-upper", "prompt": "P"})
+        resp = _post(ilan_server, "/tasks/alias-upper/alias", {"alias": "SD"})
+        assert resp.get("ok") is True
+        assert resp["alias"] == "sd"
+
+    def test_set_alias_nonexistent_task(self, ilan_server: IlanServer) -> None:
+        resp = _post(ilan_server, "/tasks/no-such-task/alias", {"alias": "aa"})
+        assert "error" in resp
+
+    def test_set_alias_rejected_when_done(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "alias-done", "prompt": "P"})
+        _post(ilan_server, "/tasks/alias-done/done")
+        resp = _post(ilan_server, "/tasks/alias-done/alias", {"alias": "aa"})
+        assert "error" in resp
+        task = _get(ilan_server, "/tasks/alias-done")["task"]
+        assert task["alias"] is None
+
+    def test_set_alias_rejected_when_discarded(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "alias-disc", "prompt": "P"})
+        _post(ilan_server, "/tasks/alias-disc/discard")
+        resp = _post(ilan_server, "/tasks/alias-disc/alias", {"alias": "aa"})
+        assert "error" in resp
+        task = _get(ilan_server, "/tasks/alias-disc")["task"]
+        assert task["alias"] is None
+
+    def test_set_alias_wrong_length(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "alias-len", "prompt": "P"})
+        before = _get(ilan_server, "/tasks/alias-len")["task"]["alias"]
+        resp = _post(ilan_server, "/tasks/alias-len/alias", {"alias": "aaa"})
+        assert "error" in resp
+        after = _get(ilan_server, "/tasks/alias-len")["task"]["alias"]
+        assert after == before
+
+    def test_set_alias_illegal_letter(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "alias-letter", "prompt": "P"})
+        before = _get(ilan_server, "/tasks/alias-letter")["task"]["alias"]
+        # 'q' is not in the allowed letter-set 'asdfghjkl'.
+        resp = _post(ilan_server, "/tasks/alias-letter/alias", {"alias": "qq"})
+        assert "error" in resp
+        after = _get(ilan_server, "/tasks/alias-letter")["task"]["alias"]
+        assert after == before
+
+    def test_set_alias_conflict(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "alias-a", "prompt": "P"})
+        _post(ilan_server, "/tasks", {"name": "alias-b", "prompt": "P"})
+        # Use alias-b's own (auto-assigned) alias so the conflict is real and
+        # deterministic regardless of which aliases were randomly handed out.
+        taken = _get(ilan_server, "/tasks/alias-b")["task"]["alias"]
+        before = _get(ilan_server, "/tasks/alias-a")["task"]["alias"]
+        resp = _post(ilan_server, "/tasks/alias-a/alias", {"alias": taken})
+        assert "error" in resp
+        task_a = _get(ilan_server, "/tasks/alias-a")["task"]
+        assert task_a["alias"] == before
+
+    def test_set_alias_self_no_op(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "alias-self", "prompt": "P"})
+        _post(ilan_server, "/tasks/alias-self/alias", {"alias": "kl"})
+        resp = _post(ilan_server, "/tasks/alias-self/alias", {"alias": "kl"})
+        assert resp.get("ok") is True
+        assert resp["alias"] == "kl"
+
+
 # ── Task Hash ──────────────────────────────────────────────────────────
 
 
