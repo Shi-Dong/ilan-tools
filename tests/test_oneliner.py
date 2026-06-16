@@ -148,7 +148,7 @@ class TestClaudeCliFallback:
         # The CLI is invoked in print mode against the Haiku alias.
         argv = mock_run.call_args[0][0]
         assert argv[:2] == ["claude", "-p"]
-        assert oneliner.CLAUDE_CLI_MODEL in argv
+        assert oneliner.CLAUDE_ONELINER_MODEL in argv
         assert oneliner.SYSTEM_PROMPT in argv
 
     def test_cli_output_is_trimmed_to_20_words(self, without_api_key: None) -> None:
