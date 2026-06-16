@@ -559,8 +559,11 @@ class TestOneLinerWarning:
         client.get_config.return_value = {"config": {"api-key": ""}}
 
         _maybe_warn_one_liner_unconfigured(client)
-        assert "Warning" in buf.getvalue()
-        assert "one-line-summary" in buf.getvalue()
+        out = buf.getvalue()
+        assert "Note" in out
+        assert "one-line-summary" in out
+        # The note should explain the local `claude` CLI fallback.
+        assert "claude" in out
 
     def test_no_warning_when_api_key_is_set(
         self, tmp_config, monkeypatch: pytest.MonkeyPatch,

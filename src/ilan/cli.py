@@ -589,14 +589,17 @@ def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
 
 
 _ONE_LINER_NO_API_KEY_WARNING = (
-    "[yellow]Warning: `one-line-summary` is on but the server has no `api-key` "
-    "set, so no summaries are generated. Set the api-key on the server, or "
-    "run `ilan config set one-line-summary false` to hide this warning.[/yellow]"
+    "[yellow]Note: `one-line-summary` is on but the server has no `api-key` "
+    "set, so summaries fall back to the server's local `claude` CLI (Claude "
+    "Code subscription). This needs `claude` installed and logged in on the "
+    "server; otherwise no summaries are generated. Set an `api-key` to use the "
+    "Anthropic API instead, or run `ilan config set one-line-summary false` to "
+    "hide this note.[/yellow]"
 )
 
 
 def _maybe_warn_one_liner_unconfigured(client: Client) -> None:
-    """Print a one-time warning if one-line-summary is on but server has no api-key."""
+    """Print a one-time note if one-line-summary is on but server has no api-key."""
     if not _one_liner_enabled():
         return
     try:
