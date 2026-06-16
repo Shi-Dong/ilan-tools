@@ -33,8 +33,9 @@ ANTHROPIC_API_VERSION = "2023-06-01"
 # Newest Haiku model snapshot at time of writing (Claude Haiku 4.5).
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
 
-# Model alias passed to `claude -p`; resolves to the latest Haiku snapshot.
-CLAUDE_CLI_MODEL = "haiku"
+# Model alias passed to `claude -p` to generate the one-liner; resolves to the
+# latest Haiku snapshot.
+CLAUDE_ONELINER_MODEL = "haiku"
 
 _MAX_WORDS = 20
 _MAX_INPUT_CHARS = 4000  # truncate very long messages before sending
@@ -115,7 +116,7 @@ def _call_claude_cli(prompt: str) -> str:
             "claude",
             "-p",
             "--model",
-            CLAUDE_CLI_MODEL,
+            CLAUDE_ONELINER_MODEL,
             "--system-prompt",
             SYSTEM_PROMPT,
         ],
