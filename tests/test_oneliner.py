@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -37,11 +38,16 @@ def _mock_response(text: str) -> MagicMock:
     return cm
 
 
-class TestGenerateOneLiner:
-    def test_returns_none_without_api_key(self, without_api_key: None) -> None:
-        result = oneliner.generate_one_liner("user msg", "assistant reply")
-        assert result is None
+def _mock_cli_result(stdout: str, returncode: int = 0, stderr: str = "") -> MagicMock:
+    """Build a fake ``subprocess.run`` CompletedProcess-like result."""
+    result = MagicMock()
+    result.stdout = stdout
+    result.stderr = stderr
+    result.returncode = returncode
+    return result
 
+
+class TestGenerateOneLiner:
     def test_returns_none_for_empty_assistant(self, with_api_key: None) -> None:
         with patch("urllib.request.urlopen") as mock_open:
             result = oneliner.generate_one_liner("hi", "")
@@ -126,3 +132,63 @@ class TestGenerateOneLiner:
         # Sent prompt should be far shorter than the raw inputs combined.
         assert len(body["messages"][0]["content"]) < len(long_msg) * 2
         assert "[truncated]" in body["messages"][0]["content"]
+
+
+class TestClaudeCliFallback:
+    """Without an api-key, generation falls back to the local `claude` CLI."""
+
+    def test_uses_cli_and_never_calls_http(self, without_api_key: None) -> None:
+        with patch(
+            "subprocess.run",
+            return_value=_mock_cli_result("Wrote a feature flag and pushed PR."),
+        ) as mock_run, patch("urllib.request.urlopen") as mock_open:
+            result = oneliner.generate_one_liner("Please add a flag.", "Done.")
+        assert result == "Wrote a feature flag and pushed PR."
+        mock_open.assert_not_called()
+        # The CLI is invoked in print mode against the Haiku alias.
+        argv = mock_run.call_args[0][0]
+        assert argv[:2] == ["claude", "-p"]
+        assert oneliner.CLAUDE_CLI_MODEL in argv
+        assert oneliner.SYSTEM_PROMPT in argv
+
+    def test_cli_output_is_trimmed_to_20_words(self, without_api_key: None) -> None:
+        long_reply = " ".join(f"word{i}" for i in range(40))
+        with patch("subprocess.run", return_value=_mock_cli_result(long_reply)):
+            result = oneliner.generate_one_liner("u", "a")
+        assert result is not None
+        kept = result.rstrip("…").split()
+        assert len(kept) <= 20
+
+    def test_cli_whitespace_is_collapsed(self, without_api_key: None) -> None:
+        with patch(
+            "subprocess.run",
+            return_value=_mock_cli_result("multi\n\n   line\treply  "),
+        ):
+            result = oneliner.generate_one_liner("u", "a")
+        assert result == "multi line reply"
+
+    def test_nonzero_exit_returns_none(self, without_api_key: None) -> None:
+        with patch(
+            "subprocess.run",
+            return_value=_mock_cli_result("", returncode=1, stderr="boom"),
+        ):
+            result = oneliner.generate_one_liner("u", "a")
+        assert result is None
+
+    def test_missing_binary_returns_none(self, without_api_key: None) -> None:
+        with patch("subprocess.run", side_effect=FileNotFoundError("no claude")):
+            result = oneliner.generate_one_liner("u", "a")
+        assert result is None
+
+    def test_cli_timeout_returns_none(self, without_api_key: None) -> None:
+        with patch(
+            "subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="claude", timeout=60),
+        ):
+            result = oneliner.generate_one_liner("u", "a")
+        assert result is None
+
+    def test_empty_cli_output_returns_none(self, without_api_key: None) -> None:
+        with patch("subprocess.run", return_value=_mock_cli_result("   ")):
+            result = oneliner.generate_one_liner("u", "a")
+        assert result is None
