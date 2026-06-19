@@ -93,6 +93,11 @@ ROUTES: list[tuple[str, str, str]] = [
 
 class _HTTPServer(ThreadingHTTPServer):
     daemon_threads = True
+    # socketserver defaults this to 5, which is tiny: a burst of short-lived
+    # client connections (e.g. a misbehaving poller) overflows the kernel
+    # accept queue, after which new SYNs — including from localhost — are
+    # dropped and time out, making a healthy server look completely down.
+    request_queue_size = 128
 
     def __init__(self, addr, handler_cls, ilan: IlanServer):
         super().__init__(addr, handler_cls)
