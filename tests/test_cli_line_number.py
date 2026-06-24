@@ -335,15 +335,15 @@ class TestClientSideConfigSet:
         assert cfg.CLIENT_SIDE_KEYS <= cfg.VALID_KEYS
 
 
-# ── time-zone aliases via ``set`` / ``config set`` ──────────────────
+# ── time-zone aliases via ``config set`` ────────────────────────────
 
 
 class TestTimeZoneAliasSet:
-    def test_set_alias_writes_resolved_iana_locally(self, runner: CliRunner, tmp_config: Path) -> None:
-        """``ilan set time-zone tokyo`` stores the resolved IANA name, no server hit."""
+    def test_alias_writes_resolved_iana_locally(self, runner: CliRunner, tmp_config: Path) -> None:
+        """``ilan config set time-zone tokyo`` stores the resolved IANA name, no server hit."""
         client = _make_client()
         with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["set", "time-zone", "tokyo"])
+            result = runner.invoke(main, ["config", "set", "time-zone", "tokyo"])
         assert result.exit_code == 0
         client.set_config.assert_not_called()
         assert cfg.load()["time-zone"] == "Asia/Tokyo"
@@ -354,51 +354,43 @@ class TestTimeZoneAliasSet:
         [
             ("china", "Asia/Shanghai"),
             ("beijing", "Asia/Shanghai"),
+            ("shanghai", "Asia/Shanghai"),
+            ("wuhan", "Asia/Shanghai"),
             ("japan", "Asia/Tokyo"),
             ("korea", "Asia/Seoul"),
+            ("uk", "Europe/London"),
+            ("london", "Europe/London"),
             ("pacific", "US/Pacific"),
             ("western", "US/Pacific"),
             ("atlantic", "US/Eastern"),
             ("eastern", "US/Eastern"),
         ],
     )
-    def test_all_aliases_via_set(self, runner: CliRunner, tmp_config: Path, alias: str, expected: str) -> None:
+    def test_all_aliases_via_config_set(self, runner: CliRunner, tmp_config: Path, alias: str, expected: str) -> None:
         client = _make_client()
         with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["set", "time-zone", alias])
+            result = runner.invoke(main, ["config", "set", "time-zone", alias])
         assert result.exit_code == 0
         assert cfg.load()["time-zone"] == expected
 
     def test_alias_is_case_insensitive(self, runner: CliRunner, tmp_config: Path) -> None:
         client = _make_client()
         with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["set", "time-zone", "TOKYO"])
+            result = runner.invoke(main, ["config", "set", "time-zone", "TOKYO"])
         assert result.exit_code == 0
         assert cfg.load()["time-zone"] == "Asia/Tokyo"
-
-    def test_config_set_also_resolves_alias(self, runner: CliRunner, tmp_config: Path) -> None:
-        """The existing ``config set`` path resolves aliases too."""
-        client = _make_client()
-        with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["config", "set", "time-zone", "china"])
-        assert result.exit_code == 0
-        assert cfg.load()["time-zone"] == "Asia/Shanghai"
 
     def test_raw_iana_name_still_accepted(self, runner: CliRunner, tmp_config: Path) -> None:
         client = _make_client()
         with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["set", "time-zone", "Europe/London"])
+            result = runner.invoke(main, ["config", "set", "time-zone", "Europe/Paris"])
         assert result.exit_code == 0
-        assert cfg.load()["time-zone"] == "Europe/London"
+        assert cfg.load()["time-zone"] == "Europe/Paris"
 
-    def test_set_routes_server_side_keys_to_server(self, runner: CliRunner, tmp_config: Path) -> None:
-        """``ilan set`` mirrors ``config set``: non-client-side keys hit the server."""
-        client = _make_client()
-        client.set_config.return_value = {"ok": True, "key": "num-agents", "value": 7}
-        with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["set", "num-agents", "7"])
-        assert result.exit_code == 0
-        client.set_config.assert_called_once_with("num-agents", "7")
+    def test_no_top_level_set_command(self, runner: CliRunner, tmp_config: Path) -> None:
+        """There must be no ``ilan set`` shorthand — only ``ilan config set``."""
+        result = runner.invoke(main, ["set", "time-zone", "tokyo"])
+        assert result.exit_code != 0
 
 
 # ── --line-number / --no-line-number flag overrides ─────────────────
