@@ -396,17 +396,16 @@ def _set_local_config(key: str, value: str) -> object:
         conf[key] = int(value)
     elif key in cfg.BOOL_KEYS:
         conf[key] = cfg.parse_bool(value)
+    elif key == "time-zone":
+        conf[key] = cfg.resolve_time_zone(value)
     else:
         conf[key] = value
     cfg.save(conf)
     return conf[key]
 
 
-@config_group.command("set")
-@click.argument("key", shell_complete=_complete_config_keys)
-@click.argument("value")
-def config_set(key: str, value: str) -> None:
-    """Set a configuration value (e.g. ilan config set num-agents 3)."""
+def _do_set_config(key: str, value: str) -> None:
+    """Set a config value, writing client-side keys locally and the rest via the server."""
     if key in cfg.CLIENT_SIDE_KEYS:
         if key not in cfg.VALID_KEYS:
             console.print(f"[yellow]Unknown config key: {key}[/yellow]")
@@ -418,6 +417,26 @@ def config_set(key: str, value: str) -> None:
     if _check_error(resp):
         raise SystemExit(1)
     console.print(f"[green]Set[/green] {resp['key']} = {resp['value']}")
+
+
+@config_group.command("set")
+@click.argument("key", shell_complete=_complete_config_keys)
+@click.argument("value")
+def config_set(key: str, value: str) -> None:
+    """Set a configuration value (e.g. ilan config set num-agents 3)."""
+    _do_set_config(key, value)
+
+
+@main.command("set")
+@click.argument("key", shell_complete=_complete_config_keys)
+@click.argument("value")
+def set_config(key: str, value: str) -> None:
+    """Set a configuration value (alias for ``ilan config set``).
+
+    Time-zone accepts friendly aliases, e.g. ``ilan set time-zone tokyo``
+    or ``ilan set time-zone pacific`` (case-insensitive).
+    """
+    _do_set_config(key, value)
 
 
 @config_group.command("show")

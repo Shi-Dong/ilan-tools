@@ -55,6 +55,39 @@ class TestParseBool:
         assert cfg.parse_bool(value) is False
 
 
+class TestResolveTimeZone:
+    @pytest.mark.parametrize(
+        "alias,expected",
+        [
+            ("china", "Asia/Shanghai"),
+            ("beijing", "Asia/Shanghai"),
+            ("japan", "Asia/Tokyo"),
+            ("tokyo", "Asia/Tokyo"),
+            ("korea", "Asia/Seoul"),
+            ("seoul", "Asia/Seoul"),
+            ("pacific", "US/Pacific"),
+            ("west", "US/Pacific"),
+            ("western", "US/Pacific"),
+            ("atlantic", "US/Eastern"),
+            ("east", "US/Eastern"),
+            ("eastern", "US/Eastern"),
+        ],
+    )
+    def test_known_aliases(self, alias: str, expected: str) -> None:
+        assert cfg.resolve_time_zone(alias) == expected
+
+    @pytest.mark.parametrize("value", ["Tokyo", "TOKYO", "ToKyO", "  japan  "])
+    def test_case_insensitive_and_trimmed(self, value: str) -> None:
+        assert cfg.resolve_time_zone(value) == "Asia/Tokyo"
+
+    @pytest.mark.parametrize("value", ["Asia/Tokyo", "US/Pacific", "UTC", "Europe/London"])
+    def test_raw_iana_passes_through(self, value: str) -> None:
+        assert cfg.resolve_time_zone(value) == value
+
+    def test_unknown_value_passes_through_trimmed(self) -> None:
+        assert cfg.resolve_time_zone("  Mars/Olympus  ") == "Mars/Olympus"
+
+
 class TestLastTailCache:
     def test_save_and_load_roundtrip(self, tmp_config: Path) -> None:
         cfg.save_last_tail("my-task", ["first", "second", "third"])
