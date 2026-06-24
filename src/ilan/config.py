@@ -67,6 +67,41 @@ def parse_bool(value) -> bool:
     return str(value).strip().lower() in {"true", "1", "yes", "on"}
 
 
+# ── time-zone aliases ──────────────────────────────────────────────
+# Friendly names for the handful of zones we actually work in, so users can
+# write ``ilan config set time-zone tokyo`` instead of remembering ``Asia/Tokyo``.
+# Note: ``atlantic`` maps to US/Eastern by request — the alias names the
+# region, the value names the clock.
+TIMEZONE_ALIASES: dict[str, str] = {
+    "china": "Asia/Shanghai",
+    "beijing": "Asia/Shanghai",
+    "shanghai": "Asia/Shanghai",
+    "wuhan": "Asia/Shanghai",
+    "japan": "Asia/Tokyo",
+    "tokyo": "Asia/Tokyo",
+    "korea": "Asia/Seoul",
+    "seoul": "Asia/Seoul",
+    "uk": "Europe/London",
+    "london": "Europe/London",
+    "pacific": "US/Pacific",
+    "west": "US/Pacific",
+    "western": "US/Pacific",
+    "atlantic": "US/Eastern",
+    "east": "US/Eastern",
+    "eastern": "US/Eastern",
+}
+
+
+def resolve_time_zone(value: str) -> str:
+    """Resolve a friendly time-zone alias (case-insensitive) to an IANA name.
+
+    Unknown values pass through unchanged (whitespace-trimmed) so a raw IANA
+    name like ``Asia/Tokyo`` still works.
+    """
+    stripped = value.strip()
+    return TIMEZONE_ALIASES.get(stripped.lower(), stripped)
+
+
 # ── last-tail cache ────────────────────────────────────────────────
 # Stores the numbered assistant lines from the most recent tail of a task
 # so that ``ilan reply`` can expand ``@N`` references against them.

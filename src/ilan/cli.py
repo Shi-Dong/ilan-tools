@@ -396,6 +396,8 @@ def _set_local_config(key: str, value: str) -> object:
         conf[key] = int(value)
     elif key in cfg.BOOL_KEYS:
         conf[key] = cfg.parse_bool(value)
+    elif key == "time-zone":
+        conf[key] = cfg.resolve_time_zone(value)
     else:
         conf[key] = value
     cfg.save(conf)
@@ -406,7 +408,11 @@ def _set_local_config(key: str, value: str) -> object:
 @click.argument("key", shell_complete=_complete_config_keys)
 @click.argument("value")
 def config_set(key: str, value: str) -> None:
-    """Set a configuration value (e.g. ilan config set num-agents 3)."""
+    """Set a configuration value (e.g. ilan config set num-agents 3).
+
+    Time-zone accepts friendly aliases, e.g. ``ilan config set time-zone
+    tokyo`` or ``ilan config set time-zone pacific`` (case-insensitive).
+    """
     if key in cfg.CLIENT_SIDE_KEYS:
         if key not in cfg.VALID_KEYS:
             console.print(f"[yellow]Unknown config key: {key}[/yellow]")

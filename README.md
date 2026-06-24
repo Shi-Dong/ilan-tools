@@ -178,7 +178,7 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 |---|---|---|
 | `workdir` | `~/.ilan` | Where all ilan data is stored |
 | `num-agents` | `5` | Max concurrent Claude Code agents |
-| `time-zone` | `US/Pacific` | Time zone for displayed timestamps (client-side: set on each machine running the CLI) |
+| `time-zone` | `US/Pacific` | Time zone for displayed timestamps (client-side: set on each machine running the CLI). Accepts friendly aliases — see [Time-zone aliases](#time-zone-aliases) |
 | `model` | `opus` | Claude model passed to `claude -p` |
 | `effort` | `high` | Effort level for the model |
 | `summarize-model` | `sonnet` | Claude model used by `ilan task summarize` |
@@ -188,6 +188,26 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 | `dashboard-interval` | `1` | Seconds between automatic refreshes in `ilan dashboard` |
 | `line-number` | `false` | When `true`, `ilan tail` prefixes each assistant line with a yellow `[N]` marker and `ilan reply` / `ilan task branch` expand `@N` into the Nth line, double-quoted |
 | `one-line-summary` | `true` | Client-side: render the Haiku-generated one-line summary in the Status column of `ilan ls` and `ilan dashboard`. The summary is produced by the server: via Anthropic's API when `api-key` is set, otherwise via the server's local `claude` CLI (Claude Code subscription). This flag only controls whether the client shows it. If on while the server has no `api-key` set, the client prints a note about the CLI fallback. |
+
+### Time-zone aliases
+
+`time-zone` accepts friendly, case-insensitive aliases so you don't have to
+remember IANA names. A raw IANA name (e.g. `Australia/Sydney`) still works.
+
+```bash
+ilan config set time-zone tokyo     # → Asia/Tokyo
+ilan config set time-zone china     # → Asia/Shanghai
+ilan config set time-zone pacific   # → US/Pacific
+```
+
+| Alias(es) | Resolves to |
+|---|---|
+| `china`, `beijing`, `shanghai`, `wuhan` | `Asia/Shanghai` |
+| `japan`, `tokyo` | `Asia/Tokyo` |
+| `korea`, `seoul` | `Asia/Seoul` |
+| `uk`, `london` | `Europe/London` |
+| `pacific`, `west`, `western` | `US/Pacific` |
+| `atlantic`, `east`, `eastern` | `US/Eastern` |
 
 ### Line-number mode
 
