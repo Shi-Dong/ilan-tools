@@ -69,7 +69,7 @@ def parse_bool(value) -> bool:
 
 # ── time-zone aliases ──────────────────────────────────────────────
 # Friendly names for the handful of zones we actually work in, so users can
-# write ``ilan set time-zone tokyo`` instead of remembering ``Asia/Tokyo``.
+# write ``ilan config set time-zone tokyo`` instead of remembering ``Asia/Tokyo``.
 # Note: ``atlantic`` maps to US/Eastern by request — the alias names the
 # region, the value names the clock.
 TIMEZONE_ALIASES: dict[str, str] = {
