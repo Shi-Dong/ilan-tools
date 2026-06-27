@@ -433,6 +433,9 @@ def config_show() -> None:
     Server-managed keys come from the server; client-side keys (rendering
     toggles like ``line-number``) come from the local config file and
     override whatever the server might report for the same key.
+
+    Secret keys (``api-key-claude``, ``api-key-glm``) are masked: only the
+    last five characters are shown, preceded by two asterisks.
     """
     resp = _client().get_config()
     conf = dict(resp["config"])
@@ -443,8 +446,18 @@ def config_show() -> None:
     table.add_column("Key", style="bold")
     table.add_column("Value")
     for k in sorted(conf):
-        table.add_row(k, str(conf[k]))
+        value = str(conf[k])
+        if k in cfg.SECRET_KEYS:
+            value = _mask_secret(value)
+        table.add_row(k, value)
     console.print(table)
+
+
+def _mask_secret(value: str) -> str:
+    """Mask a secret value: empty → empty, otherwise ``**`` + last 5 chars."""
+    if not value:
+        return ""
+    return f"**{value[-5:]}"
 
 
 # ── task group ───────────────────────────────────────────────────────
@@ -595,24 +608,24 @@ def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
 
 
 _ONE_LINER_NO_API_KEY_WARNING = (
-    "[yellow]Note: `one-line-summary` is on but the server has no `api-key` "
+    "[yellow]Note: `one-line-summary` is on but the server has no `api-key-claude` "
     "set, so summaries fall back to the server's local `claude` CLI (Claude "
     "Code subscription). This needs `claude` installed and logged in on the "
-    "server; otherwise no summaries are generated. Set an `api-key` to use the "
+    "server; otherwise no summaries are generated. Set an `api-key-claude` to use the "
     "Anthropic API instead, or run `ilan config set one-line-summary false` to "
     "hide this note.[/yellow]"
 )
 
 
 def _maybe_warn_one_liner_unconfigured(client: Client) -> None:
-    """Print a one-time note if one-line-summary is on but server has no api-key."""
+    """Print a one-time note if one-line-summary is on but server has no api-key-claude."""
     if not _one_liner_enabled():
         return
     try:
         server_cfg = client.get_config().get("config", {})
     except Exception:
         return
-    if not str(server_cfg.get("api-key", "")).strip():
+    if not str(server_cfg.get("api-key-claude", "")).strip():
         console.print(_ONE_LINER_NO_API_KEY_WARNING)
 
 

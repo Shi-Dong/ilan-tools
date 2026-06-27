@@ -556,7 +556,7 @@ class TestOneLinerWarning:
         monkeypatch.setattr(cli_mod, "console", console_)
 
         client = _make_client()
-        client.get_config.return_value = {"config": {"api-key": ""}}
+        client.get_config.return_value = {"config": {"api-key-claude": ""}}
 
         _maybe_warn_one_liner_unconfigured(client)
         out = buf.getvalue()
@@ -577,7 +577,7 @@ class TestOneLinerWarning:
         monkeypatch.setattr(cli_mod, "console", console_)
 
         client = _make_client()
-        client.get_config.return_value = {"config": {"api-key": "sk-secret"}}
+        client.get_config.return_value = {"config": {"api-key-claude": "sk-secret"}}
 
         _maybe_warn_one_liner_unconfigured(client)
         assert buf.getvalue() == ""
@@ -594,7 +594,7 @@ class TestOneLinerWarning:
         monkeypatch.setattr(cli_mod, "console", console_)
 
         client = _make_client()
-        client.get_config.return_value = {"config": {"api-key": ""}}
+        client.get_config.return_value = {"config": {"api-key-claude": ""}}
 
         _maybe_warn_one_liner_unconfigured(client)
         assert buf.getvalue() == ""

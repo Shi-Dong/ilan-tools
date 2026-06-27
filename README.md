@@ -149,7 +149,7 @@ ilan dashboard
 
 Full-screen, real-time task table (like `htop`). Polls the server at the configured `dashboard-interval` (default: every 1 second). Keybindings: **q** quit, **r** force-refresh. The "refreshed at" timestamp uses the configured `time-zone`.
 
-Each row's `Status` cell carries a Haiku-generated one-line summary of the agent's most recent reply (≤ 20 words). The summary is refreshed only on `WORKING → NEEDS_ATTENTION` / `AGENT_FINISHED` transitions. The server produces it via Anthropic's API when `api-key` is set, otherwise it falls back to the server's local `claude` CLI (Claude Code subscription, requires `claude` installed and logged in). Toggle whether the client renders it with `ilan config set one-line-summary true|false` (default `true`); if the toggle is on but the server has no `api-key`, the client prints a note about the CLI fallback above the table. A thin separator is drawn between every task row in both `ilan ls` and `ilan dashboard`; branched (child) tasks remain visually nested under their parent via the existing tree-prefix indentation.
+Each row's `Status` cell carries a Haiku-generated one-line summary of the agent's most recent reply (≤ 20 words). The summary is refreshed only on `WORKING → NEEDS_ATTENTION` / `AGENT_FINISHED` transitions. The server produces it via Anthropic's API when `api-key-claude` is set, otherwise it falls back to the server's local `claude` CLI (Claude Code subscription, requires `claude` installed and logged in). Toggle whether the client renders it with `ilan config set one-line-summary true|false` (default `true`); if the toggle is on but the server has no `api-key-claude`, the client prints a note about the CLI fallback above the table. A thin separator is drawn between every task row in both `ilan ls` and `ilan dashboard`; branched (child) tasks remain visually nested under their parent via the existing tree-prefix indentation.
 
 ### Server
 
@@ -184,11 +184,11 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 | `summarize-model` | `sonnet` | Claude model used by `ilan task summarize` |
 | `summarize-effort` | `medium` | Effort level used by `ilan task summarize` |
 | `editor` | `emacs` | Editor used by `ilan task log` |
-| `api-key` | _(empty)_ | Anthropic API key passed as `ANTHROPIC_API_KEY` to spawned agents; also used to call Haiku for the one-line status summary in `ilan ls` and `ilan dashboard`. When empty, the one-line summary falls back to the server's local `claude` CLI (Claude Code subscription) instead |
-| `glm-api-key` | _(empty)_ | Z.ai API key used as the bearer token (`ANTHROPIC_AUTH_TOKEN`) for spawned agents when `model` is `glm` / `glm-5-2`. Ignored for non-GLM models — see [GLM-5.2 model](#glm-52-model) |
+| `api-key-claude` | _(empty)_ | Anthropic API key passed as `ANTHROPIC_API_KEY` to spawned agents; also used to call Haiku for the one-line status summary in `ilan ls` and `ilan dashboard`. When empty, the one-line summary falls back to the server's local `claude` CLI (Claude Code subscription) instead. Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
+| `api-key-glm` | _(empty)_ | Z.ai API key used as the bearer token (`ANTHROPIC_AUTH_TOKEN`) for spawned agents when `model` is `glm` / `glm-5-2`. Ignored for non-GLM models — see [GLM-5.2 model](#glm-52-model). Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
 | `dashboard-interval` | `1` | Seconds between automatic refreshes in `ilan dashboard` |
 | `line-number` | `false` | When `true`, `ilan tail` prefixes each assistant line with a yellow `[N]` marker and `ilan reply` / `ilan task branch` expand `@N` into the Nth line, double-quoted |
-| `one-line-summary` | `true` | Client-side: render the Haiku-generated one-line summary in the Status column of `ilan ls` and `ilan dashboard`. The summary is produced by the server: via Anthropic's API when `api-key` is set, otherwise via the server's local `claude` CLI (Claude Code subscription). This flag only controls whether the client shows it. If on while the server has no `api-key` set, the client prints a note about the CLI fallback. |
+| `one-line-summary` | `true` | Client-side: render the Haiku-generated one-line summary in the Status column of `ilan ls` and `ilan dashboard`. The summary is produced by the server: via Anthropic's API when `api-key-claude` is set, otherwise via the server's local `claude` CLI (Claude Code subscription). This flag only controls whether the client shows it. If on while the server has no `api-key-claude` set, the client prints a note about the CLI fallback. |
 
 ### Time-zone aliases
 
@@ -296,7 +296,7 @@ already-running agent.
 ### GLM-5.2 model
 
 ```bash
-ilan config set glm-api-key <your-zai-api-key>
+ilan config set api-key-glm <your-zai-api-key>
 ilan config set model glm        # or: glm-5-2
 ```
 
@@ -305,8 +305,8 @@ Setting `model` to `glm` (alias for `glm-5-2`) runs every agent on
 ships an Anthropic-compatible endpoint, spawned `claude -p` agents talk to it
 natively: ilan resolves the alias to the real model id `glm-5.2[1m]` (the
 1M-token context variant) and routes the agent to `https://api.z.ai/api/anthropic`,
-authenticating with the `glm-api-key` config as the bearer token
-(`ANTHROPIC_AUTH_TOKEN`). The Anthropic `api-key` is *not* forwarded for GLM
+authenticating with the `api-key-glm` config as the bearer token
+(`ANTHROPIC_AUTH_TOKEN`). The Anthropic `api-key-claude` is *not* forwarded for GLM
 runs. Switch back with `ilan config set model opus` (or any Claude Code alias)
 at any time.
 

@@ -16,13 +16,13 @@ from ilan import oneliner
 @pytest.fixture()
 def with_api_key(tmp_config: Path) -> None:
     import ilan.config as cfg_mod
-    cfg_mod.save({**cfg_mod.DEFAULTS, "api-key": "sk-test-key"})
+    cfg_mod.save({**cfg_mod.DEFAULTS, "api-key-claude": "sk-test-key"})
 
 
 @pytest.fixture()
 def without_api_key(tmp_config: Path) -> None:
     import ilan.config as cfg_mod
-    cfg_mod.save({**cfg_mod.DEFAULTS, "api-key": ""})
+    cfg_mod.save({**cfg_mod.DEFAULTS, "api-key-claude": ""})
 
 
 def _mock_response(text: str) -> MagicMock:
@@ -135,7 +135,7 @@ class TestGenerateOneLiner:
 
 
 class TestClaudeCliFallback:
-    """Without an api-key, generation falls back to the local `claude` CLI."""
+    """Without an api-key-claude, generation falls back to the local `claude` CLI."""
 
     def test_uses_cli_and_never_calls_http(self, without_api_key: None) -> None:
         with patch(

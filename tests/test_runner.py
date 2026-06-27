@@ -572,7 +572,7 @@ class TestSpawn:
             **cfg_mod.DEFAULTS,
             "workdir": str(tmp_workdir),
             "model": "glm",
-            "glm-api-key": "zai-secret",
+            "api-key-glm": "zai-secret",
         })
 
         runner = Runner(store)
