@@ -14,8 +14,8 @@ DEFAULTS: dict[str, str | int | bool] = {
     "summarize-effort": "medium",
     "time-zone": "US/Pacific",
     "editor": "emacs",
-    "api-key": "",
-    "glm-api-key": "",
+    "api-key-claude": "",
+    "api-key-glm": "",
     "dashboard-interval": 1,
     "line-number": False,
     "markdown": False,
@@ -26,6 +26,11 @@ VALID_KEYS = set(DEFAULTS)
 
 INT_KEYS = {"num-agents", "dashboard-interval"}
 BOOL_KEYS = {"line-number", "markdown", "one-line-summary"}
+
+# Values that should never be printed in full by `ilan config show`.
+# ``ilan config show`` renders these as ``**<last-5-chars>`` so the user can
+# confirm a key is set (and which one) without leaking it to the terminal.
+SECRET_KEYS = {"api-key-claude", "api-key-glm"}
 
 # Keys whose effect is purely on the CLI running on the user's machine
 # (rendering, input rewriting, etc.).  ``ilan config set`` writes these to

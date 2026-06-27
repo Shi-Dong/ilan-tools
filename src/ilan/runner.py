@@ -45,12 +45,12 @@ def _model_env(model_override: str | None = None) -> dict[str, str]:
 
     GLM models route through Z.ai's Anthropic-compatible endpoint, which
     needs ``ANTHROPIC_BASE_URL`` plus a bearer token in ``ANTHROPIC_AUTH_TOKEN``
-    (taken from the ``glm-api-key`` config). Non-GLM models get nothing here.
+    (taken from the ``api-key-glm`` config). Non-GLM models get nothing here.
     """
     if not is_glm_model(_effective_model(model_override)):
         return {}
     env = {"ANTHROPIC_BASE_URL": GLM_BASE_URL}
-    glm_key = str(cfg.load().get("glm-api-key", "")).strip()
+    glm_key = str(cfg.load().get("api-key-glm", "")).strip()
     if glm_key:
         env["ANTHROPIC_AUTH_TOKEN"] = glm_key
     return env
@@ -182,7 +182,7 @@ class Runner:
             env.pop("ANTHROPIC_API_KEY", None)
             env.update(glm_env)
         else:
-            api_key = str(cfg.load().get("api-key", "")).strip()
+            api_key = str(cfg.load().get("api-key-claude", "")).strip()
             if api_key:
                 env["ANTHROPIC_API_KEY"] = api_key
 

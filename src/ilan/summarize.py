@@ -101,7 +101,7 @@ def _run_claude(prompt: str, model: str, effort: str) -> str:
     ]
 
     env = os.environ.copy()
-    api_key = str(cfg.load().get("api-key", "")).strip()
+    api_key = str(cfg.load().get("api-key-claude", "")).strip()
     if api_key:
         env["ANTHROPIC_API_KEY"] = api_key
 

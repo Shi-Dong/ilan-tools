@@ -5,11 +5,11 @@ transitioning from ``WORKING`` to ``NEEDS_ATTENTION`` or ``AGENT_FINISHED``).
 
 The summary is produced by sending the last user message + the new
 assistant message to Anthropic's newest Haiku model. The backend depends
-on the ``api-key`` config:
+on the ``api-key-claude`` config:
 
-* When ``api-key`` is set, the summary is produced by a direct HTTPS call
+* When ``api-key-claude`` is set, the summary is produced by a direct HTTPS call
   to Anthropic's Messages API (pay-per-token).
-* When ``api-key`` is empty, we fall back to the local ``claude`` CLI in
+* When ``api-key-claude`` is empty, we fall back to the local ``claude`` CLI in
   print mode (``claude -p``), which authenticates with the machine's
   Claude Code subscription. This needs ``claude`` on ``PATH`` and a
   logged-in session.
@@ -107,7 +107,7 @@ def _call_haiku(api_key: str, prompt: str) -> str:
 def _call_claude_cli(prompt: str) -> str:
     """Generate the summary with the local ``claude`` CLI (``claude -p``).
 
-    Used when no ``api-key`` is configured: the CLI authenticates with the
+    Used when no ``api-key-claude`` is configured: the CLI authenticates with the
     machine's Claude Code subscription. Requires ``claude`` on ``PATH`` and
     a logged-in session.
     """
@@ -135,7 +135,7 @@ def _call_claude_cli(prompt: str) -> str:
 def generate_one_liner(last_user: str, last_assistant: str) -> str | None:
     """Produce a one-line summary, or ``None`` if it cannot be generated.
 
-    Picks the backend by config: a non-empty ``api-key`` uses Anthropic's
+    Picks the backend by config: a non-empty ``api-key-claude`` uses Anthropic's
     Messages API, otherwise it falls back to the local ``claude`` CLI.
     Returns ``None`` when the assistant text is empty or whichever backend
     fails. Never raises — a failure here must not break the scheduler's
@@ -143,7 +143,7 @@ def generate_one_liner(last_user: str, last_assistant: str) -> str | None:
     """
     if not last_assistant.strip():
         return None
-    api_key = str(cfg.load().get("api-key", "")).strip()
+    api_key = str(cfg.load().get("api-key-claude", "")).strip()
 
     prompt = _build_user_prompt(last_user, last_assistant)
     try:
