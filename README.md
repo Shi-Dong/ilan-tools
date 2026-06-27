@@ -179,12 +179,13 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 | `workdir` | `~/.ilan` | Where all ilan data is stored |
 | `num-agents` | `5` | Max concurrent Claude Code agents |
 | `time-zone` | `US/Pacific` | Time zone for displayed timestamps (client-side: set on each machine running the CLI). Accepts friendly aliases — see [Time-zone aliases](#time-zone-aliases) |
-| `model` | `opus` | Claude model passed to `claude -p` |
+| `model` | `opus` | Model passed to `claude -p`. Accepts Claude Code aliases (`opus`, `sonnet`, `haiku`) or `glm` / `glm-5.2` to run agents on GLM-5.2 via Z.ai — see [GLM-5.2 model](#glm-52-model) |
 | `effort` | `high` | Effort level for the model |
 | `summarize-model` | `sonnet` | Claude model used by `ilan task summarize` |
 | `summarize-effort` | `medium` | Effort level used by `ilan task summarize` |
 | `editor` | `emacs` | Editor used by `ilan task log` |
 | `api-key` | _(empty)_ | Anthropic API key passed as `ANTHROPIC_API_KEY` to spawned agents; also used to call Haiku for the one-line status summary in `ilan ls` and `ilan dashboard`. When empty, the one-line summary falls back to the server's local `claude` CLI (Claude Code subscription) instead |
+| `glm-api-key` | _(empty)_ | Z.ai API key used as the bearer token (`ANTHROPIC_AUTH_TOKEN`) for spawned agents when `model` is `glm` / `glm-5.2`. Ignored for non-GLM models — see [GLM-5.2 model](#glm-52-model) |
 | `dashboard-interval` | `1` | Seconds between automatic refreshes in `ilan dashboard` |
 | `line-number` | `false` | When `true`, `ilan tail` prefixes each assistant line with a yellow `[N]` marker and `ilan reply` / `ilan task branch` expand `@N` into the Nth line, double-quoted |
 | `one-line-summary` | `true` | Client-side: render the Haiku-generated one-line summary in the Status column of `ilan ls` and `ilan dashboard`. The summary is produced by the server: via Anthropic's API when `api-key` is set, otherwise via the server's local `claude` CLI (Claude Code subscription). This flag only controls whether the client shows it. If on while the server has no `api-key` set, the client prints a note about the CLI fallback. |
@@ -291,6 +292,23 @@ is per task and persists across replies until you run `ilan unmax`, which
 clears it back to the `model` config default. A change takes effect on
 the task's next agent spawn (the next reply / scheduled run), not on an
 already-running agent.
+
+### GLM-5.2 model
+
+```bash
+ilan config set glm-api-key <your-zai-api-key>
+ilan config set model glm        # or: glm-5.2
+```
+
+Setting `model` to `glm` (alias for `glm-5.2`) runs every agent on
+[Z.ai](https://z.ai)'s **GLM-5.2** instead of an Anthropic model. Because GLM
+ships an Anthropic-compatible endpoint, spawned `claude -p` agents talk to it
+natively: ilan resolves the alias to the real model id `glm-5.2[1m]` (the
+1M-token context variant) and routes the agent to `https://api.z.ai/api/anthropic`,
+authenticating with the `glm-api-key` config as the bearer token
+(`ANTHROPIC_AUTH_TOKEN`). The Anthropic `api-key` is *not* forwarded for GLM
+runs. Switch back with `ilan config set model opus` (or any Claude Code alias)
+at any time.
 
 ## Task lifecycle
 

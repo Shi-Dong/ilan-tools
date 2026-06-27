@@ -15,7 +15,7 @@ class TestDefaults:
         expected = {
             "workdir", "num-agents", "model", "effort",
             "summarize-model", "summarize-effort",
-            "time-zone", "editor", "api-key", "dashboard-interval",
+            "time-zone", "editor", "api-key", "glm-api-key", "dashboard-interval",
             "line-number", "markdown", "one-line-summary",
         }
         assert set(cfg.DEFAULTS.keys()) == expected
