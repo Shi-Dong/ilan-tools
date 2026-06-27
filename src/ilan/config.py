@@ -15,6 +15,7 @@ DEFAULTS: dict[str, str | int | bool] = {
     "time-zone": "US/Pacific",
     "editor": "emacs",
     "api-key": "",
+    "glm-api-key": "",
     "dashboard-interval": 1,
     "line-number": False,
     "markdown": False,

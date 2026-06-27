@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 from ilan import config as cfg
-from ilan.models import Task, TaskStatus
+from ilan.models import GLM_BASE_URL, Task, TaskStatus, is_glm_model, resolve_model
 from ilan.oneliner import generate_one_liner
 from ilan.store import Store
 
@@ -19,19 +19,41 @@ _CLAUDE_STATIC_FLAGS = [
 ]
 
 
-def _claude_flags(model_override: str | None = None) -> list[str]:
-    """Build claude flags, reading model/effort from config at call time.
+def _effective_model(model_override: str | None = None) -> str:
+    """Resolve the model string passed to ``claude --model`` for a spawn.
 
     *model_override* (a task's ``model``, set via ``ilan max``) takes
     precedence over the configured default; ``None`` falls back to config.
+    Friendly aliases (e.g. ``glm``) are resolved to their real model id.
     """
     conf = cfg.load()
-    model = model_override or str(conf.get("model", "opus"))
+    return resolve_model(model_override or str(conf.get("model", "opus")))
+
+
+def _claude_flags(model_override: str | None = None) -> list[str]:
+    """Build claude flags, reading model/effort from config at call time."""
+    conf = cfg.load()
     return [
         *_CLAUDE_STATIC_FLAGS,
-        "--model", model,
+        "--model", _effective_model(model_override),
         "--effort", str(conf.get("effort", "high")),
     ]
+
+
+def _model_env(model_override: str | None = None) -> dict[str, str]:
+    """Env overrides for the spawned agent based on the effective model.
+
+    GLM models route through Z.ai's Anthropic-compatible endpoint, which
+    needs ``ANTHROPIC_BASE_URL`` plus a bearer token in ``ANTHROPIC_AUTH_TOKEN``
+    (taken from the ``glm-api-key`` config). Non-GLM models get nothing here.
+    """
+    if not is_glm_model(_effective_model(model_override)):
+        return {}
+    env = {"ANTHROPIC_BASE_URL": GLM_BASE_URL}
+    glm_key = str(cfg.load().get("glm-api-key", "")).strip()
+    if glm_key:
+        env["ANTHROPIC_AUTH_TOKEN"] = glm_key
+    return env
 
 STATUS_SUFFIX = """
 
@@ -153,9 +175,16 @@ class Runner:
             cmd.extend(["--resume", task.session_id])
 
         env = os.environ.copy()
-        api_key = str(cfg.load().get("api-key", "")).strip()
-        if api_key:
-            env["ANTHROPIC_API_KEY"] = api_key
+        glm_env = _model_env(task.model)
+        if glm_env:
+            # GLM auth is a bearer token, not an x-api-key; drop any inherited
+            # Anthropic key so it can't shadow the Z.ai credentials.
+            env.pop("ANTHROPIC_API_KEY", None)
+            env.update(glm_env)
+        else:
+            api_key = str(cfg.load().get("api-key", "")).strip()
+            if api_key:
+                env["ANTHROPIC_API_KEY"] = api_key
 
         out_path = self.store.output_path(task.name)
         workdir = cfg.get_workdir()
