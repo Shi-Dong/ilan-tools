@@ -277,7 +277,7 @@ class TestGlmModel:
 
     def test_resolve_glm_aliases(self) -> None:
         assert resolve_model("glm") == GLM_MODEL
-        assert resolve_model("glm-5.2") == GLM_MODEL
+        assert resolve_model("glm-5-2") == GLM_MODEL
 
     def test_resolve_passthrough(self) -> None:
         assert resolve_model("opus") == "opus"
@@ -285,7 +285,7 @@ class TestGlmModel:
 
     def test_is_glm_model_aliases(self) -> None:
         assert is_glm_model("glm")
-        assert is_glm_model("glm-5.2")
+        assert is_glm_model("glm-5-2")
         assert is_glm_model(GLM_MODEL)
 
     def test_is_glm_model_false(self) -> None:

@@ -60,7 +60,7 @@ def is_fable_model(model: str | None) -> bool:
     return model == FABLE_MODEL
 
 
-# GLM-5.2 (Z.ai). Selecting model ``glm`` / ``glm-5.2`` routes a spawned agent
+# GLM-5.2 (Z.ai). Selecting model ``glm`` / ``glm-5-2`` routes a spawned agent
 # to Z.ai's Anthropic-compatible endpoint instead of Anthropic's API. The
 # ``[1m]`` suffix selects the 1M-token context variant.
 GLM_MODEL = "glm-5.2[1m]"
@@ -70,7 +70,7 @@ GLM_BASE_URL = "https://api.z.ai/api/anthropic"
 # value passed to ``claude --model`` at spawn time.
 MODEL_ALIASES: dict[str, str] = {
     "glm": GLM_MODEL,
-    "glm-5.2": GLM_MODEL,
+    "glm-5-2": GLM_MODEL,
 }
 
 
