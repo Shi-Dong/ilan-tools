@@ -197,6 +197,27 @@ class TestTryReap:
         assert logs[0].role == "assistant"
         assert "All good" in logs[0].content
 
+    def test_reap_caches_last_assistant_model(
+        self, store: Store, runner: Runner, tmp_path: Path
+    ) -> None:
+        """Reaping a finished turn caches the model from the session log so
+        ``ilan tail`` need not rescan it later."""
+        log = tmp_path / "sid-model.jsonl"
+        log.write_text(
+            json.dumps({"message": {"role": "assistant",
+                                    "model": "claude-opus-4-8", "content": "hi"}}) + "\n"
+        )
+        t = Task(name="t-model", prompt="p", status=TaskStatus.WORKING, pid=99999)
+        store.put_task(t)
+        out = {"session_id": "sid-model", "result": "ok\n[STATUS: DONE]", "is_error": False}
+        store.output_path("t-model").write_text(json.dumps(out))
+
+        with patch.object(Runner, "_find_session_log", return_value=log):
+            runner._try_reap(t)
+        updated = store.get_task("t-model")
+        assert updated is not None
+        assert updated.last_assistant_model == "claude-opus-4-8"
+
     def test_reap_accumulates_cost(self, store: Store, runner: Runner) -> None:
         t = Task(name="t-cost", prompt="p", status=TaskStatus.WORKING, pid=99999)
         store.put_task(t)
