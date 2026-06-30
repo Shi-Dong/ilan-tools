@@ -27,44 +27,12 @@ from ilan.models import (
     generate_task_hash,
     validate_task_name,
 )
-from ilan.runner import Runner
+from ilan.runner import Runner, last_assistant_model
 from ilan.store import Store
 from ilan.tmux import kill_tmux_sessions_by_prefix
 
 POLL_INTERVAL = 3  # seconds
 DEFAULT_PORT = 4526
-
-
-def _last_assistant_model(log_path: Path) -> str | None:
-    """Return the ``message.model`` of the last assistant entry in a Claude
-    Code session log (JSONL), or ``None`` if no such entry exists.
-
-    Claude Code writes one JSON object per line; assistant turns carry
-    ``{"message": {"role": "assistant", "model": "...", ...}}``. We scan
-    from the end so the cost stays bounded regardless of log length.
-    """
-    try:
-        with open(log_path, "rb") as f:
-            lines = f.readlines()
-    except OSError:
-        return None
-    for raw in reversed(lines):
-        line = raw.strip()
-        if not line:
-            continue
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        message = entry.get("message")
-        if not isinstance(message, dict):
-            continue
-        if message.get("role") != "assistant":
-            continue
-        model = message.get("model")
-        if isinstance(model, str) and model:
-            return model
-    return None
 
 
 # ── PID file helpers (shared with client.py) ─────────────────────────
@@ -707,6 +675,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             self._json({
                 "name": task.name,
                 "alias": task.alias,
+                "last_assistant_model": task.last_assistant_model,
                 "logs": [e.to_dict() for e in entries],
             })
 
@@ -741,7 +710,11 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     self._ilan.store.put_task(task)
                 entries = self._ilan.store.read_logs(task.name)
 
-            meta = {"name": task.name, "alias": task.alias}
+            meta = {
+                "name": task.name,
+                "alias": task.alias,
+                "last_assistant_model": task.last_assistant_model,
+            }
 
             if not entries:
                 self._json({**meta, "entries": [], "warning": "No logs yet."})
@@ -793,6 +766,12 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task = self._get_task_or_404(name)
             if task is None:
                 return
+            # Fast path: return the model cached at reap time.
+            if task.last_assistant_model:
+                self._json({"name": task.name, "model": task.last_assistant_model})
+                return
+            # Fallback for tasks last reaped before the cache existed: resolve
+            # from the session log once, then backfill so future lookups are free.
             if not task.session_log_path and task.session_id:
                 log_path = Runner._find_session_log(task.session_id)
                 if log_path:
@@ -806,13 +785,16 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             if not log_file.exists():
                 self._json({"error": f"Session log file missing: {log_file}"}, 404)
                 return
-            model = _last_assistant_model(log_file)
+            model = last_assistant_model(log_file)
             if model is None:
                 self._json(
                     {"error": f"No assistant message found in session log for task {task.name}"},
                     404,
                 )
                 return
+            task.last_assistant_model = model
+            with self._ilan.lock:
+                self._ilan.store.put_task(task)
             self._json({"name": task.name, "model": model})
 
         def handle_task_summarize(self, name: str):

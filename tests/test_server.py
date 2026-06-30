@@ -783,6 +783,52 @@ class TestLastModel:
         resp = _get(ilan_server, "/tasks/lm-noasst/last-model")
         assert "error" in resp
 
+    def test_last_model_fast_path_uses_cache(self, ilan_server: IlanServer) -> None:
+        """A cached ``last_assistant_model`` is returned without a session log."""
+        _post(ilan_server, "/tasks", {"name": "lm-cached", "prompt": "P"})
+        with ilan_server.lock:
+            task = ilan_server.store.get_task("lm-cached")
+            task.last_assistant_model = "claude-sonnet-4-6"
+            ilan_server.store.put_task(task)
+        resp = _get(ilan_server, "/tasks/lm-cached/last-model")
+        assert resp["model"] == "claude-sonnet-4-6"
+
+    def test_last_model_backfills_cache(
+        self, ilan_server: IlanServer, tmp_path: Path
+    ) -> None:
+        """The fallback scan writes the resolved model back onto the task so the
+        next lookup is a cache hit."""
+        _post(ilan_server, "/tasks", {"name": "lm-backfill", "prompt": "P"})
+        log = self._make_session_log(tmp_path, "lm-backfill", [
+            {"message": {"role": "assistant", "model": "claude-opus-4-7", "content": "a"}},
+        ])
+        self._attach_session_log(ilan_server, "lm-backfill", log)
+        resp = _get(ilan_server, "/tasks/lm-backfill/last-model")
+        assert resp["model"] == "claude-opus-4-7"
+        # Cache populated as a side effect of the scan.
+        task = ilan_server.store.get_task("lm-backfill")
+        assert task.last_assistant_model == "claude-opus-4-7"
+
+    def test_tail_includes_last_assistant_model(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "lm-tail", "prompt": "P"})
+        ilan_server.store.append_log("lm-tail", "assistant", "hi")
+        with ilan_server.lock:
+            task = ilan_server.store.get_task("lm-tail")
+            task.last_assistant_model = "claude-opus-4-8"
+            ilan_server.store.put_task(task)
+        resp = _get(ilan_server, "/tasks/lm-tail/tail")
+        assert resp["last_assistant_model"] == "claude-opus-4-8"
+
+    def test_logs_includes_last_assistant_model(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "lm-logs", "prompt": "P"})
+        ilan_server.store.append_log("lm-logs", "assistant", "hi")
+        with ilan_server.lock:
+            task = ilan_server.store.get_task("lm-logs")
+            task.last_assistant_model = "claude-opus-4-8"
+            ilan_server.store.put_task(task)
+        resp = _get(ilan_server, "/tasks/lm-logs/logs")
+        assert resp["last_assistant_model"] == "claude-opus-4-8"
+
 
 # ── Needs Review ───────────────────────────────────────────────────────
 

@@ -736,28 +736,36 @@ def _print_reply_hint(handle: str) -> None:
     )
 
 
-def _print_last_model_hint(client: Client, name: str) -> None:
+def _print_last_model_hint(
+    client: Client, name: str, cached_model: str | None = None
+) -> None:
     """Print which model generated the last assistant message, above the reply hint.
 
-    When the model can't be determined (no session log yet, no assistant
-    message, server error or unreachable) print a warning explaining why,
-    rather than the model line, so attribution is never silently dropped.
+    The model is normally piggybacked on the tail response (*cached_model*),
+    so no extra request is needed. When it's absent — e.g. the task was last
+    reaped by an older server that didn't cache it — fall back to an explicit
+    ``get_last_model`` lookup. If the model still can't be determined (no
+    session log yet, no assistant message, server error or unreachable) print
+    a warning explaining why, rather than the model line, so attribution is
+    never silently dropped.
     """
-    try:
-        resp = client.get_last_model(name)
-    except ConnectionError:
-        console.print(
-            "[yellow]Could not determine the last assistant model: "
-            "cannot reach the ilan server.[/yellow]"
-        )
-        return
-    model = resp.get("model")
-    if resp.get("error") or not model:
-        reason = resp.get("error") or "no model recorded in the session log"
-        console.print(
-            f"[yellow]Could not determine the last assistant model: {reason}[/yellow]"
-        )
-        return
+    model = cached_model
+    if not model:
+        try:
+            resp = client.get_last_model(name)
+        except ConnectionError:
+            console.print(
+                "[yellow]Could not determine the last assistant model: "
+                "cannot reach the ilan server.[/yellow]"
+            )
+            return
+        model = resp.get("model")
+        if resp.get("error") or not model:
+            reason = resp.get("error") or "no model recorded in the session log"
+            console.print(
+                f"[yellow]Could not determine the last assistant model: {reason}[/yellow]"
+            )
+            return
     # highlight=False so Rich's auto-highlighter doesn't recolor the digits in
     # model names like ``claude-opus-4-8``; the whole name should be one yellow span.
     console.print(
@@ -905,7 +913,7 @@ def _do_tail(
             console.print(body)
         console.print()
 
-    _print_last_model_hint(client, name)
+    _print_last_model_hint(client, name, resp.get("last_assistant_model"))
     _print_reply_hint(reply_handle)
 
 

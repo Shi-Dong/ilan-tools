@@ -40,6 +40,38 @@ def _claude_flags(model_override: str | None = None) -> list[str]:
     ]
 
 
+def last_assistant_model(log_path: Path) -> str | None:
+    """Return the ``message.model`` of the last assistant entry in a Claude
+    Code session log (JSONL), or ``None`` if no such entry exists.
+
+    Claude Code writes one JSON object per line; assistant turns carry
+    ``{"message": {"role": "assistant", "model": "...", ...}}``. We scan
+    from the end so the cost stays bounded regardless of log length.
+    """
+    try:
+        with open(log_path, "rb") as f:
+            lines = f.readlines()
+    except OSError:
+        return None
+    for raw in reversed(lines):
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        message = entry.get("message")
+        if not isinstance(message, dict):
+            continue
+        if message.get("role") != "assistant":
+            continue
+        model = message.get("model")
+        if isinstance(model, str) and model:
+            return model
+    return None
+
+
 def _model_env(model_override: str | None = None) -> dict[str, str]:
     """Env overrides for the spawned agent based on the effective model.
 
@@ -261,6 +293,12 @@ class Runner:
             if log_path:
                 task.session_id = sid
                 task.session_log_path = str(log_path)
+                # Cache the model that produced this turn's assistant message
+                # so ``ilan tail`` can show it without rescanning the session
+                # log on every request.
+                model = last_assistant_model(log_path)
+                if model:
+                    task.last_assistant_model = model
 
         usage = result.get("usage") or {}
         task.input_tokens += usage.get("input_tokens", 0)

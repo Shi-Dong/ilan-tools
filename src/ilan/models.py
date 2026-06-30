@@ -121,6 +121,11 @@ class Task:
     parent_name: str | None = None
     summary_one_liner: str | None = None
     model: str | None = None
+    # The model that generated the most recent assistant message, cached at
+    # reap time so ``ilan tail`` need not rescan the Claude session log. This
+    # is the *observed* model, distinct from ``model`` above (the *configured*
+    # model used by ``ilan max`` / ``unmax``).
+    last_assistant_model: str | None = None
 
     def set_status(self, status: TaskStatus) -> None:
         """Set status and update the ``status_changed_at`` timestamp.
@@ -156,6 +161,7 @@ class Task:
             "parent_name": self.parent_name,
             "summary_one_liner": self.summary_one_liner,
             "model": self.model,
+            "last_assistant_model": self.last_assistant_model,
         }
 
     @classmethod
@@ -181,6 +187,7 @@ class Task:
             parent_name=d.get("parent_name"),
             summary_one_liner=d.get("summary_one_liner"),
             model=d.get("model"),
+            last_assistant_model=d.get("last_assistant_model"),
         )
 
 
