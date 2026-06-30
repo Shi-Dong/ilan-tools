@@ -15,6 +15,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 from ilan import __version__, config as cfg, get_git_commit
 from ilan import summarize as summarize_mod
@@ -32,6 +33,38 @@ from ilan.tmux import kill_tmux_sessions_by_prefix
 
 POLL_INTERVAL = 3  # seconds
 DEFAULT_PORT = 4526
+
+
+def _last_assistant_model(log_path: Path) -> str | None:
+    """Return the ``message.model`` of the last assistant entry in a Claude
+    Code session log (JSONL), or ``None`` if no such entry exists.
+
+    Claude Code writes one JSON object per line; assistant turns carry
+    ``{"message": {"role": "assistant", "model": "...", ...}}``. We scan
+    from the end so the cost stays bounded regardless of log length.
+    """
+    try:
+        with open(log_path, "rb") as f:
+            lines = f.readlines()
+    except OSError:
+        return None
+    for raw in reversed(lines):
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        message = entry.get("message")
+        if not isinstance(message, dict):
+            continue
+        if message.get("role") != "assistant":
+            continue
+        model = message.get("model")
+        if isinstance(model, str) and model:
+            return model
+    return None
 
 
 # ── PID file helpers (shared with client.py) ─────────────────────────
@@ -83,6 +116,7 @@ ROUTES: list[tuple[str, str, str]] = [
     ("GET",    r"^/tasks/([^/]+)/log-path$",   "handle_task_log_path"),
     ("GET",    r"^/tasks/([^/]+)/tail$",       "handle_task_tail"),
     ("GET",    r"^/tasks/([^/]+)/path$",       "handle_task_path"),
+    ("GET",    r"^/tasks/([^/]+)/last-model$", "handle_task_last_model"),
     ("POST",   r"^/tasks/([^/]+)/summarize$",  "handle_task_summarize"),
     ("POST",   r"^/clear-everything$",         "handle_clear_everything"),
     ("POST",   r"^/stop$",                     "handle_stop"),
@@ -753,6 +787,33 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 self._json({"error": f"No session log path for task {task.name}"}, 404)
                 return
             self._json({"path": task.session_log_path})
+
+        def handle_task_last_model(self, name: str):
+            with self._ilan.lock:
+                task = self._get_task_or_404(name)
+            if task is None:
+                return
+            if not task.session_log_path and task.session_id:
+                log_path = Runner._find_session_log(task.session_id)
+                if log_path:
+                    task.session_log_path = str(log_path)
+                    with self._ilan.lock:
+                        self._ilan.store.put_task(task)
+            if not task.session_log_path:
+                self._json({"error": f"No session log path for task {task.name}"}, 404)
+                return
+            log_file = Path(task.session_log_path)
+            if not log_file.exists():
+                self._json({"error": f"Session log file missing: {log_file}"}, 404)
+                return
+            model = _last_assistant_model(log_file)
+            if model is None:
+                self._json(
+                    {"error": f"No assistant message found in session log for task {task.name}"},
+                    404,
+                )
+                return
+            self._json({"name": task.name, "model": model})
 
         def handle_task_summarize(self, name: str):
             # Resolve alias → real task name up front so subsequent calls
