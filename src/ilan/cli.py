@@ -707,6 +707,26 @@ def task_path(name: str) -> None:
     console.print(resp["path"])
 
 
+# ── task check-model ─────────────────────────────────────────────────
+
+def _do_check_model(name: str) -> None:
+    resp = _client().get_last_model(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    console.print(resp["model"])
+
+
+@task_group.command("check-model")
+@click.argument("name", shell_complete=_complete_task_names)
+def task_check_model(name: str) -> None:
+    """Print the model that generated the last assistant message for a task.
+
+    Reads the task's Claude Code session log and reports the ``model``
+    field from the last ``role: assistant`` entry.
+    """
+    _do_check_model(name)
+
+
 # ── task tail ────────────────────────────────────────────────────────
 
 def _print_reply_hint(handle: str) -> None:
@@ -1805,6 +1825,13 @@ def shortcut_summarize(name: str) -> None:
 def shortcut_sum(name: str) -> None:
     """Shorthand for 'ilan task summarize'."""
     _do_summarize(name)
+
+
+@main.command("check-model")
+@click.argument("name", shell_complete=_complete_task_names)
+def shortcut_check_model(name: str) -> None:
+    """Shorthand for 'ilan task check-model'."""
+    _do_check_model(name)
 
 
 # ── dashboard ────────────────────────────────────────────────────────

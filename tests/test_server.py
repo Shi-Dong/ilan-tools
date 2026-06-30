@@ -713,6 +713,77 @@ class TestLogs:
         assert "error" in resp
 
 
+class TestLastModel:
+    def _make_session_log(self, tmp_path: Path, name: str, lines: list[dict]) -> Path:
+        log = tmp_path / f"{name}.jsonl"
+        with open(log, "w") as f:
+            for entry in lines:
+                f.write(json.dumps(entry) + "\n")
+        return log
+
+    def _attach_session_log(self, server: IlanServer, name: str, log_path: Path) -> None:
+        with server.lock:
+            task = server.store.get_task(name)
+            task.session_id = log_path.stem
+            task.session_log_path = str(log_path)
+            server.store.put_task(task)
+
+    def test_last_model_returns_last_assistant_model(
+        self, ilan_server: IlanServer, tmp_path: Path
+    ) -> None:
+        _post(ilan_server, "/tasks", {"name": "lm-basic", "prompt": "P"})
+        log = self._make_session_log(tmp_path, "lm-basic", [
+            {"message": {"role": "user", "content": "hi"}},
+            {"message": {"role": "assistant", "model": "claude-opus-4-7", "content": "a1"}},
+            {"message": {"role": "user", "content": "ok"}},
+            {"message": {"role": "assistant", "model": "claude-haiku-4-5", "content": "a2"}},
+        ])
+        self._attach_session_log(ilan_server, "lm-basic", log)
+
+        resp = _get(ilan_server, "/tasks/lm-basic/last-model")
+        assert resp["name"] == "lm-basic"
+        assert resp["model"] == "claude-haiku-4-5"
+
+    def test_last_model_skips_non_assistant_tail(
+        self, ilan_server: IlanServer, tmp_path: Path
+    ) -> None:
+        _post(ilan_server, "/tasks", {"name": "lm-skip", "prompt": "P"})
+        log = self._make_session_log(tmp_path, "lm-skip", [
+            {"message": {"role": "assistant", "model": "claude-opus-4-7", "content": "a"}},
+            {"message": {"role": "user", "content": "later user msg"}},
+            {"someOtherField": "summary or sidechain"},
+        ])
+        self._attach_session_log(ilan_server, "lm-skip", log)
+
+        resp = _get(ilan_server, "/tasks/lm-skip/last-model")
+        assert resp["model"] == "claude-opus-4-7"
+
+    def test_last_model_no_session(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "lm-nosess", "prompt": "P"})
+        resp = _get(ilan_server, "/tasks/lm-nosess/last-model")
+        assert "error" in resp
+
+    def test_last_model_missing_log_file(
+        self, ilan_server: IlanServer, tmp_path: Path
+    ) -> None:
+        _post(ilan_server, "/tasks", {"name": "lm-missing", "prompt": "P"})
+        ghost = tmp_path / "ghost.jsonl"
+        self._attach_session_log(ilan_server, "lm-missing", ghost)
+        resp = _get(ilan_server, "/tasks/lm-missing/last-model")
+        assert "error" in resp
+
+    def test_last_model_no_assistant_entry(
+        self, ilan_server: IlanServer, tmp_path: Path
+    ) -> None:
+        _post(ilan_server, "/tasks", {"name": "lm-noasst", "prompt": "P"})
+        log = self._make_session_log(tmp_path, "lm-noasst", [
+            {"message": {"role": "user", "content": "hi"}},
+        ])
+        self._attach_session_log(ilan_server, "lm-noasst", log)
+        resp = _get(ilan_server, "/tasks/lm-noasst/last-model")
+        assert "error" in resp
+
+
 # ── Needs Review ───────────────────────────────────────────────────────
 
 

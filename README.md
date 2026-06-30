@@ -93,6 +93,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task ls [-a] [NAME]` | List active tasks (`-a` includes `DONE`/`DISCARDED`); if `NAME` is given, show its tail instead |
 | `ilan task show NAME` | Print the full prompt of a task |
 | `ilan task path NAME` | Print the Claude Code session log path for a task |
+| `ilan task check-model NAME` | Print the model name (e.g. `claude-opus-4-7`) that generated the last assistant message in the task's Claude Code session log |
 | `ilan task tail NAME` | Show the last assistant message together with the user prompt that elicited it and any user replies after it |
 | `ilan task reply NAME ["msg"]` | Send a reply to an agent (omit message to show tail) |
 | `ilan task tap NAME` | Ask for a status update (nudges `WORKING` agents; re-prompts `AGENT_FINISHED`/`NEEDS_ATTENTION`/`ERROR` tasks) |
@@ -133,6 +134,7 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan log [-p] NAME` | `ilan task log [-p] NAME` |
 | `ilan summarize NAME` | `ilan task summarize NAME` |
 | `ilan sum NAME` | `ilan task summarize NAME` |
+| `ilan check-model NAME` | `ilan task check-model NAME` |
 | `ilan done NAME [NAME...]` | `ilan task done NAME [NAME...]` |
 | `ilan discard NAME [NAME...]` | `ilan task discard NAME [NAME...]` |
 | `ilan undone NAME` | `ilan task undone NAME` |
