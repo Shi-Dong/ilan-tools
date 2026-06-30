@@ -739,18 +739,24 @@ def _print_reply_hint(handle: str) -> None:
 def _print_last_model_hint(client: Client, name: str) -> None:
     """Print which model generated the last assistant message, above the reply hint.
 
-    Best-effort: if the model can't be determined (no session log yet, no
-    assistant message, server error or unreachable) print nothing rather than
-    disrupting the tail output.
+    When the model can't be determined (no session log yet, no assistant
+    message, server error or unreachable) print a warning explaining why,
+    rather than the model line, so attribution is never silently dropped.
     """
     try:
         resp = client.get_last_model(name)
     except ConnectionError:
-        return
-    if resp.get("error"):
+        console.print(
+            "[yellow]Could not determine the last assistant model: "
+            "cannot reach the ilan server.[/yellow]"
+        )
         return
     model = resp.get("model")
-    if not model:
+    if resp.get("error") or not model:
+        reason = resp.get("error") or "no model recorded in the session log"
+        console.print(
+            f"[yellow]Could not determine the last assistant model: {reason}[/yellow]"
+        )
         return
     # highlight=False so Rich's auto-highlighter doesn't recolor the digits in
     # model names like ``claude-opus-4-8``; the whole name should be one yellow span.
