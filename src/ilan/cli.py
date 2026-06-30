@@ -210,6 +210,22 @@ def _complete_config_keys(ctx: click.Context, param: click.Parameter, incomplete
     return sorted(k for k in cfg.VALID_KEYS if k.startswith(incomplete))
 
 
+def _harden_fish_completion(script: str) -> str:
+    """Make Click's fish completion script split each line on the first comma only.
+
+    Click's fish template parses every completion line with `string split ","`,
+    which splits on *every* comma. Click sends each candidate as
+    `type,value\tdescription`, so any command whose short help contains a comma
+    (e.g. `clear-everything` → "Remove ALL tasks, logs, and data.") has its
+    description truncated at the first comma. `--max 1` splits once (type vs the
+    rest) and `--` stops values that start with `-` being read as options.
+    """
+    return script.replace(
+        'string split "," $completion',
+        'string split --max 1 -- "," $completion',
+    )
+
+
 def _install_completion(ctx: click.Context, _param: click.Parameter, shell: str | None) -> None:
     """Eager callback: generate and install the Click tab-completion script."""
     if shell is None:
@@ -224,6 +240,7 @@ def _install_completion(ctx: click.Context, _param: click.Parameter, shell: str 
     script = comp.source()
 
     if shell == "fish":
+        script = _harden_fish_completion(script)
         script_path = Path("~/.config/fish/completions/ilan.fish").expanduser()
         script_path.parent.mkdir(parents=True, exist_ok=True)
         script_path.write_text(script)
