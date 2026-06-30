@@ -4,7 +4,11 @@ version = "0.1.0"
 description = "Manage and run a swarm of Claude Code agents on user-defined tasks"
 requires-python = ">=3.11"
 dependencies = [
-    "click>=8.1",
+    # Click 8.4.x ships a broken fish shell-completion script (its _SOURCE_FISH
+    # template is a non-raw string, so the intended `\n`/`\t` escapes collapse
+    # into literal control chars, breaking `string split` under fish 4.x). Pin
+    # below 8.4 until the upstream template is fixed.
+    "click>=8.1,<8.4",
     "rich>=13.0",
 ]
 
