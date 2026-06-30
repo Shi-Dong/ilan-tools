@@ -23,6 +23,7 @@ def _make_client() -> MagicMock:
     client.ensure_server.return_value = {}
     client.version_mismatch = None
     client.is_remote = False
+    client.get_last_model.return_value = {"model": "claude-opus-4-8"}
     return client
 
 
