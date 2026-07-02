@@ -14,6 +14,7 @@ from rich.text import Text
 from ilan.cli import (
     ALIAS_STYLE,
     _build_dashboard_table,
+    _format_ts,
     _maybe_warn_one_liner_unconfigured,
     main,
 )
@@ -416,6 +417,26 @@ class TestDashboardTimezone:
         assert len(captured) >= 2, captured
         assert captured[0] == "US/Pacific"
         assert captured[-1] == "Europe/London"
+
+
+# ── _format_ts seconds toggle ────────────────────────────────────────
+
+
+class TestFormatTsSeconds:
+    def test_default_includes_seconds(self, tmp_config) -> None:
+        import ilan.config as cfg_mod
+
+        cfg_mod.save({**cfg_mod.DEFAULTS, "time-zone": "US/Pacific"})
+        out = _format_ts("2026-07-02T18:05:09+00:00")
+        assert "11:05:09" in out
+
+    def test_seconds_false_drops_seconds(self, tmp_config) -> None:
+        import ilan.config as cfg_mod
+
+        cfg_mod.save({**cfg_mod.DEFAULTS, "time-zone": "US/Pacific"})
+        out = _format_ts("2026-07-02T18:05:09+00:00", seconds=False)
+        assert "11:05" in out
+        assert "11:05:09" not in out
 
 
 # ── table expand property ────────────────────────────────────────────
