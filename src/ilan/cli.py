@@ -597,7 +597,12 @@ def _build_history_cell(row: dict) -> Text:
     url = (row.get("gist_url") or "").strip()
     if not url:
         return Text("-", style="dim")
-    return Text("history", style=f"link {url} blue underline")
+    # Append the styled span instead of using a base Text style: a base style
+    # bleeds across the cell's right padding, so the `underline` would run well
+    # past the word "history" whenever the column is wider than the label.
+    cell = Text()
+    cell.append("history", style=f"link {url} blue underline")
+    return cell
 
 
 def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
