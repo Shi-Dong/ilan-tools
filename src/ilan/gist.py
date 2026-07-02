@@ -80,7 +80,7 @@ def initial_file(task_name: str) -> tuple[str, str]:
     """
     filename = _safe_filename(task_name)
     content = (
-        f"# ilan task: {task_name}\n\n"
+        "# ilan task\n\n"
         "This secret Gist mirrors the conversation between the user and the "
         "agent for this task. Each message is posted below as its own comment "
         "so the two roles render as separate Markdown bubbles.\n"
@@ -253,9 +253,7 @@ class GistSyncer:
 
         if gist_id is None:
             filename, content = initial_file(display_name)
-            gist_id, html_url = create_gist(
-                token, filename, content, f"ilan task: {display_name}"
-            )
+            gist_id, html_url = create_gist(token, filename, content, "ilan task")
             with self.lock:
                 task = self.store.get_task(name)
                 if task is None:

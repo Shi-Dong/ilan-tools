@@ -41,8 +41,9 @@ class TestHelpers:
     def test_initial_file(self) -> None:
         filename, content = initial_file("task-abc")
         assert filename == "task-abc.md"
-        assert "task-abc" in content
-        assert content.startswith("# ilan task: task-abc")
+        # The title block must not embed the task name (tasks can be renamed).
+        assert "task-abc" not in content
+        assert content.startswith("# ilan task\n")
 
     def test_format_comment_user(self) -> None:
         entry = LogEntry(role="user", content="hello **world**", timestamp="")
