@@ -40,10 +40,18 @@ _MAX_COMMENT_CHARS = 60000
 # transient network blip (TLS handshake timeout, dropped connection) or a
 # secondary rate-limit must not abort the whole backfill. Retry those with
 # exponential backoff; a non-retryable status (e.g. 401/404) still fails fast.
-_MAX_RETRIES = 5
+_MAX_RETRIES = 6
 _INITIAL_BACKOFF_SECONDS = 1.0
 _MAX_BACKOFF_SECONDS = 30.0
+# GitHub's secondary (abuse) rate limit for creating content needs a much
+# longer cooldown than an ordinary transient error — it typically wants a full
+# minute or more — and it may not send a Retry-After header. Back those 403/429
+# responses off hard, and always honor an explicit Retry-After in full (uncapped).
+_SECONDARY_LIMIT_BACKOFF_SECONDS = 60.0
+_RATE_LIMIT_STATUS = frozenset({403, 429})
 _RETRYABLE_STATUS = frozenset({403, 429, 500, 502, 503, 504})
+# Pace comment posting so a large backfill stays under GitHub's burst limit.
+_COMMENT_THROTTLE_SECONDS = 1.0
 
 _ROLE_LABELS = {"user": "User", "assistant": "Assistant"}
 
@@ -94,12 +102,27 @@ def format_comment(entry: LogEntry) -> str:
     return f"**{label}**\n\n{body}"
 
 
-def _retry_after_seconds(err: urllib.error.HTTPError, fallback: float) -> float:
-    """Honor GitHub's ``Retry-After`` header when present, else use *fallback*."""
+def _retry_after_seconds(err: urllib.error.HTTPError) -> float | None:
+    """Return GitHub's ``Retry-After`` value in seconds, or ``None`` if absent."""
     header = err.headers.get("Retry-After") if err.headers else None
     if header and header.strip().isdigit():
         return float(header.strip())
-    return fallback
+    return None
+
+
+def _http_error_wait(err: urllib.error.HTTPError, backoff: float) -> float:
+    """Pick how long to wait before retrying a retryable HTTP error.
+
+    An explicit ``Retry-After`` is honored in full (never capped). A secondary
+    rate-limit (403/429) with no header backs off hard; other retryable errors
+    use the ordinary exponential backoff capped at ``_MAX_BACKOFF_SECONDS``.
+    """
+    retry_after = _retry_after_seconds(err)
+    if retry_after is not None:
+        return retry_after
+    if err.code in _RATE_LIMIT_STATUS:
+        return max(_SECONDARY_LIMIT_BACKOFF_SECONDS, min(backoff, _MAX_BACKOFF_SECONDS))
+    return min(backoff, _MAX_BACKOFF_SECONDS)
 
 
 def _api_request(method: str, path: str, token: str, payload: dict | None = None) -> dict:
@@ -132,12 +155,12 @@ def _api_request(method: str, path: str, token: str, payload: dict | None = None
         except urllib.error.HTTPError as err:
             if err.code not in _RETRYABLE_STATUS or last:
                 raise
-            wait = _retry_after_seconds(err, backoff)
+            wait = _http_error_wait(err, backoff)
         except (urllib.error.URLError, TimeoutError):
             if last:
                 raise
-            wait = backoff
-        time.sleep(min(wait, _MAX_BACKOFF_SECONDS))
+            wait = min(backoff, _MAX_BACKOFF_SECONDS)
+        time.sleep(wait)
         backoff *= 2
     raise RuntimeError("unreachable: retry loop exhausted without returning")
 
@@ -244,7 +267,12 @@ class GistSyncer:
         pending = list(entries[already:])
         posted = 0
         try:
-            for entry in pending:
+            for i, entry in enumerate(pending):
+                if i > 0:
+                    # Pace multi-message backfills so a burst of hundreds of
+                    # comments stays under GitHub's secondary rate limit. A
+                    # single new message (the common live case) never waits.
+                    time.sleep(_COMMENT_THROTTLE_SECONDS)
                 post_comment(token, gist_id, format_comment(entry))
                 posted += 1
         finally:

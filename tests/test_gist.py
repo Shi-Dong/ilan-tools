@@ -191,7 +191,9 @@ class TestApiRequestRetry:
         gist_mod._api_request("POST", "/x", "tok", {"b": 2})
         assert sleeps == [7.0]
 
-    def test_backoff_capped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_backoff_capped_for_network_errors(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         def fake_urlopen(req, timeout=None):  # noqa: ANN001
             raise urllib.error.URLError("down")
 
@@ -201,6 +203,43 @@ class TestApiRequestRetry:
         with pytest.raises(urllib.error.URLError):
             gist_mod._api_request("GET", "/x", "tok")
         assert all(s <= gist_mod._MAX_BACKOFF_SECONDS for s in sleeps)
+
+    def test_retry_after_is_not_capped(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An explicit Retry-After larger than the backoff cap is honored in full."""
+        calls = {"n": 0}
+        big = gist_mod._MAX_BACKOFF_SECONDS + 30  # 60s, well above the 30s cap
+
+        def fake_urlopen(req, timeout=None):  # noqa: ANN001
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise _http_error(403, retry_after=str(int(big)))
+            return _FakeResp(b"{}")
+
+        sleeps: list[float] = []
+        monkeypatch.setattr(gist_mod.urllib.request, "urlopen", fake_urlopen)
+        monkeypatch.setattr(gist_mod.time, "sleep", lambda s: sleeps.append(s))
+        gist_mod._api_request("POST", "/x", "tok", {"b": 2})
+        assert sleeps == [big]  # uncapped
+
+    def test_secondary_rate_limit_backs_off_hard(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A header-less 403 (secondary limit) waits at least the long cooldown."""
+        calls = {"n": 0}
+
+        def fake_urlopen(req, timeout=None):  # noqa: ANN001
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise _http_error(403)  # no Retry-After header
+            return _FakeResp(b"{}")
+
+        sleeps: list[float] = []
+        monkeypatch.setattr(gist_mod.urllib.request, "urlopen", fake_urlopen)
+        monkeypatch.setattr(gist_mod.time, "sleep", lambda s: sleeps.append(s))
+        gist_mod._api_request("POST", "/x", "tok", {"b": 2})
+        assert sleeps == [gist_mod._SECONDARY_LIMIT_BACKOFF_SECONDS]
 
 
 # ── token / enabled ─────────────────────────────────────────────────────
@@ -259,6 +298,8 @@ def fake_gh(monkeypatch: pytest.MonkeyPatch) -> _FakeGitHub:
     monkeypatch.setattr(gist_mod, "gist_enabled", lambda: True)
     monkeypatch.setattr(gist_mod, "create_gist", fake.create_gist)
     monkeypatch.setattr(gist_mod, "post_comment", fake.post_comment)
+    # Don't actually wait out the inter-comment throttle in tests.
+    monkeypatch.setattr(gist_mod.time, "sleep", lambda s: None)
     return fake
 
 
@@ -279,6 +320,27 @@ class TestSyncTask:
         assert task.gist_id == "gid-1"
         assert task.gist_url.endswith("gid-1")
         assert task.gist_synced_count == 2
+
+    def test_throttles_between_comments(
+        self, store: Store, syncer: GistSyncer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A backfill sleeps once between each pair of comments (not before the
+        first), keeping bursts under GitHub's secondary rate limit."""
+        monkeypatch.setattr(gist_mod, "github_token", lambda: "tok")
+        monkeypatch.setattr(
+            gist_mod, "create_gist", lambda *a, **k: ("gid-x", "https://g/gid-x")
+        )
+        monkeypatch.setattr(gist_mod, "post_comment", lambda *a, **k: None)
+        sleeps: list[float] = []
+        monkeypatch.setattr(gist_mod.time, "sleep", lambda s: sleeps.append(s))
+
+        store.put_task(Task(name="t1", prompt="p"))
+        for i in range(4):
+            store.append_log("t1", "user", f"m{i}")
+        syncer.sync_task("t1")
+
+        # 4 comments → 3 inter-comment throttles of the configured duration.
+        assert sleeps == [gist_mod._COMMENT_THROTTLE_SECONDS] * 3
 
     def test_incremental_only_posts_new(
         self, store: Store, syncer: GistSyncer, fake_gh: _FakeGitHub
@@ -340,6 +402,7 @@ class TestSyncTask:
         """If posting fails mid-way, already-posted comments still count so a
         retry doesn't double-post them."""
         monkeypatch.setattr(gist_mod, "github_token", lambda: "tok")
+        monkeypatch.setattr(gist_mod.time, "sleep", lambda s: None)
         monkeypatch.setattr(
             gist_mod, "create_gist", lambda *a, **k: ("gid-x", "https://g/gid-x")
         )
