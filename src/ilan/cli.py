@@ -71,7 +71,7 @@ def _format_elapsed(iso: str) -> str:
         return ""
 
 
-def _format_ts(iso: str) -> str:
+def _format_ts(iso: str, *, seconds: bool = True) -> str:
     """Convert a UTC ISO timestamp to the configured time-zone."""
     try:
         tz = ZoneInfo(str(cfg.load().get("time-zone", "US/Pacific")))
@@ -84,7 +84,8 @@ def _format_ts(iso: str) -> str:
             date_part = "Yesterday"
         else:
             date_part = dt.strftime("%m-%d")
-        return f"{date_part} {dt.strftime('%H:%M:%S %Z')}"
+        time_fmt = "%H:%M:%S %Z" if seconds else "%H:%M %Z"
+        return f"{date_part} {dt.strftime(time_fmt)}"
     except Exception:
         return iso
 
@@ -661,12 +662,12 @@ def _do_ls(show_all: bool) -> None:
     table.add_column("Last Changed")
     table.add_column("History")
     for row, prefix in _order_tasks_as_forest(rows):
-        changed = _format_ts(row["status_changed_at"]) if row.get("status_changed_at") else ""
+        changed = _format_ts(row["status_changed_at"], seconds=False) if row.get("status_changed_at") else ""
         table.add_row(
             _build_name_cell(row, prefix),
             _build_status_cell(row, show_one_liner=show_one_liner),
             _build_cost_cell(row),
-            _format_ts(row["created_at"]),
+            _format_ts(row["created_at"], seconds=False),
             changed,
             _build_history_cell(row),
         )
@@ -1940,12 +1941,12 @@ def _build_dashboard_table(
         return table
 
     for row, prefix in _order_tasks_as_forest(rows):
-        changed = _format_ts(row["status_changed_at"]) if row.get("status_changed_at") else ""
+        changed = _format_ts(row["status_changed_at"], seconds=False) if row.get("status_changed_at") else ""
         table.add_row(
             _build_name_cell(row, prefix),
             _build_status_cell(row, show_one_liner=show_one_liner),
             _build_cost_cell(row),
-            _format_ts(row["created_at"]),
+            _format_ts(row["created_at"], seconds=False),
             changed,
             _build_history_cell(row),
         )
