@@ -8,7 +8,9 @@ error resilience) entirely offline.
 
 from __future__ import annotations
 
+import email.message
 import threading
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -63,6 +65,142 @@ class TestHelpers:
         out = format_comment(entry)
         assert "…[truncated]" in out
         assert len(out) < len(big) + 200
+
+
+# ── _api_request retry / backoff ────────────────────────────────────────
+
+
+class _FakeResp:
+    """Minimal context-manager stand-in for an ``http.client.HTTPResponse``."""
+
+    def __init__(self, body: bytes = b"{}") -> None:
+        self._body = body
+
+    def __enter__(self) -> "_FakeResp":
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def read(self) -> bytes:
+        return self._body
+
+
+def _http_error(code: int, retry_after: str | None = None) -> urllib.error.HTTPError:
+    hdrs = email.message.Message()
+    if retry_after is not None:
+        hdrs["Retry-After"] = retry_after
+    return urllib.error.HTTPError("https://x", code, "err", hdrs, None)
+
+
+class TestApiRequestRetry:
+    def test_retries_transient_urlerror_then_succeeds(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = {"n": 0}
+
+        def fake_urlopen(req, timeout=None):  # noqa: ANN001
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise urllib.error.URLError("handshake timed out")
+            return _FakeResp(b'{"ok": true}')
+
+        sleeps: list[float] = []
+        monkeypatch.setattr(gist_mod.urllib.request, "urlopen", fake_urlopen)
+        monkeypatch.setattr(gist_mod.time, "sleep", lambda s: sleeps.append(s))
+
+        out = gist_mod._api_request("GET", "/x", "tok")
+        assert out == {"ok": True}
+        assert calls["n"] == 3
+        # Two failures → two backoff sleeps, growing exponentially.
+        assert len(sleeps) == 2
+        assert sleeps[1] > sleeps[0]
+
+    def test_retries_timeout_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls = {"n": 0}
+
+        def fake_urlopen(req, timeout=None):  # noqa: ANN001
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise TimeoutError("ssl handshake")
+            return _FakeResp(b"{}")
+
+        monkeypatch.setattr(gist_mod.urllib.request, "urlopen", fake_urlopen)
+        monkeypatch.setattr(gist_mod.time, "sleep", lambda s: None)
+        assert gist_mod._api_request("POST", "/x", "tok", {"a": 1}) == {}
+        assert calls["n"] == 2
+
+    def test_retries_5xx(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls = {"n": 0}
+
+        def fake_urlopen(req, timeout=None):  # noqa: ANN001
+            calls["n"] += 1
+            if calls["n"] < 2:
+                raise _http_error(502)
+            return _FakeResp(b"{}")
+
+        monkeypatch.setattr(gist_mod.urllib.request, "urlopen", fake_urlopen)
+        monkeypatch.setattr(gist_mod.time, "sleep", lambda s: None)
+        gist_mod._api_request("GET", "/x", "tok")
+        assert calls["n"] == 2
+
+    def test_no_retry_on_non_retryable_status(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = {"n": 0}
+
+        def fake_urlopen(req, timeout=None):  # noqa: ANN001
+            calls["n"] += 1
+            raise _http_error(404)
+
+        monkeypatch.setattr(gist_mod.urllib.request, "urlopen", fake_urlopen)
+        monkeypatch.setattr(gist_mod.time, "sleep", lambda s: None)
+        with pytest.raises(urllib.error.HTTPError):
+            gist_mod._api_request("GET", "/x", "tok")
+        assert calls["n"] == 1  # failed fast, no retry
+
+    def test_gives_up_after_max_retries(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = {"n": 0}
+
+        def fake_urlopen(req, timeout=None):  # noqa: ANN001
+            calls["n"] += 1
+            raise urllib.error.URLError("down")
+
+        monkeypatch.setattr(gist_mod.urllib.request, "urlopen", fake_urlopen)
+        monkeypatch.setattr(gist_mod.time, "sleep", lambda s: None)
+        with pytest.raises(urllib.error.URLError):
+            gist_mod._api_request("GET", "/x", "tok")
+        assert calls["n"] == gist_mod._MAX_RETRIES
+
+    def test_honors_retry_after_header(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = {"n": 0}
+
+        def fake_urlopen(req, timeout=None):  # noqa: ANN001
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise _http_error(429, retry_after="7")
+            return _FakeResp(b"{}")
+
+        sleeps: list[float] = []
+        monkeypatch.setattr(gist_mod.urllib.request, "urlopen", fake_urlopen)
+        monkeypatch.setattr(gist_mod.time, "sleep", lambda s: sleeps.append(s))
+        gist_mod._api_request("POST", "/x", "tok", {"b": 2})
+        assert sleeps == [7.0]
+
+    def test_backoff_capped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def fake_urlopen(req, timeout=None):  # noqa: ANN001
+            raise urllib.error.URLError("down")
+
+        sleeps: list[float] = []
+        monkeypatch.setattr(gist_mod.urllib.request, "urlopen", fake_urlopen)
+        monkeypatch.setattr(gist_mod.time, "sleep", lambda s: sleeps.append(s))
+        with pytest.raises(urllib.error.URLError):
+            gist_mod._api_request("GET", "/x", "tok")
+        assert all(s <= gist_mod._MAX_BACKOFF_SECONDS for s in sleeps)
 
 
 # ── token / enabled ─────────────────────────────────────────────────────

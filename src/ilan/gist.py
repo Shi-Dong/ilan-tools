@@ -20,6 +20,8 @@ import json
 import queue
 import re
 import threading
+import time
+import urllib.error
 import urllib.request
 from collections.abc import Sequence
 
@@ -33,6 +35,15 @@ _USER_AGENT = "ilan-cli"
 _REQUEST_TIMEOUT_SECONDS = 30
 # GitHub rejects gist comments larger than 65536 bytes; keep a safety margin.
 _MAX_COMMENT_CHARS = 60000
+
+# Mirroring a long conversation means hundreds of sequential POSTs, so a single
+# transient network blip (TLS handshake timeout, dropped connection) or a
+# secondary rate-limit must not abort the whole backfill. Retry those with
+# exponential backoff; a non-retryable status (e.g. 401/404) still fails fast.
+_MAX_RETRIES = 5
+_INITIAL_BACKOFF_SECONDS = 1.0
+_MAX_BACKOFF_SECONDS = 30.0
+_RETRYABLE_STATUS = frozenset({403, 429, 500, 502, 503, 504})
 
 _ROLE_LABELS = {"user": "User", "assistant": "Assistant"}
 
@@ -83,8 +94,21 @@ def format_comment(entry: LogEntry) -> str:
     return f"**{label}**\n\n{body}"
 
 
+def _retry_after_seconds(err: urllib.error.HTTPError, fallback: float) -> float:
+    """Honor GitHub's ``Retry-After`` header when present, else use *fallback*."""
+    header = err.headers.get("Retry-After") if err.headers else None
+    if header and header.strip().isdigit():
+        return float(header.strip())
+    return fallback
+
+
 def _api_request(method: str, path: str, token: str, payload: dict | None = None) -> dict:
-    """Make a GitHub REST API request and return the parsed JSON response."""
+    """Make a GitHub REST API request and return the parsed JSON response.
+
+    Transient failures (network errors, TLS timeouts, 5xx, secondary rate
+    limits) are retried with exponential backoff so a single blip mid-backfill
+    doesn't lose the rest of the conversation.
+    """
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(
         f"{GITHUB_API_URL}{path}",
@@ -98,9 +122,24 @@ def _api_request(method: str, path: str, token: str, payload: dict | None = None
             "User-Agent": _USER_AGENT,
         },
     )
-    with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT_SECONDS) as resp:
-        raw = resp.read().decode()
-    return json.loads(raw) if raw else {}
+    backoff = _INITIAL_BACKOFF_SECONDS
+    for attempt in range(_MAX_RETRIES):
+        last = attempt == _MAX_RETRIES - 1
+        try:
+            with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT_SECONDS) as resp:
+                raw = resp.read().decode()
+            return json.loads(raw) if raw else {}
+        except urllib.error.HTTPError as err:
+            if err.code not in _RETRYABLE_STATUS or last:
+                raise
+            wait = _retry_after_seconds(err, backoff)
+        except (urllib.error.URLError, TimeoutError):
+            if last:
+                raise
+            wait = backoff
+        time.sleep(min(wait, _MAX_BACKOFF_SECONDS))
+        backoff *= 2
+    raise RuntimeError("unreachable: retry loop exhausted without returning")
 
 
 def create_gist(token: str, filename: str, content: str, description: str) -> tuple[str, str]:
