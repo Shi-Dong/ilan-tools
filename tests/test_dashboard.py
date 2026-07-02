@@ -14,6 +14,7 @@ from rich.text import Text
 from ilan.cli import (
     ALIAS_STYLE,
     _build_dashboard_table,
+    _build_history_cell,
     _format_ts,
     _maybe_warn_one_liner_unconfigured,
     main,
@@ -480,8 +481,42 @@ class TestHistoryColumn:
         hist_cell = table.columns[5]._cells[0]
         assert isinstance(hist_cell, Text)
         assert hist_cell.plain == "history"
-        # The whole label carries a link style pointing at the gist URL.
-        assert "link https://gist.github.com/u/abc123" in str(hist_cell.style)
+        # The link/underline style is carried by a span over just the label,
+        # NOT as a base Text style. A base style bleeds across the cell's right
+        # padding, so the underline would run past the word "history".
+        assert str(hist_cell.style) in ("", "none")
+        assert len(hist_cell.spans) == 1
+        span = hist_cell.spans[0]
+        assert (span.start, span.end) == (0, len("history"))
+        assert "link https://gist.github.com/u/abc123" in str(span.style)
+        assert "underline" in str(span.style)
+
+    def test_history_underline_does_not_bleed_into_padding(self) -> None:
+        """Rendered underline must cover only "history", never the padding.
+
+        Regression test: when the History column is wider than the label (as it
+        is in the expanding dashboard table), a base Text style would extend the
+        underline SGR across the trailing padding spaces.
+        """
+        import io
+
+        from rich.console import Console
+        from rich.table import Table
+
+        cell = _build_history_cell({"gist_url": "https://gist/abc"})
+        table = Table()
+        table.add_column("Name")
+        table.add_column("History", width=20)  # far wider than "history"
+        table.add_row("x", cell)
+        buf = io.StringIO()
+        Console(
+            file=buf, force_terminal=True, width=60, color_system="standard"
+        ).print(table)
+        out = buf.getvalue()
+        # Underline (SGR 4) + blue (34) opens right before the word and resets
+        # immediately after it — the padding spaces stay outside the SGR run.
+        assert "\x1b[4;34mhistory\x1b[0m" in out
+        assert "\x1b[4;34mhistory " not in out
 
     def test_history_cell_placeholder_without_gist(self) -> None:
         row = _task_row()
