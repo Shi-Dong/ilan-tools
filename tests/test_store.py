@@ -185,6 +185,19 @@ class TestLogs:
             assert "role" in data
             assert "content" in data
 
+    def test_on_append_hook_fires(self, store: Store) -> None:
+        seen: list[str] = []
+        store.on_append = seen.append
+        store.append_log("hooked", "user", "hi")
+        store.append_log("hooked", "assistant", "yo")
+        assert seen == ["hooked", "hooked"]
+
+    def test_on_append_hook_default_none(self, store: Store) -> None:
+        # No hook wired → append must still work without error.
+        assert store.on_append is None
+        store.append_log("plain", "user", "hi")
+        assert len(store.read_logs("plain")) == 1
+
 
 # ── output paths ────────────────────────────────────────────────────────
 

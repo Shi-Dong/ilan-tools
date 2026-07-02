@@ -4,6 +4,7 @@ import json
 import random
 import shutil
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 
 from ilan.models import ALIAS_POOL, LogEntry, Task
@@ -17,6 +18,10 @@ class Store:
         self._tasks_file = workdir / "tasks.json"
         self._logs_dir = workdir / "logs"
         self._output_dir = workdir / "output"
+        # Optional hook fired (with the task name) after every log append. The
+        # server wires this to the async Gist syncer so new messages are
+        # mirrored to GitHub without any call site needing to know about Gists.
+        self.on_append: Callable[[str], None] | None = None
 
         for d in (workdir, self._logs_dir, self._output_dir):
             d.mkdir(parents=True, exist_ok=True)
@@ -197,6 +202,8 @@ class Store:
         entry = LogEntry.now(role, content)
         with open(self.log_path(task_name), "a") as f:
             f.write(json.dumps(entry.to_dict()) + "\n")
+        if self.on_append is not None:
+            self.on_append(task_name)
 
     def read_logs(self, task_name: str) -> list[LogEntry]:
         path = self.log_path(task_name)

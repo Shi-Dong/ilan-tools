@@ -16,15 +16,20 @@ class TestDefaults:
             "workdir", "num-agents", "model", "effort",
             "summarize-model", "summarize-effort",
             "time-zone", "editor",
-            "api-key-claude", "api-key-glm",
+            "api-key-claude", "api-key-glm", "github-token",
             "dashboard-interval",
             "line-number", "markdown", "one-line-summary",
         }
         assert set(cfg.DEFAULTS.keys()) == expected
 
     def test_secret_keys(self) -> None:
-        assert cfg.SECRET_KEYS == {"api-key-claude", "api-key-glm"}
+        assert cfg.SECRET_KEYS == {"api-key-claude", "api-key-glm", "github-token"}
         assert cfg.SECRET_KEYS <= cfg.VALID_KEYS
+
+    def test_github_token_default_empty(self) -> None:
+        assert cfg.DEFAULTS["github-token"] == ""
+        # Server-side (not a client-only key), so mirroring runs on the server.
+        assert "github-token" not in cfg.CLIENT_SIDE_KEYS
 
     def test_valid_keys_matches_defaults(self) -> None:
         assert cfg.VALID_KEYS == set(cfg.DEFAULTS.keys())

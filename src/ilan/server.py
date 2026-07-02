@@ -19,6 +19,7 @@ from pathlib import Path
 
 from ilan import __version__, config as cfg, get_git_commit
 from ilan import summarize as summarize_mod
+from ilan.gist import GistSyncer
 from ilan.models import (
     ALIAS_POOL,
     FABLE_MODEL,
@@ -116,6 +117,11 @@ class IlanServer:
         self._stop_event = threading.Event()
         self._nudge_event = threading.Event()
         self._httpd: _HTTPServer | None = None
+        # Mirror every conversation to a secret GitHub Gist off the hot path.
+        # Wiring the syncer to ``store.on_append`` means any message appended
+        # anywhere (server handlers or runner reap) is enqueued automatically.
+        self.gist = GistSyncer(self.store, self.lock)
+        self.store.on_append = self.gist.enqueue
 
     # ── lifecycle ────────────────────────────────────────────────
 
@@ -139,6 +145,8 @@ class IlanServer:
         sched = threading.Thread(target=self._scheduler_loop, daemon=True)
         sched.start()
 
+        self.gist.start()
+
         try:
             self._httpd.serve_forever(poll_interval=0.5)
         finally:
@@ -147,6 +155,7 @@ class IlanServer:
     def shutdown(self) -> None:
         self._stop_event.set()
         self._nudge_event.set()
+        self.gist.stop()
         if self._httpd:
             threading.Thread(target=self._httpd.shutdown, daemon=True).start()
 
@@ -292,6 +301,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     "parent_name": t.parent_name,
                     "summary_one_liner": t.summary_one_liner,
                     "model": t.model,
+                    "gist_url": t.gist_url,
                 })
             self._json({"tasks": rows})
 

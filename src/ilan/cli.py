@@ -586,6 +586,19 @@ def _build_cost_cell(row: dict) -> Text:
     return cell
 
 
+def _build_history_cell(row: dict) -> Text:
+    """Build the History cell: a hyperlink over the word ``history``.
+
+    Rich renders the link as an OSC 8 terminal hyperlink, so the long Gist URL
+    stays hidden behind the short label. Tasks without a Gist yet (mirroring
+    disabled, or the async syncer hasn't created it) show a dim placeholder.
+    """
+    url = (row.get("gist_url") or "").strip()
+    if not url:
+        return Text("-", style="dim")
+    return Text("history", style=f"link {url} blue underline")
+
+
 def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
     status = TaskStatus(row["status"])
     style = STYLE_FOR_STATUS.get(status, "")
@@ -646,6 +659,7 @@ def _do_ls(show_all: bool) -> None:
     table.add_column("Cost", justify="right")
     table.add_column("Created")
     table.add_column("Last Changed")
+    table.add_column("History")
     for row, prefix in _order_tasks_as_forest(rows):
         changed = _format_ts(row["status_changed_at"]) if row.get("status_changed_at") else ""
         table.add_row(
@@ -654,6 +668,7 @@ def _do_ls(show_all: bool) -> None:
             _build_cost_cell(row),
             _format_ts(row["created_at"]),
             changed,
+            _build_history_cell(row),
         )
     console.print(table)
 
@@ -1911,15 +1926,17 @@ def _build_dashboard_table(
         table.add_column("Cost", justify="right", width=7)
         table.add_column("Created", ratio=6)
         table.add_column("Last Changed", ratio=6)
+        table.add_column("History", ratio=4)
     else:
         table.add_column("(Alias) Name", style="bold", ratio=14)
         table.add_column("Status", ratio=8)
         table.add_column("Cost", justify="right", ratio=4)
         table.add_column("Created", ratio=7)
         table.add_column("Last Changed", ratio=7)
+        table.add_column("History", ratio=4)
 
     if not rows:
-        table.add_row(Text("No active tasks.", style="dim"), "", "", "", "")
+        table.add_row(Text("No active tasks.", style="dim"), "", "", "", "", "")
         return table
 
     for row, prefix in _order_tasks_as_forest(rows):
@@ -1930,6 +1947,7 @@ def _build_dashboard_table(
             _build_cost_cell(row),
             _format_ts(row["created_at"]),
             changed,
+            _build_history_cell(row),
         )
     return table
 

@@ -16,6 +16,7 @@ DEFAULTS: dict[str, str | int | bool] = {
     "editor": "emacs",
     "api-key-claude": "",
     "api-key-glm": "",
+    "github-token": "",
     "dashboard-interval": 1,
     "line-number": False,
     "markdown": False,
@@ -30,7 +31,7 @@ BOOL_KEYS = {"line-number", "markdown", "one-line-summary"}
 # Values that should never be printed in full by `ilan config show`.
 # ``ilan config show`` renders these as ``**<last-5-chars>`` so the user can
 # confirm a key is set (and which one) without leaking it to the terminal.
-SECRET_KEYS = {"api-key-claude", "api-key-glm"}
+SECRET_KEYS = {"api-key-claude", "api-key-glm", "github-token"}
 
 # Keys whose effect is purely on the CLI running on the user's machine
 # (rendering, input rewriting, etc.).  ``ilan config set`` writes these to

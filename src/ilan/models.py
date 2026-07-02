@@ -126,6 +126,13 @@ class Task:
     # is the *observed* model, distinct from ``model`` above (the *configured*
     # model used by ``ilan max`` / ``unmax``).
     last_assistant_model: str | None = None
+    # GitHub Gist mirror of the conversation. ``gist_id`` / ``gist_url`` are
+    # set the first time the async syncer creates the task's secret Gist;
+    # ``gist_synced_count`` records how many log entries have already been
+    # posted as Gist comments so the syncer only posts new messages.
+    gist_id: str | None = None
+    gist_url: str | None = None
+    gist_synced_count: int = 0
 
     def set_status(self, status: TaskStatus) -> None:
         """Set status and update the ``status_changed_at`` timestamp.
@@ -162,6 +169,9 @@ class Task:
             "summary_one_liner": self.summary_one_liner,
             "model": self.model,
             "last_assistant_model": self.last_assistant_model,
+            "gist_id": self.gist_id,
+            "gist_url": self.gist_url,
+            "gist_synced_count": self.gist_synced_count,
         }
 
     @classmethod
@@ -188,6 +198,9 @@ class Task:
             summary_one_liner=d.get("summary_one_liner"),
             model=d.get("model"),
             last_assistant_model=d.get("last_assistant_model"),
+            gist_id=d.get("gist_id"),
+            gist_url=d.get("gist_url"),
+            gist_synced_count=d.get("gist_synced_count", 0),
         )
 
 

@@ -185,6 +185,7 @@ class TestTask:
             "task_hash", "needs_review", "input_tokens", "output_tokens",
             "cache_read_input_tokens", "cost_usd", "sleep_seconds",
             "parent_name", "summary_one_liner", "model", "last_assistant_model",
+            "gist_id", "gist_url", "gist_synced_count",
         }
         assert set(d.keys()) == expected_keys
 
@@ -248,6 +249,30 @@ class TestTask:
         d = {"name": "old", "prompt": "p", "status": "UNCLAIMED"}
         t = Task.from_dict(d)
         assert t.model is None
+
+    def test_gist_fields_default(self) -> None:
+        t = Task(name="x", prompt="y")
+        assert t.gist_id is None
+        assert t.gist_url is None
+        assert t.gist_synced_count == 0
+
+    def test_gist_fields_roundtrip(self) -> None:
+        t = self._make_task()
+        t.gist_id = "gid123"
+        t.gist_url = "https://gist.github.com/u/gid123"
+        t.gist_synced_count = 5
+        d = t.to_dict()
+        t2 = Task.from_dict(d)
+        assert t2.gist_id == "gid123"
+        assert t2.gist_url == "https://gist.github.com/u/gid123"
+        assert t2.gist_synced_count == 5
+
+    def test_from_dict_missing_gist_fields(self) -> None:
+        d = {"name": "old", "prompt": "p", "status": "UNCLAIMED"}
+        t = Task.from_dict(d)
+        assert t.gist_id is None
+        assert t.gist_url is None
+        assert t.gist_synced_count == 0
 
 
 # ── Fable model ─────────────────────────────────────────────────────────

@@ -135,7 +135,9 @@ class TestBuildDashboardTable:
     def test_table_has_correct_columns(self) -> None:
         table = _build_dashboard_table([], _TZ)
         col_names = [c.header for c in table.columns]
-        assert col_names == ["(Alias) Name", "Status", "Cost", "Created", "Last Changed"]
+        assert col_names == [
+            "(Alias) Name", "Status", "Cost", "Created", "Last Changed", "History",
+        ]
 
 
 # ── needs_review / ⚠️ marker ────────────────────────────────────────
@@ -427,7 +429,7 @@ class TestDashboardTableProperties:
         table = _build_dashboard_table([], _TZ, show_one_liner=True)
         assert table.expand is True
         ratios = [c.ratio for c in table.columns]
-        assert ratios == [10, 16, None, 6, 6]
+        assert ratios == [10, 16, None, 6, 6, 4]
         cost_col = table.columns[2]
         assert cost_col.width == 7
 
@@ -438,12 +440,42 @@ class TestDashboardTableProperties:
         table = _build_dashboard_table([], _TZ, show_one_liner=False)
         assert table.expand is True
         ratios = [c.ratio for c in table.columns]
-        assert ratios == [14, 8, 4, 7, 7]
+        assert ratios == [14, 8, 4, 7, 7, 4]
 
     def test_table_draws_separator_between_rows(self) -> None:
         """``show_lines=True`` draws a horizontal rule between every task row."""
         table = _build_dashboard_table([], _TZ)
         assert table.show_lines is True
+
+
+# ── History (gist) column ────────────────────────────────────────────
+
+
+class TestHistoryColumn:
+    def test_history_cell_is_linked_when_gist_url(self) -> None:
+        row = _task_row()
+        row["gist_url"] = "https://gist.github.com/u/abc123"
+        table = _build_dashboard_table([row], _TZ)
+        hist_cell = table.columns[5]._cells[0]
+        assert isinstance(hist_cell, Text)
+        assert hist_cell.plain == "history"
+        # The whole label carries a link style pointing at the gist URL.
+        assert "link https://gist.github.com/u/abc123" in str(hist_cell.style)
+
+    def test_history_cell_placeholder_without_gist(self) -> None:
+        row = _task_row()
+        table = _build_dashboard_table([row], _TZ)
+        hist_cell = table.columns[5]._cells[0]
+        assert isinstance(hist_cell, Text)
+        assert hist_cell.plain == "-"
+
+    def test_history_cell_placeholder_when_blank_url(self) -> None:
+        row = _task_row()
+        row["gist_url"] = "   "
+        table = _build_dashboard_table([row], _TZ)
+        hist_cell = table.columns[5]._cells[0]
+        assert isinstance(hist_cell, Text)
+        assert hist_cell.plain == "-"
 
 
 # ── one-liner summary rendering ──────────────────────────────────────
