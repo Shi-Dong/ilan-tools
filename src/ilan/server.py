@@ -548,6 +548,9 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     return
                 old_task_name = task.name
                 task = self._ilan.store.rename_task(task.name, new_name)
+            # Refresh the task's Gist title off the hot path so it tracks the
+            # new name (no-op when mirroring is disabled or no Gist exists yet).
+            self._ilan.gist.enqueue(task.name)
             self._json({"ok": True, "old_name": old_task_name, "new_name": task.name})
 
         def handle_task_set_alias(self, name: str):

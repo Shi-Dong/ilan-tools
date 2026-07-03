@@ -72,20 +72,34 @@ def _safe_filename(task_name: str) -> str:
     return f"{safe}.md"
 
 
+_LANDING_BODY = (
+    "This secret Gist mirrors the conversation between the user and the "
+    "agent for this task. Each message is posted below as its own comment "
+    "so the two roles render as separate Markdown bubbles.\n"
+)
+
+
+def _title_line(task_name: str) -> str:
+    """The Gist's Markdown H1, with the task name as inline code.
+
+    The name is refreshed on rename (see :meth:`GistSyncer.sync_task`), so it
+    stays current instead of freezing at whatever the task was first called.
+    """
+    return f"# ilan task `{task_name}`"
+
+
+def landing_content(task_name: str) -> str:
+    """The full Markdown body of the Gist's landing-page file."""
+    return f"{_title_line(task_name)}\n\n{_LANDING_BODY}"
+
+
 def initial_file(task_name: str) -> tuple[str, str]:
     """Return ``(filename, content)`` for the Gist's landing-page file.
 
     The file is only a title card — the conversation itself lives in the
     comments, one message per comment.
     """
-    filename = _safe_filename(task_name)
-    content = (
-        "# ilan task\n\n"
-        "This secret Gist mirrors the conversation between the user and the "
-        "agent for this task. Each message is posted below as its own comment "
-        "so the two roles render as separate Markdown bubbles.\n"
-    )
-    return filename, content
+    return _safe_filename(task_name), landing_content(task_name)
 
 
 def format_comment(entry: LogEntry) -> str:
@@ -181,6 +195,35 @@ def post_comment(token: str, gist_id: str, body: str) -> None:
     _api_request("POST", f"/gists/{gist_id}/comments", token, {"body": body})
 
 
+def fetch_gist_filename(token: str, gist_id: str) -> str | None:
+    """Return the name of the Gist's landing file (its only file), or ``None``.
+
+    A Gist file is addressed by its filename, so a title rewrite has to look up
+    the current name rather than re-deriving it (the task may have been renamed
+    since the file was created).
+    """
+    resp = _api_request("GET", f"/gists/{gist_id}", token)
+    files = resp.get("files") or {}
+    return next(iter(files), None)
+
+
+def update_gist_title(token: str, gist_id: str, task_name: str) -> None:
+    """Rewrite the landing file so its title line tracks *task_name*.
+
+    The file is edited in place (same filename, new content); only the title
+    line changes. A no-op if the Gist has somehow lost its file.
+    """
+    filename = fetch_gist_filename(token, gist_id)
+    if filename is None:
+        return
+    _api_request(
+        "PATCH",
+        f"/gists/{gist_id}",
+        token,
+        {"files": {filename: {"content": landing_content(task_name)}}},
+    )
+
+
 class GistSyncer:
     """Background worker that mirrors task conversations to secret Gists.
 
@@ -246,6 +289,7 @@ class GistSyncer:
             gist_id = task.gist_id
             already = task.gist_synced_count
             display_name = task.name
+            title_name = task.gist_title_name
 
         entries: Sequence[LogEntry] = self.store.read_logs(name)
         if gist_id is None and not entries:
@@ -260,7 +304,17 @@ class GistSyncer:
                     return
                 task.gist_id = gist_id
                 task.gist_url = html_url
+                task.gist_title_name = display_name
                 self.store.put_task(task)
+        elif title_name != display_name:
+            # The task was renamed (or predates title-name tracking): rewrite
+            # the Gist's title line so it shows the current name.
+            update_gist_title(token, gist_id, display_name)
+            with self.lock:
+                task = self.store.get_task(name)
+                if task is not None:
+                    task.gist_title_name = display_name
+                    self.store.put_task(task)
 
         pending = list(entries[already:])
         posted = 0

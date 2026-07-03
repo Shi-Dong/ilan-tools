@@ -133,6 +133,10 @@ class Task:
     gist_id: str | None = None
     gist_url: str | None = None
     gist_synced_count: int = 0
+    # The task name currently written into the Gist's Markdown title line. When
+    # a task is renamed this diverges from ``name``, which tells the syncer to
+    # rewrite the title so it tracks the new name.
+    gist_title_name: str | None = None
 
     def set_status(self, status: TaskStatus) -> None:
         """Set status and update the ``status_changed_at`` timestamp.
@@ -172,6 +176,7 @@ class Task:
             "gist_id": self.gist_id,
             "gist_url": self.gist_url,
             "gist_synced_count": self.gist_synced_count,
+            "gist_title_name": self.gist_title_name,
         }
 
     @classmethod
@@ -201,6 +206,7 @@ class Task:
             gist_id=d.get("gist_id"),
             gist_url=d.get("gist_url"),
             gist_synced_count=d.get("gist_synced_count", 0),
+            gist_title_name=d.get("gist_title_name"),
         )
 
 
