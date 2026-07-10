@@ -652,7 +652,7 @@ def _maybe_warn_one_liner_unconfigured(client: Client) -> None:
 # drop the lower-priority ``Cost`` and ``Created`` columns so the remaining
 # ``Name`` / ``Status`` / ``Last Changed`` / ``History`` columns stay legible
 # instead of wrapping into an unreadable mess on a narrow window.
-_NARROW_TERMINAL_WIDTH = 100
+_NARROW_TERMINAL_WIDTH = 120
 
 
 def _terminal_is_narrow(width: int | None = None) -> bool:
