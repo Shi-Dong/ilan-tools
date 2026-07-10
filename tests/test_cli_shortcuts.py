@@ -68,6 +68,66 @@ class TestLsNoArgs:
         assert "my-task" in result.output
         client.list_tasks.assert_called_once_with(show_all=False)
 
+    def test_ls_wide_shows_cost_and_created(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A wide terminal keeps the Cost and Created columns."""
+        import ilan.cli as cli_mod
+        from rich.console import Console
+
+        monkeypatch.setattr(cli_mod, "console", Console(width=140, force_terminal=True))
+        client = _make_client()
+        client.list_tasks.return_value = {
+            "tasks": [
+                {
+                    "name": "wide-task",
+                    "alias": None,
+                    "status": "WORKING",
+                    "cost_usd": 4.56,
+                    "created_at": "2026-04-13T00:00:00+00:00",
+                    "status_changed_at": "2026-04-13T01:00:00+00:00",
+                    "needs_review": False,
+                },
+            ],
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["ls"])
+        assert result.exit_code == 0
+        out = _strip_ansi(result.output)
+        assert "Cost" in out
+        assert "Created" in out
+
+    def test_ls_narrow_drops_cost_and_created(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A narrow terminal drops the Cost and Created columns from ``ls``."""
+        import ilan.cli as cli_mod
+        from rich.console import Console
+
+        monkeypatch.setattr(cli_mod, "console", Console(width=70, force_terminal=True))
+        client = _make_client()
+        client.list_tasks.return_value = {
+            "tasks": [
+                {
+                    "name": "narrow-task",
+                    "alias": None,
+                    "status": "WORKING",
+                    "cost_usd": 4.56,
+                    "created_at": "2026-04-13T00:00:00+00:00",
+                    "status_changed_at": "2026-04-13T01:00:00+00:00",
+                    "needs_review": False,
+                },
+            ],
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["ls"])
+        assert result.exit_code == 0
+        out = _strip_ansi(result.output)
+        assert "narrow-task" in out
+        assert "Last Changed" in out
+        assert "Cost" not in out
+        assert "Created" not in out
+
     def test_task_ls_shows_table(self, runner: CliRunner, tmp_config) -> None:
         client = _make_client()
         client.list_tasks.return_value = {"tasks": []}
@@ -751,7 +811,15 @@ class TestUnmaxShorthand:
 
 
 class TestFableRendering:
-    def test_ls_shows_fable_for_maxed_task(self, runner: CliRunner, tmp_config) -> None:
+    def test_ls_shows_fable_for_maxed_task(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # The FABLE note lives in the Cost column, which is only shown on a
+        # wide-enough terminal, so force a wide console for this marker test.
+        import ilan.cli as cli_mod
+        from rich.console import Console
+
+        monkeypatch.setattr(cli_mod, "console", Console(width=140, force_terminal=True))
         client = _make_client()
         client.list_tasks.return_value = {
             "tasks": [

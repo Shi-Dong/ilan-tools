@@ -153,6 +153,8 @@ Full-screen, real-time task table (like `htop`). Polls the server at the configu
 
 Each row's `Status` cell carries a Haiku-generated one-line summary of the agent's most recent reply (≤ 20 words). The summary is refreshed only on `WORKING → NEEDS_ATTENTION` / `AGENT_FINISHED` transitions. The server produces it via Anthropic's API when `api-key-claude` is set, otherwise it falls back to the server's local `claude` CLI (Claude Code subscription, requires `claude` installed and logged in). Toggle whether the client renders it with `ilan config set one-line-summary true|false` (default `true`); if the toggle is on but the server has no `api-key-claude`, the client prints a note about the CLI fallback above the table. A thin separator is drawn between every task row in both `ilan ls` and `ilan dashboard`; branched (child) tasks remain visually nested under their parent via the existing tree-prefix indentation. When a `github-token` is configured, a `History` column links each row to its secret-Gist conversation mirror — see [Gist conversation mirroring](#gist-conversation-mirroring).
 
+Both `ilan ls` and `ilan dashboard` adapt to the terminal width: on a window narrower than 100 columns they drop the `Cost` and `Created` columns so the remaining `Name` / `Status` / `Last Changed` / `History` columns stay legible.
+
 ### Server
 
 | Command | Description |
