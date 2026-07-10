@@ -648,6 +648,20 @@ def _maybe_warn_one_liner_unconfigured(client: Client) -> None:
         console.print(_ONE_LINER_NO_API_KEY_WARNING)
 
 
+# Below this terminal width (in columns) the ``ls`` / ``dashboard`` tables
+# drop the lower-priority ``Cost`` and ``Created`` columns so the remaining
+# ``Name`` / ``Status`` / ``Last Changed`` / ``History`` columns stay legible
+# instead of wrapping into an unreadable mess on a narrow window.
+_NARROW_TERMINAL_WIDTH = 100
+
+
+def _terminal_is_narrow(width: int | None = None) -> bool:
+    """Whether the terminal is too narrow to show the Cost/Created columns."""
+    if width is None:
+        width = console.width
+    return width < _NARROW_TERMINAL_WIDTH
+
+
 def _do_ls(show_all: bool) -> None:
     client = _client()
     _maybe_warn_one_liner_unconfigured(client)
@@ -659,23 +673,27 @@ def _do_ls(show_all: bool) -> None:
         return
 
     show_one_liner = _one_liner_enabled()
+    narrow = _terminal_is_narrow()
     table = Table(show_lines=True)
     table.add_column("(Alias) Name", style="bold")
     table.add_column("Status")
-    table.add_column("Cost", justify="right")
-    table.add_column("Created")
+    if not narrow:
+        table.add_column("Cost", justify="right")
+        table.add_column("Created")
     table.add_column("Last Changed")
     table.add_column("History")
     for row, prefix in _order_tasks_as_forest(rows):
         changed = _format_ts(row["status_changed_at"], seconds=False) if row.get("status_changed_at") else ""
-        table.add_row(
+        cells = [
             _build_name_cell(row, prefix),
             _build_status_cell(row, show_one_liner=show_one_liner),
-            _build_cost_cell(row),
-            _format_ts(row["created_at"], seconds=False),
-            changed,
-            _build_history_cell(row),
-        )
+        ]
+        if not narrow:
+            cells.append(_build_cost_cell(row))
+            cells.append(_format_ts(row["created_at"], seconds=False))
+        cells.append(changed)
+        cells.append(_build_history_cell(row))
+        table.add_row(*cells)
     console.print(table)
 
 
@@ -1898,8 +1916,14 @@ def shortcut_check_model(name: str) -> None:
 
 def _build_dashboard_table(
     rows: list[dict], tz: ZoneInfo, show_one_liner: bool = True,
+    narrow: bool = False,
 ) -> Table:
-    """Build a Rich Table from task rows, reusing the _do_ls format."""
+    """Build a Rich Table from task rows, reusing the _do_ls format.
+
+    When ``narrow`` is set (terminal below ``_NARROW_TERMINAL_WIDTH``), the
+    ``Cost`` and ``Created`` columns are dropped so the remaining columns stay
+    legible.
+    """
     now = datetime.now(tz)
     header = Text()
     header.append("ilan dashboard", style="bold")
@@ -1929,32 +1953,37 @@ def _build_dashboard_table(
     if show_one_liner:
         table.add_column("(Alias) Name", style="bold", ratio=10)
         table.add_column("Status", ratio=16)
-        table.add_column("Cost", justify="right", width=7)
-        table.add_column("Created", ratio=6)
+        if not narrow:
+            table.add_column("Cost", justify="right", width=7)
+            table.add_column("Created", ratio=6)
         table.add_column("Last Changed", ratio=6)
         table.add_column("History", ratio=4)
     else:
         table.add_column("(Alias) Name", style="bold", ratio=14)
         table.add_column("Status", ratio=8)
-        table.add_column("Cost", justify="right", ratio=4)
-        table.add_column("Created", ratio=7)
+        if not narrow:
+            table.add_column("Cost", justify="right", ratio=4)
+            table.add_column("Created", ratio=7)
         table.add_column("Last Changed", ratio=7)
         table.add_column("History", ratio=4)
 
     if not rows:
-        table.add_row(Text("No active tasks.", style="dim"), "", "", "", "", "")
+        table.add_row(*(Text("No active tasks.", style="dim"),
+                        *[""] * (len(table.columns) - 1)))
         return table
 
     for row, prefix in _order_tasks_as_forest(rows):
         changed = _format_ts(row["status_changed_at"], seconds=False) if row.get("status_changed_at") else ""
-        table.add_row(
+        cells = [
             _build_name_cell(row, prefix),
             _build_status_cell(row, show_one_liner=show_one_liner),
-            _build_cost_cell(row),
-            _format_ts(row["created_at"], seconds=False),
-            changed,
-            _build_history_cell(row),
-        )
+        ]
+        if not narrow:
+            cells.append(_build_cost_cell(row))
+            cells.append(_format_ts(row["created_at"], seconds=False))
+        cells.append(changed)
+        cells.append(_build_history_cell(row))
+        table.add_row(*cells)
     return table
 
 
@@ -1971,12 +2000,15 @@ def _do_dashboard() -> None:
         # dashboard is running leaves it stuck on the values loaded at startup.
         tz = ZoneInfo(str(cfg.load().get("time-zone", "US/Pacific")))
         show_one_liner = _one_liner_enabled()
+        narrow = _terminal_is_narrow()
         try:
             resp = client.list_tasks(show_all=False)
             rows = resp["tasks"]
         except Exception:
             rows = []
-        return _build_dashboard_table(rows, tz, show_one_liner=show_one_liner)
+        return _build_dashboard_table(
+            rows, tz, show_one_liner=show_one_liner, narrow=narrow,
+        )
 
     def _refresh(live: Live) -> None:
         live.update(fetch_and_render())

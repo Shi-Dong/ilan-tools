@@ -13,10 +13,12 @@ from rich.text import Text
 
 from ilan.cli import (
     ALIAS_STYLE,
+    _NARROW_TERMINAL_WIDTH,
     _build_dashboard_table,
     _build_history_cell,
     _format_ts,
     _maybe_warn_one_liner_unconfigured,
+    _terminal_is_narrow,
     main,
 )
 from ilan.models import STYLE_FOR_STATUS, TaskStatus
@@ -70,6 +72,13 @@ def _render_table_text(rows: list[dict]) -> str:
     buf = io.StringIO()
     console = Console(file=buf, width=120, force_terminal=True)
     console.print(table)
+    return buf.getvalue()
+
+
+def _render_narrow(table) -> str:
+    """Render an already-built table at a narrow width for assertion."""
+    buf = io.StringIO()
+    Console(file=buf, width=80, force_terminal=True).print(table)
     return buf.getvalue()
 
 
@@ -468,6 +477,61 @@ class TestDashboardTableProperties:
         """``show_lines=True`` draws a horizontal rule between every task row."""
         table = _build_dashboard_table([], _TZ)
         assert table.show_lines is True
+
+
+# ── narrow-terminal column dropping ──────────────────────────────────
+
+
+class TestTerminalIsNarrow:
+    def test_below_threshold_is_narrow(self) -> None:
+        assert _terminal_is_narrow(_NARROW_TERMINAL_WIDTH - 1) is True
+
+    def test_at_threshold_is_not_narrow(self) -> None:
+        assert _terminal_is_narrow(_NARROW_TERMINAL_WIDTH) is False
+
+    def test_above_threshold_is_not_narrow(self) -> None:
+        assert _terminal_is_narrow(_NARROW_TERMINAL_WIDTH + 40) is False
+
+
+class TestNarrowDashboardColumns:
+    """When ``narrow`` is set, the dashboard drops Cost and Created."""
+
+    def test_narrow_drops_cost_and_created_one_liner_on(self) -> None:
+        table = _build_dashboard_table([], _TZ, show_one_liner=True, narrow=True)
+        col_names = [c.header for c in table.columns]
+        assert col_names == ["(Alias) Name", "Status", "Last Changed", "History"]
+
+    def test_narrow_drops_cost_and_created_one_liner_off(self) -> None:
+        table = _build_dashboard_table([], _TZ, show_one_liner=False, narrow=True)
+        col_names = [c.header for c in table.columns]
+        assert col_names == ["(Alias) Name", "Status", "Last Changed", "History"]
+
+    def test_wide_keeps_all_columns(self) -> None:
+        table = _build_dashboard_table([], _TZ, narrow=False)
+        col_names = [c.header for c in table.columns]
+        assert col_names == [
+            "(Alias) Name", "Status", "Cost", "Created", "Last Changed", "History",
+        ]
+
+    def test_narrow_empty_row_matches_column_count(self) -> None:
+        """The 'No active tasks.' placeholder row must not over/under-fill cells."""
+        table = _build_dashboard_table([], _TZ, narrow=True)
+        assert len(table.columns) == 4
+        # Each column has exactly one placeholder cell.
+        assert all(len(c._cells) == 1 for c in table.columns)
+
+    def test_narrow_task_row_renders_without_cost_or_created(self) -> None:
+        row = _task_row(name="narrow-task", cost_usd=9.99, status="WORKING")
+        table = _build_dashboard_table([row], _TZ, narrow=True)
+        assert len(table.columns) == 4
+        assert "$9.99" not in _render_narrow(table)
+
+    def test_narrow_still_shows_name_and_status(self) -> None:
+        row = _task_row(name="keep-me", status="WORKING")
+        table = _build_dashboard_table([row], _TZ, narrow=True)
+        text = _render_narrow(table)
+        assert "keep-me" in text
+        assert "WORKING" in text
 
 
 # ── History (gist) column ────────────────────────────────────────────
