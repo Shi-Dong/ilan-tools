@@ -15,16 +15,25 @@ class TestDefaults:
         expected = {
             "workdir", "num-agents", "model", "effort",
             "summarize-model", "summarize-effort",
-            "time-zone", "editor",
-            "api-key-claude", "api-key-glm", "github-token",
+            "time-zone", "editor", "agent",
+            "api-key-claude", "api-key-glm", "api-key-codex", "github-token",
             "dashboard-interval",
             "line-number", "markdown", "one-line-summary",
         }
         assert set(cfg.DEFAULTS.keys()) == expected
 
     def test_secret_keys(self) -> None:
-        assert cfg.SECRET_KEYS == {"api-key-claude", "api-key-glm", "github-token"}
+        assert cfg.SECRET_KEYS == {
+            "api-key-claude", "api-key-glm", "api-key-codex", "github-token"
+        }
         assert cfg.SECRET_KEYS <= cfg.VALID_KEYS
+
+    def test_agent_default_is_claude(self) -> None:
+        assert cfg.DEFAULTS["agent"] == "claude"
+
+    def test_api_key_codex_default_empty(self) -> None:
+        assert cfg.DEFAULTS["api-key-codex"] == ""
+        assert "api-key-codex" in cfg.SECRET_KEYS
 
     def test_github_token_default_empty(self) -> None:
         assert cfg.DEFAULTS["github-token"] == ""
