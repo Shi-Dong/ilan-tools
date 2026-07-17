@@ -105,6 +105,14 @@ def other_engine(engine: str) -> str:
     return ENGINE_CODEX if engine == ENGINE_CLAUDE else ENGINE_CLAUDE
 
 
+# Colour of a task's name in ls/dashboard, keyed by engine, so the running
+# backend is legible at a glance: light orange for Claude, light blue for Codex.
+ENGINE_NAME_STYLE: dict[str, str] = {
+    ENGINE_CLAUDE: "orange1",
+    ENGINE_CODEX: "light_sky_blue1",
+}
+
+
 STYLE_FOR_STATUS: dict[TaskStatus, str] = {
     TaskStatus.UNCLAIMED: "yellow",
     TaskStatus.WORKING: "bold cyan",

@@ -10,8 +10,10 @@ from ilan.models import (
     ALIAS_POOL,
     ENGINE_CLAUDE,
     ENGINE_CODEX,
+    ENGINE_NAME_STYLE,
     FABLE_MODEL,
     GLM_MODEL,
+    VALID_ENGINES,
     LogEntry,
     Task,
     TaskStatus,
@@ -332,6 +334,11 @@ class TestTask:
     def test_other_engine_toggles(self) -> None:
         assert other_engine(ENGINE_CLAUDE) == ENGINE_CODEX
         assert other_engine(ENGINE_CODEX) == ENGINE_CLAUDE
+
+    def test_engine_name_style_covers_all_engines(self) -> None:
+        assert set(ENGINE_NAME_STYLE) == set(VALID_ENGINES)
+        assert ENGINE_NAME_STYLE[ENGINE_CLAUDE] == "orange1"
+        assert ENGINE_NAME_STYLE[ENGINE_CODEX] == "light_sky_blue1"
 
 
 # ── Fable model ─────────────────────────────────────────────────────────
