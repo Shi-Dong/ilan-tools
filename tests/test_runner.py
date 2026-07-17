@@ -10,7 +10,7 @@ import pytest
 
 from ilan.backends import ClaudeBackend, CodexBackend
 from ilan.models import ENGINE_CLAUDE, ENGINE_CODEX, Task, TaskStatus
-from ilan.runner import Runner, STATUS_SUFFIX, _tmux_instruction
+from ilan.runner import Runner, STATUS_SUFFIX, _render_catchup, _tmux_instruction
 from ilan.store import Store
 
 
@@ -718,4 +718,230 @@ class TestSchedule:
         assert len(working) == 1
 
         for proc in runner._procs.values():
+            proc.wait(timeout=5)
+
+
+# ── _render_catchup ─────────────────────────────────────────────────────
+
+
+class TestRenderCatchup:
+    def _entries(self) -> list:
+        from ilan.models import LogEntry
+        return [LogEntry.now("user", "hello"), LogEntry.now("assistant", "hi there")]
+
+    def test_fresh_header_and_content(self) -> None:
+        out = _render_catchup(self._entries(), fresh=True)
+        assert "taking over" in out.lower()
+        assert "hello" in out and "hi there" in out
+        assert "[User]" in out and "[Assistant]" in out
+
+    def test_resume_header(self) -> None:
+        out = _render_catchup(self._entries(), fresh=False)
+        assert "while you were away" in out.lower()
+        assert "hello" in out and "hi there" in out
+
+
+# ── _try_reap: cursor + session map ──────────────────────────────────────
+
+
+class TestReapCursor:
+    def test_reap_advances_cursor_and_mirrors_session(
+        self, store: Store, runner: Runner
+    ) -> None:
+        t = Task(name="rc", prompt="p", status=TaskStatus.WORKING, pid=99999,
+                 engine=ENGINE_CLAUDE)
+        store.put_task(t)
+        store.append_log("rc", "user", "p")  # pre-existing user turn
+        out = {"session_id": "sid-rc", "result": "done\n[STATUS: DONE]", "is_error": False}
+        store.output_path("rc").write_text(json.dumps(out))
+
+        with patch.object(Runner, "_find_session_log",
+                          return_value=Path("/fake/sid-rc.jsonl")):
+            runner._try_reap(t)
+
+        updated = store.get_task("rc")
+        assert updated is not None
+        assert updated.sessions[ENGINE_CLAUDE] == "sid-rc"
+        # user + newly-appended assistant turn
+        assert updated.log_cursors[ENGINE_CLAUDE] == 2
+
+
+# ── switch_engine ────────────────────────────────────────────────────────
+
+
+class TestSwitchEngine:
+    def test_noop_when_same_engine(self, store: Store, runner: Runner) -> None:
+        t = Task(name="s1", prompt="p", engine=ENGINE_CLAUDE, session_id="a")
+        store.put_task(t)
+        runner.switch_engine(t, ENGINE_CLAUDE)
+        assert t.engine == ENGINE_CLAUDE
+        assert t.session_id == "a"
+        assert t.awaiting_catchup is False
+
+    def test_flips_engine_and_restores_target_session(
+        self, store: Store, runner: Runner
+    ) -> None:
+        t = Task(name="s2", prompt="p", engine=ENGINE_CLAUDE, session_id="claude-sid",
+                 sessions={"claude": "claude-sid", "codex": "codex-sid"})
+        store.append_log("s2", "user", "p")
+        store.put_task(t)
+        runner.switch_engine(t, ENGINE_CODEX)
+        assert t.engine == ENGINE_CODEX
+        assert t.session_id == "codex-sid"
+        assert t.sessions["claude"] == "claude-sid"
+        assert t.session_log_path is None
+
+    def test_sets_awaiting_catchup_when_target_behind(
+        self, store: Store, runner: Runner
+    ) -> None:
+        t = Task(name="s3", prompt="p", engine=ENGINE_CLAUDE, session_id="c",
+                 sessions={"claude": "c"}, log_cursors={"claude": 2})
+        store.append_log("s3", "user", "p")
+        store.append_log("s3", "assistant", "a")
+        store.put_task(t)
+        runner.switch_engine(t, ENGINE_CODEX)  # codex cursor 0 < len 2
+        assert t.awaiting_catchup is True
+
+    def test_no_catchup_when_no_history(self, store: Store, runner: Runner) -> None:
+        t = Task(name="s4", prompt="p", engine=ENGINE_CLAUDE)
+        store.put_task(t)  # empty log
+        runner.switch_engine(t, ENGINE_CODEX)
+        assert t.awaiting_catchup is False
+
+    def test_no_catchup_when_target_already_current(
+        self, store: Store, runner: Runner
+    ) -> None:
+        t = Task(name="s5", prompt="p", engine=ENGINE_CLAUDE, session_id="c",
+                 sessions={"claude": "c", "codex": "x"},
+                 log_cursors={"claude": 2, "codex": 2})
+        store.append_log("s5", "user", "p")
+        store.append_log("s5", "assistant", "a")
+        store.put_task(t)
+        runner.switch_engine(t, ENGINE_CODEX)  # codex cursor 2 == len 2
+        assert t.awaiting_catchup is False
+
+    def test_roundtrip_preserves_both_sessions(
+        self, store: Store, runner: Runner
+    ) -> None:
+        t = Task(name="s6", prompt="p", engine=ENGINE_CLAUDE, session_id="c",
+                 sessions={"claude": "c"})
+        store.append_log("s6", "user", "p")
+        store.put_task(t)
+        runner.switch_engine(t, ENGINE_CODEX)
+        assert t.session_id is None  # codex never ran
+        # Simulate a codex reap establishing its own session.
+        t.set_session_for(ENGINE_CODEX, "codex-new")
+        t.session_id = "codex-new"
+        runner.switch_engine(t, ENGINE_CLAUDE)
+        assert t.session_id == "c"
+        assert t.sessions[ENGINE_CODEX] == "codex-new"
+
+
+# ── _build_catchup_prompt ────────────────────────────────────────────────
+
+
+class TestCatchupPrompt:
+    def test_fresh_session_renders_full_transcript(
+        self, store: Store, runner: Runner
+    ) -> None:
+        t = Task(name="cp1", prompt="orig", engine=ENGINE_CODEX, awaiting_catchup=True)
+        store.append_log("cp1", "user", "orig")
+        store.append_log("cp1", "assistant", "did step 1")
+        store.append_log("cp1", "user", "keep going")
+        store.put_task(t)
+        prompt, resume = runner._build_prompt(t)
+        assert resume is False
+        assert "did step 1" in prompt and "keep going" in prompt
+        assert "full conversation" in prompt.lower()
+        assert t.awaiting_catchup is False
+        assert t.log_cursors[ENGINE_CODEX] == 3
+
+    def test_resumed_session_injects_only_interim(
+        self, store: Store, runner: Runner
+    ) -> None:
+        t = Task(name="cp2", prompt="orig", engine=ENGINE_CLAUDE, session_id="claude-sid",
+                 awaiting_catchup=True, sessions={"claude": "claude-sid"},
+                 log_cursors={"claude": 1})
+        store.append_log("cp2", "user", "orig")            # index 0 (seen)
+        store.append_log("cp2", "assistant", "other work")  # index 1
+        store.append_log("cp2", "user", "please merge")     # index 2
+        store.put_task(t)
+        with patch.object(Runner, "_find_session_log",
+                          return_value=Path("/fake/claude-sid.jsonl")):
+            prompt, resume = runner._build_prompt(t)
+        assert resume is True
+        assert "other work" in prompt and "please merge" in prompt
+        assert "orig" not in prompt  # already seen
+        assert t.log_cursors["claude"] == 3
+
+    def test_noop_when_caught_up_falls_back_to_continue(
+        self, store: Store, runner: Runner
+    ) -> None:
+        t = Task(name="cp3", prompt="orig", engine=ENGINE_CLAUDE, session_id="sid",
+                 awaiting_catchup=True, sessions={"claude": "sid"},
+                 log_cursors={"claude": 2})
+        store.append_log("cp3", "user", "orig")
+        store.append_log("cp3", "assistant", "done")
+        store.put_task(t)
+        with patch.object(Runner, "_find_session_log", return_value=Path("/x")):
+            prompt, resume = runner._build_prompt(t)
+        assert resume is True
+        assert prompt == "Please continue working on this task."
+        assert t.awaiting_catchup is False
+
+    def test_clears_cached_replies(self, store: Store, runner: Runner) -> None:
+        t = Task(name="cp4", prompt="orig", engine=ENGINE_CODEX, awaiting_catchup=True,
+                 cached_replies=["finish it"])
+        store.append_log("cp4", "user", "orig")
+        store.append_log("cp4", "assistant", "half done")
+        store.append_log("cp4", "user", "finish it")
+        store.put_task(t)
+        _, _ = runner._build_prompt(t)
+        assert t.cached_replies == []
+
+    def test_lazy_switch_then_schedule_seeds_fresh_codex(
+        self, store: Store, runner: Runner
+    ) -> None:
+        """End-to-end: Claude finishes, user switches to Codex and replies; the
+        next schedule seeds a fresh Codex session with the whole transcript."""
+        t = Task(name="e2e", prompt="build X", engine=ENGINE_CLAUDE,
+                 session_id="claude-sid", sessions={"claude": "claude-sid"},
+                 log_cursors={"claude": 2}, status=TaskStatus.AGENT_FINISHED)
+        store.append_log("e2e", "user", "build X")
+        store.append_log("e2e", "assistant", "built half of X")
+        store.put_task(t)
+
+        runner.switch_engine(t, ENGINE_CODEX)
+        assert t.awaiting_catchup is True
+
+        # Server appends the reply to the log and caches it before scheduling.
+        store.append_log("e2e", "user", "finish it with codex")
+        t.cached_replies = ["finish it with codex"]
+
+        prompt, resume = runner._build_prompt(t)
+        assert resume is False
+        assert "built half of X" in prompt
+        assert "finish it with codex" in prompt
+        assert t.cached_replies == []
+        assert t.awaiting_catchup is False
+        assert t.log_cursors[ENGINE_CODEX] == 3
+
+    def test_fresh_switch_spawn_does_not_reappend_history(
+        self, store: Store, tmp_workdir: Path, tmp_config: Path,
+        env_with_mock_claude: None,
+    ) -> None:
+        import ilan.config as cfg_mod
+        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
+
+        runner = Runner(store)
+        t = Task(name="fs", prompt="orig")
+        store.put_task(t)
+        store.append_log("fs", "user", "orig")
+        store.append_log("fs", "assistant", "a")
+
+        runner._spawn(t, "catch-up text", resume=False)
+        assert len(store.read_logs("fs")) == 2  # history not duplicated
+
+        proc = runner._procs.get("fs")
+        if proc:
             proc.wait(timeout=5)
