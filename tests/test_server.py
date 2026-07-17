@@ -1108,6 +1108,76 @@ class TestMaxUnmax:
         assert "error" in resp
 
 
+# ── Switch backend ──────────────────────────────────────────────────────
+
+
+class TestSwitchBackend:
+    def test_toggles_claude_to_codex(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "sw-1", "prompt": "P"})
+        resp = _post(ilan_server, "/tasks/sw-1/switch-backend")
+        assert resp.get("ok") is True
+        assert resp["from_engine"] == "claude"
+        assert resp["engine"] == "codex"
+        task = _get(ilan_server, "/tasks/sw-1")["task"]
+        assert task["engine"] == "codex"
+
+    def test_roundtrip_toggles_back(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "sw-2", "prompt": "P"})
+        _post(ilan_server, "/tasks/sw-2/switch-backend")
+        resp = _post(ilan_server, "/tasks/sw-2/switch-backend")
+        assert resp["from_engine"] == "codex"
+        assert resp["engine"] == "claude"
+        task = _get(ilan_server, "/tasks/sw-2")["task"]
+        assert task["engine"] == "claude"
+
+    def test_accepts_alias(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "sw-alias", "prompt": "P"})
+        alias = _get(ilan_server, "/tasks/sw-alias")["task"]["alias"]
+        assert alias is not None
+        resp = _post(ilan_server, f"/tasks/{alias}/switch-backend")
+        assert resp.get("ok") is True
+        assert resp["name"] == "sw-alias"
+        assert resp["engine"] == "codex"
+
+    def test_unknown_task_404(self, ilan_server: IlanServer) -> None:
+        resp = _post(ilan_server, "/tasks/does-not-exist/switch-backend")
+        assert "error" in resp
+
+    def test_rejects_terminal_task(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "sw-done", "prompt": "P"})
+        _post(ilan_server, "/tasks/sw-done/done")
+        resp = _post(ilan_server, "/tasks/sw-done/switch-backend")
+        assert "error" in resp
+        assert "DONE" in resp["error"]
+
+    def test_list_reflects_engine_after_switch(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "sw-list", "prompt": "P"})
+        _post(ilan_server, "/tasks/sw-list/switch-backend")
+        resp = _get(ilan_server, "/tasks")
+        row = next(t for t in resp["tasks"] if t["name"] == "sw-list")
+        assert row["engine"] == "codex"
+
+    def test_working_task_reaped_before_flip(self, ilan_server: IlanServer) -> None:
+        """A WORKING task is killed + reaped (so its output is captured by the
+        producing engine) before the backend flips."""
+        _post(ilan_server, "/tasks", {"name": "sw-working", "prompt": "P"})
+        store = ilan_server.store
+        task = store.get_task("sw-working")
+        assert task is not None
+        task.set_status(TaskStatus.WORKING)
+        task.pid = 424242
+        store.put_task(task)
+
+        calls: list[str] = []
+        ilan_server.runner.kill = lambda t: calls.append("kill")  # type: ignore[method-assign]
+        ilan_server.runner._try_reap = lambda t: calls.append("reap")  # type: ignore[method-assign]
+
+        resp = _post(ilan_server, "/tasks/sw-working/switch-backend")
+        assert resp.get("ok") is True
+        assert calls == ["kill", "reap"]
+        assert resp["engine"] == "codex"
+
+
 # ── Clear Everything ────────────────────────────────────────────────────
 
 

@@ -949,3 +949,30 @@ class TestNameCellEngineColour:
         cell = _build_name_cell(self._row(None), "")
         styles = " ".join(str(span.style) for span in cell.spans)
         assert ENGINE_NAME_STYLE[ENGINE_CLAUDE] in styles
+
+
+class TestSwitchBackendCommand:
+    def test_calls_client_and_reports_transition(
+        self, runner: CliRunner, tmp_config
+    ) -> None:
+        client = _make_client()
+        client.switch_backend.return_value = {
+            "ok": True,
+            "name": "my-task",
+            "from_engine": "claude",
+            "engine": "codex",
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["task", "switch-backend", "my-task"])
+        assert result.exit_code == 0
+        client.switch_backend.assert_called_once_with("my-task")
+        out = _strip_ansi(result.output)
+        assert "my-task" in out
+        assert "claude" in out and "codex" in out
+
+    def test_error_exits_nonzero(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.switch_backend.return_value = {"error": "Task foo is DONE; cannot switch its backend."}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["task", "switch-backend", "foo"])
+        assert result.exit_code == 1

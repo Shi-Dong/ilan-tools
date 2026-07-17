@@ -1684,6 +1684,36 @@ def task_unmax(name: str) -> None:
     _do_unmax(name)
 
 
+# ── task switch-backend ──────────────────────────────────────────────
+
+def _do_switch_backend(name: str) -> None:
+    resp = _client().switch_backend(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    task_name = resp.get("name", name)
+    from_engine = resp.get("from_engine", "")
+    engine = resp.get("engine", "")
+    from_style = ENGINE_NAME_STYLE.get(from_engine, "")
+    to_style = ENGINE_NAME_STYLE.get(engine, "")
+    console.print(
+        f"[green]Task [bold]{task_name}[/bold] switched backend "
+        f"[bold {from_style}]{from_engine}[/bold {from_style}] "
+        f"-> [bold {to_style}]{engine}[/bold {to_style}].[/green]"
+    )
+
+
+@task_group.command("switch-backend")
+@click.argument("name", shell_complete=_complete_task_names)
+def task_switch_backend(name: str) -> None:
+    """Toggle a task's agent backend (claude <-> codex).
+
+    The switch is lazy: the running agent is not restarted. A WORKING task is
+    reaped first so its output is captured by the current backend, then the
+    task flips to the other backend and catches up on its next turn.
+    """
+    _do_switch_backend(name)
+
+
 # ── top-level shorthands ─────────────────────────────────────────────
 
 @main.command("add")

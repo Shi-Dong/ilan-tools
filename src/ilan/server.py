@@ -28,6 +28,7 @@ from ilan.models import (
     Task,
     TaskStatus,
     generate_task_hash,
+    other_engine,
     validate_task_name,
 )
 from ilan.runner import Runner, last_assistant_model
@@ -83,6 +84,7 @@ ROUTES: list[tuple[str, str, str]] = [
     ("POST",   r"^/tasks/([^/]+)/branch$",     "handle_task_branch"),
     ("POST",   r"^/tasks/([^/]+)/max$",        "handle_task_max"),
     ("POST",   r"^/tasks/([^/]+)/unmax$",      "handle_task_unmax"),
+    ("POST",   r"^/tasks/([^/]+)/switch-backend$", "handle_task_switch_backend"),
     ("GET",    r"^/tasks/([^/]+)/logs$",       "handle_task_logs"),
     ("GET",    r"^/tasks/([^/]+)/log-path$",   "handle_task_log_path"),
     ("GET",    r"^/tasks/([^/]+)/tail$",       "handle_task_tail"),
@@ -690,6 +692,38 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task.model = None
                 self._ilan.store.put_task(task)
             self._json({"ok": True, "name": task.name, "model": task.model})
+
+        def handle_task_switch_backend(self, name: str):
+            with self._ilan.lock:
+                task = self._get_task_or_404(name)
+                if task is None:
+                    return
+                if task.status.is_terminal:
+                    self._json(
+                        {"error": (
+                            f"Task {task.name} is {task.status.value}; "
+                            "cannot switch its backend."
+                        )},
+                        409,
+                    )
+                    return
+                from_engine = task.engine
+                target = other_engine(from_engine)
+                # A WORKING task must be reaped before flipping so its in-flight
+                # output is parsed by the engine that produced it — advancing
+                # that engine's native session and log cursor — before the other
+                # backend takes over.
+                if task.status == TaskStatus.WORKING:
+                    self._ilan.runner.kill(task)
+                    time.sleep(0.5)
+                    self._ilan.runner._try_reap(task)
+                self._ilan.runner.switch_engine(task, target)
+            self._json({
+                "ok": True,
+                "name": task.name,
+                "from_engine": from_engine,
+                "engine": task.engine,
+            })
 
         def handle_task_logs(self, name: str):
             with self._ilan.lock:
