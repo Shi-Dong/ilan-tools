@@ -8,6 +8,8 @@ import pytest
 
 from ilan.models import (
     ALIAS_POOL,
+    ENGINE_CLAUDE,
+    ENGINE_CODEX,
     FABLE_MODEL,
     GLM_MODEL,
     LogEntry,
@@ -16,6 +18,7 @@ from ilan.models import (
     generate_task_hash,
     is_fable_model,
     is_glm_model,
+    other_engine,
     resolve_model,
     validate_task_name,
 )
@@ -186,6 +189,7 @@ class TestTask:
             "cache_read_input_tokens", "cost_usd", "sleep_seconds",
             "parent_name", "summary_one_liner", "model", "last_assistant_model",
             "gist_id", "gist_url", "gist_synced_count", "gist_title_name",
+            "engine", "sessions",
         }
         assert set(d.keys()) == expected_keys
 
@@ -277,6 +281,57 @@ class TestTask:
         assert t.gist_url is None
         assert t.gist_synced_count == 0
         assert t.gist_title_name is None
+
+    # ── engine / per-backend session map ────────────────────────────────
+
+    def test_engine_defaults_to_claude(self) -> None:
+        t = Task(name="x", prompt="y")
+        assert t.engine == ENGINE_CLAUDE
+        assert t.sessions == {}
+
+    def test_engine_and_sessions_roundtrip(self) -> None:
+        t = self._make_task(engine=ENGINE_CODEX)
+        t.set_session_for(ENGINE_CLAUDE, "claude-sid")
+        t.set_session_for(ENGINE_CODEX, "codex-sid")
+        d = t.to_dict()
+        assert d["engine"] == ENGINE_CODEX
+        assert d["sessions"] == {"claude": "claude-sid", "codex": "codex-sid"}
+        t2 = Task.from_dict(d)
+        assert t2.engine == ENGINE_CODEX
+        assert t2.sessions == {"claude": "claude-sid", "codex": "codex-sid"}
+
+    def test_session_for_defaults_to_active_engine(self) -> None:
+        t = self._make_task(engine=ENGINE_CODEX)
+        t.set_session_for(ENGINE_CLAUDE, "c-sid")
+        t.set_session_for(ENGINE_CODEX, "x-sid")
+        assert t.session_for() == "x-sid"           # active engine (codex)
+        assert t.session_for(ENGINE_CLAUDE) == "c-sid"
+        assert t.session_for("nonexistent") is None
+
+    def test_from_dict_missing_engine_defaults_claude(self) -> None:
+        d = {"name": "old", "prompt": "p", "status": "UNCLAIMED"}
+        t = Task.from_dict(d)
+        assert t.engine == ENGINE_CLAUDE
+        assert t.sessions == {}
+
+    def test_from_dict_migrates_legacy_session_id(self) -> None:
+        """A pre-map task with only session_id seeds the map under its engine."""
+        d = {"name": "old", "prompt": "p", "status": "UNCLAIMED",
+             "session_id": "legacy-sid"}
+        t = Task.from_dict(d)
+        assert t.sessions == {"claude": "legacy-sid"}
+        assert t.session_for(ENGINE_CLAUDE) == "legacy-sid"
+
+    def test_from_dict_explicit_sessions_not_overwritten(self) -> None:
+        d = {"name": "x", "prompt": "p", "status": "UNCLAIMED",
+             "session_id": "active-sid", "engine": "codex",
+             "sessions": {"claude": "c", "codex": "active-sid"}}
+        t = Task.from_dict(d)
+        assert t.sessions == {"claude": "c", "codex": "active-sid"}
+
+    def test_other_engine_toggles(self) -> None:
+        assert other_engine(ENGINE_CLAUDE) == ENGINE_CODEX
+        assert other_engine(ENGINE_CODEX) == ENGINE_CLAUDE
 
 
 # ── Fable model ─────────────────────────────────────────────────────────

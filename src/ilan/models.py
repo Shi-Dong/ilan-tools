@@ -88,6 +88,23 @@ def is_glm_model(model: str | None) -> bool:
     return model is not None and resolve_model(model).lower().startswith("glm")
 
 
+# ── Agent backends (engines) ─────────────────────────────────────────────
+# A task's ``engine`` names which agent CLI drives it. It defaults to Claude
+# Code for backward compatibility; ``ilan switch-backend`` toggles it. Each
+# engine keeps its *own* native session id in ``Task.sessions`` so a task can
+# be switched away from a backend and back with no loss of that backend's
+# conversation — switching back resumes the native session.
+ENGINE_CLAUDE = "claude"
+ENGINE_CODEX = "codex"
+VALID_ENGINES: tuple[str, ...] = (ENGINE_CLAUDE, ENGINE_CODEX)
+DEFAULT_ENGINE = ENGINE_CLAUDE
+
+
+def other_engine(engine: str) -> str:
+    """Return the engine to toggle to (the chain has exactly two backends)."""
+    return ENGINE_CODEX if engine == ENGINE_CLAUDE else ENGINE_CLAUDE
+
+
 STYLE_FOR_STATUS: dict[TaskStatus, str] = {
     TaskStatus.UNCLAIMED: "yellow",
     TaskStatus.WORKING: "bold cyan",
@@ -137,6 +154,21 @@ class Task:
     # a task is renamed this diverges from ``name``, which tells the syncer to
     # rewrite the title so it tracks the new name.
     gist_title_name: str | None = None
+    # Which agent CLI drives this task. Toggled by ``ilan switch-backend``.
+    engine: str = DEFAULT_ENGINE
+    # Per-engine native session ids ({"claude": <uuid>, "codex": <uuid>}). Each
+    # backend resumes its own session, so switching engines never discards the
+    # other backend's conversation. ``session_id``/``session_log_path`` above
+    # remain the *active* engine's session, kept in sync with this map.
+    sessions: dict[str, str] = field(default_factory=dict)
+
+    def session_for(self, engine: str | None = None) -> str | None:
+        """Return the native session id for *engine* (defaults to active)."""
+        return self.sessions.get(engine or self.engine)
+
+    def set_session_for(self, engine: str, session_id: str) -> None:
+        """Record the native session id for *engine*."""
+        self.sessions[engine] = session_id
 
     def set_status(self, status: TaskStatus) -> None:
         """Set status and update the ``status_changed_at`` timestamp.
@@ -177,6 +209,8 @@ class Task:
             "gist_url": self.gist_url,
             "gist_synced_count": self.gist_synced_count,
             "gist_title_name": self.gist_title_name,
+            "engine": self.engine,
+            "sessions": self.sessions,
         }
 
     @classmethod
@@ -207,7 +241,23 @@ class Task:
             gist_url=d.get("gist_url"),
             gist_synced_count=d.get("gist_synced_count", 0),
             gist_title_name=d.get("gist_title_name"),
+            engine=d.get("engine", DEFAULT_ENGINE),
+            sessions=cls._migrate_sessions(d),
         )
+
+    @staticmethod
+    def _migrate_sessions(d: dict[str, Any]) -> dict[str, str]:
+        """Build the per-engine session map, seeding it from the legacy single
+        ``session_id`` for tasks persisted before the map existed.
+
+        Legacy tasks predate the second backend, so their session belongs to
+        whichever engine the task carries (Claude by default).
+        """
+        sessions = dict(d.get("sessions") or {})
+        legacy_sid = d.get("session_id")
+        if legacy_sid and not sessions:
+            sessions[d.get("engine", DEFAULT_ENGINE)] = legacy_sid
+        return sessions
 
 
 @dataclass
