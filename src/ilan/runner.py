@@ -9,83 +9,14 @@ import time
 from pathlib import Path
 
 from ilan import config as cfg
-from ilan.models import GLM_BASE_URL, Task, TaskStatus, is_glm_model, resolve_model
+from ilan.backends import Backend, ClaudeBackend
+from ilan.backends.claude import last_assistant_model
+from ilan.models import Task, TaskStatus
 from ilan.oneliner import generate_one_liner
 from ilan.store import Store
 
-_CLAUDE_STATIC_FLAGS = [
-    "--dangerously-skip-permissions",
-    "--output-format", "json",
-]
-
-
-def _effective_model(model_override: str | None = None) -> str:
-    """Resolve the model string passed to ``claude --model`` for a spawn.
-
-    *model_override* (a task's ``model``, set via ``ilan max``) takes
-    precedence over the configured default; ``None`` falls back to config.
-    Friendly aliases (e.g. ``glm``) are resolved to their real model id.
-    """
-    conf = cfg.load()
-    return resolve_model(model_override or str(conf.get("model", "opus")))
-
-
-def _claude_flags(model_override: str | None = None) -> list[str]:
-    """Build claude flags, reading model/effort from config at call time."""
-    conf = cfg.load()
-    return [
-        *_CLAUDE_STATIC_FLAGS,
-        "--model", _effective_model(model_override),
-        "--effort", str(conf.get("effort", "high")),
-    ]
-
-
-def last_assistant_model(log_path: Path) -> str | None:
-    """Return the ``message.model`` of the last assistant entry in a Claude
-    Code session log (JSONL), or ``None`` if no such entry exists.
-
-    Claude Code writes one JSON object per line; assistant turns carry
-    ``{"message": {"role": "assistant", "model": "...", ...}}``. We scan
-    from the end so the cost stays bounded regardless of log length.
-    """
-    try:
-        with open(log_path, "rb") as f:
-            lines = f.readlines()
-    except OSError:
-        return None
-    for raw in reversed(lines):
-        line = raw.strip()
-        if not line:
-            continue
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        message = entry.get("message")
-        if not isinstance(message, dict):
-            continue
-        if message.get("role") != "assistant":
-            continue
-        model = message.get("model")
-        if isinstance(model, str) and model:
-            return model
-    return None
-
-
-def _model_env(model_override: str | None = None) -> dict[str, str]:
-    """Env overrides for the spawned agent based on the effective model.
-
-    GLM models route through Z.ai's Anthropic-compatible endpoint, which
-    needs ``ANTHROPIC_BASE_URL`` plus a bearer token in ``ANTHROPIC_AUTH_TOKEN``
-    (taken from the ``api-key-glm`` config). Non-GLM models get nothing here.
-    """
-    if not is_glm_model(_effective_model(model_override)):
-        return {}
-    env = {"ANTHROPIC_BASE_URL": GLM_BASE_URL}
-    glm_key = str(cfg.load().get("api-key-glm", "")).strip()
-    if glm_key:
-        env["ANTHROPIC_AUTH_TOKEN"] = glm_key
-    return env
+# Re-exported for backwards compatibility: server.py imports it from here.
+__all__ = ["Runner", "last_assistant_model", "STATUS_SUFFIX"]
 
 STATUS_SUFFIX = """
 
@@ -118,10 +49,15 @@ def _tmux_instruction(task_hash: str, task_name: str) -> str:
 
 
 class Runner:
-    """Spawns / kills / reaps ``claude -p`` processes and schedules work."""
+    """Spawns / kills / reaps agent processes and schedules work.
 
-    def __init__(self, store: Store) -> None:
+    The backend (Claude Code, Codex, …) owns every CLI-specific detail; this
+    class stays agnostic and drives it through the ``Backend`` interface.
+    """
+
+    def __init__(self, store: Store, backend: Backend | None = None) -> None:
         self.store = store
+        self.backend: Backend = backend or ClaudeBackend()
         self._procs: dict[str, subprocess.Popen] = {}
 
     # ── public API ───────────────────────────────────────────────────
@@ -200,23 +136,12 @@ class Runner:
     # ── internals ────────────────────────────────────────────────────
 
     def _spawn(self, task: Task, prompt: str, *, resume: bool) -> bool:
-        """Spawn a claude process. Returns True on success."""
+        """Spawn an agent process. Returns True on success."""
         tmux_instr = _tmux_instruction(task.task_hash, task.name) if task.task_hash else ""
-        cmd = ["claude", "-p", prompt + tmux_instr + STATUS_SUFFIX, *_claude_flags(task.model)]
-        if resume and task.session_id:
-            cmd.extend(["--resume", task.session_id])
-
-        env = os.environ.copy()
-        glm_env = _model_env(task.model)
-        if glm_env:
-            # GLM auth is a bearer token, not an x-api-key; drop any inherited
-            # Anthropic key so it can't shadow the Z.ai credentials.
-            env.pop("ANTHROPIC_API_KEY", None)
-            env.update(glm_env)
-        else:
-            api_key = str(cfg.load().get("api-key-claude", "")).strip()
-            if api_key:
-                env["ANTHROPIC_API_KEY"] = api_key
+        full_prompt = prompt + tmux_instr + STATUS_SUFFIX
+        cmd, env = self.backend.build_command(
+            full_prompt, task.model, resume=resume, session_id=task.session_id
+        )
 
         out_path = self.store.output_path(task.name)
         workdir = cfg.get_workdir()
@@ -275,19 +200,17 @@ class Runner:
                 self._try_reap(task)
 
     def _try_reap(self, task: Task) -> None:
-        """Parse claude output and update task status after process exits."""
+        """Parse agent output and update task status after process exits."""
         task.pid = None
         out_path = self.store.output_path(task.name)
 
-        try:
-            with open(out_path) as f:
-                result = json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError):
+        result = self.backend.parse_output(out_path)
+        if result is None:
             task.set_status(TaskStatus.ERROR)
             self.store.put_task(task)
             return
 
-        sid = result.get("session_id")
+        sid = result.session_id
         if sid:
             log_path = self._find_session_log(sid)
             if log_path:
@@ -296,21 +219,20 @@ class Runner:
                 # Cache the model that produced this turn's assistant message
                 # so ``ilan tail`` can show it without rescanning the session
                 # log on every request.
-                model = last_assistant_model(log_path)
+                model = self.backend.last_assistant_model(log_path)
                 if model:
                     task.last_assistant_model = model
 
-        usage = result.get("usage") or {}
-        task.input_tokens += usage.get("input_tokens", 0)
-        task.output_tokens += usage.get("output_tokens", 0)
-        task.cache_read_input_tokens += usage.get("cache_read_input_tokens", 0)
-        task.cost_usd += result.get("total_cost_usd", 0.0)
+        task.input_tokens += result.input_tokens
+        task.output_tokens += result.output_tokens
+        task.cache_read_input_tokens += result.cache_read_input_tokens
+        task.cost_usd += result.cost_usd
 
-        response = result.get("result", "")
+        response = result.result_text
         if response:
             self.store.append_log(task.name, "assistant", response)
 
-        if result.get("is_error"):
+        if result.is_error:
             task.set_status(TaskStatus.ERROR)
         else:
             new_status = self._parse_status_marker(response)
@@ -357,14 +279,9 @@ class Runner:
             return TaskStatus.NEEDS_ATTENTION
         return TaskStatus.AGENT_FINISHED
 
-    @staticmethod
-    def _find_session_log(session_id: str) -> Path | None:
-        """Locate the Claude Code session log for the given session ID."""
-        claude_dir = Path.home() / ".claude" / "projects"
-        if not claude_dir.is_dir():
-            return None
-        matches = list(claude_dir.glob(f"*/{session_id}.jsonl"))
-        return matches[0] if matches else None
+    def _find_session_log(self, session_id: str) -> Path | None:
+        """Locate the backend's session log for the given session ID."""
+        return self.backend.find_session_log(session_id)
 
     @staticmethod
     def _pid_alive(pid: int) -> bool:
