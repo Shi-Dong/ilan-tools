@@ -69,10 +69,10 @@ class TestLsNoArgs:
         assert "my-task" in result.output
         client.list_tasks.assert_called_once_with(show_all=False)
 
-    def test_ls_wide_shows_cost_and_created(
+    def test_ls_never_shows_cost_column(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """A wide terminal keeps the Cost and Created columns."""
+        """The Cost column is gone; a wide terminal still keeps Created."""
         import ilan.cli as cli_mod
         from rich.console import Console
 
@@ -84,7 +84,6 @@ class TestLsNoArgs:
                     "name": "wide-task",
                     "alias": None,
                     "status": "WORKING",
-                    "cost_usd": 4.56,
                     "created_at": "2026-04-13T00:00:00+00:00",
                     "status_changed_at": "2026-04-13T01:00:00+00:00",
                     "needs_review": False,
@@ -95,13 +94,13 @@ class TestLsNoArgs:
             result = runner.invoke(main, ["ls"])
         assert result.exit_code == 0
         out = _strip_ansi(result.output)
-        assert "Cost" in out
+        assert "Cost" not in out
         assert "Created" in out
 
-    def test_ls_narrow_drops_cost_and_created(
+    def test_ls_narrow_drops_created(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """A narrow terminal drops the Cost and Created columns from ``ls``."""
+        """A narrow terminal drops the Created column from ``ls``."""
         import ilan.cli as cli_mod
         from rich.console import Console
 
@@ -113,7 +112,6 @@ class TestLsNoArgs:
                     "name": "narrow-task",
                     "alias": None,
                     "status": "WORKING",
-                    "cost_usd": 4.56,
                     "created_at": "2026-04-13T00:00:00+00:00",
                     "status_changed_at": "2026-04-13T01:00:00+00:00",
                     "needs_review": False,
@@ -815,12 +813,12 @@ class TestFableRendering:
     def test_ls_shows_fable_for_maxed_task(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        # The FABLE note lives in the Cost column, which is only shown on a
-        # wide-enough terminal, so force a wide console for this marker test.
+        # The FABLE note lives in the Name column, which is always shown —
+        # even on a narrow terminal. Force a narrow console to prove it.
         import ilan.cli as cli_mod
         from rich.console import Console
 
-        monkeypatch.setattr(cli_mod, "console", Console(width=140, force_terminal=True))
+        monkeypatch.setattr(cli_mod, "console", Console(width=70, force_terminal=True))
         client = _make_client()
         client.list_tasks.return_value = {
             "tasks": [
@@ -828,7 +826,6 @@ class TestFableRendering:
                     "name": "maxed-task",
                     "alias": "aa",
                     "status": "WORKING",
-                    "cost_usd": 1.23,
                     "created_at": "2026-04-13T00:00:00+00:00",
                     "status_changed_at": "2026-04-13T01:00:00+00:00",
                     "needs_review": False,
@@ -849,7 +846,6 @@ class TestFableRendering:
                     "name": "plain-task",
                     "alias": "aa",
                     "status": "WORKING",
-                    "cost_usd": 1.23,
                     "created_at": "2026-04-13T00:00:00+00:00",
                     "status_changed_at": "2026-04-13T01:00:00+00:00",
                     "needs_review": False,
@@ -862,32 +858,29 @@ class TestFableRendering:
         assert result.exit_code == 0
         assert "FABLE" not in result.output
 
-    def test_fable_note_is_in_cost_cell_not_name_cell(self) -> None:
-        """The FABLE note lives in the Cost column, on its own line."""
-        from ilan.cli import _build_cost_cell, _build_name_cell
+    def test_fable_note_is_in_name_cell(self) -> None:
+        """The FABLE note lives in the Name cell, on its own line."""
+        from ilan.cli import _build_name_cell
 
         row = {
             "name": "maxed-task",
             "alias": "aa",
             "status": "WORKING",
-            "cost_usd": 1.23,
             "needs_review": False,
             "model": "claude-fable-5",
         }
         name_cell = _build_name_cell(row, "")
-        cost_cell = _build_cost_cell(row)
+        assert "FABLE" in name_cell.plain
+        # The note sits on a separate line beneath the "(alias) name".
+        assert name_cell.plain.splitlines() == ["(aa) maxed-task", "FABLE"]
+
+    def test_name_cell_no_fable_for_default_task(self) -> None:
+        from ilan.cli import _build_name_cell
+
+        row = {"name": "plain-task", "alias": "", "status": "WORKING",
+               "needs_review": False, "model": None}
+        name_cell = _build_name_cell(row, "")
         assert "FABLE" not in name_cell.plain
-        assert "FABLE" in cost_cell.plain
-        # The note sits on a separate line beneath the cost.
-        assert cost_cell.plain.splitlines() == ["$1.23", "FABLE"]
-
-    def test_cost_cell_no_fable_for_default_task(self) -> None:
-        from ilan.cli import _build_cost_cell
-
-        row = {"cost_usd": 0.0, "model": None}
-        cost_cell = _build_cost_cell(row)
-        assert "FABLE" not in cost_cell.plain
-        assert cost_cell.plain == "-"
 
 
 # ── ilan add --claude / --codex ─────────────────────────────────────

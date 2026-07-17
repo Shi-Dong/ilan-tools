@@ -53,7 +53,6 @@ def _task_row(
     name: str = "my-task",
     status: str = "WORKING",
     alias: str | None = None,
-    cost_usd: float = 0.0,
     needs_review: bool = False,
     created_at: str = _EARLIER_ISO,
     status_changed_at: str = _NOW_ISO,
@@ -63,7 +62,6 @@ def _task_row(
         "name": name,
         "status": status,
         "alias": alias,
-        "cost_usd": cost_usd,
         "needs_review": needs_review,
         "created_at": created_at,
         "status_changed_at": status_changed_at,
@@ -129,14 +127,6 @@ class TestBuildDashboardTable:
         text = _render_table_text([_task_row(alias=None)])
         assert "()" not in text
 
-    def test_cost_formatted(self) -> None:
-        text = _render_table_text([_task_row(cost_usd=1.50)])
-        assert "$1.50" in text
-
-    def test_zero_cost_shows_dash(self) -> None:
-        text = _render_table_text([_task_row(cost_usd=0.0)])
-        assert "-" in text
-
     def test_multiple_tasks(self) -> None:
         rows = [
             _task_row(name="task-a", status="WORKING"),
@@ -152,7 +142,7 @@ class TestBuildDashboardTable:
         table = _build_dashboard_table([], _TZ)
         col_names = [c.header for c in table.columns]
         assert col_names == [
-            "(Alias) Name", "Status", "Cost", "Created", "Last Changed", "History",
+            "(Alias) Name", "Status", "Created", "Last Changed", "History",
         ]
 
 
@@ -459,24 +449,20 @@ class TestFormatTsSeconds:
 
 class TestDashboardTableProperties:
     def test_table_expands_with_one_liner_on(self) -> None:
-        """One-liner ON: Status gets the biggest slot and Cost is a fixed
-        7-column width so "$X.XX" never truncates.
-        """
+        """One-liner ON: Status gets the biggest slot (16/34)."""
         table = _build_dashboard_table([], _TZ, show_one_liner=True)
         assert table.expand is True
         ratios = [c.ratio for c in table.columns]
-        assert ratios == [10, 16, None, 6, 6, 4]
-        cost_col = table.columns[2]
-        assert cost_col.width == 7
+        assert ratios == [10, 16, 6, 6, 4]
 
     def test_table_expands_with_one_liner_off(self) -> None:
-        """One-liner OFF: keep the original 14:8:4:7:7 ratios since Status
+        """One-liner OFF: keep the original 14:8:7:7:4 ratios since Status
         only holds a short label + duration suffix.
         """
         table = _build_dashboard_table([], _TZ, show_one_liner=False)
         assert table.expand is True
         ratios = [c.ratio for c in table.columns]
-        assert ratios == [14, 8, 4, 7, 7, 4]
+        assert ratios == [14, 8, 7, 7, 4]
 
     def test_table_draws_separator_between_rows(self) -> None:
         """``show_lines=True`` draws a horizontal rule between every task row."""
@@ -499,14 +485,14 @@ class TestTerminalIsNarrow:
 
 
 class TestNarrowDashboardColumns:
-    """When ``narrow`` is set, the dashboard drops Cost and Created."""
+    """When ``narrow`` is set, the dashboard drops Created."""
 
-    def test_narrow_drops_cost_and_created_one_liner_on(self) -> None:
+    def test_narrow_drops_created_one_liner_on(self) -> None:
         table = _build_dashboard_table([], _TZ, show_one_liner=True, narrow=True)
         col_names = [c.header for c in table.columns]
         assert col_names == ["(Alias) Name", "Status", "Last Changed", "History"]
 
-    def test_narrow_drops_cost_and_created_one_liner_off(self) -> None:
+    def test_narrow_drops_created_one_liner_off(self) -> None:
         table = _build_dashboard_table([], _TZ, show_one_liner=False, narrow=True)
         col_names = [c.header for c in table.columns]
         assert col_names == ["(Alias) Name", "Status", "Last Changed", "History"]
@@ -515,7 +501,7 @@ class TestNarrowDashboardColumns:
         table = _build_dashboard_table([], _TZ, narrow=False)
         col_names = [c.header for c in table.columns]
         assert col_names == [
-            "(Alias) Name", "Status", "Cost", "Created", "Last Changed", "History",
+            "(Alias) Name", "Status", "Created", "Last Changed", "History",
         ]
 
     def test_narrow_empty_row_matches_column_count(self) -> None:
@@ -525,11 +511,12 @@ class TestNarrowDashboardColumns:
         # Each column has exactly one placeholder cell.
         assert all(len(c._cells) == 1 for c in table.columns)
 
-    def test_narrow_task_row_renders_without_cost_or_created(self) -> None:
-        row = _task_row(name="narrow-task", cost_usd=9.99, status="WORKING")
+    def test_narrow_task_row_drops_created(self) -> None:
+        row = _task_row(name="narrow-task", status="WORKING")
         table = _build_dashboard_table([row], _TZ, narrow=True)
         assert len(table.columns) == 4
-        assert "$9.99" not in _render_narrow(table)
+        col_names = [c.header for c in table.columns]
+        assert "Created" not in col_names
 
     def test_narrow_still_shows_name_and_status(self) -> None:
         row = _task_row(name="keep-me", status="WORKING")
@@ -547,7 +534,7 @@ class TestHistoryColumn:
         row = _task_row()
         row["gist_url"] = "https://gist.github.com/u/abc123"
         table = _build_dashboard_table([row], _TZ)
-        hist_cell = table.columns[5]._cells[0]
+        hist_cell = table.columns[4]._cells[0]
         assert isinstance(hist_cell, Text)
         assert hist_cell.plain == "history"
         # The link/underline style is carried by a span over just the label,
@@ -590,7 +577,7 @@ class TestHistoryColumn:
     def test_history_cell_placeholder_without_gist(self) -> None:
         row = _task_row()
         table = _build_dashboard_table([row], _TZ)
-        hist_cell = table.columns[5]._cells[0]
+        hist_cell = table.columns[4]._cells[0]
         assert isinstance(hist_cell, Text)
         assert hist_cell.plain == "-"
 
@@ -598,7 +585,7 @@ class TestHistoryColumn:
         row = _task_row()
         row["gist_url"] = "   "
         table = _build_dashboard_table([row], _TZ)
-        hist_cell = table.columns[5]._cells[0]
+        hist_cell = table.columns[4]._cells[0]
         assert isinstance(hist_cell, Text)
         assert hist_cell.plain == "-"
 

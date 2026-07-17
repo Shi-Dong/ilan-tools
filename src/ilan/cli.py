@@ -570,6 +570,9 @@ def _build_name_cell(row: dict, prefix: str) -> Text:
     than the \u26a0\ufe0f emoji, whose unpredictable terminal width breaks
     Rich's Live layout in ``ilan dashboard`` and visually misaligns the
     ``ilan ls`` table.
+
+    Tasks running on the Fable model get a red ``FABLE`` note on a separate
+    line beneath the name.
     """
     status = TaskStatus(row["status"])
     alias = row.get("alias") or ""
@@ -587,17 +590,6 @@ def _build_name_cell(row: dict, prefix: str) -> Text:
         sleep_suffix = _format_sleep_suffix(row.get("sleep_seconds"))
         if sleep_suffix:
             cell.append(sleep_suffix, style=SLEEP_STYLE)
-    return cell
-
-
-def _build_cost_cell(row: dict) -> Text:
-    """Build the right-justified cost cell.
-
-    Tasks running on the Fable model get a red ``FABLE`` note on a separate
-    line beneath the cost.
-    """
-    cost = row.get("cost_usd", 0.0)
-    cell = Text(f"${cost:.2f}") if cost else Text("-", style="dim")
     if is_fable_model(row.get("model")):
         cell.append("\nFABLE", style="bold red")
     return cell
@@ -665,14 +657,14 @@ def _maybe_warn_one_liner_unconfigured(client: Client) -> None:
 
 
 # Below this terminal width (in columns) the ``ls`` / ``dashboard`` tables
-# drop the lower-priority ``Cost`` and ``Created`` columns so the remaining
+# drop the lower-priority ``Created`` column so the remaining
 # ``Name`` / ``Status`` / ``Last Changed`` / ``History`` columns stay legible
 # instead of wrapping into an unreadable mess on a narrow window.
 _NARROW_TERMINAL_WIDTH = 120
 
 
 def _terminal_is_narrow(width: int | None = None) -> bool:
-    """Whether the terminal is too narrow to show the Cost/Created columns."""
+    """Whether the terminal is too narrow to show the Created column."""
     if width is None:
         width = console.width
     return width < _NARROW_TERMINAL_WIDTH
@@ -694,7 +686,6 @@ def _do_ls(show_all: bool) -> None:
     table.add_column("(Alias) Name", style="bold")
     table.add_column("Status")
     if not narrow:
-        table.add_column("Cost", justify="right")
         table.add_column("Created")
     table.add_column("Last Changed")
     table.add_column("History")
@@ -705,7 +696,6 @@ def _do_ls(show_all: bool) -> None:
             _build_status_cell(row, show_one_liner=show_one_liner),
         ]
         if not narrow:
-            cells.append(_build_cost_cell(row))
             cells.append(_format_ts(row["created_at"], seconds=False))
         cells.append(changed)
         cells.append(_build_history_cell(row))
@@ -1973,8 +1963,7 @@ def _build_dashboard_table(
     """Build a Rich Table from task rows, reusing the _do_ls format.
 
     When ``narrow`` is set (terminal below ``_NARROW_TERMINAL_WIDTH``), the
-    ``Cost`` and ``Created`` columns are dropped so the remaining columns stay
-    legible.
+    ``Created`` column is dropped so the remaining columns stay legible.
     """
     now = datetime.now(tz)
     header = Text()
@@ -1990,15 +1979,10 @@ def _build_dashboard_table(
     # Column sizing depends on whether the Haiku one-line summary is
     # rendered inside the Status cell:
     #   * one-liner ON  → Status needs a much wider slot to fit the summary
-    #     under the status label, so we give it 16/38 of the proportional
-    #     space and shrink Name to 10/38. Cost becomes a fixed 7-column
-    #     slot (just enough for "$X.XX" / "-") because Rich's expand=True
-    #     + ratio path silently ignores min_width, so a tiny ratio would
-    #     truncate the cell.
+    #     under the status label, so we give it 16/34 of the proportional
+    #     space and shrink Name to 10/34.
     #   * one-liner OFF → Status only holds a short label + duration
-    #     suffix, so we keep the original 14:8:4:7:7 ratios (Cost stays a
-    #     normal ratio column at 4/40, which is wide enough at typical
-    #     terminal widths).
+    #     suffix, so we keep the original 14:7:7:4 ratios.
     # In both cases overlong name cells fold within the column instead of
     # pushing it wider.
     table = Table(title=header, expand=True, show_lines=True)
@@ -2006,7 +1990,6 @@ def _build_dashboard_table(
         table.add_column("(Alias) Name", style="bold", ratio=10)
         table.add_column("Status", ratio=16)
         if not narrow:
-            table.add_column("Cost", justify="right", width=7)
             table.add_column("Created", ratio=6)
         table.add_column("Last Changed", ratio=6)
         table.add_column("History", ratio=4)
@@ -2014,7 +1997,6 @@ def _build_dashboard_table(
         table.add_column("(Alias) Name", style="bold", ratio=14)
         table.add_column("Status", ratio=8)
         if not narrow:
-            table.add_column("Cost", justify="right", ratio=4)
             table.add_column("Created", ratio=7)
         table.add_column("Last Changed", ratio=7)
         table.add_column("History", ratio=4)
@@ -2031,7 +2013,6 @@ def _build_dashboard_table(
             _build_status_cell(row, show_one_liner=show_one_liner),
         ]
         if not narrow:
-            cells.append(_build_cost_cell(row))
             cells.append(_format_ts(row["created_at"], seconds=False))
         cells.append(changed)
         cells.append(_build_history_cell(row))
