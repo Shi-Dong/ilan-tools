@@ -275,11 +275,14 @@ class TestTaskStateTransitions:
 
     def test_discard(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "discard-test", "prompt": "P"})
+        alias = _get(ilan_server, "/tasks/discard-test")["task"]["alias"]
         resp = _post(ilan_server, "/tasks/discard-test/discard")
         assert resp.get("ok") is True
         task = _get(ilan_server, "/tasks/discard-test")["task"]
         assert task["status"] == "DISCARDED"
-        assert task["alias"] is None
+        # The alias is kept so the task can be undiscarded by it.
+        assert task["alias"] == alias
+        assert task["alias"] is not None
 
     def test_undone(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "undone-test", "prompt": "P"})
@@ -292,10 +295,25 @@ class TestTaskStateTransitions:
 
     def test_undiscard(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "undisc-test", "prompt": "P"})
+        alias = _get(ilan_server, "/tasks/undisc-test")["task"]["alias"]
         _post(ilan_server, "/tasks/undisc-test/discard")
         resp = _post(ilan_server, "/tasks/undisc-test/undiscard")
         assert resp.get("ok") is True
         task = _get(ilan_server, "/tasks/undisc-test")["task"]
+        assert task["status"] == "NEEDS_ATTENTION"
+        # Undiscard restores the original alias rather than minting a new one.
+        assert task["alias"] == alias
+
+    def test_undiscard_by_alias(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "undisc-alias", "prompt": "P"})
+        alias = _get(ilan_server, "/tasks/undisc-alias")["task"]["alias"]
+        assert alias is not None
+        _post(ilan_server, "/tasks/undisc-alias/discard")
+        # A discarded task is still reachable by its alias.
+        resp = _post(ilan_server, f"/tasks/{alias}/undiscard")
+        assert resp.get("ok") is True
+        assert resp["name"] == "undisc-alias"
+        task = _get(ilan_server, "/tasks/undisc-alias")["task"]
         assert task["status"] == "NEEDS_ATTENTION"
 
     def test_undone_wrong_state(self, ilan_server: IlanServer) -> None:
@@ -343,11 +361,13 @@ class TestSetAlias:
 
     def test_set_alias_rejected_when_discarded(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "alias-disc", "prompt": "P"})
+        alias = _get(ilan_server, "/tasks/alias-disc")["task"]["alias"]
         _post(ilan_server, "/tasks/alias-disc/discard")
         resp = _post(ilan_server, "/tasks/alias-disc/alias", {"alias": "aa"})
         assert "error" in resp
+        # A discarded task keeps its alias, but it can't be reassigned.
         task = _get(ilan_server, "/tasks/alias-disc")["task"]
-        assert task["alias"] is None
+        assert task["alias"] == alias
 
     def test_set_alias_wrong_length(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "alias-len", "prompt": "P"})

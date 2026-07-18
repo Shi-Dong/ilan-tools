@@ -79,7 +79,7 @@ ilan re sd "try v2"   # instead of: ilan re fix-bug "try v2"
 ilan done sd
 ```
 
-Aliases are assigned when a task is created and released when it transitions to `DONE` or `DISCARDED`. If a task is moved back out of a terminal state (via `undone` / `undiscard`), it receives a new alias. The alias pool supports up to 81 concurrent non-terminal tasks. To pick a specific alias for an active task, use `ilan task alias NAME NEW_ALIAS` (or the `ilan alias` shorthand); the new alias must be two letters from `asdfghjkl` and not already taken by another task.
+Aliases are assigned when a task is created. A `DONE` task releases its alias back to the pool; moving it back out with `undone` mints a fresh alias. A `DISCARDED` task instead *keeps* its alias — a discard is a recycle-bin entry you can restore, so it stays reachable by its short alias (e.g. `ilan undiscard sd`), and `undiscard` brings it back under that same handle. To pick a specific alias for an active task, use `ilan task alias NAME NEW_ALIAS` (or the `ilan alias` shorthand); the new alias must be two letters from `asdfghjkl` and not already taken by another task.
 
 Task names must be at least 3 characters long (to avoid ambiguity with aliases) and may only contain letters, digits, hyphens (`-`), and underscores (`_`). Aliases are not included in shell tab-completion.
 

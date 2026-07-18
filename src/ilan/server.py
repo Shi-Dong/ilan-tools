@@ -411,7 +411,9 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 if task.status == TaskStatus.WORKING:
                     self._ilan.runner.kill(task)
                 task.set_status(TaskStatus.DISCARDED)
-                task.alias = None
+                # Keep the alias: a DISCARDED task is a recycle-bin entry that
+                # ``undiscard`` can bring back, so it stays reachable by its
+                # short alias (not just its full name).
                 task.needs_review = False
                 self._ilan.store.put_task(task)
             if task.task_hash:
@@ -440,7 +442,10 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     self._json({"error": f"Task is {task.status.value}, not DISCARDED"}, 409)
                     return
                 task.set_status(TaskStatus.NEEDS_ATTENTION)
-                task.alias = self._ilan.store.next_available_alias()
+                # The task kept its alias through discard; only mint a new one
+                # if it somehow has none (e.g. the pool was exhausted at add).
+                if task.alias is None:
+                    task.alias = self._ilan.store.next_available_alias()
                 self._ilan.store.put_task(task)
             self._json({"ok": True, "name": task.name})
 
@@ -577,14 +582,15 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task = self._get_task_or_404(name)
                 if task is None:
                     return
-                # DONE / DISCARDED tasks have their alias dropped (see
-                # handle_task_done / handle_task_discard), so there is no
-                # alias to change.
+                # A terminal task's alias is frozen: DONE tasks drop theirs,
+                # and a DISCARDED task keeps its alias so it can be undiscarded
+                # by it. Either way, reassigning it here is not allowed —
+                # restore the task first.
                 if task.status.is_terminal:
                     self._json(
                         {"error": (
-                            f"Task {task.name} is {task.status.value} and has no "
-                            "alias. Only active tasks carry an alias."
+                            f"Task {task.name} is {task.status.value}; its alias "
+                            "can't be changed. Restore it first."
                         )},
                         409,
                     )
