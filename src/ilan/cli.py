@@ -1642,6 +1642,10 @@ def _do_max(name: str) -> None:
     resp = _client().max_task(name)
     if _check_error(resp):
         raise SystemExit(1)
+    warning = resp.get("warning")
+    if warning:
+        console.print(f"[yellow]{warning}[/yellow]")
+        return
     task_name = resp.get("name", name)
     model = resp.get("model", "")
     console.print(

@@ -1119,6 +1119,30 @@ class TestMaxUnmax:
         assert resp.get("ok") is True
         assert resp["name"] == "max-alias"
 
+    def test_max_on_codex_is_noop_with_warning(self, ilan_server: IlanServer) -> None:
+        """Fable is Claude-only, so maxing a codex task changes nothing and
+        returns a warning instead of a broken model override."""
+        _post(ilan_server, "/tasks", {"name": "max-codex", "prompt": "P", "agent": "codex"})
+        resp = _post(ilan_server, "/tasks/max-codex/max")
+        assert resp.get("ok") is True
+        assert resp.get("model") is None  # unchanged, not set to Fable
+        assert "warning" in resp
+        assert "codex" in resp["warning"]
+
+        task = _get(ilan_server, "/tasks/max-codex")["task"]
+        assert task["model"] is None  # no Fable override persisted
+        assert task["engine"] == "codex"
+
+    def test_max_after_switch_to_codex_is_noop(self, ilan_server: IlanServer) -> None:
+        """A claude task maxed to Fable, then switched to codex, is a no-op if
+        re-maxed on codex — and the earlier Fable override is left untouched."""
+        _post(ilan_server, "/tasks", {"name": "max-then-switch", "prompt": "P"})
+        _post(ilan_server, "/tasks/max-then-switch/max")  # claude → Fable
+        _post(ilan_server, "/tasks/max-then-switch/switch-backend")  # → codex
+        resp = _post(ilan_server, "/tasks/max-then-switch/max")
+        assert resp.get("ok") is True
+        assert "warning" in resp
+
     def test_max_unknown_task_404(self, ilan_server: IlanServer) -> None:
         resp = _post(ilan_server, "/tasks/does-not-exist/max")
         assert "error" in resp
