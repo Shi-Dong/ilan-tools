@@ -353,6 +353,11 @@ Codex authenticates from the server's inherited environment (`codex login`, or a
 `OPENAI_API_KEY` present in the server's env); see the `api-key-codex` note under
 [Configuration keys](#configuration-keys).
 
+The two backends read their project context from different files — Claude Code
+from `CLAUDE.md`, Codex from `AGENTS.md`. To keep the same standing instructions
+reaching whichever backend runs a task, see
+[CLAUDE_VS_CODEX.md](CLAUDE_VS_CODEX.md).
+
 ## Task lifecycle
 
 ```
