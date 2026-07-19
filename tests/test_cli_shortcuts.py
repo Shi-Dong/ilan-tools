@@ -10,7 +10,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from ilan.cli import main
+from ilan.cli import _build_name_cell, main
+from ilan.models import ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_NAME_STYLE
 
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -935,25 +936,16 @@ class TestNameCellEngineColour:
         return row
 
     def test_claude_name_uses_orange_style(self) -> None:
-        from ilan.cli import _build_name_cell
-        from ilan.models import ENGINE_CLAUDE, ENGINE_NAME_STYLE
-
         cell = _build_name_cell(self._row(ENGINE_CLAUDE), "")
         styles = " ".join(str(span.style) for span in cell.spans)
         assert ENGINE_NAME_STYLE[ENGINE_CLAUDE] in styles
 
     def test_codex_name_uses_blue_style(self) -> None:
-        from ilan.cli import _build_name_cell
-        from ilan.models import ENGINE_CODEX, ENGINE_NAME_STYLE
-
         cell = _build_name_cell(self._row(ENGINE_CODEX), "")
         styles = " ".join(str(span.style) for span in cell.spans)
         assert ENGINE_NAME_STYLE[ENGINE_CODEX] in styles
 
     def test_missing_engine_defaults_to_claude_style(self) -> None:
-        from ilan.cli import _build_name_cell
-        from ilan.models import ENGINE_CLAUDE, ENGINE_NAME_STYLE
-
         cell = _build_name_cell(self._row(None), "")
         styles = " ".join(str(span.style) for span in cell.spans)
         assert ENGINE_NAME_STYLE[ENGINE_CLAUDE] in styles
