@@ -226,12 +226,6 @@ class Runner:
         task.pid = proc.pid
         task.set_status(TaskStatus.WORKING)
         self.store.put_task(task)
-
-        # Log the opening prompt only when the conversation is brand new. A
-        # fresh-session backend switch also spawns with resume=False but its
-        # history is already in the log, so re-appending would duplicate it.
-        if not resume and not self.store.read_logs(task.name):
-            self.store.append_log(task.name, "user", task.prompt)
         return True
 
     def _build_prompt(self, task: Task) -> tuple[str, bool]:

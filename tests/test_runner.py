@@ -8,8 +8,9 @@ from unittest.mock import patch
 
 import pytest
 
+import ilan.config as cfg
 from ilan.backends import ClaudeBackend, CodexBackend
-from ilan.models import ENGINE_CLAUDE, ENGINE_CODEX, Task, TaskStatus
+from ilan.models import ENGINE_CLAUDE, ENGINE_CODEX, LogEntry, Task, TaskStatus
 from ilan.runner import Runner, STATUS_SUFFIX, _render_catchup, _tmux_instruction
 from ilan.store import Store
 
@@ -488,29 +489,6 @@ class TestSpawn:
         assert updated is not None
         assert updated.status == TaskStatus.ERROR
 
-    def test_spawn_appends_user_log(
-        self, store: Store, tmp_workdir: Path, tmp_config: Path,
-        env_with_mock_claude: None,
-    ) -> None:
-        """First spawn (not resume) should log the user prompt."""
-        import ilan.config as cfg_mod
-
-        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
-
-        runner = Runner(store)
-        t = Task(name="log-test", prompt="my prompt")
-        store.put_task(t)
-
-        runner._spawn(t, "my prompt", resume=False)
-        logs = store.read_logs("log-test")
-        assert len(logs) == 1
-        assert logs[0].role == "user"
-        assert logs[0].content == "my prompt"
-
-        proc = runner._procs.get("log-test")
-        if proc:
-            proc.wait(timeout=5)
-
     def test_spawn_resume_does_not_log(
         self, store: Store, tmp_workdir: Path, tmp_config: Path,
         env_with_mock_claude: None,
@@ -726,7 +704,6 @@ class TestSchedule:
 
 class TestRenderCatchup:
     def _entries(self) -> list:
-        from ilan.models import LogEntry
         return [LogEntry.now("user", "hello"), LogEntry.now("assistant", "hi there")]
 
     def test_fresh_header_and_content(self) -> None:
@@ -930,8 +907,7 @@ class TestCatchupPrompt:
         self, store: Store, tmp_workdir: Path, tmp_config: Path,
         env_with_mock_claude: None,
     ) -> None:
-        import ilan.config as cfg_mod
-        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
+        cfg.save({**cfg.DEFAULTS, "workdir": str(tmp_workdir)})
 
         runner = Runner(store)
         t = Task(name="fs", prompt="orig")
