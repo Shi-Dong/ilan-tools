@@ -7,7 +7,7 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from ilan.models import ALIAS_POOL, LogEntry, Task
+from ilan.models import ALIAS_POOL, ENGINE_CODEX, LogEntry, Task
 
 
 class Store:
@@ -75,17 +75,28 @@ class Store:
         task_hash: str,
         now: str,
     ) -> Task:
-        """Create a child task that inherits *parent*'s Claude Code session.
+        """Create a child task that inherits *parent*'s conversation.
 
-        Forks the parent's Claude Code session log onto a fresh UUID so the
-        two tasks evolve independently after this point.  ``claude --resume``
-        appends in place to the session log it was given, so sharing
-        ``session_id`` between parent and child would cause turns from either
-        side to leak into the other's context.  Copying the JSONL to a new
-        UUID-named file in the same directory gives the child its own
+        The child keeps the parent's ``engine`` so branching a codex task
+        yields a codex child (and a claude task a claude child).
+
+        For a **Claude** parent the native session log is forked onto a fresh
+        UUID so the two tasks evolve independently after this point.
+        ``claude --resume`` appends in place to the session log it was given,
+        so sharing ``session_id`` between parent and child would cause turns
+        from either side to leak into the other's context.  Copying the JSONL
+        to a new UUID-named file in the same directory gives the child its own
         session.  Claude resolves sessions by filename, so stale ``sessionId``
         fields inside the copied records are harmless; on APFS this is an
         O(1) clonefile.
+
+        For a **Codex** parent that filename fork is useless: codex sessions
+        live at ``~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl`` and
+        are resolved by that ``rollout-*`` naming, so a copy to
+        ``<uuid>.jsonl`` is unresolvable.  The child instead starts a fresh
+        codex session with ``awaiting_catchup`` set, so its first spawn is
+        seeded from the inherited unified log (copied below) rather than
+        resuming an un-forkable native session.
 
         Also copies the parent's ilan conversation log so ``tail``/``log`` on
         the child show the full inherited history.  The parent task is not
@@ -93,17 +104,23 @@ class Store:
         """
         child_session_id = parent.session_id
         child_session_log_path = parent.session_log_path
+        awaiting_catchup = False
 
-        parent_session_log = (
-            Path(parent.session_log_path) if parent.session_log_path else None
-        )
-        if parent_session_log is not None and parent_session_log.exists():
-            child_session_id = str(uuid.uuid4())
-            new_session_log = parent_session_log.with_name(
-                f"{child_session_id}.jsonl"
+        if parent.engine == ENGINE_CODEX:
+            child_session_id = None
+            child_session_log_path = None
+            awaiting_catchup = True
+        else:
+            parent_session_log = (
+                Path(parent.session_log_path) if parent.session_log_path else None
             )
-            shutil.copyfile(parent_session_log, new_session_log)
-            child_session_log_path = str(new_session_log)
+            if parent_session_log is not None and parent_session_log.exists():
+                child_session_id = str(uuid.uuid4())
+                new_session_log = parent_session_log.with_name(
+                    f"{child_session_id}.jsonl"
+                )
+                shutil.copyfile(parent_session_log, new_session_log)
+                child_session_log_path = str(new_session_log)
 
         child = Task(
             name=new_name,
@@ -115,6 +132,8 @@ class Store:
             alias=alias,
             task_hash=task_hash,
             parent_name=parent.name,
+            engine=parent.engine,
+            awaiting_catchup=awaiting_catchup,
         )
         self.put_task(child)
 
