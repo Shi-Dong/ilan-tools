@@ -342,6 +342,10 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     engine=engine,
                 )
                 self._ilan.store.put_task(task)
+                # Log the opening prompt at creation so the unified log always
+                # opens with the task statement, even if a reply arrives (and is
+                # logged) before the task is first scheduled.
+                self._ilan.store.append_log(task.name, "user", prompt)
             self._ilan.nudge()
             self._json({"ok": True})
 

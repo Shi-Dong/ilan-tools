@@ -147,6 +147,24 @@ class TestTasksCRUD:
         resp = _post(ilan_server, "/tasks", {"name": "test-task", "prompt": "Do something"})
         assert resp.get("ok") is True
 
+    def test_add_task_logs_opening_prompt(self, ilan_server: IlanServer) -> None:
+        """Creation records the opening prompt so the log always opens with it,
+        even if a reply is logged before the first spawn."""
+        _post(ilan_server, "/tasks", {"name": "log-open", "prompt": "build X"})
+        logs = _get(ilan_server, "/tasks/log-open/logs")["logs"]
+        assert [(e["role"], e["content"]) for e in logs] == [("user", "build X")]
+
+    def test_reply_while_unclaimed_keeps_prompt_first(self, ilan_server: IlanServer) -> None:
+        """A reply to a brand-new UNCLAIMED task is logged after the opening
+        prompt, preserving chronological order in the unified log."""
+        _post(ilan_server, "/tasks", {"name": "reply-order", "prompt": "build X"})
+        _post(ilan_server, "/tasks/reply-order/reply", {"message": "also do Y"})
+        logs = _get(ilan_server, "/tasks/reply-order/logs")["logs"]
+        assert [(e["role"], e["content"]) for e in logs] == [
+            ("user", "build X"),
+            ("user", "also do Y"),
+        ]
+
     def test_add_task_defaults_to_claude_engine(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "eng-default", "prompt": "P"})
         task = _get(ilan_server, "/tasks/eng-default")["task"]
@@ -608,11 +626,14 @@ class TestSleep:
 class TestLogs:
     def test_get_logs_empty(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "log-empty", "prompt": "P"})
+        # Isolate the endpoint from the opening prompt logged at creation.
+        ilan_server.store.log_path("log-empty").write_text("")
         resp = _get(ilan_server, "/tasks/log-empty/logs")
         assert resp["logs"] == []
 
     def test_get_logs_with_entries(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "log-full", "prompt": "P"})
+        ilan_server.store.log_path("log-full").write_text("")
         ilan_server.store.append_log("log-full", "user", "hello")
         ilan_server.store.append_log("log-full", "assistant", "hi there")
         resp = _get(ilan_server, "/tasks/log-full/logs")
@@ -662,6 +683,7 @@ class TestLogs:
         # Conversation that opens with the assistant — there's no preceding
         # user message to prepend, so we just return the assistant + after.
         _post(ilan_server, "/tasks", {"name": "tail-asst-first", "prompt": "P"})
+        ilan_server.store.log_path("tail-asst-first").write_text("")
         ilan_server.store.append_log("tail-asst-first", "assistant", "a1")
         ilan_server.store.append_log("tail-asst-first", "user", "u1")
 
@@ -715,6 +737,7 @@ class TestLogs:
 
     def test_tail_n_larger_than_logs(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "tail-n-big", "prompt": "P"})
+        ilan_server.store.log_path("tail-n-big").write_text("")
         ilan_server.store.append_log("tail-n-big", "assistant", "a1")
         ilan_server.store.append_log("tail-n-big", "user", "u1")
 
@@ -723,6 +746,7 @@ class TestLogs:
 
     def test_tail_n_empty_logs_warning(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "tail-n-empty", "prompt": "P"})
+        ilan_server.store.log_path("tail-n-empty").write_text("")
         resp = _get(ilan_server, "/tasks/tail-n-empty/tail?n=4")
         assert "warning" in resp
 

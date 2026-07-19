@@ -191,7 +191,7 @@ class TestTask:
             "cache_read_input_tokens", "cost_usd", "sleep_seconds",
             "parent_name", "summary_one_liner", "model", "last_assistant_model",
             "gist_id", "gist_url", "gist_synced_count", "gist_title_name",
-            "engine", "sessions",
+            "engine", "sessions", "log_cursors", "awaiting_catchup",
         }
         assert set(d.keys()) == expected_keys
 
@@ -301,6 +301,23 @@ class TestTask:
         t2 = Task.from_dict(d)
         assert t2.engine == ENGINE_CODEX
         assert t2.sessions == {"claude": "claude-sid", "codex": "codex-sid"}
+
+    def test_log_cursors_and_catchup_roundtrip(self) -> None:
+        t = self._make_task()
+        t.log_cursors = {"claude": 3, "codex": 1}
+        t.awaiting_catchup = True
+        d = t.to_dict()
+        assert d["log_cursors"] == {"claude": 3, "codex": 1}
+        assert d["awaiting_catchup"] is True
+        t2 = Task.from_dict(d)
+        assert t2.log_cursors == {"claude": 3, "codex": 1}
+        assert t2.awaiting_catchup is True
+
+    def test_from_dict_missing_cursor_fields_default(self) -> None:
+        d = {"name": "old", "prompt": "p", "status": "UNCLAIMED"}
+        t = Task.from_dict(d)
+        assert t.log_cursors == {}
+        assert t.awaiting_catchup is False
 
     def test_session_for_defaults_to_active_engine(self) -> None:
         t = self._make_task(engine=ENGINE_CODEX)

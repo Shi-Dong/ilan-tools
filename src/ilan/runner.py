@@ -48,6 +48,32 @@ def _tmux_instruction(task_hash: str, task_name: str) -> str:
     )
 
 
+def _render_catchup(entries: list, *, fresh: bool) -> str:
+    """Render unified-log entries as a catch-up preamble for a switched engine.
+
+    ``fresh`` distinguishes seeding a brand-new session with the whole
+    transcript from catching a resumed session up on the turns it missed.
+    """
+    if fresh:
+        header = (
+            "You are taking over this task from another agent. Below is the "
+            "full conversation so far. Read it carefully, then continue the work."
+        )
+    else:
+        header = (
+            "While you were away, another agent advanced this task. Below are "
+            "the conversation turns you missed. Catch up on them, then continue "
+            "the work."
+        )
+    parts = [header, "", "--- BEGIN CONVERSATION HISTORY ---"]
+    for entry in entries:
+        speaker = "User" if entry.role == "user" else "Assistant"
+        parts.append(f"\n[{speaker}]\n{entry.content}")
+    parts.append("\n--- END CONVERSATION HISTORY ---")
+    parts.append("\nPlease continue working on this task.")
+    return "\n".join(parts)
+
+
 class Runner:
     """Spawns / kills / reaps agent processes and schedules work.
 
@@ -130,6 +156,33 @@ class Runner:
             task.set_status(TaskStatus.UNCLAIMED)
             self.store.put_task(task)
 
+    def switch_engine(self, task: Task, target_engine: str) -> None:
+        """Lazily switch a task's backend to *target_engine*.
+
+        This does not restart the agent — it only rewires which backend the
+        task will use on its next schedule. The outgoing engine's active
+        session is preserved in the per-engine map, and the incoming engine's
+        own native session (if any) is made active so switching back and forth
+        never discards a backend's conversation. When the incoming engine is
+        behind the unified log, ``awaiting_catchup`` is set so the next spawn
+        injects the turns it missed (Option A: native resume + catch-up, or a
+        fresh session seeded with the transcript when it has never run).
+
+        The caller is responsible for ensuring the task is not mid-flight; a
+        WORKING task should be reaped or killed before switching so its output
+        is parsed by the engine that produced it.
+        """
+        if target_engine == task.engine:
+            return
+        if task.session_id:
+            task.set_session_for(task.engine, task.session_id)
+        task.engine = target_engine
+        task.session_id = task.sessions.get(target_engine)
+        task.session_log_path = None
+        seen = task.log_cursors.get(target_engine, 0)
+        task.awaiting_catchup = len(self.store.read_logs(task.name)) > seen
+        self.store.put_task(task)
+
     def kill(self, task: Task) -> None:
         if task.pid and self._pid_alive(task.pid):
             try:
@@ -173,9 +226,6 @@ class Runner:
         task.pid = proc.pid
         task.set_status(TaskStatus.WORKING)
         self.store.put_task(task)
-
-        if not resume:
-            self.store.append_log(task.name, "user", task.prompt)
         return True
 
     def _build_prompt(self, task: Task) -> tuple[str, bool]:
@@ -183,6 +233,9 @@ class Runner:
         if task.session_id and not self._find_session_log(task.session_id, task.engine):
             task.session_id = None
             task.session_log_path = None
+
+        if task.awaiting_catchup:
+            return self._build_catchup_prompt(task)
 
         if task.cached_replies:
             replies = "\n\n".join(task.cached_replies)
@@ -194,6 +247,31 @@ class Runner:
         if task.session_id:
             return "Please continue working on this task.", True
         return task.prompt, False
+
+    def _build_catchup_prompt(self, task: Task) -> tuple[str, bool]:
+        """Build the post-switch prompt that catches the active engine up.
+
+        The unified log already holds every turn, including any brand-new
+        reply that triggered this schedule, so the interim slice fully conveys
+        what the engine missed; pending ``cached_replies`` are cleared because
+        they are part of that slice. Resumes the engine's native session when
+        it has one, otherwise starts a fresh session seeded with the
+        transcript. Marks the engine caught up so the branch fires only once.
+        """
+        task.awaiting_catchup = False
+        entries = self.store.read_logs(task.name)
+        seen = task.log_cursors.get(task.engine, 0)
+        interim = entries[seen:]
+        has_session = bool(task.session_id)
+        task.cached_replies = []
+        task.log_cursors[task.engine] = len(entries)
+
+        if not interim:
+            if has_session:
+                return "Please continue working on this task.", True
+            return task.prompt, False
+
+        return _render_catchup(interim, fresh=not has_session), has_session
 
     def _reap_all(self) -> None:
         for task in self.store.load_tasks().values():
@@ -225,6 +303,9 @@ class Runner:
             if log_path:
                 task.session_id = sid
                 task.session_log_path = str(log_path)
+                # Keep the per-engine session map current so a later backend
+                # switch can resume this engine's native session.
+                task.set_session_for(task.engine, sid)
                 # Cache the model that produced this turn's assistant message
                 # so ``ilan tail`` can show it without rescanning the session
                 # log on every request.
@@ -240,6 +321,12 @@ class Runner:
         response = result.result_text
         if response:
             self.store.append_log(task.name, "assistant", response)
+
+        # This engine's native session now reflects every unified-log entry
+        # through its own just-appended turn, so advance its cursor. A future
+        # switch to another engine compares against this to know what to
+        # catch that engine up on.
+        task.log_cursors[task.engine] = len(self.store.read_logs(task.name))
 
         if result.is_error:
             task.set_status(TaskStatus.ERROR)

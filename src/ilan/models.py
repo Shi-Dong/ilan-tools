@@ -169,6 +169,15 @@ class Task:
     # other backend's conversation. ``session_id``/``session_log_path`` above
     # remain the *active* engine's session, kept in sync with this map.
     sessions: dict[str, str] = field(default_factory=dict)
+    # Per-engine cursor into the unified log: how many ``logs/<task>.jsonl``
+    # entries each engine's native session has already absorbed. Advanced at
+    # reap time. When a backend switch leaves the newly-active engine behind
+    # this count, the gap is the set of turns it must be caught up on.
+    log_cursors: dict[str, int] = field(default_factory=dict)
+    # Set by a lazy backend switch when the newly-active engine is behind the
+    # unified log; consumed at the next schedule to inject a catch-up preamble
+    # (resume) or seed a fresh session with the transcript. Reset once spent.
+    awaiting_catchup: bool = False
 
     def session_for(self, engine: str | None = None) -> str | None:
         """Return the native session id for *engine* (defaults to active)."""
@@ -219,6 +228,8 @@ class Task:
             "gist_title_name": self.gist_title_name,
             "engine": self.engine,
             "sessions": self.sessions,
+            "log_cursors": self.log_cursors,
+            "awaiting_catchup": self.awaiting_catchup,
         }
 
     @classmethod
@@ -251,6 +262,8 @@ class Task:
             gist_title_name=d.get("gist_title_name"),
             engine=d.get("engine", DEFAULT_ENGINE),
             sessions=cls._migrate_sessions(d),
+            log_cursors=dict(d.get("log_cursors") or {}),
+            awaiting_catchup=d.get("awaiting_catchup", False),
         )
 
     @staticmethod
