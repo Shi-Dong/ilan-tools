@@ -21,7 +21,12 @@ from ilan.cli import (
     _terminal_is_narrow,
     main,
 )
-from ilan.models import STYLE_FOR_STATUS, TaskStatus
+from ilan.models import (
+    DEFAULT_ENGINE,
+    ENGINE_NAME_STYLE,
+    STYLE_FOR_STATUS,
+    TaskStatus,
+)
 
 
 # ── helpers ──────────────────────────────────────────────────────────
@@ -210,7 +215,7 @@ class TestNeedsReviewMarker:
         assert bang_span[0].style == "bold yellow"
 
     def test_name_cell_styling(self) -> None:
-        """Alias uses ALIAS_STYLE ('bold magenta'), name uses 'bold'."""
+        """Alias uses ALIAS_STYLE ('bold magenta'), name uses 'bold' + engine colour."""
         row = _task_row(name="my-task", alias="ab", needs_review=False)
         table = _build_dashboard_table([row], _TZ)
         name_cell = table.columns[0]._cells[0]
@@ -219,9 +224,9 @@ class TestNeedsReviewMarker:
         # First span should be the alias with ALIAS_STYLE.
         alias_span = spans[0]
         assert alias_span.style == ALIAS_STYLE
-        # Second span should be the task name with 'bold'.
+        # Second span is the task name, styled bold plus the engine colour.
         name_span = spans[1]
-        assert name_span.style == "bold"
+        assert name_span.style == f"bold {ENGINE_NAME_STYLE[DEFAULT_ENGINE]}"
 
     def test_marker_is_ascii_safe(self) -> None:
         """The review marker must be pure ASCII for predictable terminal width."""
