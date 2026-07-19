@@ -304,6 +304,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     "summary_one_liner": t.summary_one_liner,
                     "model": t.model,
                     "gist_url": t.gist_url,
+                    "engine": t.engine,
                 })
             self._json({"tasks": rows})
 

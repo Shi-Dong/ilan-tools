@@ -31,7 +31,13 @@ from rich.text import Text
 
 from ilan import config as cfg
 from ilan.client import Client
-from ilan.models import STYLE_FOR_STATUS, TaskStatus, is_fable_model
+from ilan.models import (
+    DEFAULT_ENGINE,
+    ENGINE_NAME_STYLE,
+    STYLE_FOR_STATUS,
+    TaskStatus,
+    is_fable_model,
+)
 from ilan.runner import Runner
 from ilan.server import read_server_info
 from ilan.store import Store
@@ -572,7 +578,9 @@ def _build_name_cell(row: dict, prefix: str) -> Text:
         cell.append(prefix, style=TREE_STYLE)
     if alias:
         cell.append(f"({alias}) ", style=ALIAS_STYLE)
-    cell.append(row["name"], style="bold")
+    engine = row.get("engine") or DEFAULT_ENGINE
+    name_style = ENGINE_NAME_STYLE.get(engine, "")
+    cell.append(row["name"], style=f"bold {name_style}".strip())
     if row.get("needs_review"):
         cell.append(" !!", style="bold yellow")
     if status in (TaskStatus.UNCLAIMED, TaskStatus.WORKING):

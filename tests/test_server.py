@@ -196,6 +196,12 @@ class TestTasksCRUD:
         names = [t["name"] for t in resp["tasks"]]
         assert "list-test" in names
 
+    def test_list_tasks_includes_engine(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "engine-list", "prompt": "P", "agent": "codex"})
+        resp = _get(ilan_server, "/tasks")
+        row = next(t for t in resp["tasks"] if t["name"] == "engine-list")
+        assert row["engine"] == "codex"
+
     def test_list_tasks_hides_terminal(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "will-done", "prompt": "P"})
         _post(ilan_server, "/tasks/will-done/done")
