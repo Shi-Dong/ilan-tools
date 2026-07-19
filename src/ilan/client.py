@@ -170,10 +170,15 @@ class Client:
         path = "/tasks?all=true" if show_all else "/tasks"
         return self.get(path)
 
-    def add_task(self, name: str, prompt: str, agent: str | None = None) -> dict:
+    def add_task(
+        self, name: str, prompt: str, agent: str | None = None,
+        max_model: bool = False,
+    ) -> dict:
         body: dict = {"name": name, "prompt": prompt}
         if agent is not None:
             body["agent"] = agent
+        if max_model:
+            body["max"] = True
         return self.post("/tasks", body)
 
     def get_task(self, name: str) -> dict:       return self.get(f"/tasks/{name}")

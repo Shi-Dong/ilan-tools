@@ -892,7 +892,9 @@ class TestAddAgent:
                 main, ["add", "-n", "codex-task", "-d", "do it", "--codex"]
             )
         assert result.exit_code == 0
-        client.add_task.assert_called_once_with("codex-task", "do it", "codex")
+        client.add_task.assert_called_once_with(
+            "codex-task", "do it", "codex", max_model=False
+        )
 
     def test_claude_flag_passed_through(self, runner: CliRunner, tmp_config) -> None:
         client = _make_client()
@@ -903,7 +905,9 @@ class TestAddAgent:
                 main, ["add", "-n", "claude-task", "-d", "do it", "--claude"]
             )
         assert result.exit_code == 0
-        client.add_task.assert_called_once_with("claude-task", "do it", "claude")
+        client.add_task.assert_called_once_with(
+            "claude-task", "do it", "claude", max_model=False
+        )
 
     def test_agent_omitted_defaults_to_none(self, runner: CliRunner, tmp_config) -> None:
         client = _make_client()
@@ -912,7 +916,37 @@ class TestAddAgent:
              patch("ilan.cli.shutil.which", return_value="/usr/bin/tmux"):
             result = runner.invoke(main, ["add", "-n", "plain-task", "-d", "do it"])
         assert result.exit_code == 0
-        client.add_task.assert_called_once_with("plain-task", "do it", None)
+        client.add_task.assert_called_once_with(
+            "plain-task", "do it", None, max_model=False
+        )
+
+    def test_max_flag_implies_claude_and_passes_through(
+        self, runner: CliRunner, tmp_config
+    ) -> None:
+        client = _make_client()
+        client.add_task.return_value = {"ok": True}
+        with patch("ilan.cli._client", return_value=client), \
+             patch("ilan.cli.shutil.which", return_value="/usr/bin/tmux"):
+            result = runner.invoke(
+                main, ["add", "-n", "fable-task", "-d", "do it", "--max"]
+            )
+        assert result.exit_code == 0
+        client.add_task.assert_called_once_with(
+            "fable-task", "do it", "claude", max_model=True
+        )
+
+    def test_max_with_codex_is_rejected(
+        self, runner: CliRunner, tmp_config
+    ) -> None:
+        client = _make_client()
+        client.add_task.return_value = {"ok": True}
+        with patch("ilan.cli._client", return_value=client), \
+             patch("ilan.cli.shutil.which", return_value="/usr/bin/tmux"):
+            result = runner.invoke(
+                main, ["add", "-n", "bad", "-d", "do it", "--codex", "--max"]
+            )
+        assert result.exit_code == 1
+        client.add_task.assert_not_called()
 
 
 # ── engine colour in the name cell ──────────────────────────────────

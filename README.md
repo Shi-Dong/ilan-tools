@@ -89,7 +89,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 
 | Command | Description |
 |---|---|
-| `ilan task add -n NAME -d "prompt"` | Add a task (or use `-f file`; name must be ≥ 3 chars, letters/digits/`-`/`_` only). Pass `--claude` or `--codex` to pick the backend for this task (default: the `agent` config value) — see [Agent backends](#agent-backends) |
+| `ilan task add -n NAME -d "prompt"` | Add a task (or use `-f file`; name must be ≥ 3 chars, letters/digits/`-`/`_` only). Pass `--claude` or `--codex` to pick the backend for this task (default: the `agent` config value) — see [Agent backends](#agent-backends). Pass `--max` to create the task already on the [Fable model](#fable-model-ilan-max--ilan-unmax) (implies `--claude`) |
 | `ilan task ls [-a] [NAME]` | List active tasks (`-a` includes `DONE`/`DISCARDED`); if `NAME` is given, show its tail instead |
 | `ilan task show NAME` | Print the full prompt of a task |
 | `ilan task path NAME` | Print the Claude Code session log path for a task |
@@ -290,6 +290,7 @@ what the summary looks like.
 ```bash
 ilan max my-task      # run my-task on claude-fable-5
 ilan unmax my-task    # back to the default model
+ilan add -n my-task -d "…" --max   # create a task already on Fable
 ```
 
 `ilan max` pins a single task to Anthropic's Mythos-class **Fable** model
