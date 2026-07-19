@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+import ilan.config as cfg
 from ilan.backends.claude import ClaudeBackend
 
 
@@ -51,8 +52,6 @@ class TestBuildCommand:
     def test_glm_sets_endpoint_and_token(
         self, backend: ClaudeBackend, tmp_config: Path
     ) -> None:
-        import ilan.config as cfg
-
         cfg.save({"api-key-glm": "zai-secret", "api-key-claude": "sk-should-be-dropped"})
         cmd, env = backend.build_command("hi", "glm", resume=False, session_id=None)
         assert env["ANTHROPIC_BASE_URL"] == "https://api.z.ai/api/anthropic"
@@ -62,8 +61,6 @@ class TestBuildCommand:
     def test_non_glm_omits_endpoint_sets_api_key(
         self, backend: ClaudeBackend, tmp_config: Path
     ) -> None:
-        import ilan.config as cfg
-
         cfg.save({"api-key-claude": "sk-live", "model": "opus"})
         _, env = backend.build_command("hi", None, resume=False, session_id=None)
         assert "ANTHROPIC_BASE_URL" not in env
