@@ -398,6 +398,13 @@ class TestOutputComplete:
         store.output_path("t").write_text("")
         assert runner._output_complete("t") is False
 
+    def test_missing_file(self, runner: Runner) -> None:
+        assert runner._output_complete("nonexistent") is False
+
+    def test_invalid_json(self, store: Store, runner: Runner) -> None:
+        store.output_path("t").write_text("{broken")
+        assert runner._output_complete("t") is False
+
 
 # ── backend selection ───────────────────────────────────────────────────
 
@@ -432,13 +439,6 @@ class TestBackendSelection:
             assert runner._find_session_log("sid", ENGINE_CODEX) == Path("/c")
             codex.assert_called_once_with("sid")
             claude.assert_not_called()
-
-    def test_missing_file(self, runner: Runner) -> None:
-        assert runner._output_complete("nonexistent") is False
-
-    def test_invalid_json(self, store: Store, runner: Runner) -> None:
-        store.output_path("t").write_text("{broken")
-        assert runner._output_complete("t") is False
 
 
 # ── _spawn with mock claude ─────────────────────────────────────────────
