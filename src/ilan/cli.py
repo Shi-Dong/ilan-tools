@@ -470,7 +470,9 @@ def task_group() -> None:
 
 # ── task add ─────────────────────────────────────────────────────────
 
-def _do_add(name: str, file_path: str | None, description: str | None) -> None:
+def _do_add(
+    name: str, file_path: str | None, description: str | None, agent: str | None
+) -> None:
     if shutil.which("tmux") is None:
         console.print(
             "[red]tmux is required but not found on PATH.[/red]\n"
@@ -486,7 +488,7 @@ def _do_add(name: str, file_path: str | None, description: str | None) -> None:
     prompt = Path(file_path).read_text() if file_path else description
     assert prompt is not None
 
-    resp = _client().add_task(name, prompt)
+    resp = _client().add_task(name, prompt, agent)
     if _check_error(resp):
         raise SystemExit(1)
     console.print(f"[green]Task [bold]{name}[/bold] added.[/green]")
@@ -497,9 +499,15 @@ def _do_add(name: str, file_path: str | None, description: str | None) -> None:
 @click.option("-f", "--file", "file_path", type=click.Path(exists=True), default=None,
               help="Path to a file containing the task prompt.")
 @click.option("-d", "--description", default=None, help="Inline task prompt.")
-def task_add(name: str, file_path: str | None, description: str | None) -> None:
+@click.option("--claude", "agent", flag_value="claude", default=None,
+              help="Run this task on the Claude backend (the default).")
+@click.option("--codex", "agent", flag_value="codex",
+              help="Run this task on the Codex backend.")
+def task_add(
+    name: str, file_path: str | None, description: str | None, agent: str | None
+) -> None:
     """Add a new task."""
-    _do_add(name, file_path, description)
+    _do_add(name, file_path, description, agent)
 
 
 # ── task ls ──────────────────────────────────────────────────────────
@@ -1675,9 +1683,15 @@ def task_unmax(name: str) -> None:
 @click.option("-f", "--file", "file_path", type=click.Path(exists=True), default=None,
               help="Path to a file containing the task prompt.")
 @click.option("-d", "--description", default=None, help="Inline task prompt.")
-def shortcut_add(name: str, file_path: str | None, description: str | None) -> None:
+@click.option("--claude", "agent", flag_value="claude", default=None,
+              help="Run this task on the Claude backend (the default).")
+@click.option("--codex", "agent", flag_value="codex",
+              help="Run this task on the Codex backend.")
+def shortcut_add(
+    name: str, file_path: str | None, description: str | None, agent: str | None
+) -> None:
     """Shorthand for 'ilan task add'."""
-    _do_add(name, file_path, description)
+    _do_add(name, file_path, description, agent)
 
 
 @main.command("ls")

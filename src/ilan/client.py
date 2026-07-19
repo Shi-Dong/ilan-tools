@@ -170,8 +170,11 @@ class Client:
         path = "/tasks?all=true" if show_all else "/tasks"
         return self.get(path)
 
-    def add_task(self, name: str, prompt: str) -> dict:
-        return self.post("/tasks", {"name": name, "prompt": prompt})
+    def add_task(self, name: str, prompt: str, agent: str | None = None) -> dict:
+        body: dict = {"name": name, "prompt": prompt}
+        if agent is not None:
+            body["agent"] = agent
+        return self.post("/tasks", body)
 
     def get_task(self, name: str) -> dict:       return self.get(f"/tasks/{name}")
     def delete_task(self, name: str, force: bool = False) -> dict:

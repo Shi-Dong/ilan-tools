@@ -8,7 +8,8 @@ from unittest.mock import patch
 
 import pytest
 
-from ilan.models import Task, TaskStatus
+from ilan.backends import ClaudeBackend, CodexBackend
+from ilan.models import ENGINE_CLAUDE, ENGINE_CODEX, Task, TaskStatus
 from ilan.runner import Runner, STATUS_SUFFIX, _tmux_instruction
 from ilan.store import Store
 
@@ -403,6 +404,41 @@ class TestOutputComplete:
     def test_invalid_json(self, store: Store, runner: Runner) -> None:
         store.output_path("t").write_text("{broken")
         assert runner._output_complete("t") is False
+
+
+# ── backend selection ───────────────────────────────────────────────────
+
+
+class TestBackendSelection:
+    def test_default_backends_registered(self, runner: Runner) -> None:
+        assert isinstance(runner._backend_for(ENGINE_CLAUDE), ClaudeBackend)
+        assert isinstance(runner._backend_for(ENGINE_CODEX), CodexBackend)
+
+    def test_unknown_engine_falls_back_to_claude(self, runner: Runner) -> None:
+        assert isinstance(runner._backend_for("mystery"), ClaudeBackend)
+
+    def test_spawn_uses_task_engine_backend(self, store: Store, runner: Runner) -> None:
+        """A codex task must be spawned through the CodexBackend command."""
+        t = Task(name="codex-spawn", prompt="do it", engine=ENGINE_CODEX,
+                 task_hash="abcd1234")
+        store.put_task(t)
+        captured: dict = {}
+
+        def _fake_popen(cmd, **kwargs):  # type: ignore[no-untyped-def]
+            captured["cmd"] = cmd
+            raise FileNotFoundError  # short-circuit before real exec
+
+        with patch("ilan.runner.subprocess.Popen", side_effect=_fake_popen):
+            runner._spawn(t, "do it", resume=False)
+
+        assert captured["cmd"][:2] == ["codex", "exec"]
+
+    def test_find_session_log_routes_by_engine(self, runner: Runner) -> None:
+        with patch.object(CodexBackend, "find_session_log", return_value=Path("/c")) as codex, \
+             patch.object(ClaudeBackend, "find_session_log", return_value=Path("/a")) as claude:
+            assert runner._find_session_log("sid", ENGINE_CODEX) == Path("/c")
+            codex.assert_called_once_with("sid")
+            claude.assert_not_called()
 
 
 # ── _spawn with mock claude ─────────────────────────────────────────────

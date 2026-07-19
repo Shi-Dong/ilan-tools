@@ -22,7 +22,9 @@ from ilan import summarize as summarize_mod
 from ilan.gist import GistSyncer
 from ilan.models import (
     ALIAS_POOL,
+    DEFAULT_ENGINE,
     FABLE_MODEL,
+    VALID_ENGINES,
     Task,
     TaskStatus,
     generate_task_hash,
@@ -312,6 +314,13 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             if err:
                 self._json({"error": err}, 400)
                 return
+            engine = body.get("agent") or cfg.load().get("agent", DEFAULT_ENGINE)
+            if engine not in VALID_ENGINES:
+                self._json(
+                    {"error": f"Unknown agent {engine!r}. Choose from: {', '.join(VALID_ENGINES)}"},
+                    400,
+                )
+                return
             with self._ilan.lock:
                 if self._ilan.store.get_task(name) is not None:
                     existing = self._ilan.store.get_task(name)
@@ -329,6 +338,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     status_changed_at=now,
                     alias=alias,
                     task_hash=generate_task_hash(),
+                    engine=engine,
                 )
                 self._ilan.store.put_task(task)
             self._ilan.nudge()
@@ -623,7 +633,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                         409,
                     )
                     return
-                if self._ilan.runner._find_session_log(parent.session_id) is None:
+                if self._ilan.runner._find_session_log(parent.session_id, parent.engine) is None:
                     self._json(
                         {"error": (
                             f"Session log for task {parent.name} not found on disk. "
@@ -764,7 +774,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             if task is None:
                 return
             if not task.session_log_path and task.session_id:
-                log_path = self._ilan.runner._find_session_log(task.session_id)
+                log_path = self._ilan.runner._find_session_log(task.session_id, task.engine)
                 if log_path:
                     task.session_log_path = str(log_path)
                     with self._ilan.lock:
@@ -786,7 +796,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             # Fallback for tasks last reaped before the cache existed: resolve
             # from the session log once, then backfill so future lookups are free.
             if not task.session_log_path and task.session_id:
-                log_path = self._ilan.runner._find_session_log(task.session_id)
+                log_path = self._ilan.runner._find_session_log(task.session_id, task.engine)
                 if log_path:
                     task.session_log_path = str(log_path)
                     with self._ilan.lock:

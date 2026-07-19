@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 
+from ilan import config as cfg
 from ilan.backends.base import Backend, ParsedResult
 
 _CODEX_STATIC_FLAGS = [
@@ -43,7 +44,12 @@ class CodexBackend(Backend):
         cmd += list(_CODEX_STATIC_FLAGS)
         cmd += ["--model", model_override or _CODEX_DEFAULT_MODEL]
         cmd.append(prompt)
-        return cmd, os.environ.copy()
+
+        env = os.environ.copy()
+        api_key = str(cfg.load().get("api-key-codex", "")).strip()
+        if api_key:
+            env["OPENAI_API_KEY"] = api_key
+        return cmd, env
 
     def parse_output(self, out_path: Path) -> ParsedResult | None:
         """Parse Codex's JSONL event stream into a ``ParsedResult``.

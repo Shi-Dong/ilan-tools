@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+import ilan.config as cfg
 from ilan.backends.codex import CodexBackend
 
 # One full turn as codex streams it to stdout under --json.
@@ -31,7 +32,7 @@ def backend() -> CodexBackend:
 
 
 class TestBuildCommand:
-    def test_fresh_argv_shape(self, backend: CodexBackend) -> None:
+    def test_fresh_argv_shape(self, backend: CodexBackend, tmp_config: Path) -> None:
         cmd, env = backend.build_command("do it", None, resume=False, session_id=None)
         assert cmd[:2] == ["codex", "exec"]
         assert "resume" not in cmd
@@ -41,22 +42,39 @@ class TestBuildCommand:
         assert cmd[-1] == "do it"  # prompt is the positional tail
         assert isinstance(env, dict)
 
-    def test_default_model_when_no_override(self, backend: CodexBackend) -> None:
+    def test_default_model_when_no_override(self, backend: CodexBackend, tmp_config: Path) -> None:
         cmd, _ = backend.build_command("do it", None, resume=False, session_id=None)
         assert cmd[cmd.index("--model") + 1] == "gpt-5.6-sol"
 
-    def test_resume_inserts_session(self, backend: CodexBackend) -> None:
+    def test_resume_inserts_session(self, backend: CodexBackend, tmp_config: Path) -> None:
         cmd, _ = backend.build_command("go on", None, resume=True, session_id="sid-9")
         assert cmd[:4] == ["codex", "exec", "resume", "sid-9"]
         assert cmd[-1] == "go on"
 
-    def test_resume_without_session_id_stays_fresh(self, backend: CodexBackend) -> None:
+    def test_resume_without_session_id_stays_fresh(
+        self, backend: CodexBackend, tmp_config: Path
+    ) -> None:
         cmd, _ = backend.build_command("go on", None, resume=True, session_id=None)
         assert "resume" not in cmd
 
-    def test_model_override_passed(self, backend: CodexBackend) -> None:
+    def test_model_override_passed(self, backend: CodexBackend, tmp_config: Path) -> None:
         cmd, _ = backend.build_command("x", "gpt-5.6-sol", resume=False, session_id=None)
         assert cmd[cmd.index("--model") + 1] == "gpt-5.6-sol"
+
+    def test_api_key_codex_sets_openai_key(
+        self, backend: CodexBackend, tmp_config: Path
+    ) -> None:
+        cfg.save({"api-key-codex": "sk-codex-live"})
+        _, env = backend.build_command("hi", None, resume=False, session_id=None)
+        assert env["OPENAI_API_KEY"] == "sk-codex-live"
+
+    def test_no_api_key_omits_openai_key(
+        self, backend: CodexBackend, tmp_config: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        cfg.save({"model": "opus"})
+        _, env = backend.build_command("hi", None, resume=False, session_id=None)
+        assert "OPENAI_API_KEY" not in env
 
 
 class TestParseOutput:

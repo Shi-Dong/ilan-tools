@@ -9,9 +9,9 @@ import time
 from pathlib import Path
 
 from ilan import config as cfg
-from ilan.backends import Backend, ClaudeBackend
+from ilan.backends import Backend, ClaudeBackend, CodexBackend
 from ilan.backends.claude import last_assistant_model
-from ilan.models import Task, TaskStatus
+from ilan.models import DEFAULT_ENGINE, ENGINE_CLAUDE, ENGINE_CODEX, Task, TaskStatus
 from ilan.oneliner import generate_one_liner
 from ilan.store import Store
 
@@ -53,12 +53,20 @@ class Runner:
 
     The backend (Claude Code, Codex, …) owns every CLI-specific detail; this
     class stays agnostic and drives it through the ``Backend`` interface.
+    Each task names its backend via ``task.engine``; ``_backend_for`` maps that
+    to the concrete adapter so a single Runner can drive both engines at once.
     """
 
-    def __init__(self, store: Store, backend: Backend | None = None) -> None:
+    def __init__(self, store: Store, backends: dict[str, Backend] | None = None) -> None:
         self.store = store
-        self.backend: Backend = backend or ClaudeBackend()
+        self._backends: dict[str, Backend] = backends or {
+            ENGINE_CLAUDE: ClaudeBackend(),
+            ENGINE_CODEX: CodexBackend(),
+        }
         self._procs: dict[str, subprocess.Popen] = {}
+
+    def _backend_for(self, engine: str) -> Backend:
+        return self._backends.get(engine, self._backends[DEFAULT_ENGINE])
 
     # ── public API ───────────────────────────────────────────────────
 
@@ -139,7 +147,7 @@ class Runner:
         """Spawn an agent process. Returns True on success."""
         tmux_instr = _tmux_instruction(task.task_hash, task.name) if task.task_hash else ""
         full_prompt = prompt + tmux_instr + STATUS_SUFFIX
-        cmd, env = self.backend.build_command(
+        cmd, env = self._backend_for(task.engine).build_command(
             full_prompt, task.model, resume=resume, session_id=task.session_id
         )
 
@@ -172,7 +180,7 @@ class Runner:
 
     def _build_prompt(self, task: Task) -> tuple[str, bool]:
         """Return (prompt_text, is_resume) for a task about to be scheduled."""
-        if task.session_id and not self._find_session_log(task.session_id):
+        if task.session_id and not self._find_session_log(task.session_id, task.engine):
             task.session_id = None
             task.session_log_path = None
 
@@ -204,7 +212,8 @@ class Runner:
         task.pid = None
         out_path = self.store.output_path(task.name)
 
-        result = self.backend.parse_output(out_path)
+        backend = self._backend_for(task.engine)
+        result = backend.parse_output(out_path)
         if result is None:
             task.set_status(TaskStatus.ERROR)
             self.store.put_task(task)
@@ -212,14 +221,14 @@ class Runner:
 
         sid = result.session_id
         if sid:
-            log_path = self._find_session_log(sid)
+            log_path = self._find_session_log(sid, task.engine)
             if log_path:
                 task.session_id = sid
                 task.session_log_path = str(log_path)
                 # Cache the model that produced this turn's assistant message
                 # so ``ilan tail`` can show it without rescanning the session
                 # log on every request.
-                model = self.backend.last_assistant_model(log_path)
+                model = backend.last_assistant_model(log_path)
                 if model:
                     task.last_assistant_model = model
 
@@ -279,9 +288,9 @@ class Runner:
             return TaskStatus.NEEDS_ATTENTION
         return TaskStatus.AGENT_FINISHED
 
-    def _find_session_log(self, session_id: str) -> Path | None:
-        """Locate the backend's session log for the given session ID."""
-        return self.backend.find_session_log(session_id)
+    def _find_session_log(self, session_id: str, engine: str = DEFAULT_ENGINE) -> Path | None:
+        """Locate the session log for the given session ID under *engine*'s backend."""
+        return self._backend_for(engine).find_session_log(session_id)
 
     @staticmethod
     def _pid_alive(pid: int) -> bool:

@@ -147,6 +147,27 @@ class TestTasksCRUD:
         resp = _post(ilan_server, "/tasks", {"name": "test-task", "prompt": "Do something"})
         assert resp.get("ok") is True
 
+    def test_add_task_defaults_to_claude_engine(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "eng-default", "prompt": "P"})
+        task = _get(ilan_server, "/tasks/eng-default")["task"]
+        assert task["engine"] == "claude"
+
+    def test_add_task_with_codex_agent(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "eng-codex", "prompt": "P", "agent": "codex"})
+        task = _get(ilan_server, "/tasks/eng-codex")["task"]
+        assert task["engine"] == "codex"
+
+    def test_add_task_invalid_agent_rejected(self, ilan_server: IlanServer) -> None:
+        resp = _post(ilan_server, "/tasks", {"name": "eng-bad", "prompt": "P", "agent": "gpt"})
+        assert "error" in resp
+        assert _get(ilan_server, "/tasks/eng-bad").get("error")
+
+    def test_add_task_uses_config_agent_default(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/config/set", {"key": "agent", "value": "codex"})
+        _post(ilan_server, "/tasks", {"name": "eng-cfg", "prompt": "P"})
+        task = _get(ilan_server, "/tasks/eng-cfg")["task"]
+        assert task["engine"] == "codex"
+
     def test_add_duplicate_task(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "dup-task", "prompt": "A"})
         resp = _post(ilan_server, "/tasks", {"name": "dup-task", "prompt": "B"})
