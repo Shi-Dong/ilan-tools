@@ -1084,7 +1084,7 @@ def task_tap(name: str) -> None:
 
 # ── task sleep ───────────────────────────────────────────────────────
 
-SLEEP_STYLE = "#ff8700"
+SLEEP_STYLE = "white"
 
 
 def _format_sleep_suffix(sleep_seconds: int | None) -> str | None:
