@@ -1,6 +1,6 @@
 # Ilan CLI
 
-A CLI tool that manages and runs a swarm of [Claude Code](https://docs.anthropic.com/en/docs/claude-code) agents on a list of user-defined tasks. Each task is dispatched to `claude -p` in the background; when an agent finishes or gets blocked, the next unclaimed task is picked up automatically.
+A CLI tool that manages and runs a swarm of coding agents on a list of user-defined tasks. Each task is dispatched to an agent backend — [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude -p`) or [Codex](https://github.com/openai/codex) (`codex exec`) — in the background; when an agent finishes or gets blocked, the next unclaimed task is picked up automatically. A task can be moved between backends at any time without losing its conversation — see [Agent backends](#agent-backends).
 
 ## Installation
 
@@ -89,7 +89,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 
 | Command | Description |
 |---|---|
-| `ilan task add -n NAME -d "prompt"` | Add a task (or use `-f file`; name must be ≥ 3 chars, letters/digits/`-`/`_` only) |
+| `ilan task add -n NAME -d "prompt"` | Add a task (or use `-f file`; name must be ≥ 3 chars, letters/digits/`-`/`_` only). Pass `--claude` or `--codex` to pick the backend for this task (default: the `agent` config value) — see [Agent backends](#agent-backends) |
 | `ilan task ls [-a] [NAME]` | List active tasks (`-a` includes `DONE`/`DISCARDED`); if `NAME` is given, show its tail instead |
 | `ilan task show NAME` | Print the full prompt of a task |
 | `ilan task path NAME` | Print the Claude Code session log path for a task |
@@ -112,6 +112,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task unread NAME [NAME...]` | Restore the unread marker on task(s) |
 | `ilan task max NAME` | Run this task on the Fable model (`claude-fable-5`) instead of the default; a red `FABLE` tag shows in the Cost column in `ilan ls` / `ilan dashboard`. Takes effect on the task's next agent spawn. |
 | `ilan task unmax NAME` | Reset the task's model back to the `model` config default |
+| `ilan task switch-backend NAME` | Toggle the task's agent backend (`claude` ↔ `codex`). Lazy: doesn't restart a running agent — a `WORKING` task is reaped first so its output is captured, then the task flips and the new backend catches up on its next turn. See [Agent backends](#agent-backends) |
 | `ilan task rm [-f] NAME [NAME...]` | Delete task(s) and all their data (refuses if any has an active descendant; `-f` overrides) |
 
 ### Shorthands
@@ -181,7 +182,8 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 | Key | Default | Description |
 |---|---|---|
 | `workdir` | `~/.ilan` | Where all ilan data is stored |
-| `num-agents` | `5` | Max concurrent Claude Code agents |
+| `num-agents` | `5` | Max concurrent agents |
+| `agent` | `claude` | Default agent backend for newly added tasks (`claude` or `codex`). Override per task with `ilan add --claude`/`--codex`, or flip an existing task with `ilan task switch-backend` — see [Agent backends](#agent-backends) |
 | `time-zone` | `US/Pacific` | Time zone for displayed timestamps (client-side: set on each machine running the CLI). Accepts friendly aliases — see [Time-zone aliases](#time-zone-aliases) |
 | `model` | `opus` | Model passed to `claude -p`. Accepts Claude Code aliases (`opus`, `sonnet`, `haiku`) or `glm` / `glm-5-2` to run agents on GLM-5.2 via Z.ai — see [GLM-5.2 model](#glm-52-model) |
 | `effort` | `high` | Effort level for the model |
@@ -190,6 +192,7 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 | `editor` | `emacs` | Editor used by `ilan task log` |
 | `api-key-claude` | _(empty)_ | Anthropic API key passed as `ANTHROPIC_API_KEY` to spawned agents; also used to call Haiku for the one-line status summary in `ilan ls` and `ilan dashboard`. When empty, the one-line summary falls back to the server's local `claude` CLI (Claude Code subscription) instead. Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
 | `api-key-glm` | _(empty)_ | Z.ai API key used as the bearer token (`ANTHROPIC_AUTH_TOKEN`) for spawned agents when `model` is `glm` / `glm-5-2`. Ignored for non-GLM models — see [GLM-5.2 model](#glm-52-model). Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
+| `api-key-codex` | _(empty)_ | OpenAI API key passed as `OPENAI_API_KEY` to spawned Codex agents. When empty, Codex falls back to the server's inherited environment (`codex login`, or an `OPENAI_API_KEY` already present in the server's env). Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
 | `github-token` | _(empty)_ | GitHub personal-access token (needs the `gist` scope). Setting it turns on [Gist conversation mirroring](#gist-conversation-mirroring); leaving it empty keeps the feature off. Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
 | `dashboard-interval` | `1` | Seconds between automatic refreshes in `ilan dashboard` |
 | `line-number` | `false` | When `true`, `ilan tail` prefixes each assistant line with a yellow `[N]` marker and `ilan reply` / `ilan task branch` expand `@N` into the Nth line, double-quoted |
@@ -315,6 +318,48 @@ authenticating with the `api-key-glm` config as the bearer token
 runs. Switch back with `ilan config set model opus` (or any Claude Code alias)
 at any time.
 
+## Agent backends
+
+Every task runs on an **agent backend** (its *engine*): Claude Code (`claude -p`)
+or Codex (`codex exec`). The backend is chosen per task, so a Claude task and a
+Codex task can run side by side in the same swarm.
+
+```bash
+ilan config set agent codex        # default backend for new tasks
+ilan add -n fix-bug -d "…" --claude    # override the default for one task
+ilan task switch-backend fix-bug   # flip an existing task's backend
+```
+
+- **Per-task selection.** New tasks use the `agent` config value unless `ilan add`
+  is given `--claude` or `--codex`. The task's name is tinted by its engine in `ilan ls` /
+  `ilan dashboard` — orange for Claude, light blue for Codex — so the running
+  backend is legible at a glance.
+- **No lost context on switch.** Each backend keeps its *own* native session for
+  the task, so switching away and back resumes that backend's conversation rather
+  than starting over. On top of the native sessions, ilan keeps a unified
+  conversation log (the user prompts + final assistant replies, spanning both
+  backends).
+- **Catch-up on switch.** `ilan task switch-backend` is *lazy* — it doesn't
+  restart a running agent. A `WORKING` task is reaped first so its in-flight
+  output is captured by the engine that produced it; then the task flips. On the
+  incoming backend's next turn it is caught up on everything it missed: its native
+  session is resumed and the interim turns are injected, or — if that backend has
+  never run this task — a fresh session is seeded with the full transcript.
+
+Codex tasks run on `gpt-5.6-sol` (OpenAI's flagship model); the Codex model is
+currently fixed (`ilan max` pins the Claude-only Fable model and has no effect on
+a Codex task).
+
+Codex authenticates with the configured `api-key-codex`, passed as `OPENAI_API_KEY`
+to spawned agents; when it is empty, Codex falls back to the server's inherited
+environment (`codex login`, or an `OPENAI_API_KEY` present in the server's env). See
+the `api-key-codex` note under [Configuration keys](#configuration-keys).
+
+The two backends read their project context from different files — Claude Code
+from `CLAUDE.md`, Codex from `AGENTS.md`. To keep the same standing instructions
+reaching whichever backend runs a task, see
+[CLAUDE_VS_CODEX.md](CLAUDE_VS_CODEX.md).
+
 ## Task lifecycle
 
 ```
@@ -352,7 +397,7 @@ All `claude -p` processes are spawned with `cwd` set to the configured workdir s
                                             │        │         │
                                             │        ▼         │
                                             │  ┌────────────┐  │
-                                            │  │ runner     │  │ ── spawns claude -p
+                                            │  │ runner     │  │ ── spawns claude -p / codex exec
                                             │  └────────────┘  │
                                             │        │         │
                                             └────────┼─────────┘
@@ -365,7 +410,7 @@ All `claude -p` processes are spawned with `cwd` set to the configured workdir s
                                             └────────────────┘
 ```
 
-The server auto-starts on the first CLI command and recovers gracefully on restart by reading task state and agent output files from the workdir.
+The server auto-starts on the first CLI command and recovers gracefully on restart by reading task state and agent output files from the workdir. The runner drives each task through a pluggable backend adapter (`src/ilan/backends/`: `claude.py`, `codex.py`) selected by the task's engine — see [Agent backends](#agent-backends).
 
 ## Gist conversation mirroring
 
