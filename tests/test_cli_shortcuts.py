@@ -878,6 +878,32 @@ class TestFableRendering:
         name_cell = _build_name_cell(row, "")
         assert "FABLE" not in name_cell.plain
 
+    def test_name_cell_fable_shown_on_claude_engine(self) -> None:
+        """A Fable task still driven by Claude keeps the FABLE note."""
+        row = {"name": "maxed-task", "alias": "", "status": "WORKING",
+               "needs_review": False, "model": "claude-fable-5",
+               "engine": "claude"}
+        name_cell = _build_name_cell(row, "")
+        assert "FABLE" in name_cell.plain
+
+    def test_name_cell_no_fable_after_switch_to_codex(self) -> None:
+        """Fable is Claude-only: once the task is switched to Codex the note is
+        dropped even though the stored model is still Fable."""
+        row = {"name": "maxed-task", "alias": "", "status": "WORKING",
+               "needs_review": False, "model": "claude-fable-5",
+               "engine": "codex"}
+        name_cell = _build_name_cell(row, "")
+        assert "FABLE" not in name_cell.plain
+
+    def test_name_cell_fable_shown_for_unknown_engine(self) -> None:
+        """An unrecognized engine runs on the Claude backend (Runner._backend_for
+        falls back to it), which honors the Fable override — so the tag shows."""
+        row = {"name": "maxed-task", "alias": "", "status": "WORKING",
+               "needs_review": False, "model": "claude-fable-5",
+               "engine": "some-future-engine"}
+        name_cell = _build_name_cell(row, "")
+        assert "FABLE" in name_cell.plain
+
 
 # ── ilan add --claude / --codex ─────────────────────────────────────
 

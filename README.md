@@ -110,7 +110,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task undone NAME` | Move a `DONE` task back to `NEEDS_ATTENTION` |
 | `ilan task undiscard NAME` | Move a `DISCARDED` task back to `NEEDS_ATTENTION` |
 | `ilan task unread NAME [NAME...]` | Restore the unread marker on task(s) |
-| `ilan task max NAME` | Run this task on the Fable model (`claude-fable-5`) instead of the default; a red `FABLE` tag shows beneath the task name in `ilan ls` / `ilan dashboard`. Takes effect on the task's next agent spawn. Fable is Claude-only, so this is a no-op (with a warning) on a `codex` task — switch it to `claude` first. |
+| `ilan task max NAME` | Run this task on the Fable model (`claude-fable-5`) instead of the default; a red `FABLE` tag shows beneath the task name in `ilan ls` / `ilan dashboard`. Takes effect on the task's next agent spawn. Fable is Claude-only, so this is a no-op (with a warning) on a `codex` task — switch it to `claude` first. The tag is hidden while the task is on `codex` (Fable is inactive there) and reappears when it is switched back to `claude`. |
 | `ilan task unmax NAME` | Reset the task's model back to the `model` config default |
 | `ilan task switch-backend NAME` | Toggle the task's agent backend (`claude` ↔ `codex`). Lazy: doesn't restart a running agent — a `WORKING` task is reaped first so its output is captured, then the task flips and the new backend catches up on its next turn. See [Agent backends](#agent-backends) |
 | `ilan task rm [-f] NAME [NAME...]` | Delete task(s) and all their data (refuses if any has an active descendant; `-f` overrides) |
@@ -296,11 +296,13 @@ ilan add -n my-task -d "…" --max   # create a task already on Fable
 `ilan max` pins a single task to Anthropic's Mythos-class **Fable** model
 (`claude-fable-5`), leaving every other task on the configured `model`
 default. While a task is maxed, a red `FABLE` tag is rendered on its own
-line beneath the task name in `ilan ls` and `ilan dashboard`. The override
-is per task and persists across replies until you run `ilan unmax`, which
-clears it back to the `model` config default. A change takes effect on
-the task's next agent spawn (the next reply / scheduled run), not on an
-already-running agent.
+line beneath the task name in `ilan ls` and `ilan dashboard` (hidden while
+the task is on the `codex` backend, since Fable is Claude-only and inactive
+there; it reappears on switching back to `claude`). The override is per
+task and persists across replies until you run `ilan unmax`, which clears
+it back to the `model` config default. A change takes effect on the task's
+next agent spawn (the next reply / scheduled run), not on an already-running
+agent.
 
 ### GLM-5.2 model
 
