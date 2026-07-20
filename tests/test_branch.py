@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 import pytest
 
 from ilan.cli import _order_tasks_as_forest
-from ilan.models import ALIAS_POOL, Task, TaskStatus
+from ilan.models import ALIAS_POOL, ENGINE_CLAUDE, ENGINE_CODEX, Task, TaskStatus
 from ilan.runner import Runner
 from ilan.server import IlanServer
 from ilan.store import Store
@@ -66,6 +66,10 @@ class TestStoreBranch:
         assert child.status == TaskStatus.UNCLAIMED
         assert child.cached_replies == []
         assert child.cost_usd == 0.0
+        # A claude parent yields a claude child that resumes the forked native
+        # session (no catch-up needed — the fork carries the full history).
+        assert child.engine == ENGINE_CLAUDE
+        assert child.awaiting_catchup is False
 
         # Child got its own session_id (a UUID) distinct from the parent.
         assert child.session_id != "sid-1"
@@ -94,6 +98,48 @@ class TestStoreBranch:
         assert parent_reloaded.session_id == "sid-1"
         assert parent_reloaded.session_log_path == str(parent_session)
         assert parent_reloaded.parent_name is None
+
+    def test_branch_codex_parent_carries_engine_and_spawns_fresh(
+        self, store: Store, tmp_path: Path,
+    ) -> None:
+        """A codex parent yields a codex child that spawns a fresh session.
+
+        The Claude-style copy-to-<uuid>.jsonl fork is unresolvable for codex
+        (codex resolves by rollout-* naming), so the child starts fresh with
+        ``awaiting_catchup`` set and no native session is copied. The inherited
+        unified log is still copied so catch-up can seed the fresh session.
+        """
+        codex_session = tmp_path / "rollout-2026-07-19T00-00-00-abc.jsonl"
+        codex_session.write_text('{"type": "user"}\n')
+
+        parent = Task(
+            name="parent",
+            prompt="root prompt",
+            engine=ENGINE_CODEX,
+            session_id="codex-sid",
+            session_log_path=str(codex_session),
+            alias="aa",
+            task_hash="abcd1234",
+        )
+        store.put_task(parent)
+        store.append_log("parent", "user", "hello")
+        store.append_log("parent", "assistant", "hi")
+
+        child = store.branch_task(
+            parent, "child",
+            alias="bb", task_hash="deadbeef", now="2026-01-01T00:00:00+00:00",
+        )
+
+        assert child.engine == ENGINE_CODEX
+        # No un-forkable native session is inherited; the child spawns fresh.
+        assert child.session_id is None
+        assert child.session_log_path is None
+        assert child.awaiting_catchup is True
+        # The Claude-style fork file was NOT created next to the parent's.
+        assert list(tmp_path.glob("*.jsonl")) == [codex_session]
+        # The unified ilan log was still copied so catch-up has history to seed.
+        child_logs = store.read_logs("child")
+        assert [e.content for e in child_logs] == ["hello", "hi"]
 
     def test_branch_without_parent_session_log_skips_fork(
         self, store: Store,
@@ -349,6 +395,44 @@ class TestServerBranchEndpoint:
         assert child.cached_replies == ["try plan B"]
         logs = ilan_server.store.read_logs("child-task")
         # Copied 2 parent entries + 1 new user message.
+        assert [e.content for e in logs] == ["hello", "hi", "try plan B"]
+
+    def test_branch_codex_parent_yields_fresh_codex_child(
+        self, ilan_server: IlanServer,
+    ) -> None:
+        """Branching a codex parent produces a codex child that spawns fresh."""
+        parent = Task(
+            name="codex-parent",
+            prompt="root prompt",
+            created_at="2026-01-01T00:00:00+00:00",
+            status_changed_at="2026-01-01T00:00:00+00:00",
+            engine=ENGINE_CODEX,
+            session_id="codex-sid",
+            session_log_path="/fake/rollout-x-abc.jsonl",
+            alias="aa",
+            task_hash="abcd1234",
+        )
+        ilan_server.store.put_task(parent)
+        ilan_server.store.append_log("codex-parent", "user", "hello")
+        ilan_server.store.append_log("codex-parent", "assistant", "hi")
+
+        with patch.object(
+            Runner, "_find_session_log",
+            return_value=Path("/fake/rollout-x-abc.jsonl"),
+        ):
+            code, resp = _post(
+                ilan_server, "/tasks/codex-parent/branch",
+                {"new_name": "codex-child", "message": "try plan B"},
+            )
+        assert code == 200, resp
+
+        child = ilan_server.store.get_task("codex-child")
+        assert child is not None
+        assert child.engine == ENGINE_CODEX
+        assert child.session_id is None
+        assert child.awaiting_catchup is True
+        assert child.cached_replies == ["try plan B"]
+        logs = ilan_server.store.read_logs("codex-child")
         assert [e.content for e in logs] == ["hello", "hi", "try plan B"]
 
     def test_branch_no_message(self, ilan_server: IlanServer) -> None:
