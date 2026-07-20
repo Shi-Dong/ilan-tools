@@ -23,6 +23,7 @@ from ilan.gist import GistSyncer
 from ilan.models import (
     ALIAS_POOL,
     DEFAULT_ENGINE,
+    ENGINE_CLAUDE,
     FABLE_MODEL,
     VALID_ENGINES,
     Task,
@@ -685,6 +686,23 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             with self._ilan.lock:
                 task = self._get_task_or_404(name)
                 if task is None:
+                    return
+                # Fable is an Anthropic model, so only the Claude backend can
+                # run it. Maxing a task on any other backend would just feed
+                # that backend a model it can't load and break its next spawn,
+                # so it's a no-op here — flip the task to claude first.
+                if task.engine != ENGINE_CLAUDE:
+                    self._json({
+                        "ok": True,
+                        "name": task.name,
+                        "model": task.model,
+                        "warning": (
+                            f"Task {task.name} runs on the {task.engine} backend; "
+                            f"Fable ({FABLE_MODEL}) is a Claude-only model, so "
+                            "max did nothing. Switch it to claude first "
+                            f"(ilan task switch-backend {task.name})."
+                        ),
+                    })
                     return
                 task.model = FABLE_MODEL
                 self._ilan.store.put_task(task)

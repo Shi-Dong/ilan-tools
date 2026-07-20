@@ -61,6 +61,16 @@ class TestBuildCommand:
         cmd, _ = backend.build_command("x", "gpt-5.6-sol", resume=False, session_id=None)
         assert cmd[cmd.index("--model") + 1] == "gpt-5.6-sol"
 
+    def test_fable_override_falls_back_to_default(
+        self, backend: CodexBackend, tmp_config: Path
+    ) -> None:
+        """A stale Fable override (from ``ilan max`` before a switch to codex)
+        is Claude-only, so codex ignores it and spawns the codex default."""
+        cmd, _ = backend.build_command(
+            "x", "claude-fable-5", resume=False, session_id=None
+        )
+        assert cmd[cmd.index("--model") + 1] == "gpt-5.6-sol"
+
     def test_api_key_codex_sets_openai_key(
         self, backend: CodexBackend, tmp_config: Path
     ) -> None:
