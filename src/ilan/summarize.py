@@ -91,9 +91,11 @@ def _run_claude(prompt: str, model: str, effort: str) -> str:
 
     Uses ``--output-format json`` and pulls the ``result`` field so we don't
     accidentally capture Claude's own status line or prompt-cache chatter.
+    The prompt goes over stdin, never argv: it embeds the whole task log,
+    which can exceed the OS ARG_MAX.
     """
     cmd = [
-        "claude", "-p", prompt,
+        "claude", "-p",
         "--model", model,
         "--effort", effort,
         "--dangerously-skip-permissions",
@@ -105,7 +107,9 @@ def _run_claude(prompt: str, model: str, effort: str) -> str:
     if api_key:
         env["ANTHROPIC_API_KEY"] = api_key
 
-    proc = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=900)
+    proc = subprocess.run(
+        cmd, input=prompt, capture_output=True, text=True, env=env, timeout=900
+    )
     if proc.returncode != 0:
         stderr = proc.stderr.strip() or proc.stdout.strip()
         raise RuntimeError(f"claude -p failed (exit {proc.returncode}): {stderr}")

@@ -35,17 +35,20 @@ class Backend(ABC):
     @abstractmethod
     def build_command(
         self,
-        prompt: str,
         model_override: str | None,
         *,
         resume: bool,
         session_id: str | None,
     ) -> tuple[list[str], dict[str, str]]:
-        """Return ``(argv, env)`` for spawning the agent on *prompt*.
+        """Return ``(argv, env)`` for spawning the agent.
 
-        *prompt* is already augmented (tmux instruction + status suffix) by
-        the caller. When *resume* is true and *session_id* is set, the argv
-        must resume that native session rather than starting fresh.
+        The prompt is NOT part of the argv: ``Runner`` delivers it on the
+        process's stdin, so the argv must tell the CLI to read its prompt
+        from stdin. Prompts must never travel as arguments — a long catch-up
+        transcript can exceed the OS ARG_MAX (E2BIG at exec), and ~1 MB argv
+        values crash codex-cli outright (SIGSEGV before any output). When
+        *resume* is true and *session_id* is set, the argv must resume that
+        native session rather than starting fresh.
         """
 
     @abstractmethod

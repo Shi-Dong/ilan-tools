@@ -38,14 +38,17 @@ import time
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Mock Claude CLI")
-    parser.add_argument("-p", dest="prompt", required=True, help="Prompt text")
+    # Like the real CLI in ilan's usage, -p is a bare flag: the prompt
+    # itself arrives on stdin, never as an argv value.
+    parser.add_argument("-p", dest="print_mode", action="store_true")
     parser.add_argument("--output-format", dest="output_format", default="json")
     parser.add_argument("--model", default="opus")
     parser.add_argument("--effort", default="high")
     parser.add_argument("--resume", default=None)
     parser.add_argument("--dangerously-skip-permissions", action="store_true")
 
-    args = parser.parse_args()
+    parser.parse_args()
+    prompt = sys.stdin.read()
 
     status = os.environ.get("MOCK_CLAUDE_STATUS", "DONE")
     session_id = os.environ.get("MOCK_CLAUDE_SESSION_ID", "mock-session-0001")
@@ -78,7 +81,7 @@ def main() -> None:
         else:
             # Default: DONE
             response = (
-                f"I completed the task based on prompt: {args.prompt[:80]}\n\n"
+                f"I completed the task based on prompt: {prompt[:80]}\n\n"
                 "[STATUS: DONE]"
             )
 

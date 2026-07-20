@@ -242,3 +242,9 @@ class Store:
 
     def output_path(self, task_name: str) -> Path:
         return self._output_dir / f"{task_name}.json"
+
+    def prompt_path(self, task_name: str) -> Path:
+        return self._output_dir / f"{task_name}.prompt.txt"
+
+    def stderr_path(self, task_name: str) -> Path:
+        return self._output_dir / f"{task_name}.stderr.txt"

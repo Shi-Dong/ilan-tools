@@ -23,37 +23,38 @@ def backend() -> ClaudeBackend:
 
 class TestBuildCommand:
     def test_basic_argv_shape(self, backend: ClaudeBackend, tmp_config: Path) -> None:
-        cmd, _ = backend.build_command("hi", None, resume=False, session_id=None)
-        assert cmd[:3] == ["claude", "-p", "hi"]
+        cmd, _ = backend.build_command(None, resume=False, session_id=None)
+        # No positional prompt: the prompt travels on stdin.
+        assert cmd[:2] == ["claude", "-p"]
         assert "--dangerously-skip-permissions" in cmd
         assert cmd[cmd.index("--output-format") + 1] == "json"
         assert "--resume" not in cmd
 
     def test_model_override_wins(self, backend: ClaudeBackend, tmp_config: Path) -> None:
-        cmd, _ = backend.build_command("hi", "claude-fable-5", resume=False, session_id=None)
+        cmd, _ = backend.build_command("claude-fable-5", resume=False, session_id=None)
         assert cmd[cmd.index("--model") + 1] == "claude-fable-5"
 
     def test_falls_back_to_config_model(
         self, backend: ClaudeBackend, tmp_config: Path
     ) -> None:
-        cmd, _ = backend.build_command("hi", None, resume=False, session_id=None)
+        cmd, _ = backend.build_command(None, resume=False, session_id=None)
         assert cmd[cmd.index("--model") + 1] == "opus"
 
     def test_resume_appends_session(self, backend: ClaudeBackend, tmp_config: Path) -> None:
-        cmd, _ = backend.build_command("hi", None, resume=True, session_id="sid-42")
+        cmd, _ = backend.build_command(None, resume=True, session_id="sid-42")
         assert cmd[cmd.index("--resume") + 1] == "sid-42"
 
     def test_resume_without_session_id_omits_flag(
         self, backend: ClaudeBackend, tmp_config: Path
     ) -> None:
-        cmd, _ = backend.build_command("hi", None, resume=True, session_id=None)
+        cmd, _ = backend.build_command(None, resume=True, session_id=None)
         assert "--resume" not in cmd
 
     def test_glm_sets_endpoint_and_token(
         self, backend: ClaudeBackend, tmp_config: Path
     ) -> None:
         cfg.save({"api-key-glm": "zai-secret", "api-key-claude": "sk-should-be-dropped"})
-        cmd, env = backend.build_command("hi", "glm", resume=False, session_id=None)
+        cmd, env = backend.build_command("glm", resume=False, session_id=None)
         assert env["ANTHROPIC_BASE_URL"] == "https://api.z.ai/api/anthropic"
         assert env["ANTHROPIC_AUTH_TOKEN"] == "zai-secret"
         assert "ANTHROPIC_API_KEY" not in env
@@ -62,7 +63,7 @@ class TestBuildCommand:
         self, backend: ClaudeBackend, tmp_config: Path
     ) -> None:
         cfg.save({"api-key-claude": "sk-live", "model": "opus"})
-        _, env = backend.build_command("hi", None, resume=False, session_id=None)
+        _, env = backend.build_command(None, resume=False, session_id=None)
         assert "ANTHROPIC_BASE_URL" not in env
         assert env["ANTHROPIC_API_KEY"] == "sk-live"
 

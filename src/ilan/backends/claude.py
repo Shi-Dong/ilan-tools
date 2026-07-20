@@ -88,13 +88,13 @@ class ClaudeBackend(Backend):
 
     def build_command(
         self,
-        prompt: str,
         model_override: str | None,
         *,
         resume: bool,
         session_id: str | None,
     ) -> tuple[list[str], dict[str, str]]:
-        cmd = ["claude", "-p", prompt, *_claude_flags(model_override)]
+        # No positional prompt: `claude -p` reads the prompt from stdin.
+        cmd = ["claude", "-p", *_claude_flags(model_override)]
         if resume and session_id:
             cmd.extend(["--resume", session_id])
 
