@@ -286,14 +286,30 @@ class LogEntry:
     role: str
     content: str
     timestamp: str
+    # Model that produced this message (assistant replies only). Older entries
+    # predate this field and stay ``None`` so they render unchanged.
+    model: str | None = None
 
     def to_dict(self) -> dict[str, str]:
-        return {"role": self.role, "content": self.content, "timestamp": self.timestamp}
+        d = {"role": self.role, "content": self.content, "timestamp": self.timestamp}
+        if self.model:
+            d["model"] = self.model
+        return d
 
     @classmethod
     def from_dict(cls, d: dict[str, str]) -> LogEntry:
-        return cls(role=d["role"], content=d["content"], timestamp=d.get("timestamp", ""))
+        return cls(
+            role=d["role"],
+            content=d["content"],
+            timestamp=d.get("timestamp", ""),
+            model=d.get("model") or None,
+        )
 
     @classmethod
-    def now(cls, role: str, content: str) -> LogEntry:
-        return cls(role=role, content=content, timestamp=datetime.now(timezone.utc).isoformat())
+    def now(cls, role: str, content: str, model: str | None = None) -> LogEntry:
+        return cls(
+            role=role,
+            content=content,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            model=model,
+        )

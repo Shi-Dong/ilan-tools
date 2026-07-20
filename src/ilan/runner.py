@@ -327,7 +327,9 @@ class Runner:
 
         response = result.result_text
         if response:
-            self.store.append_log(task.name, "assistant", response)
+            self.store.append_log(
+                task.name, "assistant", response, task.last_assistant_model
+            )
 
         # This engine's native session now reflects every unified-log entry
         # through its own just-appended turn, so advance its cursor. A future
