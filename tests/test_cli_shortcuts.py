@@ -860,8 +860,6 @@ class TestFableRendering:
 
     def test_fable_note_is_in_name_cell(self) -> None:
         """The FABLE note lives in the Name cell, on its own line."""
-        from ilan.cli import _build_name_cell
-
         row = {
             "name": "maxed-task",
             "alias": "aa",
@@ -875,8 +873,6 @@ class TestFableRendering:
         assert name_cell.plain.splitlines() == ["(aa) maxed-task", "FABLE"]
 
     def test_name_cell_no_fable_for_default_task(self) -> None:
-        from ilan.cli import _build_name_cell
-
         row = {"name": "plain-task", "alias": "", "status": "WORKING",
                "needs_review": False, "model": None}
         name_cell = _build_name_cell(row, "")
