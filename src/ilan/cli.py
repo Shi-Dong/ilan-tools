@@ -33,6 +33,7 @@ from ilan import config as cfg
 from ilan.client import Client
 from ilan.models import (
     DEFAULT_ENGINE,
+    ENGINE_CLAUDE,
     ENGINE_NAME_STYLE,
     FABLE_MODEL,
     STYLE_FOR_STATUS,
@@ -595,7 +596,9 @@ def _build_name_cell(row: dict, prefix: str) -> Text:
     ``ilan ls`` table.
 
     Tasks running on the Fable model get a red ``FABLE`` note on a separate
-    line beneath the name.
+    line beneath the name. Fable is Claude-only, so the note is shown only
+    while the task's engine is Claude; after a switch to Codex it disappears
+    (the stored model is untouched, so switching back to Claude restores it).
     """
     status = TaskStatus(row["status"])
     alias = row.get("alias") or ""
@@ -613,7 +616,7 @@ def _build_name_cell(row: dict, prefix: str) -> Text:
         sleep_suffix = _format_sleep_suffix(row.get("sleep_seconds"))
         if sleep_suffix:
             cell.append(sleep_suffix, style=SLEEP_STYLE)
-    if is_fable_model(row.get("model")):
+    if engine == ENGINE_CLAUDE and is_fable_model(row.get("model")):
         cell.append("\nFABLE", style="bold red")
     return cell
 
