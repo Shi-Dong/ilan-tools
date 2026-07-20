@@ -217,8 +217,10 @@ class Store:
     def log_path(self, task_name: str) -> Path:
         return self._logs_dir / f"{task_name}.jsonl"
 
-    def append_log(self, task_name: str, role: str, content: str) -> None:
-        entry = LogEntry.now(role, content)
+    def append_log(
+        self, task_name: str, role: str, content: str, model: str | None = None
+    ) -> None:
+        entry = LogEntry.now(role, content, model)
         with open(self.log_path(task_name), "a") as f:
             f.write(json.dumps(entry.to_dict()) + "\n")
         if self.on_append is not None:
