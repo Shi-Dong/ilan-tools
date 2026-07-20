@@ -250,6 +250,29 @@ class TestTryReap:
         updated = store.get_task("t-model")
         assert updated is not None
         assert updated.last_assistant_model == "claude-opus-4-8"
+        # The appended log entry carries this turn's detected model.
+        logs = store.read_logs("t-model")
+        assert logs[-1].role == "assistant"
+        assert logs[-1].model == "claude-opus-4-8"
+
+    def test_reap_log_model_none_when_detection_misses(
+        self, store: Store, runner: Runner
+    ) -> None:
+        """When this turn's model can't be detected, the appended entry carries
+        no model — it must not inherit the task's cached previous-turn model
+        (which, after a backend switch, could be the other engine's)."""
+        t = Task(name="t-stale", prompt="p", status=TaskStatus.WORKING, pid=99999)
+        t.last_assistant_model = "claude-fable-5"  # stale prior-turn cache
+        store.put_task(t)
+        out = {"session_id": "sid-stale", "result": "ok\n[STATUS: DONE]", "is_error": False}
+        store.output_path("t-stale").write_text(json.dumps(out))
+
+        # No session log found → this turn's model is undetectable.
+        with patch.object(Runner, "_find_session_log", return_value=None):
+            runner._try_reap(t)
+        logs = store.read_logs("t-stale")
+        assert logs[-1].role == "assistant"
+        assert logs[-1].model is None
 
     def test_reap_accumulates_cost(self, store: Store, runner: Runner) -> None:
         t = Task(name="t-cost", prompt="p", status=TaskStatus.WORKING, pid=99999)

@@ -304,6 +304,11 @@ class Runner:
             self.store.put_task(task)
             return
 
+        # The model that produced *this* turn's reply, if we can detect it.
+        # Kept turn-local (not read back from ``task.last_assistant_model``) so
+        # a detection miss tags nothing rather than inheriting the prior turn's
+        # model — which, after a backend switch, could be the other engine's.
+        turn_model: str | None = None
         sid = result.session_id
         if sid:
             log_path = self._find_session_log(sid, task.engine)
@@ -316,9 +321,9 @@ class Runner:
                 # Cache the model that produced this turn's assistant message
                 # so ``ilan tail`` can show it without rescanning the session
                 # log on every request.
-                model = backend.last_assistant_model(log_path)
-                if model:
-                    task.last_assistant_model = model
+                turn_model = backend.last_assistant_model(log_path)
+                if turn_model:
+                    task.last_assistant_model = turn_model
 
         task.input_tokens += result.input_tokens
         task.output_tokens += result.output_tokens
@@ -327,9 +332,7 @@ class Runner:
 
         response = result.result_text
         if response:
-            self.store.append_log(
-                task.name, "assistant", response, task.last_assistant_model
-            )
+            self.store.append_log(task.name, "assistant", response, turn_model)
 
         # This engine's native session now reflects every unified-log entry
         # through its own just-appended turn, so advance its cursor. A future
