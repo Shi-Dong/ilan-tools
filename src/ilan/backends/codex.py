@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ilan import config as cfg
 from ilan.backends.base import Backend, ParsedResult
+from ilan.models import is_fable_model
 
 _CODEX_STATIC_FLAGS = [
     "--json",
@@ -42,7 +43,13 @@ class CodexBackend(Backend):
         if resume and session_id:
             cmd += ["resume", session_id]
         cmd += list(_CODEX_STATIC_FLAGS)
-        cmd += ["--model", model_override or _CODEX_DEFAULT_MODEL]
+        # A task's ``model`` override only makes sense for the engine that set
+        # it. ``ilan max`` pins a task to Fable (a Claude-only model); if such a
+        # task is later switched to codex the stale override would spawn
+        # ``codex exec --model claude-fable-5``, which codex can't load. Ignore
+        # any Claude-only override here and fall back to the codex default.
+        model = None if is_fable_model(model_override) else model_override
+        cmd += ["--model", model or _CODEX_DEFAULT_MODEL]
         cmd.append(prompt)
 
         env = os.environ.copy()

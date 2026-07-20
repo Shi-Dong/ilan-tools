@@ -1135,7 +1135,9 @@ class TestMaxUnmax:
 
     def test_max_after_switch_to_codex_is_noop(self, ilan_server: IlanServer) -> None:
         """A claude task maxed to Fable, then switched to codex, is a no-op if
-        re-maxed on codex — and the earlier Fable override is left untouched."""
+        re-maxed on codex. The task keeps its Fable ``model`` (switch-backend
+        doesn't rewrite it), but the codex backend ignores a Claude-only
+        override at spawn time — see test_backends_codex."""
         _post(ilan_server, "/tasks", {"name": "max-then-switch", "prompt": "P"})
         _post(ilan_server, "/tasks/max-then-switch/max")  # claude → Fable
         _post(ilan_server, "/tasks/max-then-switch/switch-backend")  # → codex
