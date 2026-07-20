@@ -346,8 +346,9 @@ ilan task switch-backend fix-bug   # flip an existing task's backend
   session is resumed and the interim turns are injected, or — if that backend has
   never run this task — a fresh session is seeded with the full transcript.
 
-Codex tasks run on `gpt-5.6-sol` (OpenAI's flagship model) by default; override
-per task with `ilan max`, which passes `--model` to `codex exec`.
+Codex tasks run on `gpt-5.6-sol` (OpenAI's flagship model); the Codex model is
+currently fixed (`ilan max` pins the Claude-only Fable model and has no effect on
+a Codex task).
 
 Codex authenticates from the server's inherited environment (`codex login`, or an
 `OPENAI_API_KEY` present in the server's env); see the `api-key-codex` note under
