@@ -110,7 +110,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task undone NAME` | Move a `DONE` task back to `NEEDS_ATTENTION` |
 | `ilan task undiscard NAME` | Move a `DISCARDED` task back to `NEEDS_ATTENTION` |
 | `ilan task unread NAME [NAME...]` | Restore the unread marker on task(s) |
-| `ilan task max NAME` | Run this task on the Fable model (`claude-fable-5`) instead of the default; a red `FABLE` tag shows in the Cost column in `ilan ls` / `ilan dashboard`. Takes effect on the task's next agent spawn. |
+| `ilan task max NAME` | Run this task on the Fable model (`claude-fable-5`) instead of the default; a red `FABLE` tag shows beneath the task name in `ilan ls` / `ilan dashboard`. Takes effect on the task's next agent spawn. |
 | `ilan task unmax NAME` | Reset the task's model back to the `model` config default |
 | `ilan task switch-backend NAME` | Toggle the task's agent backend (`claude` ↔ `codex`). Lazy: doesn't restart a running agent — a `WORKING` task is reaped first so its output is captured, then the task flips and the new backend catches up on its next turn. See [Agent backends](#agent-backends) |
 | `ilan task rm [-f] NAME [NAME...]` | Delete task(s) and all their data (refuses if any has an active descendant; `-f` overrides) |
@@ -154,7 +154,7 @@ Full-screen, real-time task table (like `htop`). Polls the server at the configu
 
 Each row's `Status` cell carries a Haiku-generated one-line summary of the agent's most recent reply (≤ 20 words). The summary is refreshed only on `WORKING → NEEDS_ATTENTION` / `AGENT_FINISHED` transitions. The server produces it via Anthropic's API when `api-key-claude` is set, otherwise it falls back to the server's local `claude` CLI (Claude Code subscription, requires `claude` installed and logged in). Toggle whether the client renders it with `ilan config set one-line-summary true|false` (default `true`); if the toggle is on but the server has no `api-key-claude`, the client prints a note about the CLI fallback above the table. A thin separator is drawn between every task row in both `ilan ls` and `ilan dashboard`; branched (child) tasks remain visually nested under their parent via the existing tree-prefix indentation. When a `github-token` is configured, a `History` column links each row to its secret-Gist conversation mirror — see [Gist conversation mirroring](#gist-conversation-mirroring).
 
-Both `ilan ls` and `ilan dashboard` adapt to the terminal width: on a window narrower than 120 columns they drop the `Cost` and `Created` columns so the remaining `Name` / `Status` / `Last Changed` / `History` columns stay legible.
+Both `ilan ls` and `ilan dashboard` adapt to the terminal width: on a window narrower than 120 columns they drop the `Created` column so the remaining `Name` / `Status` / `Last Changed` / `History` columns stay legible.
 
 ### Server
 
@@ -295,7 +295,7 @@ ilan unmax my-task    # back to the default model
 `ilan max` pins a single task to Anthropic's Mythos-class **Fable** model
 (`claude-fable-5`), leaving every other task on the configured `model`
 default. While a task is maxed, a red `FABLE` tag is rendered on its own
-line in the Cost column (beneath the cost) in `ilan ls` and `ilan dashboard`. The override
+line beneath the task name in `ilan ls` and `ilan dashboard`. The override
 is per task and persists across replies until you run `ilan unmax`, which
 clears it back to the `model` config default. A change takes effect on
 the task's next agent spawn (the next reply / scheduled run), not on an
