@@ -1190,12 +1190,36 @@ class TestSwitchBackend:
 
         calls: list[str] = []
         ilan_server.runner.kill = lambda t: calls.append("kill")  # type: ignore[method-assign]
-        ilan_server.runner._try_reap = lambda t: calls.append("reap")  # type: ignore[method-assign]
+        ilan_server.runner._try_reap = lambda t, **kw: calls.append("reap")  # type: ignore[method-assign]
 
         resp = _post(ilan_server, "/tasks/sw-working/switch-backend")
         assert resp.get("ok") is True
         assert calls == ["kill", "reap"]
         assert resp["engine"] == "codex"
+
+    def test_switch_right_after_claim_does_not_error(
+        self, ilan_server: IlanServer
+    ) -> None:
+        """Switching a task the scheduler *just* claimed (WORKING, but no output
+        produced yet) must not brand it ERROR. The premature kill+reap should
+        return it to UNCLAIMED so it re-spawns cleanly on the new backend."""
+        _post(ilan_server, "/tasks", {"name": "sw-race", "prompt": "P"})
+        store = ilan_server.store
+        task = store.get_task("sw-race")
+        assert task is not None
+        # Simulate the scheduler having just spawned it: WORKING, opening prompt
+        # logged, but the agent has written no output file yet.
+        task.set_status(TaskStatus.WORKING)
+        task.pid = None
+        store.put_task(task)
+        store.append_log("sw-race", "user", "P")
+
+        resp = _post(ilan_server, "/tasks/sw-race/switch-backend")
+        assert resp.get("ok") is True
+        assert resp["engine"] == "codex"
+        updated = _get(ilan_server, "/tasks/sw-race")["task"]
+        assert updated["status"] == "UNCLAIMED"
+        assert updated["engine"] == "codex"
 
 
 # ── Clear Everything ────────────────────────────────────────────────────

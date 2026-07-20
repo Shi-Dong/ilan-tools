@@ -187,6 +187,37 @@ class TestTryReap:
         assert updated is not None
         assert updated.status == TaskStatus.ERROR
 
+    def test_reap_interrupted_no_output_reverts_to_unclaimed(
+        self, store: Store, runner: Runner
+    ) -> None:
+        """A deliberately-killed task with no output yet (e.g. switched right
+        after it was claimed) never really ran, so it returns to UNCLAIMED for
+        a clean re-spawn instead of being branded ERROR."""
+        t = Task(name="t5i", prompt="p", status=TaskStatus.WORKING, pid=99999)
+        store.put_task(t)
+        # No output file: the agent was killed before it produced anything.
+
+        runner._try_reap(t, interrupted=True)
+        updated = store.get_task("t5i")
+        assert updated is not None
+        assert updated.status == TaskStatus.UNCLAIMED
+
+    def test_reap_interrupted_with_output_still_attributed(
+        self, store: Store, runner: Runner
+    ) -> None:
+        """When an interrupted task did produce parseable output, that output
+        is still parsed and attributed normally (only the empty case reverts)."""
+        t = Task(name="t5j", prompt="p", status=TaskStatus.WORKING, pid=99999)
+        store.put_task(t)
+        out = {"session_id": "sid-5j", "result": "Half done\n[STATUS: NEEDS_ATTENTION]",
+               "is_error": False}
+        store.output_path("t5j").write_text(json.dumps(out))
+
+        runner._try_reap(t, interrupted=True)
+        updated = store.get_task("t5j")
+        assert updated is not None
+        assert updated.status == TaskStatus.NEEDS_ATTENTION
+
     def test_reap_appends_log(self, store: Store, runner: Runner) -> None:
         t = Task(name="t6", prompt="p", status=TaskStatus.WORKING, pid=99999)
         store.put_task(t)

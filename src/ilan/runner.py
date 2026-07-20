@@ -285,15 +285,22 @@ class Runner:
             elif not self._pid_alive(task.pid) or self._output_complete(task.name):
                 self._try_reap(task)
 
-    def _try_reap(self, task: Task) -> None:
-        """Parse agent output and update task status after process exits."""
+    def _try_reap(self, task: Task, *, interrupted: bool = False) -> None:
+        """Parse agent output and update task status after process exits.
+
+        *interrupted* marks a deliberate mid-flight kill (a backend switch).
+        A task killed that way before it produced any parseable output never
+        really ran, so it is returned to ``UNCLAIMED`` to be re-scheduled
+        cleanly rather than marked ``ERROR`` — which is reserved for an agent
+        that ran and failed on its own.
+        """
         task.pid = None
         out_path = self.store.output_path(task.name)
 
         backend = self._backend_for(task.engine)
         result = backend.parse_output(out_path)
         if result is None:
-            task.set_status(TaskStatus.ERROR)
+            task.set_status(TaskStatus.UNCLAIMED if interrupted else TaskStatus.ERROR)
             self.store.put_task(task)
             return
 

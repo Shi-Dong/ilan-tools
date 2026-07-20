@@ -718,11 +718,15 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 # A WORKING task must be reaped before flipping so its in-flight
                 # output is parsed by the engine that produced it — advancing
                 # that engine's native session and log cursor — before the other
-                # backend takes over.
+                # backend takes over. The reap is ``interrupted`` because we
+                # just killed the agent: if it was only moments into its run
+                # (e.g. switched right after the scheduler claimed a new task)
+                # it has no parseable output yet, and that must reset it to
+                # UNCLAIMED for a clean re-spawn, not brand it ERROR.
                 if task.status == TaskStatus.WORKING:
                     self._ilan.runner.kill(task)
                     time.sleep(0.5)
-                    self._ilan.runner._try_reap(task)
+                    self._ilan.runner._try_reap(task, interrupted=True)
                 self._ilan.runner.switch_engine(task, target)
             self._json({
                 "ok": True,

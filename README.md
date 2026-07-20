@@ -344,7 +344,9 @@ ilan task switch-backend fix-bug   # flip an existing task's backend
   output is captured by the engine that produced it; then the task flips. On the
   incoming backend's next turn it is caught up on everything it missed: its native
   session is resumed and the interim turns are injected, or — if that backend has
-  never run this task — a fresh session is seeded with the full transcript.
+  never run this task — a fresh session is seeded with the full transcript. A task
+  switched the instant after it was claimed (`WORKING`, but with no output yet)
+  simply returns to `UNCLAIMED` and re-spawns cleanly on the new backend.
 
 Codex tasks run on `gpt-5.6-sol` (OpenAI's flagship model); the Codex model is
 currently fixed (`ilan max` pins the Claude-only Fable model and has no effect on
