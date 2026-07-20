@@ -48,11 +48,21 @@ def _tmux_instruction(task_hash: str, task_name: str) -> str:
     )
 
 
+# Budget for the rendered catch-up history. Codex rejects any input over
+# 1,048,576 characters (`input_too_large`), and a months-long unified log can
+# blow well past that; keep the newest turns and drop the oldest, staying far
+# enough under the limit to leave room for the agent's own context.
+_CATCHUP_MAX_CHARS = 500_000
+
+
 def _render_catchup(entries: list, *, fresh: bool) -> str:
     """Render unified-log entries as a catch-up preamble for a switched engine.
 
     ``fresh`` distinguishes seeding a brand-new session with the whole
     transcript from catching a resumed session up on the turns it missed.
+    When the history exceeds ``_CATCHUP_MAX_CHARS`` the oldest turns are
+    dropped (the newest ones matter most for continuing the work); the full
+    history remains available in the task's unified log and Gist mirror.
     """
     if fresh:
         header = (
@@ -65,10 +75,28 @@ def _render_catchup(entries: list, *, fresh: bool) -> str:
             "the conversation turns you missed. Catch up on them, then continue "
             "the work."
         )
-    parts = [header, "", "--- BEGIN CONVERSATION HISTORY ---"]
+    segments = []
     for entry in entries:
         speaker = "User" if entry.role == "user" else "Assistant"
-        parts.append(f"\n[{speaker}]\n{entry.content}")
+        segments.append(f"\n[{speaker}]\n{entry.content}")
+
+    kept: list[str] = []
+    total = 0
+    for segment in reversed(segments):
+        if kept and total + len(segment) > _CATCHUP_MAX_CHARS:
+            break
+        kept.append(segment)
+        total += len(segment)
+    kept.reverse()
+    omitted = len(segments) - len(kept)
+
+    parts = [header, "", "--- BEGIN CONVERSATION HISTORY ---"]
+    if omitted:
+        parts.append(
+            f"\n[... {omitted} earlier turn(s) omitted to fit the prompt size "
+            f"limit ...]"
+        )
+    parts.extend(kept)
     parts.append("\n--- END CONVERSATION HISTORY ---")
     parts.append("\nPlease continue working on this task.")
     return "\n".join(parts)
@@ -197,29 +225,50 @@ class Runner:
     # ── internals ────────────────────────────────────────────────────
 
     def _spawn(self, task: Task, prompt: str, *, resume: bool) -> bool:
-        """Spawn an agent process. Returns True on success."""
+        """Spawn an agent process. Returns True on success.
+
+        The prompt is written to a file and fed to the agent over stdin, not
+        argv: a long catch-up transcript can exceed the OS ARG_MAX (E2BIG at
+        exec would kill the scheduler thread) and ~1 MB argv values crash
+        codex-cli outright with SIGSEGV before it writes any output. stderr
+        is captured to a per-task file so CLI startup failures — which leave
+        an empty stdout and would otherwise vanish — stay diagnosable.
+        """
         tmux_instr = _tmux_instruction(task.task_hash, task.name) if task.task_hash else ""
         full_prompt = prompt + tmux_instr + STATUS_SUFFIX
         cmd, env = self._backend_for(task.engine).build_command(
-            full_prompt, task.model, resume=resume, session_id=task.session_id
+            task.model, resume=resume, session_id=task.session_id
         )
 
         out_path = self.store.output_path(task.name)
+        prompt_path = self.store.prompt_path(task.name)
+        err_path = self.store.stderr_path(task.name)
         workdir = cfg.get_workdir()
         workdir.mkdir(parents=True, exist_ok=True)
         try:
-            with open(out_path, "w") as out_f:
+            prompt_path.write_text(full_prompt)
+            with (
+                open(prompt_path) as in_f,
+                open(out_path, "w") as out_f,
+                open(err_path, "w") as err_f,
+            ):
                 proc = subprocess.Popen(
                     cmd,
                     cwd=workdir,
                     env=env,
+                    stdin=in_f,
                     stdout=out_f,
-                    stderr=subprocess.DEVNULL,
+                    stderr=err_f,
                     start_new_session=True,
                 )
-        except FileNotFoundError:
-            task.set_status(TaskStatus.ERROR)
-            self.store.put_task(task)
+        except OSError:
+            # Persist ERROR onto a pristine copy of the task: the in-memory
+            # object may hold consumed prompt state (cleared cached_replies,
+            # dropped session_id) that must not be saved for a spawn that
+            # never happened, or a later retry would lose those messages.
+            stored = self.store.get_task(task.name) or task
+            stored.set_status(TaskStatus.ERROR)
+            self.store.put_task(stored)
             return False
 
         self._procs[task.name] = proc
@@ -256,15 +305,19 @@ class Runner:
         what the engine missed; pending ``cached_replies`` are cleared because
         they are part of that slice. Resumes the engine's native session when
         it has one, otherwise starts a fresh session seeded with the
-        transcript. Marks the engine caught up so the branch fires only once.
+        transcript.
+
+        ``awaiting_catchup`` and the engine's log cursor are deliberately NOT
+        consumed here: they only advance in ``_try_reap`` once the turn has
+        verifiably completed. If the spawn or the agent dies before producing
+        output, the pending catch-up survives and the retry rebuilds the same
+        slice instead of silently resuming from a cursor the engine never saw.
         """
-        task.awaiting_catchup = False
         entries = self.store.read_logs(task.name)
         seen = task.log_cursors.get(task.engine, 0)
         interim = entries[seen:]
         has_session = bool(task.session_id)
         task.cached_replies = []
-        task.log_cursors[task.engine] = len(entries)
 
         if not interim:
             if has_session:
@@ -337,8 +390,11 @@ class Runner:
         # This engine's native session now reflects every unified-log entry
         # through its own just-appended turn, so advance its cursor. A future
         # switch to another engine compares against this to know what to
-        # catch that engine up on.
+        # catch that engine up on. Any pending catch-up was part of the prompt
+        # this turn consumed, so it is only marked done here — after the turn
+        # verifiably completed — never at prompt-build time.
         task.log_cursors[task.engine] = len(self.store.read_logs(task.name))
+        task.awaiting_catchup = False
 
         if result.is_error:
             task.set_status(TaskStatus.ERROR)

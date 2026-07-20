@@ -33,7 +33,6 @@ class CodexBackend(Backend):
 
     def build_command(
         self,
-        prompt: str,
         model_override: str | None,
         *,
         resume: bool,
@@ -50,7 +49,8 @@ class CodexBackend(Backend):
         # any Claude-only override here and fall back to the codex default.
         model = None if is_fable_model(model_override) else model_override
         cmd += ["--model", model or _CODEX_DEFAULT_MODEL]
-        cmd.append(prompt)
+        # `-` makes codex read the prompt from stdin.
+        cmd.append("-")
 
         env = os.environ.copy()
         api_key = str(cfg.load().get("api-key-codex", "")).strip()

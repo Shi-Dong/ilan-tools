@@ -134,10 +134,11 @@ def test_mock_claude_handles_summarize_flags(mock_claude_bin: Path) -> None:
     import subprocess
 
     proc = subprocess.run(
-        [str(mock_claude_bin), "-p", "hello",
+        [str(mock_claude_bin), "-p",
          "--model", "sonnet", "--effort", "medium",
          "--dangerously-skip-permissions",
          "--output-format", "json"],
+        input="hello",  # the prompt arrives on stdin, never argv
         capture_output=True, text=True, env={
             **__import__("os").environ,
             "MOCK_CLAUDE_RESPONSE": "test summary body",

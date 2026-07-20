@@ -33,32 +33,32 @@ def backend() -> CodexBackend:
 
 class TestBuildCommand:
     def test_fresh_argv_shape(self, backend: CodexBackend, tmp_config: Path) -> None:
-        cmd, env = backend.build_command("do it", None, resume=False, session_id=None)
+        cmd, env = backend.build_command(None, resume=False, session_id=None)
         assert cmd[:2] == ["codex", "exec"]
         assert "resume" not in cmd
         assert "--json" in cmd
         assert "--skip-git-repo-check" in cmd
         assert "--dangerously-bypass-approvals-and-sandbox" in cmd
-        assert cmd[-1] == "do it"  # prompt is the positional tail
+        assert cmd[-1] == "-"  # `-` tells codex to read the prompt from stdin
         assert isinstance(env, dict)
 
     def test_default_model_when_no_override(self, backend: CodexBackend, tmp_config: Path) -> None:
-        cmd, _ = backend.build_command("do it", None, resume=False, session_id=None)
+        cmd, _ = backend.build_command(None, resume=False, session_id=None)
         assert cmd[cmd.index("--model") + 1] == "gpt-5.6-sol"
 
     def test_resume_inserts_session(self, backend: CodexBackend, tmp_config: Path) -> None:
-        cmd, _ = backend.build_command("go on", None, resume=True, session_id="sid-9")
+        cmd, _ = backend.build_command(None, resume=True, session_id="sid-9")
         assert cmd[:4] == ["codex", "exec", "resume", "sid-9"]
-        assert cmd[-1] == "go on"
+        assert cmd[-1] == "-"
 
     def test_resume_without_session_id_stays_fresh(
         self, backend: CodexBackend, tmp_config: Path
     ) -> None:
-        cmd, _ = backend.build_command("go on", None, resume=True, session_id=None)
+        cmd, _ = backend.build_command(None, resume=True, session_id=None)
         assert "resume" not in cmd
 
     def test_model_override_passed(self, backend: CodexBackend, tmp_config: Path) -> None:
-        cmd, _ = backend.build_command("x", "gpt-5.6-sol", resume=False, session_id=None)
+        cmd, _ = backend.build_command("gpt-5.6-sol", resume=False, session_id=None)
         assert cmd[cmd.index("--model") + 1] == "gpt-5.6-sol"
 
     def test_fable_override_falls_back_to_default(
@@ -67,7 +67,7 @@ class TestBuildCommand:
         """A stale Fable override (from ``ilan max`` before a switch to codex)
         is Claude-only, so codex ignores it and spawns the codex default."""
         cmd, _ = backend.build_command(
-            "x", "claude-fable-5", resume=False, session_id=None
+            "claude-fable-5", resume=False, session_id=None
         )
         assert cmd[cmd.index("--model") + 1] == "gpt-5.6-sol"
 
@@ -75,7 +75,7 @@ class TestBuildCommand:
         self, backend: CodexBackend, tmp_config: Path
     ) -> None:
         cfg.save({"api-key-codex": "sk-codex-live"})
-        _, env = backend.build_command("hi", None, resume=False, session_id=None)
+        _, env = backend.build_command(None, resume=False, session_id=None)
         assert env["OPENAI_API_KEY"] == "sk-codex-live"
 
     def test_no_api_key_omits_openai_key(
@@ -83,7 +83,7 @@ class TestBuildCommand:
     ) -> None:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         cfg.save({"model": "opus"})
-        _, env = backend.build_command("hi", None, resume=False, session_id=None)
+        _, env = backend.build_command(None, resume=False, session_id=None)
         assert "OPENAI_API_KEY" not in env
 
 

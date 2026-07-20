@@ -348,6 +348,12 @@ ilan task switch-backend fix-bug   # flip an existing task's backend
   never run this task — a fresh session is seeded with the full transcript. A task
   switched the instant after it was claimed (`WORKING`, but with no output yet)
   simply returns to `UNCLAIMED` and re-spawns cleanly on the new backend.
+- **Catch-up prompts are size-capped.** A very long history is truncated to the
+  newest ~500K characters when it is rendered into the catch-up prompt (Codex
+  hard-rejects inputs over 1 MiB); the prompt notes how many earlier turns were
+  omitted. The truncation only affects what the incoming backend is shown on the
+  switch turn — the full history is always preserved in the task's unified log
+  (`ilan log`) and its Gist mirror.
 
 Codex tasks run on `gpt-5.6-sol` (OpenAI's flagship model); the Codex model is
 currently fixed (`ilan max` pins the Claude-only Fable model and has no effect on

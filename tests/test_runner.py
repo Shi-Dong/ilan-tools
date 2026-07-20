@@ -11,7 +11,13 @@ import pytest
 import ilan.config as cfg
 from ilan.backends import ClaudeBackend, CodexBackend
 from ilan.models import ENGINE_CLAUDE, ENGINE_CODEX, LogEntry, Task, TaskStatus
-from ilan.runner import Runner, STATUS_SUFFIX, _render_catchup, _tmux_instruction
+from ilan.runner import (
+    Runner,
+    STATUS_SUFFIX,
+    _CATCHUP_MAX_CHARS,
+    _render_catchup,
+    _tmux_instruction,
+)
 from ilan.store import Store
 
 
@@ -582,10 +588,11 @@ class TestSpawn:
             mock_proc.pid = 12345
             runner._spawn(t, "do work", resume=False)
             cmd = mock_popen.call_args[0][0]
-            # The -p argument (index 2) should contain the tmux instruction
-            prompt_arg = cmd[2]
-            assert "abc12345-claude-tmux-test" in prompt_arg
-            assert "TMUX SESSION REQUIREMENT" in prompt_arg
+            assert "TMUX SESSION REQUIREMENT" not in " ".join(cmd)  # never argv
+            # The prompt travels via the prompt file, fed to stdin.
+            prompt_text = store.prompt_path("tmux-test").read_text()
+            assert "abc12345-claude-tmux-test" in prompt_text
+            assert "TMUX SESSION REQUIREMENT" in prompt_text
 
     def test_spawn_no_tmux_instruction_without_hash(
         self, store: Store, tmp_workdir: Path, tmp_config: Path,
@@ -604,9 +611,8 @@ class TestSpawn:
             mock_proc = mock_popen.return_value
             mock_proc.pid = 12345
             runner._spawn(t, "do work", resume=False)
-            cmd = mock_popen.call_args[0][0]
-            prompt_arg = cmd[2]
-            assert "TMUX SESSION REQUIREMENT" not in prompt_arg
+            prompt_text = store.prompt_path("no-hash").read_text()
+            assert "TMUX SESSION REQUIREMENT" not in prompt_text
 
     def test_spawn_uses_task_model_override(
         self, store: Store, tmp_workdir: Path, tmp_config: Path,
@@ -700,6 +706,62 @@ class TestSpawn:
             assert "ANTHROPIC_BASE_URL" not in env
             assert "ANTHROPIC_AUTH_TOKEN" not in env
 
+    def test_spawn_feeds_prompt_via_stdin_and_captures_stderr(
+        self, store: Store, tmp_workdir: Path, tmp_config: Path,
+        env_with_mock_claude: None,
+    ) -> None:
+        """The prompt must reach the CLI on stdin (argv prompts segfault
+        codex-cli at ~1 MB and can exceed ARG_MAX) and stderr must land in a
+        per-task file so startup failures stay diagnosable."""
+        import ilan.config as cfg_mod
+
+        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
+
+        runner = Runner(store)
+        t = Task(name="stdin-test", prompt="p")
+        store.put_task(t)
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_popen.return_value.pid = 12345
+            runner._spawn(t, "the actual prompt", resume=False)
+            kwargs = mock_popen.call_args.kwargs
+            assert kwargs["stdin"].name == str(store.prompt_path("stdin-test"))
+            assert kwargs["stderr"].name == str(store.stderr_path("stdin-test"))
+
+        prompt_text = store.prompt_path("stdin-test").read_text()
+        assert prompt_text.startswith("the actual prompt")
+        assert prompt_text.endswith(STATUS_SUFFIX)
+
+    def test_spawn_failure_preserves_pending_catchup_state(
+        self, store: Store, tmp_workdir: Path, tmp_config: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A spawn that never exec'd must not persist consumed prompt state:
+        the stored task keeps awaiting_catchup / cached_replies so the retry
+        rebuilds the same prompt instead of silently dropping messages."""
+        import ilan.config as cfg_mod
+
+        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
+        monkeypatch.setenv("PATH", "/nonexistent")
+
+        runner = Runner(store)
+        t = Task(name="fail-spawn", prompt="p", engine=ENGINE_CODEX,
+                 awaiting_catchup=True, cached_replies=["finish it"])
+        store.put_task(t)
+        store.append_log("fail-spawn", "user", "p")
+        store.append_log("fail-spawn", "user", "finish it")
+
+        prompt, resume = runner._build_prompt(t)  # consumes cached_replies in-memory
+        assert t.cached_replies == []
+        ok = runner._spawn(t, prompt, resume=resume)
+        assert ok is False
+
+        stored = store.get_task("fail-spawn")
+        assert stored is not None
+        assert stored.status == TaskStatus.ERROR
+        assert stored.awaiting_catchup is True
+        assert stored.cached_replies == ["finish it"]
+
 
 # ── schedule ────────────────────────────────────────────────────────────
 
@@ -771,6 +833,30 @@ class TestRenderCatchup:
         assert "while you were away" in out.lower()
         assert "hello" in out and "hi there" in out
 
+    def test_caps_size_keeping_newest_turns(self) -> None:
+        """Oversized history is truncated from the OLDEST end: a ~1 MB argv
+        segfaults codex-cli and codex rejects stdin prompts over 1 MiB."""
+        turn = "x" * 10_000
+        entries = [
+            LogEntry.now("user", f"turn-{i:04d} {turn}") for i in range(100)
+        ]
+        out = _render_catchup(entries, fresh=True)
+        assert len(out) < _CATCHUP_MAX_CHARS + 20_000  # cap + header slack
+        assert "turn-0099" in out  # newest kept
+        assert "turn-0000" not in out  # oldest dropped
+        assert "earlier turn(s) omitted" in out
+
+    def test_no_omission_note_when_under_cap(self) -> None:
+        out = _render_catchup(self._entries(), fresh=True)
+        assert "omitted" not in out
+
+    def test_single_oversized_turn_still_kept(self) -> None:
+        """One turn larger than the cap must not render an empty history."""
+        entries = [LogEntry.now("user", "y" * (_CATCHUP_MAX_CHARS + 1))]
+        out = _render_catchup(entries, fresh=True)
+        assert "yyy" in out
+        assert "omitted" not in out
+
 
 # ── _try_reap: cursor + session map ──────────────────────────────────────
 
@@ -795,6 +881,30 @@ class TestReapCursor:
         assert updated.sessions[ENGINE_CLAUDE] == "sid-rc"
         # user + newly-appended assistant turn
         assert updated.log_cursors[ENGINE_CLAUDE] == 2
+
+    def test_reap_clears_awaiting_catchup(self, store: Store, runner: Runner) -> None:
+        """Pending catch-up is consumed only here — after the turn completed."""
+        t = Task(name="rc2", prompt="p", status=TaskStatus.WORKING, pid=99999,
+                 engine=ENGINE_CODEX, awaiting_catchup=True)
+        store.put_task(t)
+        store.append_log("rc2", "user", "p")
+        out = "\n".join([
+            json.dumps({"type": "thread.started", "thread_id": "codex-sid"}),
+            json.dumps({"type": "item.completed",
+                        "item": {"type": "agent_message",
+                                 "text": "caught up\n[STATUS: DONE]"}}),
+        ]) + "\n"
+        store.output_path("rc2").write_text(out)
+
+        with patch.object(Runner, "_find_session_log",
+                          return_value=Path("/fake/rollout-codex-sid.jsonl")), \
+             patch.object(CodexBackend, "last_assistant_model", return_value=None):
+            runner._try_reap(t)
+
+        updated = store.get_task("rc2")
+        assert updated is not None
+        assert updated.awaiting_catchup is False
+        assert updated.log_cursors[ENGINE_CODEX] == 2
 
 
 # ── switch_engine ────────────────────────────────────────────────────────
@@ -884,8 +994,10 @@ class TestCatchupPrompt:
         assert resume is False
         assert "did step 1" in prompt and "keep going" in prompt
         assert "full conversation" in prompt.lower()
-        assert t.awaiting_catchup is False
-        assert t.log_cursors[ENGINE_CODEX] == 3
+        # Catch-up state is only consumed at reap time, after the turn
+        # verifiably completed — a failed spawn must not lose the catch-up.
+        assert t.awaiting_catchup is True
+        assert t.log_cursors.get(ENGINE_CODEX, 0) == 0
 
     def test_resumed_session_injects_only_interim(
         self, store: Store, runner: Runner
@@ -903,7 +1015,7 @@ class TestCatchupPrompt:
         assert resume is True
         assert "other work" in prompt and "please merge" in prompt
         assert "orig" not in prompt  # already seen
-        assert t.log_cursors["claude"] == 3
+        assert t.log_cursors["claude"] == 1  # advanced only at reap
 
     def test_noop_when_caught_up_falls_back_to_continue(
         self, store: Store, runner: Runner
@@ -918,7 +1030,7 @@ class TestCatchupPrompt:
             prompt, resume = runner._build_prompt(t)
         assert resume is True
         assert prompt == "Please continue working on this task."
-        assert t.awaiting_catchup is False
+        assert t.awaiting_catchup is True  # cleared only when the turn reaps
 
     def test_clears_cached_replies(self, store: Store, runner: Runner) -> None:
         t = Task(name="cp4", prompt="orig", engine=ENGINE_CODEX, awaiting_catchup=True,
@@ -954,8 +1066,9 @@ class TestCatchupPrompt:
         assert "built half of X" in prompt
         assert "finish it with codex" in prompt
         assert t.cached_replies == []
-        assert t.awaiting_catchup is False
-        assert t.log_cursors[ENGINE_CODEX] == 3
+        # Still pending until the codex turn actually completes and reaps.
+        assert t.awaiting_catchup is True
+        assert t.log_cursors.get(ENGINE_CODEX, 0) == 0
 
     def test_fresh_switch_spawn_does_not_reappend_history(
         self, store: Store, tmp_workdir: Path, tmp_config: Path,
