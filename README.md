@@ -192,7 +192,7 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 | `editor` | `emacs` | Editor used by `ilan task log` |
 | `api-key-claude` | _(empty)_ | Anthropic API key passed as `ANTHROPIC_API_KEY` to spawned agents; also used to call Haiku for the one-line status summary in `ilan ls` and `ilan dashboard`. When empty, the one-line summary falls back to the server's local `claude` CLI (Claude Code subscription) instead. Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
 | `api-key-glm` | _(empty)_ | Z.ai API key used as the bearer token (`ANTHROPIC_AUTH_TOKEN`) for spawned agents when `model` is `glm` / `glm-5-2`. Ignored for non-GLM models — see [GLM-5.2 model](#glm-52-model). Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
-| `api-key-codex` | _(empty)_ | OpenAI API key slot for the Codex backend. Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`). **Note:** Codex agents currently authenticate from the server's inherited environment (`codex login`, or an `OPENAI_API_KEY` already present in the server's env); this key is a reserved config slot and is not yet injected into the Codex spawn environment |
+| `api-key-codex` | _(empty)_ | OpenAI API key passed as `OPENAI_API_KEY` to spawned Codex agents. When empty, Codex falls back to the server's inherited environment (`codex login`, or an `OPENAI_API_KEY` already present in the server's env). Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
 | `github-token` | _(empty)_ | GitHub personal-access token (needs the `gist` scope). Setting it turns on [Gist conversation mirroring](#gist-conversation-mirroring); leaving it empty keeps the feature off. Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
 | `dashboard-interval` | `1` | Seconds between automatic refreshes in `ilan dashboard` |
 | `line-number` | `false` | When `true`, `ilan tail` prefixes each assistant line with a yellow `[N]` marker and `ilan reply` / `ilan task branch` expand `@N` into the Nth line, double-quoted |
@@ -350,9 +350,10 @@ Codex tasks run on `gpt-5.6-sol` (OpenAI's flagship model); the Codex model is
 currently fixed (`ilan max` pins the Claude-only Fable model and has no effect on
 a Codex task).
 
-Codex authenticates from the server's inherited environment (`codex login`, or an
-`OPENAI_API_KEY` present in the server's env); see the `api-key-codex` note under
-[Configuration keys](#configuration-keys).
+Codex authenticates with the configured `api-key-codex`, passed as `OPENAI_API_KEY`
+to spawned agents; when it is empty, Codex falls back to the server's inherited
+environment (`codex login`, or an `OPENAI_API_KEY` present in the server's env). See
+the `api-key-codex` note under [Configuration keys](#configuration-keys).
 
 The two backends read their project context from different files — Claude Code
 from `CLAUDE.md`, Codex from `AGENTS.md`. To keep the same standing instructions
