@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 import pytest
 
 from ilan import __version__
-from ilan.models import TaskStatus
+from ilan.models import FABLE_MODEL, TaskStatus
 from ilan.server import IlanServer
 
 
@@ -185,6 +185,26 @@ class TestTasksCRUD:
         _post(ilan_server, "/tasks", {"name": "eng-cfg", "prompt": "P"})
         task = _get(ilan_server, "/tasks/eng-cfg")["task"]
         assert task["engine"] == "codex"
+
+    def test_add_task_with_max_sets_fable_model(self, ilan_server: IlanServer) -> None:
+        resp = _post(ilan_server, "/tasks", {"name": "max-task", "prompt": "P", "max": True})
+        assert resp.get("ok") is True
+        task = _get(ilan_server, "/tasks/max-task")["task"]
+        assert task["model"] == FABLE_MODEL
+        assert task["engine"] == "claude"
+
+    def test_add_task_without_max_has_no_model(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "plain-model", "prompt": "P"})
+        task = _get(ilan_server, "/tasks/plain-model")["task"]
+        assert task["model"] is None
+
+    def test_add_task_max_with_codex_rejected(self, ilan_server: IlanServer) -> None:
+        resp = _post(
+            ilan_server, "/tasks",
+            {"name": "max-codex", "prompt": "P", "agent": "codex", "max": True},
+        )
+        assert "error" in resp
+        assert _get(ilan_server, "/tasks/max-codex").get("error")
 
     def test_add_duplicate_task(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "dup-task", "prompt": "A"})

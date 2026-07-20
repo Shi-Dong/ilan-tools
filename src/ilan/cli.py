@@ -34,6 +34,7 @@ from ilan.client import Client
 from ilan.models import (
     DEFAULT_ENGINE,
     ENGINE_NAME_STYLE,
+    FABLE_MODEL,
     STYLE_FOR_STATUS,
     TaskStatus,
     is_fable_model,
@@ -477,7 +478,8 @@ def task_group() -> None:
 # ── task add ─────────────────────────────────────────────────────────
 
 def _do_add(
-    name: str, file_path: str | None, description: str | None, agent: str | None
+    name: str, file_path: str | None, description: str | None,
+    agent: str | None, max_model: bool = False,
 ) -> None:
     if shutil.which("tmux") is None:
         console.print(
@@ -491,13 +493,31 @@ def _do_add(
         console.print("[red]Exactly one of --file / --description must be provided.[/red]")
         raise SystemExit(1)
 
+    # Fable is an Anthropic model, so --max only makes sense on the Claude
+    # backend. Reject the contradictory combination outright, and otherwise
+    # pin the task to claude so --max works regardless of the config default.
+    if max_model:
+        if agent == "codex":
+            console.print(
+                f"[red]--max runs the task on Fable ({FABLE_MODEL}), a Claude-only "
+                "model; it can't be combined with --codex.[/red]"
+            )
+            raise SystemExit(1)
+        agent = "claude"
+
     prompt = Path(file_path).read_text() if file_path else description
     assert prompt is not None
 
-    resp = _client().add_task(name, prompt, agent)
+    resp = _client().add_task(name, prompt, agent, max_model=max_model)
     if _check_error(resp):
         raise SystemExit(1)
-    console.print(f"[green]Task [bold]{name}[/bold] added.[/green]")
+    if max_model:
+        console.print(
+            f"[green]Task [bold]{name}[/bold] added on "
+            f"[bold red]FABLE[/bold red] ([cyan]{FABLE_MODEL}[/cyan]).[/green]"
+        )
+    else:
+        console.print(f"[green]Task [bold]{name}[/bold] added.[/green]")
 
 
 @task_group.command("add")
@@ -509,11 +529,14 @@ def _do_add(
               help="Run this task on the Claude backend (the default).")
 @click.option("--codex", "agent", flag_value="codex",
               help="Run this task on the Codex backend.")
+@click.option("--max", "max_model", is_flag=True, default=False,
+              help="Create the task on the Fable model (implies --claude).")
 def task_add(
-    name: str, file_path: str | None, description: str | None, agent: str | None
+    name: str, file_path: str | None, description: str | None,
+    agent: str | None, max_model: bool,
 ) -> None:
     """Add a new task."""
-    _do_add(name, file_path, description, agent)
+    _do_add(name, file_path, description, agent, max_model)
 
 
 # ── task ls ──────────────────────────────────────────────────────────
@@ -1719,11 +1742,14 @@ def task_switch_backend(name: str) -> None:
               help="Run this task on the Claude backend (the default).")
 @click.option("--codex", "agent", flag_value="codex",
               help="Run this task on the Codex backend.")
+@click.option("--max", "max_model", is_flag=True, default=False,
+              help="Create the task on the Fable model (implies --claude).")
 def shortcut_add(
-    name: str, file_path: str | None, description: str | None, agent: str | None
+    name: str, file_path: str | None, description: str | None,
+    agent: str | None, max_model: bool,
 ) -> None:
     """Shorthand for 'ilan task add'."""
-    _do_add(name, file_path, description, agent)
+    _do_add(name, file_path, description, agent, max_model)
 
 
 @main.command("ls")

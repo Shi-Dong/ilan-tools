@@ -325,6 +325,18 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     400,
                 )
                 return
+            # Fable is a Claude-only model, so a maxed task must run on the
+            # Claude backend; reject the contradictory combination.
+            want_max = bool(body.get("max"))
+            if want_max and engine != ENGINE_CLAUDE:
+                self._json(
+                    {"error": (
+                        f"Fable ({FABLE_MODEL}) is a Claude-only model; cannot "
+                        f"create a {engine} task with max."
+                    )},
+                    400,
+                )
+                return
             with self._ilan.lock:
                 if self._ilan.store.get_task(name) is not None:
                     existing = self._ilan.store.get_task(name)
@@ -343,6 +355,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     alias=alias,
                     task_hash=generate_task_hash(),
                     engine=engine,
+                    model=FABLE_MODEL if want_max else None,
                 )
                 self._ilan.store.put_task(task)
                 # Log the opening prompt at creation so the unified log always
