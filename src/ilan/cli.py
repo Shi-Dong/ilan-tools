@@ -443,8 +443,8 @@ def config_show() -> None:
     toggles like ``line-number``) come from the local config file and
     override whatever the server might report for the same key.
 
-    Secret keys (``api-key-claude``, ``api-key-glm``) are masked: only the
-    last five characters are shown, preceded by two asterisks.
+    Secret keys (``api-key-claude``, ``api-key-codex``, …) are masked: only
+    the last five characters are shown, preceded by two asterisks.
     """
     resp = _client().get_config()
     conf = dict(resp["config"])

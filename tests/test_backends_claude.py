@@ -50,21 +50,11 @@ class TestBuildCommand:
         cmd, _ = backend.build_command(None, resume=True, session_id=None)
         assert "--resume" not in cmd
 
-    def test_glm_sets_endpoint_and_token(
-        self, backend: ClaudeBackend, tmp_config: Path
-    ) -> None:
-        cfg.save({"api-key-glm": "zai-secret", "api-key-claude": "sk-should-be-dropped"})
-        cmd, env = backend.build_command("glm", resume=False, session_id=None)
-        assert env["ANTHROPIC_BASE_URL"] == "https://api.z.ai/api/anthropic"
-        assert env["ANTHROPIC_AUTH_TOKEN"] == "zai-secret"
-        assert "ANTHROPIC_API_KEY" not in env
-
-    def test_non_glm_omits_endpoint_sets_api_key(
+    def test_sets_api_key_from_config(
         self, backend: ClaudeBackend, tmp_config: Path
     ) -> None:
         cfg.save({"api-key-claude": "sk-live", "model": "opus"})
         _, env = backend.build_command(None, resume=False, session_id=None)
-        assert "ANTHROPIC_BASE_URL" not in env
         assert env["ANTHROPIC_API_KEY"] == "sk-live"
 
 
