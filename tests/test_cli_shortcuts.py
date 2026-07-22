@@ -151,6 +151,49 @@ class TestLsNoArgs:
         assert result.exit_code == 0
         client.list_tasks.assert_called_once_with(show_all=True)
 
+    @staticmethod
+    def _one_liner_row() -> dict:
+        return {
+            "name": "summary-task",
+            "alias": None,
+            "status": "WORKING",
+            "created_at": "2026-04-13T00:00:00+00:00",
+            "status_changed_at": "2026-04-13T01:00:00+00:00",
+            "needs_review": False,
+            "summary_one_liner": "Refactoring the frobnicator",
+        }
+
+    def test_ls_shows_one_liner(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import ilan.cli as cli_mod
+        from rich.console import Console
+
+        monkeypatch.setattr(cli_mod, "console", Console(width=200, force_terminal=True))
+        client = _make_client()
+        client.list_tasks.return_value = {"tasks": [self._one_liner_row()]}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["ls"])
+        assert result.exit_code == 0
+        assert "Refactoring the frobnicator" in _strip_ansi(result.output)
+
+    def test_ls_all_hides_one_liner(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """``ilan ls -a`` never shows the one-line summary."""
+        import ilan.cli as cli_mod
+        from rich.console import Console
+
+        monkeypatch.setattr(cli_mod, "console", Console(width=200, force_terminal=True))
+        client = _make_client()
+        client.list_tasks.return_value = {"tasks": [self._one_liner_row()]}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["ls", "-a"])
+        assert result.exit_code == 0
+        out = _strip_ansi(result.output)
+        assert "summary-task" in out
+        assert "Refactoring the frobnicator" not in out
+
 
 # ── ilan ls <name> delegates to tail ────────────────────────────────
 
