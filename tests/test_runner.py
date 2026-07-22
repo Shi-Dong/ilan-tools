@@ -656,56 +656,6 @@ class TestSpawn:
             assert "--model" in cmd
             assert cmd[cmd.index("--model") + 1] == "opus"
 
-    def test_spawn_glm_resolves_model_and_sets_endpoint(
-        self, store: Store, tmp_workdir: Path, tmp_config: Path,
-        env_with_mock_claude: None,
-    ) -> None:
-        """model=glm should resolve to glm-5.2[1m] and route to Z.ai."""
-        import ilan.config as cfg_mod
-
-        cfg_mod.save({
-            **cfg_mod.DEFAULTS,
-            "workdir": str(tmp_workdir),
-            "model": "glm",
-            "api-key-glm": "zai-secret",
-        })
-
-        runner = Runner(store)
-        t = Task(name="glm-task", prompt="do work")
-        store.put_task(t)
-
-        with patch("subprocess.Popen") as mock_popen:
-            mock_proc = mock_popen.return_value
-            mock_proc.pid = 12345
-            runner._spawn(t, "do work", resume=False)
-            cmd = mock_popen.call_args[0][0]
-            assert cmd[cmd.index("--model") + 1] == "glm-5.2[1m]"
-            env = mock_popen.call_args.kwargs["env"]
-            assert env["ANTHROPIC_BASE_URL"] == "https://api.z.ai/api/anthropic"
-            assert env["ANTHROPIC_AUTH_TOKEN"] == "zai-secret"
-            assert "ANTHROPIC_API_KEY" not in env
-
-    def test_spawn_non_glm_omits_glm_endpoint(
-        self, store: Store, tmp_workdir: Path, tmp_config: Path,
-        env_with_mock_claude: None,
-    ) -> None:
-        """A non-GLM model must not set the Z.ai base URL / bearer token."""
-        import ilan.config as cfg_mod
-
-        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir), "model": "opus"})
-
-        runner = Runner(store)
-        t = Task(name="opus-task", prompt="do work")
-        store.put_task(t)
-
-        with patch("subprocess.Popen") as mock_popen:
-            mock_proc = mock_popen.return_value
-            mock_proc.pid = 12345
-            runner._spawn(t, "do work", resume=False)
-            env = mock_popen.call_args.kwargs["env"]
-            assert "ANTHROPIC_BASE_URL" not in env
-            assert "ANTHROPIC_AUTH_TOKEN" not in env
-
     def test_spawn_feeds_prompt_via_stdin_and_captures_stderr(
         self, store: Store, tmp_workdir: Path, tmp_config: Path,
         env_with_mock_claude: None,

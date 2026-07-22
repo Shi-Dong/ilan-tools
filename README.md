@@ -185,13 +185,12 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 | `num-agents` | `5` | Max concurrent agents |
 | `agent` | `claude` | Default agent backend for newly added tasks (`claude` or `codex`). Override per task with `ilan add --claude`/`--codex`, or flip an existing task with `ilan task switch-backend` — see [Agent backends](#agent-backends) |
 | `time-zone` | `US/Pacific` | Time zone for displayed timestamps (client-side: set on each machine running the CLI). Accepts friendly aliases — see [Time-zone aliases](#time-zone-aliases) |
-| `model` | `opus` | Model passed to `claude -p`. Accepts Claude Code aliases (`opus`, `sonnet`, `haiku`) or `glm` / `glm-5-2` to run agents on GLM-5.2 via Z.ai — see [GLM-5.2 model](#glm-52-model) |
+| `model` | `opus` | Model passed to `claude -p`. Accepts Claude Code aliases (`opus`, `sonnet`, `haiku`) or a full Claude model id. Only applies to the `claude` backend; Codex tasks use OpenAI's GPT models via `codex exec` — see [Agent backends](#agent-backends) |
 | `effort` | `high` | Effort level for the model |
 | `summarize-model` | `sonnet` | Claude model used by `ilan task summarize` |
 | `summarize-effort` | `medium` | Effort level used by `ilan task summarize` |
 | `editor` | `emacs` | Editor used by `ilan task log` |
 | `api-key-claude` | _(empty)_ | Anthropic API key passed as `ANTHROPIC_API_KEY` to spawned agents; also used to call Haiku for the one-line status summary in `ilan ls` and `ilan dashboard`. When empty, the one-line summary falls back to the server's local `claude` CLI (Claude Code subscription) instead. Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
-| `api-key-glm` | _(empty)_ | Z.ai API key used as the bearer token (`ANTHROPIC_AUTH_TOKEN`) for spawned agents when `model` is `glm` / `glm-5-2`. Ignored for non-GLM models — see [GLM-5.2 model](#glm-52-model). Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
 | `api-key-codex` | _(empty)_ | OpenAI API key passed as `OPENAI_API_KEY` to spawned Codex agents. When empty, Codex falls back to the server's inherited environment (`codex login`, or an `OPENAI_API_KEY` already present in the server's env). Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
 | `github-token` | _(empty)_ | GitHub personal-access token (needs the `gist` scope). Setting it turns on [Gist conversation mirroring](#gist-conversation-mirroring); leaving it empty keeps the feature off. Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
 | `dashboard-interval` | `1` | Seconds between automatic refreshes in `ilan dashboard` |
@@ -303,23 +302,6 @@ task and persists across replies until you run `ilan unmax`, which clears
 it back to the `model` config default. A change takes effect on the task's
 next agent spawn (the next reply / scheduled run), not on an already-running
 agent.
-
-### GLM-5.2 model
-
-```bash
-ilan config set api-key-glm <your-zai-api-key>
-ilan config set model glm        # or: glm-5-2
-```
-
-Setting `model` to `glm` (alias for `glm-5-2`) runs every agent on
-[Z.ai](https://z.ai)'s **GLM-5.2** instead of an Anthropic model. Because GLM
-ships an Anthropic-compatible endpoint, spawned `claude -p` agents talk to it
-natively: ilan resolves the alias to the real model id `glm-5.2[1m]` (the
-1M-token context variant) and routes the agent to `https://api.z.ai/api/anthropic`,
-authenticating with the `api-key-glm` config as the bearer token
-(`ANTHROPIC_AUTH_TOKEN`). The Anthropic `api-key-claude` is *not* forwarded for GLM
-runs. Switch back with `ilan config set model opus` (or any Claude Code alias)
-at any time.
 
 ## Agent backends
 

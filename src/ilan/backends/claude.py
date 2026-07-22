@@ -6,7 +6,6 @@ from pathlib import Path
 
 from ilan import config as cfg
 from ilan.backends.base import Backend, ParsedResult
-from ilan.models import GLM_BASE_URL, is_glm_model, resolve_model
 
 _CLAUDE_STATIC_FLAGS = [
     "--dangerously-skip-permissions",
@@ -15,14 +14,13 @@ _CLAUDE_STATIC_FLAGS = [
 
 
 def _effective_model(model_override: str | None = None) -> str:
-    """Resolve the model string passed to ``claude --model`` for a spawn.
+    """Return the model string passed to ``claude --model`` for a spawn.
 
     *model_override* (a task's ``model``, set via ``ilan max``) takes
     precedence over the configured default; ``None`` falls back to config.
-    Friendly aliases (e.g. ``glm``) are resolved to their real model id.
     """
     conf = cfg.load()
-    return resolve_model(model_override or str(conf.get("model", "opus")))
+    return model_override or str(conf.get("model", "opus"))
 
 
 def _claude_flags(model_override: str | None = None) -> list[str]:
@@ -33,22 +31,6 @@ def _claude_flags(model_override: str | None = None) -> list[str]:
         "--model", _effective_model(model_override),
         "--effort", str(conf.get("effort", "high")),
     ]
-
-
-def _model_env(model_override: str | None = None) -> dict[str, str]:
-    """Env overrides for the spawned agent based on the effective model.
-
-    GLM models route through Z.ai's Anthropic-compatible endpoint, which
-    needs ``ANTHROPIC_BASE_URL`` plus a bearer token in ``ANTHROPIC_AUTH_TOKEN``
-    (taken from the ``api-key-glm`` config). Non-GLM models get nothing here.
-    """
-    if not is_glm_model(_effective_model(model_override)):
-        return {}
-    env = {"ANTHROPIC_BASE_URL": GLM_BASE_URL}
-    glm_key = str(cfg.load().get("api-key-glm", "")).strip()
-    if glm_key:
-        env["ANTHROPIC_AUTH_TOKEN"] = glm_key
-    return env
 
 
 def last_assistant_model(log_path: Path) -> str | None:
@@ -99,16 +81,9 @@ class ClaudeBackend(Backend):
             cmd.extend(["--resume", session_id])
 
         env = os.environ.copy()
-        glm_env = _model_env(model_override)
-        if glm_env:
-            # GLM auth is a bearer token, not an x-api-key; drop any inherited
-            # Anthropic key so it can't shadow the Z.ai credentials.
-            env.pop("ANTHROPIC_API_KEY", None)
-            env.update(glm_env)
-        else:
-            api_key = str(cfg.load().get("api-key-claude", "")).strip()
-            if api_key:
-                env["ANTHROPIC_API_KEY"] = api_key
+        api_key = str(cfg.load().get("api-key-claude", "")).strip()
+        if api_key:
+            env["ANTHROPIC_API_KEY"] = api_key
         return cmd, env
 
     def parse_output(self, out_path: Path) -> ParsedResult | None:

@@ -12,16 +12,13 @@ from ilan.models import (
     ENGINE_CODEX,
     ENGINE_NAME_STYLE,
     FABLE_MODEL,
-    GLM_MODEL,
     VALID_ENGINES,
     LogEntry,
     Task,
     TaskStatus,
     generate_task_hash,
     is_fable_model,
-    is_glm_model,
     other_engine,
-    resolve_model,
     validate_task_name,
 )
 
@@ -374,32 +371,6 @@ class TestFableModel:
 
     def test_is_fable_model_none(self) -> None:
         assert not is_fable_model(None)
-
-
-# ── GLM model ───────────────────────────────────────────────────────────
-
-
-class TestGlmModel:
-    def test_glm_model_value(self) -> None:
-        assert GLM_MODEL == "glm-5.2[1m]"
-
-    def test_resolve_glm_aliases(self) -> None:
-        assert resolve_model("glm") == GLM_MODEL
-        assert resolve_model("glm-5-2") == GLM_MODEL
-
-    def test_resolve_passthrough(self) -> None:
-        assert resolve_model("opus") == "opus"
-        assert resolve_model("claude-fable-5") == "claude-fable-5"
-
-    def test_is_glm_model_aliases(self) -> None:
-        assert is_glm_model("glm")
-        assert is_glm_model("glm-5-2")
-        assert is_glm_model(GLM_MODEL)
-
-    def test_is_glm_model_false(self) -> None:
-        assert not is_glm_model("opus")
-        assert not is_glm_model("claude-fable-5")
-        assert not is_glm_model(None)
 
 
 # ── generate_task_hash ─────────────────────────────────────────────────

@@ -60,34 +60,6 @@ def is_fable_model(model: str | None) -> bool:
     return model == FABLE_MODEL
 
 
-# GLM-5.2 (Z.ai). Selecting model ``glm`` / ``glm-5-2`` routes a spawned agent
-# to Z.ai's Anthropic-compatible endpoint instead of Anthropic's API. The
-# ``[1m]`` suffix selects the 1M-token context variant.
-GLM_MODEL = "glm-5.2[1m]"
-GLM_BASE_URL = "https://api.z.ai/api/anthropic"
-
-# Friendly aliases users may set for the ``model`` config; resolved to the real
-# value passed to ``claude --model`` at spawn time.
-MODEL_ALIASES: dict[str, str] = {
-    "glm": GLM_MODEL,
-    "glm-5-2": GLM_MODEL,
-}
-
-
-def resolve_model(model: str) -> str:
-    """Resolve a friendly model alias to the value ``claude --model`` expects.
-
-    Unknown values (``opus``, ``sonnet``, ``claude-fable-5``, …) pass through
-    unchanged so existing Claude Code aliases keep working.
-    """
-    return MODEL_ALIASES.get(model, model)
-
-
-def is_glm_model(model: str | None) -> bool:
-    """True if *model* (alias or resolved) targets a GLM / Z.ai model."""
-    return model is not None and resolve_model(model).lower().startswith("glm")
-
-
 # ── Agent backends (engines) ─────────────────────────────────────────────
 # A task's ``engine`` names which agent CLI drives it. It defaults to Claude
 # Code for backward compatibility; ``ilan switch-backend`` toggles it. Each

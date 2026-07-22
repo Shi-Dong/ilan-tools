@@ -49,13 +49,13 @@ class TestConfigShowMasks:
         assert "sk-ant-api03-ABCDE" not in result.output
         assert "**ABCDE" in result.output
 
-    def test_glm_key_is_masked(
+    def test_codex_key_is_masked(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        _patch_client(monkeypatch, {"api-key-glm": "zai-secret-XYZ12"})
+        _patch_client(monkeypatch, {"api-key-codex": "sk-openai-XYZ12"})
         result = runner.invoke(main, ["config", "show"])
         assert result.exit_code == 0
-        assert "zai-secret-XYZ12" not in result.output
+        assert "sk-openai-XYZ12" not in result.output
         assert "**XYZ12" in result.output
 
     def test_empty_secret_shows_empty_value(
@@ -63,12 +63,12 @@ class TestConfigShowMasks:
     ) -> None:
         _patch_client(
             monkeypatch,
-            {"api-key-claude": "", "api-key-glm": ""},
+            {"api-key-claude": "", "api-key-codex": ""},
         )
         result = runner.invoke(main, ["config", "show"])
         assert result.exit_code == 0
         assert "api-key-claude" in result.output
-        assert "api-key-glm" in result.output
+        assert "api-key-codex" in result.output
         assert "**" not in result.output
 
     def test_non_secret_values_are_not_masked(

@@ -16,7 +16,7 @@ class TestDefaults:
             "workdir", "num-agents", "model", "effort",
             "summarize-model", "summarize-effort",
             "time-zone", "editor", "agent",
-            "api-key-claude", "api-key-glm", "api-key-codex", "github-token",
+            "api-key-claude", "api-key-codex", "github-token",
             "dashboard-interval",
             "line-number", "markdown", "one-line-summary",
         }
@@ -24,7 +24,7 @@ class TestDefaults:
 
     def test_secret_keys(self) -> None:
         assert cfg.SECRET_KEYS == {
-            "api-key-claude", "api-key-glm", "api-key-codex", "github-token"
+            "api-key-claude", "api-key-codex", "github-token"
         }
         assert cfg.SECRET_KEYS <= cfg.VALID_KEYS
 
