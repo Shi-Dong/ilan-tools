@@ -1068,3 +1068,19 @@ class TestSwitchBackendCommand:
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["task", "switch-backend", "foo"])
         assert result.exit_code == 1
+
+    def test_top_level_shortcut(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.switch_backend.return_value = {
+            "ok": True,
+            "name": "my-task",
+            "from_engine": "claude",
+            "engine": "codex",
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["switch-backend", "my-task"])
+        assert result.exit_code == 0
+        client.switch_backend.assert_called_once_with("my-task")
+        out = _strip_ansi(result.output)
+        assert "my-task" in out
+        assert "claude" in out and "codex" in out

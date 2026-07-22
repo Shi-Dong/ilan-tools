@@ -143,6 +143,7 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan unread NAME [NAME...]` | `ilan task unread NAME [NAME...]` |
 | `ilan max NAME` | `ilan task max NAME` |
 | `ilan unmax NAME` | `ilan task unmax NAME` |
+| `ilan switch-backend NAME` | `ilan task switch-backend NAME` |
 
 ### Dashboard
 

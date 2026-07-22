@@ -1902,6 +1902,13 @@ def shortcut_unmax(name: str) -> None:
     _do_unmax(name)
 
 
+@main.command("switch-backend")
+@click.argument("name", shell_complete=_complete_task_names)
+def shortcut_switch_backend(name: str) -> None:
+    """Shorthand for 'ilan task switch-backend'."""
+    _do_switch_backend(name)
+
+
 @main.command("rename")
 @click.argument("old_name", shell_complete=_complete_task_names)
 @click.argument("new_name")
