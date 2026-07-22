@@ -15,7 +15,7 @@ import pytest
 
 from ilan import __version__
 from ilan.models import FABLE_MODEL, TaskStatus
-from ilan.server import IlanServer
+from ilan.server import IlanServer, read_server_info
 
 
 @pytest.fixture()
@@ -89,6 +89,82 @@ def _delete(server: IlanServer, path: str) -> dict:
             return json.loads(resp.read())
     except HTTPError as exc:
         return json.loads(exc.read())
+
+
+# ── read_server_info ────────────────────────────────────────────────────
+
+
+class TestReadServerInfo:
+    """The pid-file liveness probe, including the cross-user EPERM case."""
+
+    _INFO = {"pid": 12345, "port": 4526}
+
+    def _pid_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        pf = tmp_path / "server.pid"
+        monkeypatch.setattr("ilan.server.pid_file_path", lambda: pf)
+        return pf
+
+    def test_missing_pid_file_returns_none(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        self._pid_file(tmp_path, monkeypatch)
+        assert read_server_info() is None
+
+    def test_alive_pid_returns_info(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pf = self._pid_file(tmp_path, monkeypatch)
+        pf.write_text(json.dumps(self._INFO))
+        monkeypatch.setattr("ilan.server.os.kill", lambda pid, sig: None)
+        assert read_server_info() == self._INFO
+        assert pf.exists()
+
+    def test_permission_error_means_alive_and_keeps_pid_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """EPERM from kill(pid, 0) = pid exists but is owned by another user.
+
+        A client running as a different account than the server must still
+        see the server as alive, and must not delete its pid file.
+        """
+        pf = self._pid_file(tmp_path, monkeypatch)
+        pf.write_text(json.dumps(self._INFO))
+
+        def _kill(pid: int, sig: int) -> None:
+            raise PermissionError
+
+        monkeypatch.setattr("ilan.server.os.kill", _kill)
+        assert read_server_info() == self._INFO
+        assert pf.exists()
+
+    def test_dead_pid_removes_pid_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pf = self._pid_file(tmp_path, monkeypatch)
+        pf.write_text(json.dumps(self._INFO))
+
+        def _kill(pid: int, sig: int) -> None:
+            raise ProcessLookupError
+
+        monkeypatch.setattr("ilan.server.os.kill", _kill)
+        assert read_server_info() is None
+        assert not pf.exists()
+
+    def test_corrupt_json_removes_pid_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pf = self._pid_file(tmp_path, monkeypatch)
+        pf.write_text("not json")
+        assert read_server_info() is None
+        assert not pf.exists()
+
+    def test_missing_pid_key_removes_pid_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pf = self._pid_file(tmp_path, monkeypatch)
+        pf.write_text(json.dumps({"port": 4526}))
+        assert read_server_info() is None
+        assert not pf.exists()
 
 
 # ── Health & Version ────────────────────────────────────────────────────
