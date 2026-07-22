@@ -54,11 +54,20 @@ def read_server_info() -> dict | None:
     try:
         with open(pf) as f:
             info = json.load(f)
-        os.kill(info["pid"], 0)
-        return info
-    except (json.JSONDecodeError, ProcessLookupError, KeyError, PermissionError):
+    except (json.JSONDecodeError, PermissionError):
         pf.unlink(missing_ok=True)
         return None
+    try:
+        os.kill(info["pid"], 0)
+    except PermissionError:
+        # EPERM means the pid exists but belongs to another user (e.g. a
+        # client account probing a server started by a different account).
+        # The server is alive — don't delete its pid file.
+        pass
+    except (ProcessLookupError, KeyError):
+        pf.unlink(missing_ok=True)
+        return None
+    return info
 
 
 # ── URL routing table ────────────────────────────────────────────────
