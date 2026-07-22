@@ -700,7 +700,8 @@ def _terminal_is_narrow(width: int | None = None) -> bool:
 
 def _do_ls(show_all: bool) -> None:
     client = _client()
-    _maybe_warn_one_liner_unconfigured(client)
+    if not show_all:
+        _maybe_warn_one_liner_unconfigured(client)
     resp = client.list_tasks(show_all=show_all)
     rows = resp["tasks"]
     if not rows:
@@ -708,7 +709,9 @@ def _do_ls(show_all: bool) -> None:
         console.print(msg)
         return
 
-    show_one_liner = _one_liner_enabled()
+    # `-a` lists include DONE/DISCARDED tasks, so the table gets long; the
+    # one-liner column would make it even noisier.
+    show_one_liner = _one_liner_enabled() and not show_all
     narrow = _terminal_is_narrow()
     table = Table(show_lines=True)
     table.add_column("(Alias) Name", style="bold")
