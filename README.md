@@ -95,7 +95,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task path NAME` | Print the Claude Code session log path for a task |
 | `ilan task check-model NAME` | Print the model name (e.g. `claude-opus-4-7`) that generated the last assistant message in the task's Claude Code session log |
 | `ilan task tail NAME` | Show the last assistant message together with the user prompt that elicited it and any user replies after it; ends with a line naming the model (and the reasoning effort) that generated the last assistant message |
-| `ilan task reply NAME ["msg"]` | Send a reply to an agent (omit message to show tail) |
+| `ilan task reply NAME ["msg"]` | Send a reply to an agent (omit message to show tail). Pass `--max` to switch the task to the [Fable model](#fable-model-ilan-max--ilan-unmax) before posting the reply (persists for all subsequent messages; on a `codex` task a warning is shown and the reply is posted with the model unchanged), or `--unmax` to reset the model to the config default before posting |
 | `ilan task tap NAME` | Ask for a status update (nudges `WORKING` agents; re-prompts `AGENT_FINISHED`/`NEEDS_ATTENTION`/`ERROR` tasks) |
 | `ilan task sleep NAME DURATION` | Re-prompt a `NEEDS_ATTENTION` / `AGENT_FINISHED` task to sleep for DURATION and report back. DURATION is an integer or decimal with an optional unit suffix — no whitespace — e.g. `300`, `300s`, `5m`, `2h`, `1.5h`. Units: `s`/`sec`/`second`/`seconds`, `m`/`min`/`mins`/`minute`/`minutes`, `h`/`hr`/`hrs`/`hour`/`hours`; bare numbers are seconds. The task goes back to `WORKING` and shows `(sleeping for Xs)` in `ilan ls` / `ilan dashboard`. |
 | `ilan task log [-p] NAME` | Open the full conversation log in your editor (`-p` prints the log file path instead) |
@@ -268,6 +268,8 @@ remote `ilan` server (set it on the machine you're running the CLI on).
 ilan max my-task      # run my-task on claude-fable-5
 ilan unmax my-task    # back to the default model
 ilan add -n my-task -d "…" --max   # create a task already on Fable
+ilan reply my-task "…" --max       # switch to Fable, then post the reply
+ilan reply my-task "…" --unmax     # back to the default model, then reply
 ```
 
 `ilan max` pins a single task to Anthropic's Mythos-class **Fable** model
@@ -279,6 +281,13 @@ there; it reappears on switching back to `claude`). The override is per
 task and persists across replies until you run `ilan unmax`, which clears
 it back to the `model-claude` config default. A change takes effect on the task's
 next agent spawn (the next reply), not on an already-running agent.
+
+`ilan reply` (and its `re` / `ilan task reply` forms) accepts `--max` /
+`--unmax` to combine the two steps: the model is switched first, then the
+reply is posted, so the reply's own turn already runs on the new model and
+the switch persists for every message after it. `--max` on a `codex` task
+prints the same warning as `ilan max` and posts the reply with the model
+untouched. Both flags require a reply message and are mutually exclusive.
 
 ## Agent backends
 

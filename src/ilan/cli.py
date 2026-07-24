@@ -1028,7 +1028,16 @@ def task_tail(name: str, num: int | None, markdown: bool, line_number: bool | No
 
 # ── task reply ───────────────────────────────────────────────────────
 
-def _do_reply(name: str, message: str) -> None:
+def _do_reply(
+    name: str, message: str, max_: bool = False, unmax: bool = False
+) -> None:
+    # Switch the model first so this reply's own turn (and every one after
+    # it) already runs on the new model. On a codex task the max endpoint
+    # warns and leaves the model untouched; the reply is still posted.
+    if max_:
+        _do_max(name)
+    elif unmax:
+        _do_unmax(name)
     if _line_number_enabled():
         message = _expand_at_refs(message, cfg.load_last_tail(name))
     resp = _client().reply(name, message)
@@ -1038,6 +1047,21 @@ def _do_reply(name: str, message: str) -> None:
         console.print(f"[yellow]{resp['warning']}[/yellow]")
     elif resp.get("message"):
         console.print(f"[green]{resp['message']}[/green]")
+
+
+def _check_reply_model_flags(
+    message: str | None, max_: bool, unmax: bool
+) -> None:
+    """Validate the ``--max``/``--unmax`` reply flags, exiting on misuse."""
+    if max_ and unmax:
+        console.print("[red]--max and --unmax cannot be used together.[/red]")
+        raise SystemExit(1)
+    if (max_ or unmax) and message is None:
+        console.print(
+            "[red]--max/--unmax require a response message (to only switch "
+            "the model, use ilan max / ilan unmax).[/red]"
+        )
+        raise SystemExit(1)
 
 
 @task_group.command("reply")
@@ -1050,11 +1074,20 @@ def _do_reply(name: str, message: str) -> None:
 @click.option("--line-number/--no-line-number", "line_number", default=None,
               help="When no message is given, override the ``line-number`` "
                    "config for this invocation.")
+@click.option("--max", "max_", is_flag=True, default=False,
+              help="Switch the task to the Fable model before posting the "
+                   "reply; the model persists for all subsequent messages. "
+                   "Claude backend only (a codex task warns and replies "
+                   "unchanged).")
+@click.option("--unmax", "unmax", is_flag=True, default=False,
+              help="Reset the task's model to the config default before "
+                   "posting the reply.")
 def task_reply(
     name: str, message: str | None, num: int | None, markdown: bool,
-    line_number: bool | None,
+    line_number: bool | None, max_: bool, unmax: bool,
 ) -> None:
     """Send a response to a task. If no message is given, show the tail instead."""
+    _check_reply_model_flags(message, max_, unmax)
     if message is None:
         _do_tail(name, n=num, markdown=markdown or None, line_number=line_number)
     else:
@@ -1064,7 +1097,7 @@ def task_reply(
                 "response message is provided.[/red]"
             )
             raise SystemExit(1)
-        _do_reply(name, message)
+        _do_reply(name, message, max_=max_, unmax=unmax)
 
 
 # ── task tap ─────────────────────────────────────────────────────────
@@ -1773,11 +1806,20 @@ def shortcut_tail(
 @click.option("--line-number/--no-line-number", "line_number", default=None,
               help="When no message is given, override the ``line-number`` "
                    "config for this invocation.")
+@click.option("--max", "max_", is_flag=True, default=False,
+              help="Switch the task to the Fable model before posting the "
+                   "reply; the model persists for all subsequent messages. "
+                   "Claude backend only (a codex task warns and replies "
+                   "unchanged).")
+@click.option("--unmax", "unmax", is_flag=True, default=False,
+              help="Reset the task's model to the config default before "
+                   "posting the reply.")
 def shortcut_reply(
     name: str, message: str | None, num: int | None, markdown: bool,
-    line_number: bool | None,
+    line_number: bool | None, max_: bool, unmax: bool,
 ) -> None:
     """Shorthand for 'ilan task reply'."""
+    _check_reply_model_flags(message, max_, unmax)
     if message is None:
         _do_tail(name, n=num, markdown=markdown or None, line_number=line_number)
     else:
@@ -1787,7 +1829,7 @@ def shortcut_reply(
                 "response message is provided.[/red]"
             )
             raise SystemExit(1)
-        _do_reply(name, message)
+        _do_reply(name, message, max_=max_, unmax=unmax)
 
 
 @main.command("re")
@@ -1800,11 +1842,20 @@ def shortcut_reply(
 @click.option("--line-number/--no-line-number", "line_number", default=None,
               help="When no message is given, override the ``line-number`` "
                    "config for this invocation.")
+@click.option("--max", "max_", is_flag=True, default=False,
+              help="Switch the task to the Fable model before posting the "
+                   "reply; the model persists for all subsequent messages. "
+                   "Claude backend only (a codex task warns and replies "
+                   "unchanged).")
+@click.option("--unmax", "unmax", is_flag=True, default=False,
+              help="Reset the task's model to the config default before "
+                   "posting the reply.")
 def shortcut_re(
     name: str, message: str | None, num: int | None, markdown: bool,
-    line_number: bool | None,
+    line_number: bool | None, max_: bool, unmax: bool,
 ) -> None:
     """Shorthand for 'ilan task reply'."""
+    _check_reply_model_flags(message, max_, unmax)
     if message is None:
         _do_tail(name, n=num, markdown=markdown or None, line_number=line_number)
     else:
@@ -1814,7 +1865,7 @@ def shortcut_re(
                 "response message is provided.[/red]"
             )
             raise SystemExit(1)
-        _do_reply(name, message)
+        _do_reply(name, message, max_=max_, unmax=unmax)
 
 
 @main.command("done")
