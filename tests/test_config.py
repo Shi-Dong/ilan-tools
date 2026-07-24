@@ -158,6 +158,18 @@ class TestLoad:
         assert conf["dashboard-interval"] == 10
         assert conf["editor"] == "vim"
 
+    def test_load_drops_unknown_keys(self, tmp_config: Path) -> None:
+        """Keys removed from DEFAULTS in a newer version must not leak out
+        of old config files (e.g. num-agents, summarize-model)."""
+        tmp_config.parent.mkdir(parents=True, exist_ok=True)
+        with open(tmp_config, "w") as f:
+            json.dump({"editor": "vim", "num-agents": 5, "summarize-model": "sonnet"}, f)
+        conf = cfg.load()
+        assert conf["editor"] == "vim"
+        assert "num-agents" not in conf
+        assert "summarize-model" not in conf
+        assert set(conf) == cfg.VALID_KEYS
+
 
 class TestSave:
     def test_save_writes_json(self, tmp_config: Path) -> None:

@@ -52,7 +52,12 @@ def _ensure_config_file() -> None:
 def load() -> dict[str, str | int | bool]:
     _ensure_config_file()
     with open(_CONFIG_FILE) as f:
-        return {**DEFAULTS, **json.load(f)}
+        stored = json.load(f)
+    # Drop keys the current version no longer knows about, so settings
+    # removed from DEFAULTS don't linger in old config files forever
+    # (they disappear from `ilan config show` immediately and from the
+    # file itself on the next save).
+    return {**DEFAULTS, **{k: v for k, v in stored.items() if k in VALID_KEYS}}
 
 
 def save(config: dict[str, str | int | bool]) -> None:
