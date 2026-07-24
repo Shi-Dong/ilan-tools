@@ -8,7 +8,7 @@ from pathlib import Path
 DEFAULTS: dict[str, str | int | bool] = {
     "workdir": "~/.ilan",
     "model": "opus",
-    "effort": "high",
+    "effort": "xhigh",
     "time-zone": "US/Pacific",
     "editor": "emacs",
     "default-backend": "claude",
@@ -22,6 +22,11 @@ DEFAULTS: dict[str, str | int | bool] = {
 }
 
 VALID_KEYS = set(DEFAULTS)
+
+# The intersection of the effort levels supported by both backends
+# (claude --effort additionally knows "max", codex additionally knows
+# "minimal"; we only allow values that mean the same thing everywhere).
+VALID_EFFORTS = ("low", "medium", "high", "xhigh")
 
 INT_KEYS = {"dashboard-interval"}
 BOOL_KEYS = {"line-number", "markdown", "one-line-summary"}

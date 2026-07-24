@@ -29,7 +29,7 @@ def _claude_flags(model_override: str | None = None) -> list[str]:
     return [
         *_CLAUDE_STATIC_FLAGS,
         "--model", _effective_model(model_override),
-        "--effort", str(conf.get("effort", "high")),
+        "--effort", str(conf.get("effort", "xhigh")),
     ]
 
 

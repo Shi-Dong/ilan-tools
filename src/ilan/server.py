@@ -261,6 +261,13 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     400,
                 )
                 return
+            if key == "effort" and value not in cfg.VALID_EFFORTS:
+                self._json(
+                    {"error": f"Invalid value {value!r} for effort. "
+                              f"Choose from: {', '.join(cfg.VALID_EFFORTS)}"},
+                    400,
+                )
+                return
             conf = cfg.load()
             if key in cfg.INT_KEYS:
                 conf[key] = int(value)

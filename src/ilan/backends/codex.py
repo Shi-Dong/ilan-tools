@@ -38,10 +38,17 @@ class CodexBackend(Backend):
         resume: bool,
         session_id: str | None,
     ) -> tuple[list[str], dict[str, str]]:
+        conf = cfg.load()
         cmd = ["codex", "exec"]
         if resume and session_id:
             cmd += ["resume", session_id]
         cmd += list(_CODEX_STATIC_FLAGS)
+        # Mirror the Claude backend's --effort flag. Codex has no dedicated
+        # CLI flag; the knob is the model_reasoning_effort config key. The
+        # value is quoted so it parses as a TOML string.
+        effort = str(conf.get("effort", "xhigh")).strip()
+        if effort:
+            cmd += ["-c", f'model_reasoning_effort="{effort}"']
         # A task's ``model`` override only makes sense for the engine that set
         # it. ``ilan max`` pins a task to Fable (a Claude-only model); if such a
         # task is later switched to codex the stale override would spawn
@@ -53,7 +60,7 @@ class CodexBackend(Backend):
         cmd.append("-")
 
         env = os.environ.copy()
-        api_key = str(cfg.load().get("api-key-codex", "")).strip()
+        api_key = str(conf.get("api-key-codex", "")).strip()
         if api_key:
             env["OPENAI_API_KEY"] = api_key
         return cmd, env
