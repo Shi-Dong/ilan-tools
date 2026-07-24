@@ -176,8 +176,6 @@ Both `ilan ls` and `ilan dashboard` adapt to the terminal width: on a window nar
 ### Configuration keys
 
 Configuration is stored at `~/.config/ilan/config.json` (created with defaults on first run).
-Keys that the current version no longer recognizes are dropped on load, so
-settings removed from ilan don't linger in old config files.
 
 | Key | Default | Description |
 |---|---|---|
