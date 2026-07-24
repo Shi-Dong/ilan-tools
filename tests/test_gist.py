@@ -101,6 +101,66 @@ class TestHelpers:
         assert "…[truncated]" in out
         assert len(out) < len(big) + 200
 
+    def test_inline_math_converted(self) -> None:
+        r"""``\(...\)`` becomes GitHub's backtick-inline math (which renders in
+        gist comments; the raw LaTeX delimiters do not)."""
+        entry = LogEntry(
+            role="assistant", content=r"Here \(s_t\) is the state.", timestamp=""
+        )
+        out = format_comment(entry)
+        assert "$`s_t`$" in out
+        assert r"\(" not in out
+
+    def test_inline_math_inner_whitespace_stripped(self) -> None:
+        entry = LogEntry(role="assistant", content=r"see \( A_{i,t} = A_i \).", timestamp="")
+        out = format_comment(entry)
+        assert "$`A_{i,t} = A_i`$" in out
+
+    def test_display_math_converted_to_math_fence(self) -> None:
+        entry = LogEntry(
+            role="assistant",
+            content="Gradient:\n\n\\[\n\\nabla J = \\sum_t A_t\n\\]\n\nDone.",
+            timestamp="",
+        )
+        out = format_comment(entry)
+        assert "```math\n\\nabla J = \\sum_t A_t\n```" in out
+        assert "\\[" not in out
+
+    def test_math_inside_code_fence_untouched(self) -> None:
+        content = "Escape it:\n\n```regex\n\\(foo\\) and \\[bar\\]\n```\n"
+        entry = LogEntry(role="assistant", content=content, timestamp="")
+        out = format_comment(entry)
+        assert "\\(foo\\) and \\[bar\\]" in out
+        assert "$`" not in out
+        assert "```math" not in out
+
+    def test_math_inside_inline_code_untouched(self) -> None:
+        entry = LogEntry(
+            role="assistant", content=r"Use `\(x\)` to match a paren.", timestamp=""
+        )
+        out = format_comment(entry)
+        assert r"`\(x\)`" in out
+        assert "$`" not in out
+
+    def test_dollar_math_left_alone(self) -> None:
+        """Math already in GitHub syntax passes through unchanged."""
+        content = "Inline $x_1$ and display:\n\n$$\ny = x^2\n$$\n"
+        entry = LogEntry(role="assistant", content=content, timestamp="")
+        out = format_comment(entry)
+        assert "$x_1$" in out
+        assert "$$\ny = x^2\n$$" in out
+
+    def test_unbalanced_delimiters_untouched(self) -> None:
+        entry = LogEntry(role="assistant", content=r"A lone \( stays put.", timestamp="")
+        out = format_comment(entry)
+        assert r"\(" in out
+        assert "$`" not in out
+
+    def test_math_converted_in_user_messages_too(self) -> None:
+        entry = LogEntry(role="user", content=r"Prove \(x^2 \ge 0\).", timestamp="")
+        out = format_comment(entry)
+        assert "$`x^2 \\ge 0`$" in out
+
 
 # ── title rewrite (rename tracking) ─────────────────────────────────────
 
