@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from ilan import __version__, config as cfg, get_git_commit
-from ilan.gist import GistSyncer
+from ilan.gist import GistSyncer, github_token, last_comment_url
 from ilan.models import (
     ALIAS_POOL,
     DEFAULT_ENGINE,
@@ -98,6 +98,7 @@ ROUTES: list[tuple[str, str, str]] = [
     ("GET",    r"^/tasks/([^/]+)/tail$",       "handle_task_tail"),
     ("GET",    r"^/tasks/([^/]+)/path$",       "handle_task_path"),
     ("GET",    r"^/tasks/([^/]+)/last-model$", "handle_task_last_model"),
+    ("GET",    r"^/tasks/([^/]+)/history-url$", "handle_task_history_url"),
     ("POST",   r"^/clear-everything$",         "handle_clear_everything"),
     ("POST",   r"^/stop$",                     "handle_stop"),
 ]
@@ -896,6 +897,26 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             with self._ilan.lock:
                 self._ilan.store.put_task(task)
             self._json({"name": task.name, "model": model})
+
+        def handle_task_history_url(self, name: str):
+            with self._ilan.lock:
+                task = self._get_task_or_404(name)
+                if task is None:
+                    return
+                gist_id, gist_url = task.gist_id, task.gist_url
+            if not gist_id or not gist_url:
+                self._json({"url": None})
+                return
+            token = github_token()
+            if not token:
+                self._json({"url": gist_url})
+                return
+            try:
+                url = last_comment_url(token, gist_id, gist_url)
+            except Exception:
+                # Network/auth hiccups fall back to the plain Gist page.
+                url = gist_url
+            self._json({"url": url})
 
         def handle_clear_everything(self):
             with self._ilan.lock:

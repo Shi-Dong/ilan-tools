@@ -138,6 +138,55 @@ class TestUpdateGistTitle:
         assert methods == ["GET"]
 
 
+# ── last-comment deep link ──────────────────────────────────────────────
+
+
+class TestLastCommentUrl:
+    HTML_URL = "https://gist.github.com/u/gid9"
+
+    def test_no_comments_falls_back_to_gist_page(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def fake_api(method, path, token, payload=None):  # noqa: ANN001
+            return {"comments": 0}
+
+        monkeypatch.setattr(gist_mod, "_api_request", fake_api)
+        assert gist_mod.last_comment_url("tok", "gid9", self.HTML_URL) == self.HTML_URL
+
+    def test_returns_permalink_to_last_comment(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls: list[tuple] = []
+
+        def fake_api(method, path, token, payload=None):  # noqa: ANN001
+            calls.append((method, path))
+            if path == "/gists/gid9":
+                return {"comments": 3}
+            return [{"id": 4242}]
+
+        monkeypatch.setattr(gist_mod, "_api_request", fake_api)
+        url = gist_mod.last_comment_url("tok", "gid9", self.HTML_URL)
+        assert url == (
+            f"{self.HTML_URL}?permalink_comment_id=4242#gistcomment-4242"
+        )
+        # Pagination targets exactly the last comment (page = comment count).
+        assert calls == [
+            ("GET", "/gists/gid9"),
+            ("GET", "/gists/gid9/comments?per_page=1&page=3"),
+        ]
+
+    def test_unexpected_comments_shape_falls_back(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def fake_api(method, path, token, payload=None):  # noqa: ANN001
+            if path == "/gists/gid9":
+                return {"comments": 2}
+            return {}
+
+        monkeypatch.setattr(gist_mod, "_api_request", fake_api)
+        assert gist_mod.last_comment_url("tok", "gid9", self.HTML_URL) == self.HTML_URL
+
+
 # ── _api_request retry / backoff ────────────────────────────────────────
 
 
