@@ -7,7 +7,8 @@ from pathlib import Path
 
 DEFAULTS: dict[str, str | int | bool] = {
     "workdir": "~/.ilan",
-    "model": "opus",
+    "model-claude": "opus",
+    "model-codex": "gpt-5.6-sol",
     "effort": "xhigh",
     "time-zone": "US/Pacific",
     "editor": "emacs",

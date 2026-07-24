@@ -71,6 +71,22 @@ class TestBuildCommand:
         )
         assert cmd[cmd.index("--model") + 1] == "gpt-5.6-sol"
 
+    def test_uses_configured_model_codex(
+        self, backend: CodexBackend, tmp_config: Path
+    ) -> None:
+        cfg.save({**cfg.DEFAULTS, "model-codex": "gpt-x"})
+        cmd, _ = backend.build_command(None, resume=False, session_id=None)
+        assert cmd[cmd.index("--model") + 1] == "gpt-x"
+
+    def test_fable_override_falls_back_to_configured_model_codex(
+        self, backend: CodexBackend, tmp_config: Path
+    ) -> None:
+        cfg.save({**cfg.DEFAULTS, "model-codex": "gpt-x"})
+        cmd, _ = backend.build_command(
+            "claude-fable-5", resume=False, session_id=None
+        )
+        assert cmd[cmd.index("--model") + 1] == "gpt-x"
+
     def test_api_key_codex_sets_openai_key(
         self, backend: CodexBackend, tmp_config: Path
     ) -> None:
@@ -95,7 +111,7 @@ class TestBuildCommand:
         self, backend: CodexBackend, tmp_config: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        cfg.save({"model": "opus"})
+        cfg.save({"model-claude": "opus"})
         _, env = backend.build_command(None, resume=False, session_id=None)
         assert "OPENAI_API_KEY" not in env
 

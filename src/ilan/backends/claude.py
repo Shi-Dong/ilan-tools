@@ -20,7 +20,7 @@ def _effective_model(model_override: str | None = None) -> str:
     precedence over the configured default; ``None`` falls back to config.
     """
     conf = cfg.load()
-    return model_override or str(conf.get("model", "opus"))
+    return model_override or str(conf.get("model-claude", "opus"))
 
 
 def _claude_flags(model_override: str | None = None) -> list[str]:

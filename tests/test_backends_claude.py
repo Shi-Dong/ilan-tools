@@ -40,6 +40,13 @@ class TestBuildCommand:
         cmd, _ = backend.build_command(None, resume=False, session_id=None)
         assert cmd[cmd.index("--model") + 1] == "opus"
 
+    def test_uses_configured_model_claude(
+        self, backend: ClaudeBackend, tmp_config: Path
+    ) -> None:
+        cfg.save({**cfg.DEFAULTS, "model-claude": "sonnet"})
+        cmd, _ = backend.build_command(None, resume=False, session_id=None)
+        assert cmd[cmd.index("--model") + 1] == "sonnet"
+
     def test_resume_appends_session(self, backend: ClaudeBackend, tmp_config: Path) -> None:
         cmd, _ = backend.build_command(None, resume=True, session_id="sid-42")
         assert cmd[cmd.index("--resume") + 1] == "sid-42"
@@ -53,7 +60,7 @@ class TestBuildCommand:
     def test_sets_api_key_from_config(
         self, backend: ClaudeBackend, tmp_config: Path
     ) -> None:
-        cfg.save({"api-key-claude": "sk-live", "model": "opus"})
+        cfg.save({"api-key-claude": "sk-live", "model-claude": "opus"})
         _, env = backend.build_command(None, resume=False, session_id=None)
         assert env["ANTHROPIC_API_KEY"] == "sk-live"
 
