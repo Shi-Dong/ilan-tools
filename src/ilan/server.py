@@ -317,7 +317,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             if err:
                 self._json({"error": err}, 400)
                 return
-            engine = body.get("agent") or cfg.load().get("agent", DEFAULT_ENGINE)
+            engine = body.get("agent") or cfg.load().get("default-backend", DEFAULT_ENGINE)
             if engine not in VALID_ENGINES:
                 self._json(
                     {"error": f"Unknown agent {engine!r}. Choose from: {', '.join(VALID_ENGINES)}"},

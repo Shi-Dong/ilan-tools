@@ -262,8 +262,8 @@ class TestTasksCRUD:
         assert "error" in resp
         assert _get(ilan_server, "/tasks/eng-bad").get("error")
 
-    def test_add_task_uses_config_agent_default(self, ilan_server: IlanServer) -> None:
-        _post(ilan_server, "/config/set", {"key": "agent", "value": "codex"})
+    def test_add_task_uses_config_default_backend(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/config/set", {"key": "default-backend", "value": "codex"})
         _post(ilan_server, "/tasks", {"name": "eng-cfg", "prompt": "P"})
         task = _get(ilan_server, "/tasks/eng-cfg")["task"]
         assert task["engine"] == "codex"

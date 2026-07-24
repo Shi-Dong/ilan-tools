@@ -11,7 +11,7 @@ DEFAULTS: dict[str, str | int | bool] = {
     "effort": "high",
     "time-zone": "US/Pacific",
     "editor": "emacs",
-    "agent": "claude",
+    "default-backend": "claude",
     "api-key-claude": "",
     "api-key-codex": "",
     "github-token": "",

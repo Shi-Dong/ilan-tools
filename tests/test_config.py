@@ -14,7 +14,7 @@ class TestDefaults:
     def test_default_keys(self) -> None:
         expected = {
             "workdir", "model", "effort",
-            "time-zone", "editor", "agent",
+            "time-zone", "editor", "default-backend",
             "api-key-claude", "api-key-codex", "github-token",
             "dashboard-interval",
             "line-number", "markdown", "one-line-summary",
@@ -27,8 +27,8 @@ class TestDefaults:
         }
         assert cfg.SECRET_KEYS <= cfg.VALID_KEYS
 
-    def test_agent_default_is_claude(self) -> None:
-        assert cfg.DEFAULTS["agent"] == "claude"
+    def test_default_backend_is_claude(self) -> None:
+        assert cfg.DEFAULTS["default-backend"] == "claude"
 
     def test_api_key_codex_default_empty(self) -> None:
         assert cfg.DEFAULTS["api-key-codex"] == ""
