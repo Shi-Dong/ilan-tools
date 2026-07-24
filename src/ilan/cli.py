@@ -30,6 +30,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ilan import config as cfg
+from ilan.backends import ClaudeBackend
 from ilan.client import Client
 from ilan.models import (
     DEFAULT_ENGINE,
@@ -40,7 +41,6 @@ from ilan.models import (
     TaskStatus,
     is_fable_model,
 )
-from ilan.runner import Runner
 from ilan.server import read_server_info
 from ilan.store import Store
 
@@ -1359,7 +1359,17 @@ def _do_attach(name: str) -> None:
         )
         raise SystemExit(1)
 
-    if not Runner._find_session_log(session_id):
+    engine = t.get("engine") or DEFAULT_ENGINE
+    if engine == ENGINE_CODEX:
+        console.print(
+            f"[yellow]Task [bold]{t['name']}[/bold] runs on the Codex backend; "
+            f"ilan attach only supports Claude Code sessions. "
+            f"Resume it directly with [bold]codex resume {session_id}[/bold], or switch "
+            f"the task back with [bold]ilan switch-backend {t['name']}[/bold] first.[/yellow]"
+        )
+        raise SystemExit(1)
+
+    if not ClaudeBackend().find_session_log(session_id):
         console.print(
             f"[yellow]Session [bold]{session_id}[/bold] for task [bold]{t['name']}[/bold] "
             f"not found on disk. The session may have been lost when the agent was killed.[/yellow]"
