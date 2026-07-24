@@ -1084,3 +1084,56 @@ class TestSwitchBackendCommand:
         out = _strip_ansi(result.output)
         assert "my-task" in out
         assert "claude" in out and "codex" in out
+
+
+class TestRenameCommand:
+    def _rename_client(self) -> MagicMock:
+        client = _make_client()
+        client.rename_task.return_value = {"old_name": "old-task", "new_name": "new-task"}
+        client.reply.return_value = {"message": "replied"}
+        return client
+
+    def test_rename_without_description_does_not_reply(
+        self, runner: CliRunner, tmp_config
+    ) -> None:
+        client = self._rename_client()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["task", "rename", "old-task", "new-task"])
+        assert result.exit_code == 0
+        client.rename_task.assert_called_once_with("old-task", "new-task")
+        client.reply.assert_not_called()
+
+    def test_rename_with_description_replies_to_new_name(
+        self, runner: CliRunner, tmp_config
+    ) -> None:
+        client = self._rename_client()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main,
+                ["task", "rename", "old-task", "new-task", "-d", "keep going"],
+            )
+        assert result.exit_code == 0
+        client.rename_task.assert_called_once_with("old-task", "new-task")
+        client.reply.assert_called_once_with("new-task", "keep going")
+
+    def test_top_level_shortcut_with_description(
+        self, runner: CliRunner, tmp_config
+    ) -> None:
+        client = self._rename_client()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main, ["rename", "old-task", "new-task", "-d", "keep going"]
+            )
+        assert result.exit_code == 0
+        client.rename_task.assert_called_once_with("old-task", "new-task")
+        client.reply.assert_called_once_with("new-task", "keep going")
+
+    def test_rename_error_skips_reply(self, runner: CliRunner, tmp_config) -> None:
+        client = self._rename_client()
+        client.rename_task.return_value = {"error": "no such task"}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main, ["rename", "old-task", "new-task", "-d", "keep going"]
+            )
+        assert result.exit_code == 1
+        client.reply.assert_not_called()
