@@ -195,17 +195,18 @@ class TestConfig:
     def test_get_config(self, ilan_server: IlanServer) -> None:
         resp = _get(ilan_server, "/config")
         assert "config" in resp
-        assert resp["config"]["model-claude"] == "opus"
+        assert resp["config"]["model-claude"] == "claude-opus-4-7"
         assert resp["config"]["model-codex"] == "gpt-5.6-sol"
 
     def test_set_config(self, ilan_server: IlanServer) -> None:
-        resp = _post(ilan_server, "/config/set", {"key": "model-claude", "value": "sonnet"})
+        resp = _post(ilan_server, "/config/set",
+                     {"key": "model-claude", "value": "claude-sonnet-4-6"})
         assert resp.get("ok") is True
-        assert resp["value"] == "sonnet"
+        assert resp["value"] == "claude-sonnet-4-6"
 
         # Verify it persists
         resp = _get(ilan_server, "/config")
-        assert resp["config"]["model-claude"] == "sonnet"
+        assert resp["config"]["model-claude"] == "claude-sonnet-4-6"
 
     def test_set_config_int_key(self, ilan_server: IlanServer) -> None:
         resp = _post(ilan_server, "/config/set", {"key": "dashboard-interval", "value": "3"})
@@ -221,6 +222,35 @@ class TestConfig:
         resp = _post(ilan_server, "/config/set", {"key": "line-number", "value": "true"})
         assert "error" in resp
         assert "client-side" in resp["error"]
+
+    def test_set_config_model_rejects_alias(self, ilan_server: IlanServer) -> None:
+        """CLI aliases like 'opus' are not exact model ids; the set must be
+        rejected and the previous value kept."""
+        resp = _post(ilan_server, "/config/set", {"key": "model-claude", "value": "opus"})
+        assert "error" in resp
+        assert "model-claude" in resp["error"]
+        conf = _get(ilan_server, "/config")["config"]
+        assert conf["model-claude"] == "claude-opus-4-7"
+
+    def test_set_config_model_rejects_garbage_codex_id(
+        self, ilan_server: IlanServer
+    ) -> None:
+        resp = _post(ilan_server, "/config/set", {"key": "model-codex", "value": "sol"})
+        assert "error" in resp
+        assert "model-codex" in resp["error"]
+        conf = _get(ilan_server, "/config")["config"]
+        assert conf["model-codex"] == "gpt-5.6-sol"
+
+    def test_set_config_model_accepts_exact_ids(
+        self, ilan_server: IlanServer
+    ) -> None:
+        for key, value in (
+            ("model-claude", "claude-fable-5"),
+            ("model-codex", "gpt-5.1-codex-max"),
+        ):
+            resp = _post(ilan_server, "/config/set", {"key": key, "value": value})
+            assert resp.get("ok") is True
+            assert resp["value"] == value
 
     def test_set_config_default_backend_accepts_valid_engines(
         self, ilan_server: IlanServer

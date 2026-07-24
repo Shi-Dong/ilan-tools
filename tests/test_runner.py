@@ -657,7 +657,8 @@ class TestSpawn:
         """A task with a model set (via ilan max) should pass --model <model>."""
         import ilan.config as cfg_mod
 
-        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir), "model-claude": "opus"})
+        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir),
+                      "model-claude": "claude-opus-4-7"})
 
         runner = Runner(store)
         t = Task(name="model-override", prompt="do work", model="claude-fable-5")
@@ -678,7 +679,8 @@ class TestSpawn:
         """A task without a model override should use the configured default."""
         import ilan.config as cfg_mod
 
-        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir), "model-claude": "opus"})
+        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir),
+                      "model-claude": "claude-sonnet-4-6"})
 
         runner = Runner(store)
         t = Task(name="model-default", prompt="do work")
@@ -690,7 +692,7 @@ class TestSpawn:
             runner._spawn(t, "do work", resume=False)
             cmd = mock_popen.call_args[0][0]
             assert "--model" in cmd
-            assert cmd[cmd.index("--model") + 1] == "opus"
+            assert cmd[cmd.index("--model") + 1] == "claude-sonnet-4-6"
 
     def test_spawn_feeds_prompt_via_stdin_and_captures_stderr(
         self, store: Store, tmp_workdir: Path, tmp_config: Path,

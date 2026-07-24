@@ -138,15 +138,15 @@ class TestLoad:
         conf = cfg.load()
         assert tmp_config.exists()
         assert conf["dashboard-interval"] == 1
-        assert conf["model-claude"] == "opus"
+        assert conf["model-claude"] == "claude-opus-4-7"
         assert conf["model-codex"] == "gpt-5.6-sol"
 
     def test_load_merges_with_defaults(self, tmp_config: Path) -> None:
         tmp_config.parent.mkdir(parents=True, exist_ok=True)
         with open(tmp_config, "w") as f:
-            json.dump({"model-claude": "sonnet"}, f)
+            json.dump({"model-claude": "claude-sonnet-4-6"}, f)
         conf = cfg.load()
-        assert conf["model-claude"] == "sonnet"
+        assert conf["model-claude"] == "claude-sonnet-4-6"
         # Other defaults still present
         assert conf["dashboard-interval"] == 1
         assert conf["workdir"] == "~/.ilan"
@@ -171,6 +171,27 @@ class TestLoad:
         assert "summarize-model" not in conf
         assert set(conf) == cfg.VALID_KEYS
 
+    def test_load_migrates_alias_model_values_to_defaults(
+        self, tmp_config: Path
+    ) -> None:
+        """Config files written before exact model ids were enforced may
+        still hold aliases; load() must fall back to the defaults."""
+        tmp_config.parent.mkdir(parents=True, exist_ok=True)
+        with open(tmp_config, "w") as f:
+            json.dump({"model-claude": "opus", "model-codex": "sol"}, f)
+        conf = cfg.load()
+        assert conf["model-claude"] == cfg.DEFAULTS["model-claude"]
+        assert conf["model-codex"] == cfg.DEFAULTS["model-codex"]
+
+    def test_load_keeps_exact_model_ids(self, tmp_config: Path) -> None:
+        tmp_config.parent.mkdir(parents=True, exist_ok=True)
+        with open(tmp_config, "w") as f:
+            json.dump({"model-claude": "claude-fable-5",
+                       "model-codex": "gpt-5.1-codex-max"}, f)
+        conf = cfg.load()
+        assert conf["model-claude"] == "claude-fable-5"
+        assert conf["model-codex"] == "gpt-5.1-codex-max"
+
 
 class TestSave:
     def test_save_writes_json(self, tmp_config: Path) -> None:
@@ -189,8 +210,10 @@ class TestSave:
         assert config_file.exists()
 
     def test_roundtrip(self, tmp_config: Path) -> None:
-        original = {"workdir": "/custom", "dashboard-interval": 8, "model-claude": "sonnet",
-                     "model-codex": "gpt-x", "effort": "low", "time-zone": "UTC", "editor": "nano"}
+        original = {"workdir": "/custom", "dashboard-interval": 8,
+                     "model-claude": "claude-sonnet-4-6",
+                     "model-codex": "gpt-5.1-codex-max",
+                     "effort": "low", "time-zone": "UTC", "editor": "nano"}
         cfg.save(original)
         loaded = cfg.load()
         for k, v in original.items():
@@ -212,3 +235,56 @@ class TestGetWorkdir:
         wd = cfg.get_workdir()
         assert "~" not in str(wd)
         assert str(wd).endswith("my-ilan-dir")
+
+
+class TestModelIdValidation:
+    """model-claude / model-codex must hold exact model ids, not aliases."""
+
+    @pytest.mark.parametrize("value", [
+        "claude-opus-4-7",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5-20251001",
+        "claude-fable-5",
+    ])
+    def test_accepts_exact_claude_ids(self, value: str) -> None:
+        assert cfg.is_valid_model_id("model-claude", value)
+
+    @pytest.mark.parametrize("value", [
+        "opus",            # bare CLI alias
+        "sonnet",
+        "haiku",
+        "claude-opus",     # no version digits — alias-shaped
+        "Claude-Opus-4-7", # model ids are lowercase
+        "claude-opus-4-7 ",
+        "gpt-5.6-sol",     # wrong vendor for this key
+        "",
+    ])
+    def test_rejects_illegal_claude_values(self, value: str) -> None:
+        assert not cfg.is_valid_model_id("model-claude", value)
+
+    @pytest.mark.parametrize("value", [
+        "gpt-5.6-sol",
+        "gpt-5.1-codex-max",
+        "gpt-5-codex",
+        "o3",
+        "o4-mini",
+    ])
+    def test_accepts_exact_codex_ids(self, value: str) -> None:
+        assert cfg.is_valid_model_id("model-codex", value)
+
+    @pytest.mark.parametrize("value", [
+        "sol",             # bare alias
+        "codex",
+        "gpt",
+        "gpt-x",           # no version digits
+        "gpt-5-",          # dangling separator
+        "claude-opus-4-7", # wrong vendor for this key
+        "",
+    ])
+    def test_rejects_illegal_codex_values(self, value: str) -> None:
+        assert not cfg.is_valid_model_id("model-codex", value)
+
+    def test_defaults_are_exact_model_ids(self) -> None:
+        """Guards future edits: the shipped defaults must pass the guardrail."""
+        for key in cfg.MODEL_KEYS:
+            assert cfg.is_valid_model_id(key, str(cfg.DEFAULTS[key]))

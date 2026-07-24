@@ -417,7 +417,7 @@ def _set_local_config(key: str, value: str) -> object:
 @click.argument("key", shell_complete=_complete_config_keys)
 @click.argument("value")
 def config_set(key: str, value: str) -> None:
-    """Set a configuration value (e.g. ilan config set model-claude sonnet).
+    """Set a configuration value (e.g. ilan config set model-claude claude-sonnet-4-6).
 
     Time-zone accepts friendly aliases, e.g. ``ilan config set time-zone
     tokyo`` or ``ilan config set time-zone pacific`` (case-insensitive).
@@ -1374,7 +1374,7 @@ def _do_attach(name: str) -> None:
         "claude",
         "--resume", session_id,
         "--dangerously-skip-permissions",
-        "--model", str(conf.get("model-claude", "opus")),
+        "--model", str(conf["model-claude"]),
         "--effort", str(conf.get("effort", "xhigh")),
     ])
 
