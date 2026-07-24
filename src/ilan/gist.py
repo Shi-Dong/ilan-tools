@@ -102,6 +102,36 @@ def initial_file(task_name: str) -> tuple[str, str]:
     return _safe_filename(task_name), landing_content(task_name)
 
 
+# Fenced code blocks and inline code spans, captured so ``re.split`` keeps
+# them as odd-indexed segments that the math conversion leaves untouched.
+_CODE_SEGMENT = re.compile(r"(```.*?```|~~~.*?~~~|`[^`\n]+`)", re.DOTALL)
+_DISPLAY_MATH = re.compile(r"\\\[(.+?)\\\]", re.DOTALL)
+_INLINE_MATH = re.compile(r"\\\((.+?)\\\)", re.DOTALL)
+
+
+def _convert_math_delimiters(text: str) -> str:
+    r"""Rewrite LaTeX math delimiters into GitHub-flavored math syntax.
+
+    The agents emit math as ``\(...\)`` / ``\[...\]``, which GitHub Markdown
+    does not understand (the backslashes are simply swallowed). GitHub only
+    renders ``$`...`$`` / ``$...$`` inline and ``$$...$$`` / ```` ```math ````
+    blocks — verified empirically against rendered gist-comment HTML. The
+    backtick-inline and math-fence forms are used because they also shield the
+    math from Markdown itself (e.g. ``_`` would otherwise start italics).
+    Code blocks and inline code spans are left untouched.
+    """
+    segments = _CODE_SEGMENT.split(text)
+    for i, segment in enumerate(segments):
+        if i % 2 == 1:  # a code block or inline code span
+            continue
+        segment = _DISPLAY_MATH.sub(
+            lambda m: f"\n```math\n{m.group(1).strip()}\n```\n", segment
+        )
+        segment = _INLINE_MATH.sub(lambda m: f"$`{m.group(1).strip()}`$", segment)
+        segments[i] = segment
+    return "".join(segments)
+
+
 def format_comment(entry: LogEntry) -> str:
     """Render a log entry as Markdown for a gist comment.
 
@@ -110,7 +140,7 @@ def format_comment(entry: LogEntry) -> str:
     header is what tells User and Assistant bubbles apart).
     """
     label = _ROLE_LABELS.get(entry.role.strip().lower(), entry.role or "Message")
-    body = entry.content or ""
+    body = _convert_math_delimiters(entry.content or "")
     if len(body) > _MAX_COMMENT_CHARS:
         body = body[:_MAX_COMMENT_CHARS] + "\n\n…[truncated]"
     rendered = f"**{label}**\n\n{body}"
