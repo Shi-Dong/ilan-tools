@@ -184,8 +184,8 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 | `workdir` | `~/.ilan` | Where all ilan data is stored |
 | `default-backend` | `claude` | Default agent backend for newly added tasks (`claude` or `codex`). Override per task with `ilan add --claude`/`--codex`, or flip an existing task with `ilan task switch-backend` — see [Agent backends](#agent-backends) |
 | `time-zone` | `US/Pacific` | Time zone for displayed timestamps (client-side: set on each machine running the CLI). Accepts friendly aliases — see [Time-zone aliases](#time-zone-aliases) |
-| `model-claude` | `opus` | Model passed to `claude -p` for tasks on the `claude` backend. Accepts Claude Code aliases (`opus`, `sonnet`, `haiku`) or a full Claude model id |
-| `model-codex` | `gpt-5.6-sol` | Model passed to `codex exec --model` for tasks on the `codex` backend. Accepts any model name the Codex CLI recognizes — see [Agent backends](#agent-backends) |
+| `model-claude` | `claude-opus-4-7` | Model passed verbatim to `claude -p --model` for tasks on the `claude` backend. Must be an exact Claude model id (e.g. `claude-opus-4-7`, `claude-sonnet-4-6`); CLI aliases like `opus` are rejected by `ilan config set` — see [Exact model ids](#exact-model-ids) |
+| `model-codex` | `gpt-5.6-sol` | Model passed verbatim to `codex exec --model` for tasks on the `codex` backend. Must be an exact model id (e.g. `gpt-5.6-sol`, `gpt-5.1-codex-max`); bare aliases are rejected — see [Exact model ids](#exact-model-ids) |
 | `effort` | `xhigh` | Reasoning-effort level for spawned agents, applied to both backends: passed as `--effort` to `claude` and as `-c model_reasoning_effort=...` to `codex exec`. Accepts `low`, `medium`, `high`, or `xhigh` (the subset both CLIs support); other values are rejected |
 | `editor` | `emacs` | Editor used by `ilan task log` |
 | `api-key-claude` | _(empty)_ | Anthropic API key passed as `ANTHROPIC_API_KEY` to spawned agents; also used to call Haiku for the one-line status summary in `ilan ls` and `ilan dashboard`. When empty, the one-line summary falls back to the server's local `claude` CLI (Claude Code subscription) instead. Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
@@ -194,6 +194,28 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 | `dashboard-interval` | `1` | Seconds between automatic refreshes in `ilan dashboard` |
 | `line-number` | `false` | When `true`, `ilan tail` prefixes each assistant line with a yellow `[N]` marker and `ilan reply` / `ilan task branch` expand `@N` into the Nth line, double-quoted |
 | `one-line-summary` | `true` | Client-side: render the Haiku-generated one-line summary in the Status column of `ilan ls` and `ilan dashboard` (`ilan ls -a` never shows it, to keep the longer all-tasks listing compact). The summary is produced by the server: via Anthropic's API when `api-key-claude` is set, otherwise via the server's local `claude` CLI (Claude Code subscription). This flag only controls whether the client shows it. If on while the server has no `api-key-claude` set, the client prints a note about the CLI fallback. |
+
+### Exact model ids
+
+`model-claude` and `model-codex` hold the exact model id handed to the
+backend CLI (`claude --model` / `codex exec --model`) — never a CLI alias
+like `opus`. Aliases hide which model actually runs and silently change
+meaning whenever the vendor re-points them, so `ilan config set` rejects
+values that don't look like an exact id:
+
+```bash
+ilan config set model-claude claude-opus-4-7    # OK
+ilan config set model-claude opus               # rejected
+ilan config set model-codex gpt-5.1-codex-max   # OK
+ilan config set model-codex sol                 # rejected
+```
+
+The guardrail is a format check — the vendor prefix (`claude-` for
+`model-claude`; `gpt-`/`o` for `model-codex`) plus version digits. It
+rejects bare aliases and typos, but cannot verify that a well-formed id
+actually exists; the backend CLI reports that at spawn time. Config files
+written before this rule that still hold an alias fall back to the default
+on load.
 
 ### Time-zone aliases
 

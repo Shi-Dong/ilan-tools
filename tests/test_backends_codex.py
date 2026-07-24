@@ -74,18 +74,18 @@ class TestBuildCommand:
     def test_uses_configured_model_codex(
         self, backend: CodexBackend, tmp_config: Path
     ) -> None:
-        cfg.save({**cfg.DEFAULTS, "model-codex": "gpt-x"})
+        cfg.save({**cfg.DEFAULTS, "model-codex": "gpt-5.1-codex-max"})
         cmd, _ = backend.build_command(None, resume=False, session_id=None)
-        assert cmd[cmd.index("--model") + 1] == "gpt-x"
+        assert cmd[cmd.index("--model") + 1] == "gpt-5.1-codex-max"
 
     def test_fable_override_falls_back_to_configured_model_codex(
         self, backend: CodexBackend, tmp_config: Path
     ) -> None:
-        cfg.save({**cfg.DEFAULTS, "model-codex": "gpt-x"})
+        cfg.save({**cfg.DEFAULTS, "model-codex": "gpt-5.1-codex-max"})
         cmd, _ = backend.build_command(
             "claude-fable-5", resume=False, session_id=None
         )
-        assert cmd[cmd.index("--model") + 1] == "gpt-x"
+        assert cmd[cmd.index("--model") + 1] == "gpt-5.1-codex-max"
 
     def test_api_key_codex_sets_openai_key(
         self, backend: CodexBackend, tmp_config: Path

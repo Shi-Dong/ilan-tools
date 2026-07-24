@@ -268,6 +268,15 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     400,
                 )
                 return
+            if key in cfg.MODEL_KEYS and not cfg.is_valid_model_id(key, str(value)):
+                self._json(
+                    {"error": f"Invalid model id {value!r} for {key}. Use the "
+                              f"exact model id the backend CLI accepts (e.g. "
+                              f"{cfg.MODEL_ID_EXAMPLES[key]}); aliases like "
+                              f"'opus' are rejected."},
+                    400,
+                )
+                return
             conf = cfg.load()
             if key in cfg.INT_KEYS:
                 conf[key] = int(value)

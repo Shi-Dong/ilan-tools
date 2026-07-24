@@ -7,7 +7,7 @@ from pathlib import Path
 
 DEFAULTS: dict[str, str | int | bool] = {
     "workdir": "~/.ilan",
-    "model-claude": "opus",
+    "model-claude": "claude-opus-4-7",
     "model-codex": "gpt-5.6-sol",
     "effort": "xhigh",
     "time-zone": "US/Pacific",
@@ -28,6 +28,37 @@ VALID_KEYS = set(DEFAULTS)
 # (claude --effort additionally knows "max", codex additionally knows
 # "minimal"; we only allow values that mean the same thing everywhere).
 VALID_EFFORTS = ("low", "medium", "high", "xhigh")
+
+# ── model ids ──────────────────────────────────────────────────────
+# ``model-claude`` / ``model-codex`` hold the exact model id handed to the
+# backend CLI (``claude --model`` / ``codex exec --model``). CLI aliases
+# like ``opus`` are rejected: they hide which model actually runs and
+# silently change meaning whenever the vendor re-points them.
+MODEL_KEYS = ("model-claude", "model-codex")
+
+_MODEL_ID_PATTERNS: dict[str, re.Pattern[str]] = {
+    # e.g. claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5-20251001
+    "model-claude": re.compile(r"^claude-[a-z0-9]+(?:[.-][a-z0-9]+)*$"),
+    # e.g. gpt-5.6-sol, gpt-5.1-codex-max, o3, o4-mini
+    "model-codex": re.compile(r"^(?:gpt-|o)[0-9]+(?:[.-][a-z0-9]+)*$"),
+}
+
+MODEL_ID_EXAMPLES = {
+    "model-claude": "claude-opus-4-7",
+    "model-codex": "gpt-5.6-sol",
+}
+
+
+def is_valid_model_id(key: str, value: str) -> bool:
+    """Whether *value* looks like an exact model id for the given config key.
+
+    This is a format check (vendor prefix + version digits), which rejects
+    bare aliases (``opus``, ``sonnet``) and obvious typos. It cannot verify
+    the model actually exists — the backend CLI reports that at spawn time.
+    """
+    if not _MODEL_ID_PATTERNS[key].match(value):
+        return False
+    return any(ch.isdigit() for ch in value)
 
 INT_KEYS = {"dashboard-interval"}
 BOOL_KEYS = {"line-number", "markdown", "one-line-summary"}
@@ -63,7 +94,14 @@ def load() -> dict[str, str | int | bool]:
     # removed from DEFAULTS don't linger in old config files forever
     # (they disappear from `ilan config show` immediately and from the
     # file itself on the next save).
-    return {**DEFAULTS, **{k: v for k, v in stored.items() if k in VALID_KEYS}}
+    merged = {**DEFAULTS, **{k: v for k, v in stored.items() if k in VALID_KEYS}}
+    # Config files written before exact model ids were enforced may still
+    # hold an alias like "opus"; fall back to the default rather than hand
+    # the backend CLI a value `ilan config set` would now reject.
+    for key in MODEL_KEYS:
+        if not is_valid_model_id(key, str(merged[key])):
+            merged[key] = DEFAULTS[key]
+    return merged
 
 
 def save(config: dict[str, str | int | bool]) -> None:
