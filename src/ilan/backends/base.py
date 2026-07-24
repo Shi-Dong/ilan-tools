@@ -52,6 +52,14 @@ class Backend(ABC):
         """
 
     @abstractmethod
+    def build_attach_command(
+        self, session_id: str, model_override: str | None
+    ) -> list[str]:
+        """Return argv for interactively resuming *session_id* in the CLI's
+        own TUI (``ilan attach``). Unlike ``build_command`` this is exec'd in
+        the user's terminal with the user's environment."""
+
+    @abstractmethod
     def parse_output(self, out_path: Path) -> ParsedResult | None:
         """Parse the process output file, or ``None`` if it is unreadable."""
 

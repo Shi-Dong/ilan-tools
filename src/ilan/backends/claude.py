@@ -86,6 +86,18 @@ class ClaudeBackend(Backend):
             env["ANTHROPIC_API_KEY"] = api_key
         return cmd, env
 
+    def build_attach_command(
+        self, session_id: str, model_override: str | None
+    ) -> list[str]:
+        conf = cfg.load()
+        return [
+            "claude",
+            "--resume", session_id,
+            "--dangerously-skip-permissions",
+            "--model", _effective_model(model_override),
+            "--effort", str(conf.get("effort", "xhigh")),
+        ]
+
     def parse_output(self, out_path: Path) -> ParsedResult | None:
         try:
             with open(out_path) as f:

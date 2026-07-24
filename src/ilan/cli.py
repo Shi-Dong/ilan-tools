@@ -30,6 +30,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ilan import config as cfg
+from ilan.backends import ClaudeBackend, CodexBackend
 from ilan.client import Client
 from ilan.models import (
     DEFAULT_ENGINE,
@@ -40,7 +41,6 @@ from ilan.models import (
     TaskStatus,
     is_fable_model,
 )
-from ilan.runner import Runner
 from ilan.server import read_server_info
 from ilan.store import Store
 
@@ -1359,30 +1359,27 @@ def _do_attach(name: str) -> None:
         )
         raise SystemExit(1)
 
-    if not Runner._find_session_log(session_id):
+    engine = t.get("engine") or DEFAULT_ENGINE
+    backend = CodexBackend() if engine == ENGINE_CODEX else ClaudeBackend()
+
+    if not backend.find_session_log(session_id):
         console.print(
             f"[yellow]Session [bold]{session_id}[/bold] for task [bold]{t['name']}[/bold] "
             f"not found on disk. The session may have been lost when the agent was killed.[/yellow]"
         )
         raise SystemExit(1)
 
-    conf = cfg.load()
     workdir = cfg.get_workdir()
     console.print(f"Attaching to session [bold]{session_id}[/bold] for task [bold]{t['name']}[/bold]…")
     os.chdir(workdir)
-    os.execvp("claude", [
-        "claude",
-        "--resume", session_id,
-        "--dangerously-skip-permissions",
-        "--model", str(conf["model-claude"]),
-        "--effort", str(conf.get("effort", "xhigh")),
-    ])
+    argv = backend.build_attach_command(session_id, t.get("model"))
+    os.execvp(argv[0], argv)
 
 
 @task_group.command("attach")
 @click.argument("name", shell_complete=_complete_task_names)
 def task_attach(name: str) -> None:
-    """Attach to a task's Claude Code session in interactive mode."""
+    """Attach to a task's agent session (Claude Code or Codex) interactively."""
     _do_attach(name)
 
 

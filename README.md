@@ -104,7 +104,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task alias NAME NEW_ALIAS` | Change the two-letter alias of an active task (`NEW_ALIAS` must be two letters from `asdfghjkl` and not already in use) |
 | `ilan task branch OLD -n NEW [-d "msg" \| -f FILE]` | Branch a new task from `OLD`, inheriting its full Claude Code context (both tasks stay repliable and diverge from there) |
 | `ilan task kill NAME` | Kill a `WORKING` agent, move task to `ERROR` |
-| `ilan task attach NAME` | Attach to a task's Claude Code session interactively |
+| `ilan task attach NAME` | Attach to a task's agent session interactively (`claude --resume` or `codex resume`, per the task's backend) |
 | `ilan task done NAME [NAME...]` | Mark task(s) as `DONE` |
 | `ilan task discard NAME [NAME...]` | Mark task(s) as `DISCARDED` |
 | `ilan task undone NAME` | Move a `DONE` task back to `NEEDS_ATTENTION` |

@@ -60,6 +60,18 @@ class CodexBackend(Backend):
             env["OPENAI_API_KEY"] = api_key
         return cmd, env
 
+    def build_attach_command(
+        self, session_id: str, model_override: str | None
+    ) -> list[str]:
+        # Same Fable guard as build_command: a Claude-only override must not
+        # reach `codex --model`.
+        model = None if is_fable_model(model_override) else model_override
+        return [
+            "codex", "resume", session_id,
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--model", model or str(cfg.load()["model-codex"]),
+        ]
+
     def parse_output(self, out_path: Path) -> ParsedResult | None:
         """Parse Codex's JSONL event stream into a ``ParsedResult``.
 

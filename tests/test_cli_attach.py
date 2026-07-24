@@ -8,8 +8,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
+from ilan.backends import ClaudeBackend, CodexBackend
 from ilan.cli import main
-from ilan.runner import Runner
 
 
 @pytest.fixture()
@@ -128,6 +128,124 @@ class TestAttachWorkingRefused:
         assert "WORKING" in result.output
 
 
+# ── codex task attach ───────────────────────────────────────────────────
+
+
+class TestAttachCodex:
+    def test_codex_task_execs_codex_resume(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client({
+            "task": {
+                "name": "codex-task",
+                "status": "NEEDS_ATTENTION",
+                "session_id": "thread-123",
+                "engine": "codex",
+            }
+        })
+        with (
+            patch("ilan.cli._client", return_value=client),
+            patch.object(CodexBackend, "find_session_log", return_value=Path("/fake/rollout-thread-123.jsonl")),
+            patch("ilan.cli.os.chdir"),
+            patch("ilan.cli.os.execvp") as mock_execvp,
+        ):
+            result = runner.invoke(main, ["task", "attach", "codex-task"])
+
+        assert result.exit_code == 0
+        args = mock_execvp.call_args
+        assert args[0][0] == "codex"
+        argv = args[0][1]
+        assert argv[:3] == ["codex", "resume", "thread-123"]
+        assert "--dangerously-bypass-approvals-and-sandbox" in argv
+        assert "--model" in argv
+
+    def test_codex_task_ignores_fable_model_override(self, runner: CliRunner, tmp_config) -> None:
+        """A Claude-only Fable override must not reach ``codex --model``."""
+        client = _make_client({
+            "task": {
+                "name": "codex-fable-task",
+                "status": "NEEDS_ATTENTION",
+                "session_id": "thread-456",
+                "engine": "codex",
+                "model": "claude-fable-5",
+            }
+        })
+        with (
+            patch("ilan.cli._client", return_value=client),
+            patch.object(CodexBackend, "find_session_log", return_value=Path("/fake/rollout-thread-456.jsonl")),
+            patch("ilan.cli.os.chdir"),
+            patch("ilan.cli.os.execvp") as mock_execvp,
+        ):
+            result = runner.invoke(main, ["task", "attach", "codex-fable-task"])
+
+        assert result.exit_code == 0
+        argv = mock_execvp.call_args[0][1]
+        model = argv[argv.index("--model") + 1]
+        assert model != "claude-fable-5"
+
+    def test_codex_missing_log_reports_not_found(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client({
+            "task": {
+                "name": "codex-lost-task",
+                "status": "NEEDS_ATTENTION",
+                "session_id": "thread-789",
+                "engine": "codex",
+            }
+        })
+        with (
+            patch("ilan.cli._client", return_value=client),
+            patch.object(CodexBackend, "find_session_log", return_value=None),
+            patch("ilan.cli.os.execvp") as mock_execvp,
+        ):
+            result = runner.invoke(main, ["task", "attach", "codex-lost-task"])
+        assert result.exit_code != 0
+        assert "not found on disk" in result.output
+        mock_execvp.assert_not_called()
+
+
+# ── session log missing on disk ─────────────────────────────────────────
+
+
+class TestAttachSessionLogMissing:
+    def test_missing_log_reports_not_found(self, runner: CliRunner, tmp_config) -> None:
+        """Regression: this path used to raise TypeError via an unbound
+        ``Runner._find_session_log(session_id)`` call."""
+        client = _make_client({
+            "task": {
+                "name": "lost-task",
+                "status": "NEEDS_ATTENTION",
+                "session_id": "sess-gone",
+            }
+        })
+        with (
+            patch("ilan.cli._client", return_value=client),
+            patch.object(ClaudeBackend, "find_session_log", return_value=None),
+            patch("ilan.cli.os.execvp") as mock_execvp,
+        ):
+            result = runner.invoke(main, ["task", "attach", "lost-task"])
+        assert result.exit_code != 0
+        assert "not found on disk" in result.output
+        mock_execvp.assert_not_called()
+
+    def test_missing_log_no_typeerror_without_mock(self, runner: CliRunner, tmp_config) -> None:
+        """Exercise the real ClaudeBackend lookup with a session id that
+        cannot exist; must exit cleanly, not crash."""
+        client = _make_client({
+            "task": {
+                "name": "real-lookup-task",
+                "status": "NEEDS_ATTENTION",
+                "session_id": "no-such-session-id-000",
+            }
+        })
+        with (
+            patch("ilan.cli._client", return_value=client),
+            patch("ilan.cli.os.execvp") as mock_execvp,
+        ):
+            result = runner.invoke(main, ["task", "attach", "real-lookup-task"])
+        assert result.exit_code != 0
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        assert "not found on disk" in result.output
+        mock_execvp.assert_not_called()
+
+
 # ── successful attach ───────────────────────────────────────────────────
 
 
@@ -142,7 +260,7 @@ class TestAttachSuccess:
         })
         with (
             patch("ilan.cli._client", return_value=client),
-            patch.object(Runner, "_find_session_log", return_value=Path("/fake/sess-abc.jsonl")),
+            patch.object(ClaudeBackend, "find_session_log", return_value=Path("/fake/sess-abc.jsonl")),
             patch("ilan.cli.os.chdir") as mock_chdir,
             patch("ilan.cli.os.execvp") as mock_execvp,
         ):
@@ -167,7 +285,7 @@ class TestAttachSuccess:
         })
         with (
             patch("ilan.cli._client", return_value=client),
-            patch.object(Runner, "_find_session_log", return_value=Path("/fake/sess-xyz.jsonl")),
+            patch.object(ClaudeBackend, "find_session_log", return_value=Path("/fake/sess-xyz.jsonl")),
             patch("ilan.cli.os.chdir"),
             patch("ilan.cli.os.execvp") as mock_execvp,
         ):
@@ -179,6 +297,28 @@ class TestAttachSuccess:
         assert "--model" in argv
         assert "--effort" in argv
 
+    def test_task_model_override_honored(self, runner: CliRunner, tmp_config) -> None:
+        """A task pinned to a model via ``ilan max`` resumes with that model."""
+        client = _make_client({
+            "task": {
+                "name": "pinned-task",
+                "status": "NEEDS_ATTENTION",
+                "session_id": "sess-pin",
+                "model": "claude-fable-5",
+            }
+        })
+        with (
+            patch("ilan.cli._client", return_value=client),
+            patch.object(ClaudeBackend, "find_session_log", return_value=Path("/fake/sess-pin.jsonl")),
+            patch("ilan.cli.os.chdir"),
+            patch("ilan.cli.os.execvp") as mock_execvp,
+        ):
+            result = runner.invoke(main, ["task", "attach", "pinned-task"])
+
+        assert result.exit_code == 0
+        argv = mock_execvp.call_args[0][1]
+        assert argv[argv.index("--model") + 1] == "claude-fable-5"
+
     def test_shorthand_attach(self, runner: CliRunner, tmp_config) -> None:
         client = _make_client({
             "task": {
@@ -189,7 +329,7 @@ class TestAttachSuccess:
         })
         with (
             patch("ilan.cli._client", return_value=client),
-            patch.object(Runner, "_find_session_log", return_value=Path("/fake/sess-short.jsonl")),
+            patch.object(ClaudeBackend, "find_session_log", return_value=Path("/fake/sess-short.jsonl")),
             patch("ilan.cli.os.chdir"),
             patch("ilan.cli.os.execvp") as mock_execvp,
         ):
@@ -211,7 +351,7 @@ class TestAttachSuccess:
         })
         with (
             patch("ilan.cli._client", return_value=client),
-            patch.object(Runner, "_find_session_log", return_value=Path("/fake/sess-done.jsonl")),
+            patch.object(ClaudeBackend, "find_session_log", return_value=Path("/fake/sess-done.jsonl")),
             patch("ilan.cli.os.chdir"),
             patch("ilan.cli.os.execvp") as mock_execvp,
         ):
