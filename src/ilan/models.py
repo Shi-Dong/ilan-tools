@@ -117,6 +117,15 @@ class Task:
     # is the *observed* model, distinct from ``model`` above (the *configured*
     # model used by ``ilan max`` / ``unmax``).
     last_assistant_model: str | None = None
+    # Reasoning-effort level passed to the most recent agent spawn. Neither
+    # backend's session log records the effort, so it is captured here at
+    # spawn time (from the ``effort`` config) and copied to
+    # ``last_assistant_effort`` when the turn is reaped.
+    spawn_effort: str | None = None
+    # The effort behind the most recent assistant message. Kept separate from
+    # ``spawn_effort`` so that, while a new turn is in flight, the cached
+    # model/effort pair still describes the *previous* (visible) message.
+    last_assistant_effort: str | None = None
     # GitHub Gist mirror of the conversation. ``gist_id`` / ``gist_url`` are
     # set the first time the async syncer creates the task's secret Gist;
     # ``gist_synced_count`` records how many log entries have already been
@@ -188,6 +197,8 @@ class Task:
             "summary_one_liner": self.summary_one_liner,
             "model": self.model,
             "last_assistant_model": self.last_assistant_model,
+            "spawn_effort": self.spawn_effort,
+            "last_assistant_effort": self.last_assistant_effort,
             "gist_id": self.gist_id,
             "gist_url": self.gist_url,
             "gist_synced_count": self.gist_synced_count,
@@ -222,6 +233,8 @@ class Task:
             summary_one_liner=d.get("summary_one_liner"),
             model=d.get("model"),
             last_assistant_model=d.get("last_assistant_model"),
+            spawn_effort=d.get("spawn_effort"),
+            last_assistant_effort=d.get("last_assistant_effort"),
             gist_id=d.get("gist_id"),
             gist_url=d.get("gist_url"),
             gist_synced_count=d.get("gist_synced_count", 0),
@@ -265,11 +278,16 @@ class LogEntry:
     # Model that produced this message (assistant replies only). Older entries
     # predate this field and stay ``None`` so they render unchanged.
     model: str | None = None
+    # Reasoning-effort level the agent was spawned with (assistant replies
+    # only). Older entries predate this field and stay ``None``.
+    effort: str | None = None
 
     def to_dict(self) -> dict[str, str]:
         d = {"role": self.role, "content": self.content, "timestamp": self.timestamp}
         if self.model:
             d["model"] = self.model
+        if self.effort:
+            d["effort"] = self.effort
         return d
 
     @classmethod
@@ -279,13 +297,18 @@ class LogEntry:
             content=d["content"],
             timestamp=d.get("timestamp", ""),
             model=d.get("model") or None,
+            effort=d.get("effort") or None,
         )
 
     @classmethod
-    def now(cls, role: str, content: str, model: str | None = None) -> LogEntry:
+    def now(
+        cls, role: str, content: str, model: str | None = None,
+        effort: str | None = None,
+    ) -> LogEntry:
         return cls(
             role=role,
             content=content,
             timestamp=datetime.now(timezone.utc).isoformat(),
             model=model,
+            effort=effort,
         )

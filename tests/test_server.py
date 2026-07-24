@@ -1012,6 +1012,63 @@ class TestLastModel:
         resp = _get(ilan_server, "/tasks/lm-logs/logs")
         assert resp["last_assistant_model"] == "claude-opus-4-8"
 
+    def test_last_model_fast_path_includes_effort(
+        self, ilan_server: IlanServer
+    ) -> None:
+        _post(ilan_server, "/tasks", {"name": "lm-effort", "prompt": "P"})
+        with ilan_server.lock:
+            task = ilan_server.store.get_task("lm-effort")
+            task.last_assistant_model = "claude-opus-4-8"
+            task.last_assistant_effort = "xhigh"
+            ilan_server.store.put_task(task)
+        resp = _get(ilan_server, "/tasks/lm-effort/last-model")
+        assert resp["model"] == "claude-opus-4-8"
+        assert resp["effort"] == "xhigh"
+
+    def test_last_model_fallback_includes_cached_effort(
+        self, ilan_server: IlanServer, tmp_path: Path
+    ) -> None:
+        """The session-log scan carries no effort, so the fallback reports
+        whatever effort was cached on the task."""
+        _post(ilan_server, "/tasks", {"name": "lm-effort-fb", "prompt": "P"})
+        with ilan_server.lock:
+            task = ilan_server.store.get_task("lm-effort-fb")
+            task.last_assistant_effort = "medium"
+            ilan_server.store.put_task(task)
+        log = self._make_session_log(tmp_path, "lm-effort-fb", [
+            {"message": {"role": "assistant", "model": "claude-opus-4-7", "content": "a"}},
+        ])
+        self._attach_session_log(ilan_server, "lm-effort-fb", log)
+        resp = _get(ilan_server, "/tasks/lm-effort-fb/last-model")
+        assert resp["model"] == "claude-opus-4-7"
+        assert resp["effort"] == "medium"
+
+    def test_tail_includes_last_assistant_effort(
+        self, ilan_server: IlanServer
+    ) -> None:
+        _post(ilan_server, "/tasks", {"name": "lm-tail-eff", "prompt": "P"})
+        ilan_server.store.append_log("lm-tail-eff", "assistant", "hi")
+        with ilan_server.lock:
+            task = ilan_server.store.get_task("lm-tail-eff")
+            task.last_assistant_model = "claude-opus-4-8"
+            task.last_assistant_effort = "xhigh"
+            ilan_server.store.put_task(task)
+        resp = _get(ilan_server, "/tasks/lm-tail-eff/tail")
+        assert resp["last_assistant_effort"] == "xhigh"
+
+    def test_logs_includes_last_assistant_effort(
+        self, ilan_server: IlanServer
+    ) -> None:
+        _post(ilan_server, "/tasks", {"name": "lm-logs-eff", "prompt": "P"})
+        ilan_server.store.append_log("lm-logs-eff", "assistant", "hi")
+        with ilan_server.lock:
+            task = ilan_server.store.get_task("lm-logs-eff")
+            task.last_assistant_model = "claude-opus-4-8"
+            task.last_assistant_effort = "xhigh"
+            ilan_server.store.put_task(task)
+        resp = _get(ilan_server, "/tasks/lm-logs-eff/logs")
+        assert resp["last_assistant_effort"] == "xhigh"
+
 
 # ── History URL ────────────────────────────────────────────────────────
 

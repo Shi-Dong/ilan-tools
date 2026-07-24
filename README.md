@@ -94,7 +94,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task show NAME` | Print the full prompt of a task |
 | `ilan task path NAME` | Print the Claude Code session log path for a task |
 | `ilan task check-model NAME` | Print the model name (e.g. `claude-opus-4-7`) that generated the last assistant message in the task's Claude Code session log |
-| `ilan task tail NAME` | Show the last assistant message together with the user prompt that elicited it and any user replies after it; ends with a line naming the model that generated the last assistant message |
+| `ilan task tail NAME` | Show the last assistant message together with the user prompt that elicited it and any user replies after it; ends with a line naming the model (and the reasoning effort) that generated the last assistant message |
 | `ilan task reply NAME ["msg"]` | Send a reply to an agent (omit message to show tail) |
 | `ilan task tap NAME` | Ask for a status update (nudges `WORKING` agents; re-prompts `AGENT_FINISHED`/`NEEDS_ATTENTION`/`ERROR` tasks) |
 | `ilan task sleep NAME DURATION` | Re-prompt a `NEEDS_ATTENTION` / `AGENT_FINISHED` task to sleep for DURATION and report back. DURATION is an integer or decimal with an optional unit suffix — no whitespace — e.g. `300`, `300s`, `5m`, `2h`, `1.5h`. Units: `s`/`sec`/`second`/`seconds`, `m`/`min`/`mins`/`minute`/`minutes`, `h`/`hr`/`hrs`/`hour`/`hours`; bare numbers are seconds. The task goes back to `WORKING` and shows `(sleeping for Xs)` in `ilan ls` / `ilan dashboard`. |
@@ -393,7 +393,7 @@ Set a `github-token` (a GitHub personal-access token with the `gist` scope) to m
 ilan config set github-token ghp_xxxxxxxxxxxxxxxxxxxx
 ```
 
-- Each task gets **one** secret Gist. Its landing file is just a title card — the conversation itself is posted as Gist **comments**, one message per comment, so GitHub renders the `User` and `Assistant` turns as separate Markdown bubbles. Messages are already Markdown, so they are posted as-is.
+- Each task gets **one** secret Gist. Its landing file is just a title card — the conversation itself is posted as Gist **comments**, one message per comment, so GitHub renders the `User` and `Assistant` turns as separate Markdown bubbles. Messages are already Markdown, so they are posted as-is. Assistant comments end with an italic attribution line naming the model that generated the message and the reasoning effort it ran at.
 - Mirroring is fully **asynchronous**: a background syncer thread does all GitHub I/O off the hot path, so it never blocks the reaper or a client reply. As soon as a message is appended to a task's log, the task is enqueued and mirrored shortly after.
 - **Existing tasks are back-filled**: the first new message on any pre-existing task creates its Gist and posts the entire prior history in order.
 - `ilan ls` and `ilan dashboard` gain a **History** column: a `history` hyperlink (over the Gist URL) for tasks that have been mirrored, or a dim `-` placeholder otherwise.
