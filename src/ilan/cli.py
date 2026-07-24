@@ -1152,13 +1152,25 @@ def task_tap(name: str) -> None:
 # ── task sleep ───────────────────────────────────────────────────────
 
 SLEEP_STYLE = "yellow"
+SLEEP_HOUR_SUFFIX_THRESHOLD_SECONDS = 1800
 
 
 def _format_sleep_suffix(sleep_seconds: int | None) -> str | None:
-    """Return ``(sleeping for Xs)`` for a task that has an active sleep."""
+    """Return ``(sleeping for Xm)`` / ``(sleeping for X.Yh)`` for an active sleep."""
     if not sleep_seconds or sleep_seconds <= 0:
         return None
-    return f" (sleeping for {int(sleep_seconds)}s)"
+    seconds = int(sleep_seconds)
+    if seconds >= SLEEP_HOUR_SUFFIX_THRESHOLD_SECONDS:
+        unit, unit_seconds = "h", 3600
+    else:
+        unit, unit_seconds = "m", 60
+    # Truncate rather than format with `:.1f`, which rounds to nearest and would
+    # show a 1799s sleep as `30m`. Clamp to one tenth so a sleep shorter than 6s
+    # still reads as a nonzero duration.
+    tenths = max(1, seconds * 10 // unit_seconds)
+    whole, remainder = divmod(tenths, 10)
+    shown = f"{whole}.{remainder}" if remainder else str(whole)
+    return f" (sleeping for {shown}{unit})"
 
 
 _SLEEP_SECOND_UNITS = frozenset({"s", "sec", "second", "seconds"})

@@ -171,4 +171,42 @@ class TestFormatSleepSuffix:
         assert _format_sleep_suffix(-5) is None
 
     def test_positive_shows_fixed_string(self) -> None:
-        assert _format_sleep_suffix(300) == " (sleeping for 300s)"
+        assert _format_sleep_suffix(300) == " (sleeping for 5m)"
+
+    @pytest.mark.parametrize(
+        ("seconds", "expected"),
+        [
+            (42, " (sleeping for 0.7m)"),
+            (60, " (sleeping for 1m)"),
+            (300, " (sleeping for 5m)"),
+            (630, " (sleeping for 10.5m)"),
+            (1799, " (sleeping for 29.9m)"),
+            (1800, " (sleeping for 0.5h)"),
+            (3599, " (sleeping for 0.9h)"),
+            (3600, " (sleeping for 1h)"),
+            (4680, " (sleeping for 1.3h)"),
+            (7199, " (sleeping for 1.9h)"),
+            (7200, " (sleeping for 2h)"),
+            (86400, " (sleeping for 24h)"),
+        ],
+    )
+    def test_unit_switches_at_threshold(self, seconds: int, expected: str) -> None:
+        assert _format_sleep_suffix(seconds) == expected
+
+    @pytest.mark.parametrize("seconds", range(1, 6))
+    def test_sub_tenth_sleeps_clamp_up(self, seconds: int) -> None:
+        assert _format_sleep_suffix(seconds) == " (sleeping for 0.1m)"
+
+    @pytest.mark.parametrize("seconds", range(6, 3 * 3600, 7))
+    def test_never_rounds_up(self, seconds: int) -> None:
+        suffix = _format_sleep_suffix(seconds)
+        assert suffix is not None
+        shown = float(suffix.removeprefix(" (sleeping for ").removesuffix(")")[:-1])
+        unit_seconds = 3600 if seconds >= 1800 else 60
+        assert shown <= seconds / unit_seconds
+
+    @pytest.mark.parametrize("seconds", range(1, 3 * 3600, 7))
+    def test_no_trailing_zero_decimal(self, seconds: int) -> None:
+        suffix = _format_sleep_suffix(seconds)
+        assert suffix is not None
+        assert not suffix.removesuffix(")").endswith((".0m", ".0h"))
