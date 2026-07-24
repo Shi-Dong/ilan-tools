@@ -14,7 +14,6 @@ class TestDefaults:
     def test_default_keys(self) -> None:
         expected = {
             "workdir", "model", "effort",
-            "summarize-model", "summarize-effort",
             "time-zone", "editor", "agent",
             "api-key-claude", "api-key-codex", "github-token",
             "dashboard-interval",
