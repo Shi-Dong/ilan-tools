@@ -4,14 +4,14 @@ Called from :mod:`ilan.runner` when an agent finishes a turn (status
 transitioning from ``WORKING`` to ``NEEDS_ATTENTION`` or ``AGENT_FINISHED``).
 
 The summary is produced by sending the last user message + the new
-assistant message to Anthropic's newest Haiku model. The backend depends
-on the ``api-key-claude`` config:
+assistant message to OpenAI's GPT-5.6 Luna. The backend depends
+on the ``api-key-codex`` config:
 
-* When ``api-key-claude`` is set, the summary is produced by a direct HTTPS call
-  to Anthropic's Messages API (pay-per-token).
-* When ``api-key-claude`` is empty, we fall back to the local ``claude`` CLI in
-  print mode (``claude -p``), which authenticates with the machine's
-  Claude Code subscription. This needs ``claude`` on ``PATH`` and a
+* When ``api-key-codex`` is set, the summary is produced by a direct HTTPS call
+  to OpenAI's Chat Completions API (pay-per-token).
+* When ``api-key-codex`` is empty, we fall back to the local ``codex`` CLI in
+  non-interactive mode (``codex exec``), which authenticates with the machine's
+  ``codex login`` session. This needs ``codex`` on ``PATH`` and a
   logged-in session.
 
 If neither backend can produce a summary the call returns ``None`` so
@@ -27,22 +27,24 @@ import urllib.request
 
 from ilan import config as cfg
 
-ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-ANTHROPIC_API_VERSION = "2023-06-01"
+OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 
-# Newest Haiku model snapshot at time of writing (Claude Haiku 4.5).
-HAIKU_MODEL = "claude-haiku-4-5-20251001"
+# Model used for the one-liner, on both the API and the CLI path. Luna is the
+# small/fast member of the GPT-5.6 family, which suits a 20-word summary.
+ONELINER_MODEL = "gpt-5.6-luna"
 
-# Model alias passed to `claude -p` to generate the one-liner; resolves to the
-# latest Haiku snapshot.
-CLAUDE_ONELINER_MODEL = "haiku"
+# Luna is a reasoning model: at its default effort it spends more tokens
+# thinking than a 20-word summary needs. "none" is the cheapest setting it
+# accepts (it rejects "minimal").
+_REASONING_EFFORT = "none"
 
 _MAX_WORDS = 20
 _MAX_INPUT_CHARS = 4000  # truncate very long messages before sending
+_MAX_OUTPUT_TOKENS = 200
 _REQUEST_TIMEOUT_SECONDS = 30
 # The CLI cold-starts a Node process, so it needs a longer leash than the
 # raw HTTP call.
-_CLAUDE_CLI_TIMEOUT_SECONDS = 60
+_CODEX_CLI_TIMEOUT_SECONDS = 60
 
 
 SYSTEM_PROMPT = (
@@ -77,80 +79,112 @@ def _trim_to_words(text: str, max_words: int = _MAX_WORDS) -> str:
     return " ".join(words[:max_words]).rstrip(",;:") + "…"
 
 
-def _call_haiku(api_key: str, prompt: str) -> str:
-    """POST the prompt to the Anthropic Messages API and return the text."""
+def _call_luna(api_key: str, prompt: str) -> str:
+    """POST the prompt to OpenAI's Chat Completions API and return the text."""
     body = json.dumps({
-        "model": HAIKU_MODEL,
-        "max_tokens": 80,
-        "system": SYSTEM_PROMPT,
-        "messages": [{"role": "user", "content": prompt}],
+        "model": ONELINER_MODEL,
+        # Luna rejects the legacy ``max_tokens`` parameter outright.
+        "max_completion_tokens": _MAX_OUTPUT_TOKENS,
+        "reasoning_effort": _REASONING_EFFORT,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
     }).encode()
 
     req = urllib.request.Request(
-        ANTHROPIC_API_URL,
+        OPENAI_API_URL,
         data=body,
         method="POST",
         headers={
             "Content-Type": "application/json",
-            "x-api-key": api_key,
-            "anthropic-version": ANTHROPIC_API_VERSION,
+            "Authorization": f"Bearer {api_key}",
         },
     )
     with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT_SECONDS) as resp:
         payload = json.loads(resp.read().decode())
 
-    blocks = payload.get("content", [])
-    parts = [b.get("text", "") for b in blocks if b.get("type") == "text"]
-    return "".join(parts).strip()
+    choices = payload.get("choices") or []
+    if not choices:
+        return ""
+    message = choices[0].get("message") or {}
+    return (message.get("content") or "").strip()
 
 
-def _call_claude_cli(prompt: str) -> str:
-    """Generate the summary with the local ``claude`` CLI (``claude -p``).
+def _parse_codex_events(stdout: str) -> str:
+    """Pull the agent's message text out of a ``codex exec --json`` stream."""
+    text = ""
+    for raw in stdout.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") != "item.completed":
+            continue
+        item = event.get("item") or {}
+        if item.get("type") == "agent_message":
+            message = item.get("text")
+            if isinstance(message, str):
+                text = message
+    return text.strip()
 
-    Used when no ``api-key-claude`` is configured: the CLI authenticates with the
-    machine's Claude Code subscription. Requires ``claude`` on ``PATH`` and
+
+def _call_codex_cli(prompt: str) -> str:
+    """Generate the summary with the local ``codex`` CLI (``codex exec``).
+
+    Used when no ``api-key-codex`` is configured: the CLI authenticates with the
+    machine's ``codex login`` session. Requires ``codex`` on ``PATH`` and
     a logged-in session.
     """
     result = subprocess.run(
         [
-            "claude",
-            "-p",
+            "codex",
+            "exec",
             "--model",
-            CLAUDE_ONELINER_MODEL,
-            "--system-prompt",
-            SYSTEM_PROMPT,
+            ONELINER_MODEL,
+            "--json",
+            # The server's cwd is not necessarily a git repo. Note there is no
+            # approval/sandbox bypass here: summarising text needs no tools, and
+            # the prompt embeds agent output we should not hand a shell to.
+            "--skip-git-repo-check",
+            "-",
         ],
-        input=prompt,
+        # codex exec has no --system-prompt flag, so the instructions ride along
+        # at the top of the stdin prompt.
+        input=f"{SYSTEM_PROMPT}\n\n{prompt}",
         capture_output=True,
         text=True,
-        timeout=_CLAUDE_CLI_TIMEOUT_SECONDS,
+        timeout=_CODEX_CLI_TIMEOUT_SECONDS,
     )
     if result.returncode != 0:
         raise RuntimeError(
-            f"claude CLI exited {result.returncode}: {result.stderr.strip()}"
+            f"codex CLI exited {result.returncode}: {result.stderr.strip()}"
         )
-    return result.stdout.strip()
+    return _parse_codex_events(result.stdout)
 
 
 def generate_one_liner(last_user: str, last_assistant: str) -> str | None:
     """Produce a one-line summary, or ``None`` if it cannot be generated.
 
-    Picks the backend by config: a non-empty ``api-key-claude`` uses Anthropic's
-    Messages API, otherwise it falls back to the local ``claude`` CLI.
+    Picks the backend by config: a non-empty ``api-key-codex`` uses OpenAI's
+    Chat Completions API, otherwise it falls back to the local ``codex`` CLI.
     Returns ``None`` when the assistant text is empty or whichever backend
     fails. Never raises — a failure here must not break the reaper's
     reap path.
     """
     if not last_assistant.strip():
         return None
-    api_key = str(cfg.load().get("api-key-claude", "")).strip()
+    api_key = str(cfg.load().get("api-key-codex", "")).strip()
 
     prompt = _build_user_prompt(last_user, last_assistant)
     try:
         if api_key:
-            text = _call_haiku(api_key, prompt)
+            text = _call_luna(api_key, prompt)
         else:
-            text = _call_claude_cli(prompt)
+            text = _call_codex_cli(prompt)
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError):
         return None
     except (OSError, subprocess.SubprocessError):

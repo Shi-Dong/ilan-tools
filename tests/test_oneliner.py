@@ -1,4 +1,4 @@
-"""Tests for ilan.oneliner — Haiku-backed one-line summary of a task turn."""
+"""Tests for ilan.oneliner — Luna-backed one-line summary of a task turn."""
 
 from __future__ import annotations
 
@@ -16,19 +16,19 @@ from ilan import oneliner
 @pytest.fixture()
 def with_api_key(tmp_config: Path) -> None:
     import ilan.config as cfg_mod
-    cfg_mod.save({**cfg_mod.DEFAULTS, "api-key-claude": "sk-test-key"})
+    cfg_mod.save({**cfg_mod.DEFAULTS, "api-key-codex": "sk-test-key"})
 
 
 @pytest.fixture()
 def without_api_key(tmp_config: Path) -> None:
     import ilan.config as cfg_mod
-    cfg_mod.save({**cfg_mod.DEFAULTS, "api-key-claude": ""})
+    cfg_mod.save({**cfg_mod.DEFAULTS, "api-key-codex": ""})
 
 
 def _mock_response(text: str) -> MagicMock:
-    """Build a fake urlopen context manager yielding a Haiku-style JSON body."""
+    """Build a fake urlopen context manager yielding an OpenAI-style JSON body."""
     payload = json.dumps({
-        "content": [{"type": "text", "text": text}],
+        "choices": [{"message": {"role": "assistant", "content": text}}],
     }).encode()
     resp = MagicMock()
     resp.read.return_value = payload
@@ -36,6 +36,18 @@ def _mock_response(text: str) -> MagicMock:
     cm.__enter__.return_value = resp
     cm.__exit__.return_value = False
     return cm
+
+
+def _codex_stream(text: str) -> str:
+    """Render a minimal ``codex exec --json`` event stream carrying *text*."""
+    return "\n".join([
+        json.dumps({"type": "thread.started", "thread_id": "t1"}),
+        json.dumps({
+            "type": "item.completed",
+            "item": {"type": "agent_message", "text": text},
+        }),
+        json.dumps({"type": "turn.completed", "usage": {}}),
+    ])
 
 
 def _mock_cli_result(stdout: str, returncode: int = 0, stderr: str = "") -> MagicMock:
@@ -61,11 +73,15 @@ class TestGenerateOneLiner:
         ) as mock_open:
             result = oneliner.generate_one_liner("Please add a flag.", "Done.")
         assert result == "Wrote a feature flag and pushed PR."
-        # The request body should carry the newest Haiku model id.
+        # The request body should carry the Luna model id.
         req = mock_open.call_args[0][0]
         body = json.loads(req.data.decode())
-        assert body["model"] == oneliner.HAIKU_MODEL
-        assert body["messages"][0]["role"] == "user"
+        assert body["model"] == oneliner.ONELINER_MODEL
+        assert body["messages"][0]["role"] == "system"
+        assert body["messages"][1]["role"] == "user"
+        # Luna rejects the legacy `max_tokens` parameter.
+        assert "max_tokens" not in body
+        assert body["max_completion_tokens"] > 0
 
     def test_clips_to_20_words(self, with_api_key: None) -> None:
         long_reply = " ".join(f"word{i}" for i in range(40))
@@ -117,8 +133,17 @@ class TestGenerateOneLiner:
         ) as mock_open:
             oneliner.generate_one_liner("u", "a")
         req = mock_open.call_args[0][0]
-        assert req.get_header("X-api-key") == "sk-test-key"
-        assert req.get_header("Anthropic-version") == oneliner.ANTHROPIC_API_VERSION
+        assert req.get_header("Authorization") == "Bearer sk-test-key"
+        assert req.full_url == oneliner.OPENAI_API_URL
+
+    def test_no_choices_returns_none(self, with_api_key: None) -> None:
+        resp = MagicMock()
+        resp.read.return_value = json.dumps({"choices": []}).encode()
+        cm = MagicMock()
+        cm.__enter__.return_value = resp
+        cm.__exit__.return_value = False
+        with patch("urllib.request.urlopen", return_value=cm):
+            assert oneliner.generate_one_liner("u", "a") is None
 
     def test_truncates_long_inputs(self, with_api_key: None) -> None:
         """Pathologically long messages must be clipped before sending."""
@@ -130,30 +155,57 @@ class TestGenerateOneLiner:
         req = mock_open.call_args[0][0]
         body = json.loads(req.data.decode())
         # Sent prompt should be far shorter than the raw inputs combined.
-        assert len(body["messages"][0]["content"]) < len(long_msg) * 2
-        assert "[truncated]" in body["messages"][0]["content"]
+        assert len(body["messages"][1]["content"]) < len(long_msg) * 2
+        assert "[truncated]" in body["messages"][1]["content"]
 
 
-class TestClaudeCliFallback:
-    """Without an api-key-claude, generation falls back to the local `claude` CLI."""
+class TestCodexCliFallback:
+    """Without an api-key-codex, generation falls back to the local `codex` CLI."""
 
     def test_uses_cli_and_never_calls_http(self, without_api_key: None) -> None:
         with patch(
             "subprocess.run",
-            return_value=_mock_cli_result("Wrote a feature flag and pushed PR."),
+            return_value=_mock_cli_result(
+                _codex_stream("Wrote a feature flag and pushed PR.")
+            ),
         ) as mock_run, patch("urllib.request.urlopen") as mock_open:
             result = oneliner.generate_one_liner("Please add a flag.", "Done.")
         assert result == "Wrote a feature flag and pushed PR."
         mock_open.assert_not_called()
-        # The CLI is invoked in print mode against the Haiku alias.
+        # The CLI is invoked non-interactively against the Luna model.
         argv = mock_run.call_args[0][0]
-        assert argv[:2] == ["claude", "-p"]
-        assert oneliner.CLAUDE_ONELINER_MODEL in argv
-        assert oneliner.SYSTEM_PROMPT in argv
+        assert argv[:2] == ["codex", "exec"]
+        assert oneliner.ONELINER_MODEL in argv
+        # codex has no --system-prompt flag: the instructions ride on stdin.
+        assert oneliner.SYSTEM_PROMPT in mock_run.call_args[1]["input"]
+
+    def test_cli_is_not_granted_a_sandbox_bypass(self, without_api_key: None) -> None:
+        """Summarising text needs no tools, so the agent stays sandboxed."""
+        with patch(
+            "subprocess.run", return_value=_mock_cli_result(_codex_stream("ok")),
+        ) as mock_run:
+            oneliner.generate_one_liner("u", "a")
+        argv = mock_run.call_args[0][0]
+        assert not any("bypass" in arg for arg in argv)
+
+    def test_non_json_cli_noise_is_ignored(self, without_api_key: None) -> None:
+        """Stray non-JSON lines in the stream must not break parsing."""
+        noisy = "warning: something\n" + _codex_stream("Fixed the flaky test.")
+        with patch("subprocess.run", return_value=_mock_cli_result(noisy)):
+            assert oneliner.generate_one_liner("u", "a") == "Fixed the flaky test."
+
+    def test_stream_without_agent_message_returns_none(
+        self, without_api_key: None
+    ) -> None:
+        stream = json.dumps({"type": "thread.started", "thread_id": "t1"})
+        with patch("subprocess.run", return_value=_mock_cli_result(stream)):
+            assert oneliner.generate_one_liner("u", "a") is None
 
     def test_cli_output_is_trimmed_to_20_words(self, without_api_key: None) -> None:
         long_reply = " ".join(f"word{i}" for i in range(40))
-        with patch("subprocess.run", return_value=_mock_cli_result(long_reply)):
+        with patch(
+            "subprocess.run", return_value=_mock_cli_result(_codex_stream(long_reply)),
+        ):
             result = oneliner.generate_one_liner("u", "a")
         assert result is not None
         kept = result.rstrip("…").split()
@@ -162,7 +214,7 @@ class TestClaudeCliFallback:
     def test_cli_whitespace_is_collapsed(self, without_api_key: None) -> None:
         with patch(
             "subprocess.run",
-            return_value=_mock_cli_result("multi\n\n   line\treply  "),
+            return_value=_mock_cli_result(_codex_stream("multi   line\treply  ")),
         ):
             result = oneliner.generate_one_liner("u", "a")
         assert result == "multi line reply"
@@ -176,14 +228,14 @@ class TestClaudeCliFallback:
         assert result is None
 
     def test_missing_binary_returns_none(self, without_api_key: None) -> None:
-        with patch("subprocess.run", side_effect=FileNotFoundError("no claude")):
+        with patch("subprocess.run", side_effect=FileNotFoundError("no codex")):
             result = oneliner.generate_one_liner("u", "a")
         assert result is None
 
     def test_cli_timeout_returns_none(self, without_api_key: None) -> None:
         with patch(
             "subprocess.run",
-            side_effect=subprocess.TimeoutExpired(cmd="claude", timeout=60),
+            side_effect=subprocess.TimeoutExpired(cmd="codex", timeout=60),
         ):
             result = oneliner.generate_one_liner("u", "a")
         assert result is None

@@ -663,24 +663,24 @@ def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
 
 
 _ONE_LINER_NO_API_KEY_WARNING = (
-    "[yellow]Note: `one-line-summary` is on but the server has no `api-key-claude` "
-    "set, so summaries fall back to the server's local `claude` CLI (Claude "
-    "Code subscription). This needs `claude` installed and logged in on the "
-    "server; otherwise no summaries are generated. Set an `api-key-claude` to use the "
-    "Anthropic API instead, or run `ilan config set one-line-summary false` to "
+    "[yellow]Note: `one-line-summary` is on but the server has no `api-key-codex` "
+    "set, so summaries fall back to the server's local `codex` CLI (`codex "
+    "login` session). This needs `codex` installed and logged in on the "
+    "server; otherwise no summaries are generated. Set an `api-key-codex` to use the "
+    "OpenAI API instead, or run `ilan config set one-line-summary false` to "
     "hide this note.[/yellow]"
 )
 
 
 def _maybe_warn_one_liner_unconfigured(client: Client) -> None:
-    """Print a one-time note if one-line-summary is on but server has no api-key-claude."""
+    """Print a one-time note if one-line-summary is on but server has no api-key-codex."""
     if not _one_liner_enabled():
         return
     try:
         server_cfg = client.get_config().get("config", {})
     except Exception:
         return
-    if not str(server_cfg.get("api-key-claude", "")).strip():
+    if not str(server_cfg.get("api-key-codex", "")).strip():
         console.print(_ONE_LINER_NO_API_KEY_WARNING)
 
 
@@ -2039,7 +2039,7 @@ def _build_dashboard_table(
     header.append("r", style="bold")
     header.append(" refresh", style="dim")
 
-    # Column sizing depends on whether the Haiku one-line summary is
+    # Column sizing depends on whether the Luna one-line summary is
     # rendered inside the Status cell:
     #   * one-liner ON  → Status needs a much wider slot to fit the summary
     #     under the status label, so we give it 16/34 of the proportional
