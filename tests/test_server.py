@@ -220,6 +220,24 @@ class TestConfig:
         assert "error" in resp
         assert "client-side" in resp["error"]
 
+    def test_set_config_default_backend_accepts_valid_engines(
+        self, ilan_server: IlanServer
+    ) -> None:
+        for engine in ("codex", "claude"):
+            resp = _post(ilan_server, "/config/set", {"key": "default-backend", "value": engine})
+            assert resp.get("ok") is True
+            assert resp["value"] == engine
+
+    def test_set_config_default_backend_rejects_invalid_value(
+        self, ilan_server: IlanServer
+    ) -> None:
+        resp = _post(ilan_server, "/config/set", {"key": "default-backend", "value": "gpt"})
+        assert "error" in resp
+        assert "default-backend" in resp["error"]
+        # The bad value must not be persisted.
+        conf = _get(ilan_server, "/config")["config"]
+        assert conf["default-backend"] == "claude"
+
 
 # ── Tasks CRUD ──────────────────────────────────────────────────────────
 
@@ -262,8 +280,8 @@ class TestTasksCRUD:
         assert "error" in resp
         assert _get(ilan_server, "/tasks/eng-bad").get("error")
 
-    def test_add_task_uses_config_agent_default(self, ilan_server: IlanServer) -> None:
-        _post(ilan_server, "/config/set", {"key": "agent", "value": "codex"})
+    def test_add_task_uses_config_default_backend(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/config/set", {"key": "default-backend", "value": "codex"})
         _post(ilan_server, "/tasks", {"name": "eng-cfg", "prompt": "P"})
         task = _get(ilan_server, "/tasks/eng-cfg")["task"]
         assert task["engine"] == "codex"

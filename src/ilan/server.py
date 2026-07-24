@@ -253,6 +253,13 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     400,
                 )
                 return
+            if key == "default-backend" and value not in VALID_ENGINES:
+                self._json(
+                    {"error": f"Invalid value {value!r} for default-backend. "
+                              f"Choose from: {', '.join(VALID_ENGINES)}"},
+                    400,
+                )
+                return
             conf = cfg.load()
             if key in cfg.INT_KEYS:
                 conf[key] = int(value)
@@ -317,7 +324,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             if err:
                 self._json({"error": err}, 400)
                 return
-            engine = body.get("agent") or cfg.load().get("agent", DEFAULT_ENGINE)
+            engine = body.get("agent") or cfg.load().get("default-backend", DEFAULT_ENGINE)
             if engine not in VALID_ENGINES:
                 self._json(
                     {"error": f"Unknown agent {engine!r}. Choose from: {', '.join(VALID_ENGINES)}"},

@@ -89,7 +89,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 
 | Command | Description |
 |---|---|
-| `ilan task add -n NAME -d "prompt"` | Add a task (or use `-f file`; name must be ≥ 3 chars, letters/digits/`-`/`_` only). Pass `--claude` or `--codex` to pick the backend for this task (default: the `agent` config value) — see [Agent backends](#agent-backends). Pass `--max` to create the task already on the [Fable model](#fable-model-ilan-max--ilan-unmax) (implies `--claude`) |
+| `ilan task add -n NAME -d "prompt"` | Add a task (or use `-f file`; name must be ≥ 3 chars, letters/digits/`-`/`_` only). Pass `--claude` or `--codex` to pick the backend for this task (default: the `default-backend` config value) — see [Agent backends](#agent-backends). Pass `--max` to create the task already on the [Fable model](#fable-model-ilan-max--ilan-unmax) (implies `--claude`) |
 | `ilan task ls [-a] [NAME]` | List active tasks (`-a` includes `DONE`/`DISCARDED`); if `NAME` is given, show its tail instead |
 | `ilan task show NAME` | Print the full prompt of a task |
 | `ilan task path NAME` | Print the Claude Code session log path for a task |
@@ -180,7 +180,7 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 | Key | Default | Description |
 |---|---|---|
 | `workdir` | `~/.ilan` | Where all ilan data is stored |
-| `agent` | `claude` | Default agent backend for newly added tasks (`claude` or `codex`). Override per task with `ilan add --claude`/`--codex`, or flip an existing task with `ilan task switch-backend` — see [Agent backends](#agent-backends) |
+| `default-backend` | `claude` | Default agent backend for newly added tasks (`claude` or `codex`). Override per task with `ilan add --claude`/`--codex`, or flip an existing task with `ilan task switch-backend` — see [Agent backends](#agent-backends) |
 | `time-zone` | `US/Pacific` | Time zone for displayed timestamps (client-side: set on each machine running the CLI). Accepts friendly aliases — see [Time-zone aliases](#time-zone-aliases) |
 | `model` | `opus` | Model passed to `claude -p`. Accepts Claude Code aliases (`opus`, `sonnet`, `haiku`) or a full Claude model id. Only applies to the `claude` backend; Codex tasks use OpenAI's GPT models via `codex exec` — see [Agent backends](#agent-backends) |
 | `effort` | `high` | Effort level for the model |
@@ -284,12 +284,12 @@ or Codex (`codex exec`). The backend is chosen per task, so a Claude task and a
 Codex task can run side by side in the same swarm.
 
 ```bash
-ilan config set agent codex        # default backend for new tasks
+ilan config set default-backend codex  # default backend for new tasks
 ilan add -n fix-bug -d "…" --claude    # override the default for one task
 ilan task switch-backend fix-bug   # flip an existing task's backend
 ```
 
-- **Per-task selection.** New tasks use the `agent` config value unless `ilan add`
+- **Per-task selection.** New tasks use the `default-backend` config value unless `ilan add`
   is given `--claude` or `--codex`. The task's name is tinted by its engine in `ilan ls` /
   `ilan dashboard` — orange for Claude, light blue for Codex — so the running
   backend is legible at a glance.
