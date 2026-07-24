@@ -78,6 +78,19 @@ class TestBuildCommand:
         _, env = backend.build_command(None, resume=False, session_id=None)
         assert env["OPENAI_API_KEY"] == "sk-codex-live"
 
+    def test_default_effort_passed_as_reasoning_config(
+        self, backend: CodexBackend, tmp_config: Path
+    ) -> None:
+        cmd, _ = backend.build_command(None, resume=False, session_id=None)
+        assert cmd[cmd.index("-c") + 1] == 'model_reasoning_effort="xhigh"'
+
+    def test_configured_effort_passed_as_reasoning_config(
+        self, backend: CodexBackend, tmp_config: Path
+    ) -> None:
+        cfg.save({**cfg.DEFAULTS, "effort": "medium"})
+        cmd, _ = backend.build_command(None, resume=False, session_id=None)
+        assert cmd[cmd.index("-c") + 1] == 'model_reasoning_effort="medium"'
+
     def test_no_api_key_omits_openai_key(
         self, backend: CodexBackend, tmp_config: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

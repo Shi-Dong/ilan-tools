@@ -1316,7 +1316,7 @@ def _do_attach(name: str) -> None:
         "--resume", session_id,
         "--dangerously-skip-permissions",
         "--model", str(conf.get("model", "opus")),
-        "--effort", str(conf.get("effort", "high")),
+        "--effort", str(conf.get("effort", "xhigh")),
     ])
 
 

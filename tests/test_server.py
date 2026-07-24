@@ -239,6 +239,27 @@ class TestConfig:
         conf = _get(ilan_server, "/config")["config"]
         assert conf["default-backend"] == "claude"
 
+    def test_set_config_effort_accepts_valid_levels(
+        self, ilan_server: IlanServer
+    ) -> None:
+        for level in ("low", "medium", "high", "xhigh"):
+            resp = _post(ilan_server, "/config/set", {"key": "effort", "value": level})
+            assert resp.get("ok") is True
+            assert resp["value"] == level
+
+    def test_set_config_effort_rejects_invalid_value(
+        self, ilan_server: IlanServer
+    ) -> None:
+        # "max" is claude-only and "minimal" is codex-only; both are outside
+        # the common subset and must be rejected.
+        for bad in ("max", "minimal", "bogus"):
+            resp = _post(ilan_server, "/config/set", {"key": "effort", "value": bad})
+            assert "error" in resp
+            assert "effort" in resp["error"]
+        # The bad values must not be persisted.
+        conf = _get(ilan_server, "/config")["config"]
+        assert conf["effort"] == "xhigh"
+
 
 # ── Tasks CRUD ──────────────────────────────────────────────────────────
 
