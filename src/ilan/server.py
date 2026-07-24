@@ -784,6 +784,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 "name": task.name,
                 "alias": task.alias,
                 "last_assistant_model": task.last_assistant_model,
+                "last_assistant_effort": task.last_assistant_effort,
                 "logs": [e.to_dict() for e in entries],
             })
 
@@ -822,6 +823,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 "name": task.name,
                 "alias": task.alias,
                 "last_assistant_model": task.last_assistant_model,
+                "last_assistant_effort": task.last_assistant_effort,
             }
 
             if not entries:
@@ -874,9 +876,13 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task = self._get_task_or_404(name)
             if task is None:
                 return
-            # Fast path: return the model cached at reap time.
+            # Fast path: return the model (and effort) cached at reap time.
             if task.last_assistant_model:
-                self._json({"name": task.name, "model": task.last_assistant_model})
+                self._json({
+                    "name": task.name,
+                    "model": task.last_assistant_model,
+                    "effort": task.last_assistant_effort,
+                })
                 return
             # Fallback for tasks last reaped before the cache existed: resolve
             # from the session log once, then backfill so future lookups are free.
@@ -903,7 +909,13 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             task.last_assistant_model = model
             with self._ilan.lock:
                 self._ilan.store.put_task(task)
-            self._json({"name": task.name, "model": model})
+            # The session log carries no effort information, so this fallback
+            # path reports the model alone (effort stays whatever was cached).
+            self._json({
+                "name": task.name,
+                "model": model,
+                "effort": task.last_assistant_effort,
+            })
 
         def handle_task_history_url(self, name: str):
             with self._ilan.lock:

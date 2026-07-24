@@ -174,6 +174,7 @@ class TestTask:
             "task_hash", "needs_review", "input_tokens", "output_tokens",
             "cache_read_input_tokens", "cost_usd", "sleep_seconds",
             "parent_name", "summary_one_liner", "model", "last_assistant_model",
+            "spawn_effort", "last_assistant_effort",
             "gist_id", "gist_url", "gist_synced_count", "gist_title_name",
             "engine", "sessions", "log_cursors", "awaiting_catchup",
         }
@@ -245,6 +246,20 @@ class TestTask:
         d = {"name": "old", "prompt": "p", "status": "UNCLAIMED"}
         t = Task.from_dict(d)
         assert t.model is None
+
+    def test_effort_fields_roundtrip(self) -> None:
+        t = self._make_task()
+        t.spawn_effort = "xhigh"
+        t.last_assistant_effort = "medium"
+        t2 = Task.from_dict(t.to_dict())
+        assert t2.spawn_effort == "xhigh"
+        assert t2.last_assistant_effort == "medium"
+
+    def test_from_dict_missing_effort_fields(self) -> None:
+        d = {"name": "old", "prompt": "p", "status": "WORKING"}
+        t = Task.from_dict(d)
+        assert t.spawn_effort is None
+        assert t.last_assistant_effort is None
 
     def test_gist_fields_default(self) -> None:
         t = Task(name="x", prompt="y")
@@ -418,3 +433,15 @@ class TestLogEntry:
         assert e2.role == e.role
         assert e2.content == e.content
         assert e2.timestamp == e.timestamp
+
+    def test_effort_roundtrip(self) -> None:
+        e = LogEntry.now("assistant", "response", model="claude-opus-4-8", effort="xhigh")
+        d = e.to_dict()
+        assert d["effort"] == "xhigh"
+        e2 = LogEntry.from_dict(d)
+        assert e2.effort == "xhigh"
+
+    def test_effort_omitted_when_unset(self) -> None:
+        e = LogEntry.now("assistant", "response")
+        assert "effort" not in e.to_dict()
+        assert LogEntry.from_dict({"role": "user", "content": "hi"}).effort is None

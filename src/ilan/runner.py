@@ -279,6 +279,10 @@ class Runner:
 
         self._procs[task.name] = proc
         task.pid = proc.pid
+        # Neither backend's session log records the reasoning effort, so
+        # capture what this spawn was given (the ``effort`` config the
+        # backend read when building the command) for attribution at reap.
+        task.spawn_effort = str(cfg.load().get("effort", "xhigh"))
         task.set_status(TaskStatus.WORKING)
         self.store.put_task(task)
         return True
@@ -365,6 +369,12 @@ class Runner:
                 if turn_model:
                     task.last_assistant_model = turn_model
 
+        # The effort behind this turn comes from the spawn-time capture, not
+        # the session log (neither backend records it there).
+        turn_effort = task.spawn_effort
+        if turn_effort:
+            task.last_assistant_effort = turn_effort
+
         task.input_tokens += result.input_tokens
         task.output_tokens += result.output_tokens
         task.cache_read_input_tokens += result.cache_read_input_tokens
@@ -372,7 +382,7 @@ class Runner:
 
         response = result.result_text
         if response:
-            self.store.append_log(task.name, "assistant", response, turn_model)
+            self.store.append_log(task.name, "assistant", response, turn_model, turn_effort)
 
         # This engine's native session now reflects every unified-log entry
         # through its own just-appended turn, so advance its cursor. A future
