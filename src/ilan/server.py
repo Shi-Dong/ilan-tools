@@ -18,7 +18,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from ilan import __version__, config as cfg, get_git_commit
-from ilan import summarize as summarize_mod
 from ilan.gist import GistSyncer
 from ilan.models import (
     ALIAS_POOL,
@@ -100,7 +99,6 @@ ROUTES: list[tuple[str, str, str]] = [
     ("GET",    r"^/tasks/([^/]+)/tail$",       "handle_task_tail"),
     ("GET",    r"^/tasks/([^/]+)/path$",       "handle_task_path"),
     ("GET",    r"^/tasks/([^/]+)/last-model$", "handle_task_last_model"),
-    ("POST",   r"^/tasks/([^/]+)/summarize$",  "handle_task_summarize"),
     ("POST",   r"^/clear-everything$",         "handle_clear_everything"),
     ("POST",   r"^/stop$",                     "handle_stop"),
 ]
@@ -895,35 +893,6 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             with self._ilan.lock:
                 self._ilan.store.put_task(task)
             self._json({"name": task.name, "model": model})
-
-        def handle_task_summarize(self, name: str):
-            # Resolve alias → real task name up front so subsequent calls
-            # into summarize_mod (which uses Store directly) see a name
-            # it can find.
-            with self._ilan.lock:
-                task = self._get_task_or_404(name)
-                if task is None:
-                    return
-                task_name = task.name
-
-            # Run outside the lock — claude -p can take a minute or more
-            # and we don't want to block unrelated reaper / client work.
-            try:
-                result = summarize_mod.summarize(task_name)
-            except ValueError as exc:
-                self._json({"error": str(exc)}, 404)
-                return
-            except RuntimeError as exc:
-                self._json({"error": str(exc)}, 500)
-                return
-
-            self._json({
-                "ok": True,
-                "name": task_name,
-                "summary": result.summary_text,
-                "summary_path": str(result.summary_path),
-                "reused": result.reused,
-            })
 
         def handle_clear_everything(self):
             with self._ilan.lock:

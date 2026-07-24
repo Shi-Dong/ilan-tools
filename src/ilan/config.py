@@ -9,8 +9,6 @@ DEFAULTS: dict[str, str | int | bool] = {
     "workdir": "~/.ilan",
     "model": "opus",
     "effort": "high",
-    "summarize-model": "sonnet",
-    "summarize-effort": "medium",
     "time-zone": "US/Pacific",
     "editor": "emacs",
     "agent": "claude",

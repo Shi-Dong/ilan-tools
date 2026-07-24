@@ -99,7 +99,6 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task tap NAME` | Ask for a status update (nudges `WORKING` agents; re-prompts `AGENT_FINISHED`/`NEEDS_ATTENTION`/`ERROR` tasks) |
 | `ilan task sleep NAME DURATION` | Re-prompt a `NEEDS_ATTENTION` / `AGENT_FINISHED` task to sleep for DURATION and report back. DURATION is an integer or decimal with an optional unit suffix — no whitespace — e.g. `300`, `300s`, `5m`, `2h`, `1.5h`. Units: `s`/`sec`/`second`/`seconds`, `m`/`min`/`mins`/`minute`/`minutes`, `h`/`hr`/`hrs`/`hour`/`hours`; bare numbers are seconds. The task goes back to `WORKING` and shows `(sleeping for Xs)` in `ilan ls` / `ilan dashboard`. |
 | `ilan task log [-p] NAME` | Open the full conversation log in your editor (`-p` prints the log file path instead) |
-| `ilan task summarize NAME` | Summarize the task's log and print the summary (works on local and remote clients) |
 | `ilan task rename OLD NEW` | Rename a task |
 | `ilan task alias NAME NEW_ALIAS` | Change the two-letter alias of an active task (`NEW_ALIAS` must be two letters from `asdfghjkl` and not already in use) |
 | `ilan task branch OLD -n NEW [-d "msg" \| -f FILE]` | Branch a new task from `OLD`, inheriting its full Claude Code context (both tasks stay repliable and diverge from there) |
@@ -133,8 +132,6 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan sleep NAME DURATION` | `ilan task sleep NAME DURATION` |
 | `ilan attach NAME` | `ilan task attach NAME` |
 | `ilan log [-p] NAME` | `ilan task log [-p] NAME` |
-| `ilan summarize NAME` | `ilan task summarize NAME` |
-| `ilan sum NAME` | `ilan task summarize NAME` |
 | `ilan check-model NAME` | `ilan task check-model NAME` |
 | `ilan done NAME [NAME...]` | `ilan task done NAME [NAME...]` |
 | `ilan discard NAME [NAME...]` | `ilan task discard NAME [NAME...]` |
@@ -187,8 +184,6 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 | `time-zone` | `US/Pacific` | Time zone for displayed timestamps (client-side: set on each machine running the CLI). Accepts friendly aliases — see [Time-zone aliases](#time-zone-aliases) |
 | `model` | `opus` | Model passed to `claude -p`. Accepts Claude Code aliases (`opus`, `sonnet`, `haiku`) or a full Claude model id. Only applies to the `claude` backend; Codex tasks use OpenAI's GPT models via `codex exec` — see [Agent backends](#agent-backends) |
 | `effort` | `high` | Effort level for the model |
-| `summarize-model` | `sonnet` | Claude model used by `ilan task summarize` |
-| `summarize-effort` | `medium` | Effort level used by `ilan task summarize` |
 | `editor` | `emacs` | Editor used by `ilan task log` |
 | `api-key-claude` | _(empty)_ | Anthropic API key passed as `ANTHROPIC_API_KEY` to spawned agents; also used to call Haiku for the one-line status summary in `ilan ls` and `ilan dashboard`. When empty, the one-line summary falls back to the server's local `claude` CLI (Claude Code subscription) instead. Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
 | `api-key-codex` | _(empty)_ | OpenAI API key passed as `OPENAI_API_KEY` to spawned Codex agents. When empty, Codex falls back to the server's inherited environment (`codex login`, or an `OPENAI_API_KEY` already present in the server's env). Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
@@ -263,26 +258,6 @@ the flag only affects how tail output is rendered.
 writes to the local `~/.config/ilan/config.json` instead of going through the
 server, so the toggle works the same way whether you're driving a local or
 remote `ilan` server (set it on the machine you're running the CLI on).
-
-### Summarize
-
-```bash
-ilan summarize fix-bug   # or: ilan sum fix-bug / ilan task summarize fix-bug
-```
-
-`ilan summarize` asks the ilan server to feed the task's JSONL log into
-a fresh `claude -p` invocation (using `summarize-model` /
-`summarize-effort`) and write a markdown summary next to the log at
-`<workdir>/logs/<task>.summary.md`. The summary text is then printed on
-the command line, so it works the same way from a local shell or from a
-client machine connected to a remote server via `ILAN_SERVER_URL`. The
-summary includes each PR the task produced (link + one-line description)
-and each wandb run (link + current status). Re-running on an unchanged
-task skips the claude call and reprints the cached summary.
-
-The prompt template is a plain file at
-`src/ilan/prompts/summarize.md` — edit it in place if you want to tweak
-what the summary looks like.
 
 ### Fable model (`ilan max` / `ilan unmax`)
 
