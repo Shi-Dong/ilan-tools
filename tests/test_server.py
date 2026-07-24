@@ -195,16 +195,17 @@ class TestConfig:
     def test_get_config(self, ilan_server: IlanServer) -> None:
         resp = _get(ilan_server, "/config")
         assert "config" in resp
-        assert resp["config"]["model"] == "opus"
+        assert resp["config"]["model-claude"] == "opus"
+        assert resp["config"]["model-codex"] == "gpt-5.6-sol"
 
     def test_set_config(self, ilan_server: IlanServer) -> None:
-        resp = _post(ilan_server, "/config/set", {"key": "model", "value": "sonnet"})
+        resp = _post(ilan_server, "/config/set", {"key": "model-claude", "value": "sonnet"})
         assert resp.get("ok") is True
         assert resp["value"] == "sonnet"
 
         # Verify it persists
         resp = _get(ilan_server, "/config")
-        assert resp["config"]["model"] == "sonnet"
+        assert resp["config"]["model-claude"] == "sonnet"
 
     def test_set_config_int_key(self, ilan_server: IlanServer) -> None:
         resp = _post(ilan_server, "/config/set", {"key": "dashboard-interval", "value": "3"})

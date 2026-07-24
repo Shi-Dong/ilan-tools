@@ -14,9 +14,9 @@ _CODEX_STATIC_FLAGS = [
     "--dangerously-bypass-approvals-and-sandbox",
 ]
 
-# Strongest Codex model currently available; used when a task has no per-task
-# model override. ``gpt-5.6-sol`` is OpenAI's flagship (the ``gpt-5.6`` alias
-# routes to it) and handles coding/tool-heavy workflows.
+# Fallback when neither a per-task override nor the ``model-codex`` config
+# key yields a model. ``gpt-5.6-sol`` is OpenAI's flagship (the ``gpt-5.6``
+# alias routes to it) and handles coding/tool-heavy workflows.
 _CODEX_DEFAULT_MODEL = "gpt-5.6-sol"
 
 
@@ -55,7 +55,7 @@ class CodexBackend(Backend):
         # ``codex exec --model claude-fable-5``, which codex can't load. Ignore
         # any Claude-only override here and fall back to the codex default.
         model = None if is_fable_model(model_override) else model_override
-        cmd += ["--model", model or _CODEX_DEFAULT_MODEL]
+        cmd += ["--model", model or str(conf.get("model-codex", _CODEX_DEFAULT_MODEL))]
         # `-` makes codex read the prompt from stdin.
         cmd.append("-")
 

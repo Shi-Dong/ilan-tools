@@ -76,7 +76,7 @@ class TestConfigShowMasks:
     ) -> None:
         _patch_client(
             monkeypatch,
-            {"model": "opus", "effort": "high"},
+            {"model-claude": "opus", "effort": "high"},
         )
         result = runner.invoke(main, ["config", "show"])
         assert result.exit_code == 0

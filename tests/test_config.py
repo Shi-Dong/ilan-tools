@@ -13,7 +13,7 @@ import ilan.config as cfg
 class TestDefaults:
     def test_default_keys(self) -> None:
         expected = {
-            "workdir", "model", "effort",
+            "workdir", "model-claude", "model-codex", "effort",
             "time-zone", "editor", "default-backend",
             "api-key-claude", "api-key-codex", "github-token",
             "dashboard-interval",
@@ -138,14 +138,15 @@ class TestLoad:
         conf = cfg.load()
         assert tmp_config.exists()
         assert conf["dashboard-interval"] == 1
-        assert conf["model"] == "opus"
+        assert conf["model-claude"] == "opus"
+        assert conf["model-codex"] == "gpt-5.6-sol"
 
     def test_load_merges_with_defaults(self, tmp_config: Path) -> None:
         tmp_config.parent.mkdir(parents=True, exist_ok=True)
         with open(tmp_config, "w") as f:
-            json.dump({"model": "sonnet"}, f)
+            json.dump({"model-claude": "sonnet"}, f)
         conf = cfg.load()
-        assert conf["model"] == "sonnet"
+        assert conf["model-claude"] == "sonnet"
         # Other defaults still present
         assert conf["dashboard-interval"] == 1
         assert conf["workdir"] == "~/.ilan"
@@ -173,10 +174,10 @@ class TestLoad:
 
 class TestSave:
     def test_save_writes_json(self, tmp_config: Path) -> None:
-        cfg.save({"model": "haiku", "dashboard-interval": 3})
+        cfg.save({"model-claude": "haiku", "dashboard-interval": 3})
         with open(tmp_config) as f:
             data = json.load(f)
-        assert data["model"] == "haiku"
+        assert data["model-claude"] == "haiku"
         assert data["dashboard-interval"] == 3
 
     def test_save_creates_dir_if_needed(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -184,12 +185,12 @@ class TestSave:
         config_file = nested / "config.json"
         monkeypatch.setattr(cfg, "_CONFIG_DIR", nested)
         monkeypatch.setattr(cfg, "_CONFIG_FILE", config_file)
-        cfg.save({"model": "opus"})
+        cfg.save({"model-claude": "opus"})
         assert config_file.exists()
 
     def test_roundtrip(self, tmp_config: Path) -> None:
-        original = {"workdir": "/custom", "dashboard-interval": 8, "model": "sonnet",
-                     "effort": "low", "time-zone": "UTC", "editor": "nano"}
+        original = {"workdir": "/custom", "dashboard-interval": 8, "model-claude": "sonnet",
+                     "model-codex": "gpt-x", "effort": "low", "time-zone": "UTC", "editor": "nano"}
         cfg.save(original)
         loaded = cfg.load()
         for k, v in original.items():

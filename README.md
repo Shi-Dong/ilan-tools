@@ -111,7 +111,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task undiscard NAME` | Move a `DISCARDED` task back to `NEEDS_ATTENTION` |
 | `ilan task unread NAME [NAME...]` | Restore the unread marker on task(s) |
 | `ilan task max NAME` | Run this task on the Fable model (`claude-fable-5`) instead of the default; a red `FABLE` tag shows beneath the task name in `ilan ls` / `ilan dashboard`. Takes effect on the task's next agent spawn. Fable is Claude-only, so this is a no-op (with a warning) on a `codex` task — switch it to `claude` first. The tag is hidden while the task is on `codex` (Fable is inactive there) and reappears when it is switched back to `claude`. |
-| `ilan task unmax NAME` | Reset the task's model back to the `model` config default |
+| `ilan task unmax NAME` | Reset the task's model back to the `model-claude` config default |
 | `ilan task switch-backend NAME` | Toggle the task's agent backend (`claude` ↔ `codex`). Lazy: takes effect on the task's next spawn, and the new backend catches up on its next turn. Not allowed on a `WORKING` task (warns and does nothing) — wait for the agent to finish or kill it first. See [Agent backends](#agent-backends) |
 | `ilan task rm [-f] NAME [NAME...]` | Delete task(s) and all their data (refuses if any has an active descendant; `-f` overrides) |
 
@@ -184,7 +184,8 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 | `workdir` | `~/.ilan` | Where all ilan data is stored |
 | `default-backend` | `claude` | Default agent backend for newly added tasks (`claude` or `codex`). Override per task with `ilan add --claude`/`--codex`, or flip an existing task with `ilan task switch-backend` — see [Agent backends](#agent-backends) |
 | `time-zone` | `US/Pacific` | Time zone for displayed timestamps (client-side: set on each machine running the CLI). Accepts friendly aliases — see [Time-zone aliases](#time-zone-aliases) |
-| `model` | `opus` | Model passed to `claude -p`. Accepts Claude Code aliases (`opus`, `sonnet`, `haiku`) or a full Claude model id. Only applies to the `claude` backend; Codex tasks use OpenAI's GPT models via `codex exec` — see [Agent backends](#agent-backends) |
+| `model-claude` | `opus` | Model passed to `claude -p` for tasks on the `claude` backend. Accepts Claude Code aliases (`opus`, `sonnet`, `haiku`) or a full Claude model id |
+| `model-codex` | `gpt-5.6-sol` | Model passed to `codex exec --model` for tasks on the `codex` backend. Accepts any model name the Codex CLI recognizes — see [Agent backends](#agent-backends) |
 | `effort` | `xhigh` | Reasoning-effort level for spawned agents, applied to both backends: passed as `--effort` to `claude` and as `-c model_reasoning_effort=...` to `codex exec`. Accepts `low`, `medium`, `high`, or `xhigh` (the subset both CLIs support); other values are rejected |
 | `editor` | `emacs` | Editor used by `ilan task log` |
 | `api-key-claude` | _(empty)_ | Anthropic API key passed as `ANTHROPIC_API_KEY` to spawned agents; also used to call Haiku for the one-line status summary in `ilan ls` and `ilan dashboard`. When empty, the one-line summary falls back to the server's local `claude` CLI (Claude Code subscription) instead. Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
@@ -270,13 +271,13 @@ ilan add -n my-task -d "…" --max   # create a task already on Fable
 ```
 
 `ilan max` pins a single task to Anthropic's Mythos-class **Fable** model
-(`claude-fable-5`), leaving every other task on the configured `model`
+(`claude-fable-5`), leaving every other task on the configured `model-claude`
 default. While a task is maxed, a red `FABLE` tag is rendered on its own
 line beneath the task name in `ilan ls` and `ilan dashboard` (hidden while
 the task is on the `codex` backend, since Fable is Claude-only and inactive
 there; it reappears on switching back to `claude`). The override is per
 task and persists across replies until you run `ilan unmax`, which clears
-it back to the `model` config default. A change takes effect on the task's
+it back to the `model-claude` config default. A change takes effect on the task's
 next agent spawn (the next reply), not on an already-running agent.
 
 ## Agent backends

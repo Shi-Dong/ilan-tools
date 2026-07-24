@@ -590,7 +590,7 @@ class TestSpawn:
         """A task with a model set (via ilan max) should pass --model <model>."""
         import ilan.config as cfg_mod
 
-        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir), "model": "opus"})
+        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir), "model-claude": "opus"})
 
         runner = Runner(store)
         t = Task(name="model-override", prompt="do work", model="claude-fable-5")
@@ -611,7 +611,7 @@ class TestSpawn:
         """A task without a model override should use the configured default."""
         import ilan.config as cfg_mod
 
-        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir), "model": "opus"})
+        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir), "model-claude": "opus"})
 
         runner = Runner(store)
         t = Task(name="model-default", prompt="do work")
