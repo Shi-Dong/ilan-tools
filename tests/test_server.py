@@ -22,8 +22,9 @@ from ilan.server import IlanServer, read_server_info
 def ilan_server(tmp_workdir: Path, tmp_config: Path, env_with_mock_claude: None):
     """Start an IlanServer on an ephemeral port and tear it down after the test.
 
-    The scheduler loop is patched to not auto-spawn agents, so tests can
-    exercise individual routes in isolation.
+    The runner is patched to not spawn real agent processes: ``start`` mimics
+    a successful spawn (task flips to WORKING) and the reaper loop is a
+    no-op, so tests can exercise individual routes in isolation.
     """
     import ilan.config as cfg_mod
 
@@ -31,8 +32,13 @@ def ilan_server(tmp_workdir: Path, tmp_config: Path, env_with_mock_claude: None)
 
     server = IlanServer()
 
-    # Patch schedule to be a no-op so tests control task state explicitly
-    server.runner.schedule = lambda: None
+    def _fake_start(task) -> bool:
+        task.set_status(TaskStatus.WORKING)
+        server.store.put_task(task)
+        return True
+
+    server.runner.start = _fake_start  # type: ignore[method-assign]
+    server.runner.reap_finished = lambda: None  # type: ignore[method-assign]
 
     # Patch signal.signal to avoid "signal only works in main thread" error
     with patch.object(signal, "signal"):
@@ -200,7 +206,7 @@ class TestConfig:
         assert resp["config"]["model"] == "sonnet"
 
     def test_set_config_int_key(self, ilan_server: IlanServer) -> None:
-        resp = _post(ilan_server, "/config/set", {"key": "num-agents", "value": "3"})
+        resp = _post(ilan_server, "/config/set", {"key": "dashboard-interval", "value": "3"})
         assert resp.get("ok") is True
         assert resp["value"] == 3
 
@@ -230,8 +236,8 @@ class TestTasksCRUD:
         logs = _get(ilan_server, "/tasks/log-open/logs")["logs"]
         assert [(e["role"], e["content"]) for e in logs] == [("user", "build X")]
 
-    def test_reply_while_unclaimed_keeps_prompt_first(self, ilan_server: IlanServer) -> None:
-        """A reply to a brand-new UNCLAIMED task is logged after the opening
+    def test_reply_right_after_create_keeps_prompt_first(self, ilan_server: IlanServer) -> None:
+        """A reply right after creation is logged after the opening
         prompt, preserving chronological order in the unified log."""
         _post(ilan_server, "/tasks", {"name": "reply-order", "prompt": "build X"})
         _post(ilan_server, "/tasks/reply-order/reply", {"message": "also do Y"})
@@ -549,16 +555,15 @@ class TestTaskHash:
 
 
 class TestReply:
-    def test_reply_to_unclaimed_caches(self, ilan_server: IlanServer) -> None:
-        _post(ilan_server, "/tasks", {"name": "reply-uncl", "prompt": "P"})
-        resp = _post(ilan_server, "/tasks/reply-uncl/reply", {"message": "heads up"})
+    def test_reply_to_working_interrupts_and_resumes(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "reply-wk", "prompt": "P"})
+        with patch.object(ilan_server.runner, "reply_to_working") as m:
+            resp = _post(ilan_server, "/tasks/reply-wk/reply", {"message": "heads up"})
         assert resp.get("ok") is True
-        assert "warning" in resp  # "Task is UNCLAIMED. Reply cached."
+        assert "Interrupted" in resp["message"]
+        m.assert_called_once()
 
-        task = _get(ilan_server, "/tasks/reply-uncl")["task"]
-        assert "heads up" in task["cached_replies"]
-
-    def test_reply_to_needs_attention_sets_unclaimed(self, ilan_server: IlanServer) -> None:
+    def test_reply_to_needs_attention_restarts_agent(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "reply-na", "prompt": "P"})
         # Manually set to NEEDS_ATTENTION
         with ilan_server.lock:
@@ -568,9 +573,10 @@ class TestReply:
 
         resp = _post(ilan_server, "/tasks/reply-na/reply", {"message": "fix it"})
         assert resp.get("ok") is True
+        assert resp["message"] == "Reply sent. Agent resumed."
 
         task = _get(ilan_server, "/tasks/reply-na")["task"]
-        assert task["status"] == "UNCLAIMED"
+        assert task["status"] == "WORKING"
         assert "fix it" in task["cached_replies"]
 
     def test_reply_to_terminal_fails(self, ilan_server: IlanServer) -> None:
@@ -593,7 +599,7 @@ class TestSleep:
             task.set_status(status)
             ilan_server.store.put_task(task)
 
-    def test_sleep_on_needs_attention_caches_and_unclaims(
+    def test_sleep_on_needs_attention_caches_and_restarts(
         self, ilan_server: IlanServer
     ) -> None:
         self._make_task_in_status(ilan_server, "sleep-na", TaskStatus.NEEDS_ATTENTION)
@@ -601,14 +607,14 @@ class TestSleep:
         assert resp.get("ok") is True
 
         task = _get(ilan_server, "/tasks/sleep-na")["task"]
-        assert task["status"] == "UNCLAIMED"
+        assert task["status"] == "WORKING"
         assert task["sleep_seconds"] == 5
         assert (
             "Sleep 5 seconds and give me a quick report after the sleep finishes."
             in task["cached_replies"]
         )
 
-    def test_sleep_on_agent_finished_caches_and_unclaims(
+    def test_sleep_on_agent_finished_caches_and_restarts(
         self, ilan_server: IlanServer
     ) -> None:
         self._make_task_in_status(ilan_server, "sleep-af", TaskStatus.AGENT_FINISHED)
@@ -616,7 +622,7 @@ class TestSleep:
         assert resp.get("ok") is True
 
         task = _get(ilan_server, "/tasks/sleep-af")["task"]
-        assert task["status"] == "UNCLAIMED"
+        assert task["status"] == "WORKING"
         assert task["sleep_seconds"] == 5
 
     def test_sleep_on_working_rejected(self, ilan_server: IlanServer) -> None:
@@ -624,11 +630,6 @@ class TestSleep:
         resp = _post(ilan_server, "/tasks/sleep-wk/sleep", {"seconds": 5})
         assert "error" in resp
         assert "WORKING" in resp["error"]
-
-    def test_sleep_on_unclaimed_rejected(self, ilan_server: IlanServer) -> None:
-        _post(ilan_server, "/tasks", {"name": "sleep-uncl", "prompt": "P"})
-        resp = _post(ilan_server, "/tasks/sleep-uncl/sleep", {"seconds": 5})
-        assert "error" in resp
 
     def test_sleep_on_terminal_rejected(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "sleep-done", "prompt": "P"})
@@ -648,7 +649,7 @@ class TestSleep:
     ) -> None:
         self._make_task_in_status(ilan_server, "sleep-clear", TaskStatus.NEEDS_ATTENTION)
         _post(ilan_server, "/tasks/sleep-clear/sleep", {"seconds": 5})
-        # Task is now UNCLAIMED with sleep_seconds=5. Flip it to NEEDS_ATTENTION
+        # Task is now WORKING with sleep_seconds=5. Flip it to NEEDS_ATTENTION
         # via set_status and verify sleep_seconds is dropped.
         with ilan_server.lock:
             task = ilan_server.store.get_task("sleep-clear")
@@ -681,26 +682,6 @@ class TestSleep:
         assert task["status"] == "DISCARDED"
         assert task["sleep_seconds"] is None
 
-    def test_reply_on_unclaimed_sleeping_task_clears_sleep_seconds(
-        self, ilan_server: IlanServer
-    ) -> None:
-        """``ilan re`` on an UNCLAIMED task that's still waiting to be
-        claimed on a sleep instruction should drop sleep_seconds so the
-        ``(sleeping for Ns)`` suffix stops showing in ``ilan ls``."""
-        self._make_task_in_status(ilan_server, "sleep-re-uncl", TaskStatus.NEEDS_ATTENTION)
-        _post(ilan_server, "/tasks/sleep-re-uncl/sleep", {"seconds": 5})
-        assert _get(ilan_server, "/tasks/sleep-re-uncl")["task"]["sleep_seconds"] == 5
-
-        resp = _post(
-            ilan_server, "/tasks/sleep-re-uncl/reply", {"message": "never mind, do X"}
-        )
-        assert resp.get("ok") is True
-
-        task = _get(ilan_server, "/tasks/sleep-re-uncl")["task"]
-        assert task["status"] == "UNCLAIMED"
-        assert task["sleep_seconds"] is None
-        assert "never mind, do X" in task["cached_replies"]
-
     def test_reply_on_working_sleeping_task_clears_sleep_seconds(
         self, ilan_server: IlanServer
     ) -> None:
@@ -709,13 +690,8 @@ class TestSleep:
         interrupted and resumed with the new reply."""
         self._make_task_in_status(ilan_server, "sleep-re-wk", TaskStatus.NEEDS_ATTENTION)
         _post(ilan_server, "/tasks/sleep-re-wk/sleep", {"seconds": 5})
-        # Simulate the scheduler claiming the task: UNCLAIMED → WORKING,
-        # sleep_seconds preserved by set_status since WORKING is in the
-        # sleep-visible set.
-        with ilan_server.lock:
-            task = ilan_server.store.get_task("sleep-re-wk")
-            task.set_status(TaskStatus.WORKING)
-            ilan_server.store.put_task(task)
+        # Sleep restarted the agent: WORKING with sleep_seconds preserved,
+        # since WORKING is the sleep-visible status.
         assert _get(ilan_server, "/tasks/sleep-re-wk")["task"]["sleep_seconds"] == 5
 
         # reply_to_working spawns ``claude`` which isn't available in the
@@ -1168,6 +1144,10 @@ class TestSummarize:
 class TestKill:
     def test_kill_non_working_fails(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "kill-idle", "prompt": "P"})
+        with ilan_server.lock:
+            task = ilan_server.store.get_task("kill-idle")
+            task.set_status(TaskStatus.NEEDS_ATTENTION)
+            ilan_server.store.put_task(task)
         resp = _post(ilan_server, "/tasks/kill-idle/kill")
         assert "error" in resp
 
@@ -1319,28 +1299,26 @@ class TestSwitchBackend:
         assert calls == ["kill", "reap"]
         assert resp["engine"] == "codex"
 
-    def test_switch_right_after_claim_does_not_error(
+    def test_switch_right_after_spawn_respawns_on_new_backend(
         self, ilan_server: IlanServer
     ) -> None:
-        """Switching a task the scheduler *just* claimed (WORKING, but no output
-        produced yet) must not brand it ERROR. The premature kill+reap should
-        return it to UNCLAIMED so it re-spawns cleanly on the new backend."""
+        """Switching a task that *just* spawned (WORKING, but no output
+        produced yet) must not brand it ERROR. The premature kill+reap keeps
+        it WORKING and the handler re-spawns it on the new backend."""
         _post(ilan_server, "/tasks", {"name": "sw-race", "prompt": "P"})
         store = ilan_server.store
         task = store.get_task("sw-race")
         assert task is not None
-        # Simulate the scheduler having just spawned it: WORKING, opening prompt
-        # logged, but the agent has written no output file yet.
-        task.set_status(TaskStatus.WORKING)
+        # The task just spawned: WORKING, opening prompt logged, but the
+        # agent has written no output file yet.
         task.pid = None
         store.put_task(task)
-        store.append_log("sw-race", "user", "P")
 
         resp = _post(ilan_server, "/tasks/sw-race/switch-backend")
         assert resp.get("ok") is True
         assert resp["engine"] == "codex"
         updated = _get(ilan_server, "/tasks/sw-race")["task"]
-        assert updated["status"] == "UNCLAIMED"
+        assert updated["status"] == "WORKING"
         assert updated["engine"] == "codex"
 
 

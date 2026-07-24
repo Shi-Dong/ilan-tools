@@ -1,4 +1,4 @@
-"""Background HTTP server that drives the agent scheduler loop.
+"""Background HTTP server that spawns agents and reaps them when they exit.
 
 Started automatically on the first ``ilan`` command and stopped via
 ``ilan server stop``.  Binds to an ephemeral port on 127.0.0.1 and writes
@@ -129,7 +129,6 @@ class IlanServer:
         self.runner = Runner(self.store)
         self.lock = threading.Lock()
         self._stop_event = threading.Event()
-        self._nudge_event = threading.Event()
         self._httpd: _HTTPServer | None = None
         # Mirror every conversation to a secret GitHub Gist off the hot path.
         # Wiring the syncer to ``store.on_append`` means any message appended
@@ -156,8 +155,8 @@ class IlanServer:
         if recovered:
             print(f"Recovered {len(recovered)} task(s): {', '.join(recovered)}")
 
-        sched = threading.Thread(target=self._scheduler_loop, daemon=True)
-        sched.start()
+        reaper = threading.Thread(target=self._reaper_loop, daemon=True)
+        reaper.start()
 
         self.gist.start()
 
@@ -168,23 +167,17 @@ class IlanServer:
 
     def shutdown(self) -> None:
         self._stop_event.set()
-        self._nudge_event.set()
         self.gist.stop()
         if self._httpd:
             threading.Thread(target=self._httpd.shutdown, daemon=True).start()
 
-    def nudge(self) -> None:
-        """Wake the scheduler so it runs immediately."""
-        self._nudge_event.set()
+    # ── reaper ───────────────────────────────────────────────────
 
-    # ── scheduler ────────────────────────────────────────────────
-
-    def _scheduler_loop(self) -> None:
+    def _reaper_loop(self) -> None:
         while not self._stop_event.is_set():
             with self.lock:
-                self.runner.schedule()
-            self._nudge_event.wait(POLL_INTERVAL)
-            self._nudge_event.clear()
+                self.runner.reap_finished()
+            self._stop_event.wait(POLL_INTERVAL)
 
 
 # ── Request handler (built via closure to capture IlanServer) ────────
@@ -367,11 +360,10 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     model=FABLE_MODEL if want_max else None,
                 )
                 self._ilan.store.put_task(task)
-                # Log the opening prompt at creation so the unified log always
-                # opens with the task statement, even if a reply arrives (and is
-                # logged) before the task is first scheduled.
+                # Log the opening prompt before spawning so the unified log
+                # always opens with the task statement.
                 self._ilan.store.append_log(task.name, "user", prompt)
-            self._ilan.nudge()
+                self._ilan.runner.start(task)
             self._json({"ok": True})
 
         def handle_get_task(self, name: str):
@@ -502,13 +494,6 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 # the ``(sleeping for Ns)`` suffix disappear.
                 task.sleep_seconds = None
 
-                if task.status == TaskStatus.UNCLAIMED:
-                    task.cached_replies.append(message)
-                    store.append_log(task.name, "user", message)
-                    store.put_task(task)
-                    self._json({"ok": True, "warning": "Task is UNCLAIMED. Reply cached."})
-                    return
-
                 if task.status == TaskStatus.WORKING:
                     runner.reply_to_working(task, message)
                     self._json({"ok": True, "message": "Interrupted agent and resumed with reply."})
@@ -517,11 +502,10 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 # NEEDS_ATTENTION / AGENT_FINISHED / ERROR
                 task.cached_replies.append(message)
                 task.needs_review = False
-                task.set_status(TaskStatus.UNCLAIMED)
                 store.append_log(task.name, "user", message)
                 store.put_task(task)
-            self._ilan.nudge()
-            self._json({"ok": True, "message": "Reply cached. Task set to UNCLAIMED."})
+                runner.start(task)
+            self._json({"ok": True, "message": "Reply sent. Agent resumed."})
 
         def handle_task_sleep(self, name: str):
             body = self._body()
@@ -549,15 +533,14 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task.cached_replies.append(message)
                 task.needs_review = False
                 task.sleep_seconds = seconds
-                task.set_status(TaskStatus.UNCLAIMED)
                 self._ilan.store.append_log(task.name, "user", message)
                 self._ilan.store.put_task(task)
-            self._ilan.nudge()
+                self._ilan.runner.start(task)
             self._json({
                 "ok": True,
                 "name": task.name,
                 "seconds": seconds,
-                "message": f"Told {task.name} to sleep {seconds}s. Task set to UNCLAIMED.",
+                "message": f"Told {task.name} to sleep {seconds}s.",
             })
 
         def handle_task_kill(self, name: str):
@@ -697,7 +680,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     child.cached_replies.append(message)
                     self._ilan.store.append_log(child.name, "user", message)
                     self._ilan.store.put_task(child)
-            self._ilan.nudge()
+                self._ilan.runner.start(child)
             self._json({
                 "ok": True,
                 "name": child.name,
@@ -760,14 +743,18 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 # that engine's native session and log cursor — before the other
                 # backend takes over. The reap is ``interrupted`` because we
                 # just killed the agent: if it was only moments into its run
-                # (e.g. switched right after the scheduler claimed a new task)
-                # it has no parseable output yet, and that must reset it to
-                # UNCLAIMED for a clean re-spawn, not brand it ERROR.
+                # (e.g. switched right after being spawned) it has no parseable
+                # output yet; it then stays WORKING — not ERROR — and is
+                # re-spawned below on the new backend.
+                restart = False
                 if task.status == TaskStatus.WORKING:
                     self._ilan.runner.kill(task)
                     time.sleep(0.5)
                     self._ilan.runner._try_reap(task, interrupted=True)
+                    restart = task.status == TaskStatus.WORKING
                 self._ilan.runner.switch_engine(task, target)
+                if restart:
+                    self._ilan.runner.start(task)
             self._json({
                 "ok": True,
                 "name": task.name,
@@ -920,7 +907,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task_name = task.name
 
             # Run outside the lock — claude -p can take a minute or more
-            # and we don't want to block unrelated scheduler / client work.
+            # and we don't want to block unrelated reaper / client work.
             try:
                 result = summarize_mod.summarize(task_name)
             except ValueError as exc:

@@ -34,7 +34,6 @@ ALIAS_POOL: list[str] = [
 
 
 class TaskStatus(str, Enum):
-    UNCLAIMED = "UNCLAIMED"
     WORKING = "WORKING"
     NEEDS_ATTENTION = "NEEDS_ATTENTION"
     AGENT_FINISHED = "AGENT_FINISHED"
@@ -45,10 +44,6 @@ class TaskStatus(str, Enum):
     @property
     def is_terminal(self) -> bool:
         return self in (TaskStatus.DONE, TaskStatus.DISCARDED)
-
-    @property
-    def is_claimable(self) -> bool:
-        return self == TaskStatus.UNCLAIMED
 
 
 # Anthropic's Mythos-class "Fable" model. Tasks "maxed" via ``ilan max`` run
@@ -86,7 +81,6 @@ ENGINE_NAME_STYLE: dict[str, str] = {
 
 
 STYLE_FOR_STATUS: dict[TaskStatus, str] = {
-    TaskStatus.UNCLAIMED: "yellow",
     TaskStatus.WORKING: "bold cyan",
     TaskStatus.NEEDS_ATTENTION: "bold red",
     TaskStatus.AGENT_FINISHED: "green",
@@ -100,7 +94,7 @@ STYLE_FOR_STATUS: dict[TaskStatus, str] = {
 class Task:
     name: str
     prompt: str
-    status: TaskStatus = TaskStatus.UNCLAIMED
+    status: TaskStatus = TaskStatus.WORKING
     created_at: str = ""
     status_changed_at: str = ""
     session_id: str | None = None
@@ -147,7 +141,7 @@ class Task:
     # this count, the gap is the set of turns it must be caught up on.
     log_cursors: dict[str, int] = field(default_factory=dict)
     # Set by a lazy backend switch when the newly-active engine is behind the
-    # unified log; consumed at the next schedule to inject a catch-up preamble
+    # unified log; consumed at the next spawn to inject a catch-up preamble
     # (resume) or seed a fresh session with the transcript. Reset once spent.
     awaiting_catchup: bool = False
 
@@ -162,13 +156,13 @@ class Task:
     def set_status(self, status: TaskStatus) -> None:
         """Set status and update the ``status_changed_at`` timestamp.
 
-        When the task leaves the sleep-visible states (``UNCLAIMED`` and
-        ``WORKING``), ``sleep_seconds`` is dropped so stale metadata
-        doesn't leak into a future non-sleep reply cycle.
+        When the task leaves the sleep-visible ``WORKING`` state,
+        ``sleep_seconds`` is dropped so stale metadata doesn't leak into a
+        future non-sleep reply cycle.
         """
         self.status = status
         self.status_changed_at = datetime.now(timezone.utc).isoformat()
-        if status not in (TaskStatus.UNCLAIMED, TaskStatus.WORKING):
+        if status is not TaskStatus.WORKING:
             self.sleep_seconds = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -209,7 +203,7 @@ class Task:
         return cls(
             name=d["name"],
             prompt=d["prompt"],
-            status=TaskStatus(d["status"]),
+            status=cls._migrate_status(d["status"]),
             created_at=d.get("created_at", ""),
             status_changed_at=d.get("status_changed_at", d.get("created_at", "")),
             session_id=d.get("session_id"),
@@ -237,6 +231,16 @@ class Task:
             log_cursors=dict(d.get("log_cursors") or {}),
             awaiting_catchup=d.get("awaiting_catchup", False),
         )
+
+    @staticmethod
+    def _migrate_status(value: str) -> TaskStatus:
+        """Map the retired ``UNCLAIMED`` status of persisted legacy tasks to
+        ``NEEDS_ATTENTION``: they were waiting to be scheduled, and now that
+        agents spawn immediately the user's next reply is what starts them.
+        """
+        if value == "UNCLAIMED":
+            return TaskStatus.NEEDS_ATTENTION
+        return TaskStatus(value)
 
     @staticmethod
     def _migrate_sessions(d: dict[str, Any]) -> dict[str, str]:

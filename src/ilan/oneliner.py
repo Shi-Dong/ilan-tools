@@ -138,7 +138,7 @@ def generate_one_liner(last_user: str, last_assistant: str) -> str | None:
     Picks the backend by config: a non-empty ``api-key-claude`` uses Anthropic's
     Messages API, otherwise it falls back to the local ``claude`` CLI.
     Returns ``None`` when the assistant text is empty or whichever backend
-    fails. Never raises — a failure here must not break the scheduler's
+    fails. Never raises — a failure here must not break the reaper's
     reap path.
     """
     if not last_assistant.strip():

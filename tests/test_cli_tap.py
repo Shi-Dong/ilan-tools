@@ -50,7 +50,7 @@ class TestTapAllowedStatuses:
 
 
 class TestTapDisallowedStatuses:
-    @pytest.mark.parametrize("status", ["UNCLAIMED", "DONE", "DISCARDED"])
+    @pytest.mark.parametrize("status", ["DONE", "DISCARDED"])
     def test_tap_rejects_other_statuses(
         self, runner: CliRunner, tmp_config, status: str
     ) -> None:
