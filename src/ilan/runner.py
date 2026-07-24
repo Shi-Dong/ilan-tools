@@ -202,9 +202,9 @@ class Runner:
         injects the turns it missed (Option A: native resume + catch-up, or a
         fresh session seeded with the transcript when it has never run).
 
-        The caller is responsible for ensuring the task is not mid-flight; a
-        WORKING task should be reaped or killed before switching so its output
-        is parsed by the engine that produced it.
+        The caller is responsible for ensuring the task is not mid-flight:
+        the server rejects switching a WORKING task, so its in-flight output
+        is always parsed by the engine that produced it.
         """
         if target_engine == task.engine:
             return
@@ -332,23 +332,15 @@ class Runner:
 
         return _render_catchup(interim, fresh=not has_session), has_session
 
-    def _try_reap(self, task: Task, *, interrupted: bool = False) -> None:
-        """Parse agent output and update task status after process exits.
-
-        *interrupted* marks a deliberate mid-flight kill (a backend switch).
-        A task killed that way before it produced any parseable output never
-        really ran, so it stays ``WORKING`` for the caller to re-spawn cleanly
-        rather than being marked ``ERROR`` — which is reserved for an agent
-        that ran and failed on its own.
-        """
+    def _try_reap(self, task: Task) -> None:
+        """Parse agent output and update task status after process exits."""
         task.pid = None
         out_path = self.store.output_path(task.name)
 
         backend = self._backend_for(task.engine)
         result = backend.parse_output(out_path)
         if result is None:
-            if not interrupted:
-                task.set_status(TaskStatus.ERROR)
+            task.set_status(TaskStatus.ERROR)
             self.store.put_task(task)
             return
 

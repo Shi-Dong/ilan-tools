@@ -1216,6 +1216,7 @@ class TestMaxUnmax:
         override at spawn time — see test_backends_codex."""
         _post(ilan_server, "/tasks", {"name": "max-then-switch", "prompt": "P"})
         _post(ilan_server, "/tasks/max-then-switch/max")  # claude → Fable
+        _park(ilan_server, "max-then-switch")
         _post(ilan_server, "/tasks/max-then-switch/switch-backend")  # → codex
         resp = _post(ilan_server, "/tasks/max-then-switch/max")
         assert resp.get("ok") is True
@@ -1233,9 +1234,22 @@ class TestMaxUnmax:
 # ── Switch backend ──────────────────────────────────────────────────────
 
 
+def _park(
+    server: IlanServer, name: str,
+    status: TaskStatus = TaskStatus.AGENT_FINISHED,
+) -> None:
+    """Move a (fake-spawned) WORKING task to a switchable resting status."""
+    with server.lock:
+        task = server.store.get_task(name)
+        assert task is not None
+        task.set_status(status)
+        server.store.put_task(task)
+
+
 class TestSwitchBackend:
     def test_toggles_claude_to_codex(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "sw-1", "prompt": "P"})
+        _park(ilan_server, "sw-1")
         resp = _post(ilan_server, "/tasks/sw-1/switch-backend")
         assert resp.get("ok") is True
         assert resp["from_engine"] == "claude"
@@ -1245,6 +1259,7 @@ class TestSwitchBackend:
 
     def test_roundtrip_toggles_back(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "sw-2", "prompt": "P"})
+        _park(ilan_server, "sw-2")
         _post(ilan_server, "/tasks/sw-2/switch-backend")
         resp = _post(ilan_server, "/tasks/sw-2/switch-backend")
         assert resp["from_engine"] == "codex"
@@ -1254,6 +1269,7 @@ class TestSwitchBackend:
 
     def test_accepts_alias(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "sw-alias", "prompt": "P"})
+        _park(ilan_server, "sw-alias")
         alias = _get(ilan_server, "/tasks/sw-alias")["task"]["alias"]
         assert alias is not None
         resp = _post(ilan_server, f"/tasks/{alias}/switch-backend")
@@ -1274,52 +1290,28 @@ class TestSwitchBackend:
 
     def test_list_reflects_engine_after_switch(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "sw-list", "prompt": "P"})
+        _park(ilan_server, "sw-list")
         _post(ilan_server, "/tasks/sw-list/switch-backend")
         resp = _get(ilan_server, "/tasks")
         row = next(t for t in resp["tasks"] if t["name"] == "sw-list")
         assert row["engine"] == "codex"
 
-    def test_working_task_reaped_before_flip(self, ilan_server: IlanServer) -> None:
-        """A WORKING task is killed + reaped (so its output is captured by the
-        producing engine) before the backend flips."""
+    def test_rejects_working_task(self, ilan_server: IlanServer) -> None:
+        """A WORKING task cannot be switched: the server warns and does
+        nothing — the agent is not killed and the engine does not flip."""
         _post(ilan_server, "/tasks", {"name": "sw-working", "prompt": "P"})
-        store = ilan_server.store
-        task = store.get_task("sw-working")
-        assert task is not None
-        task.set_status(TaskStatus.WORKING)
-        task.pid = 424242
-        store.put_task(task)
 
         calls: list[str] = []
         ilan_server.runner.kill = lambda t: calls.append("kill")  # type: ignore[method-assign]
-        ilan_server.runner._try_reap = lambda t, **kw: calls.append("reap")  # type: ignore[method-assign]
 
         resp = _post(ilan_server, "/tasks/sw-working/switch-backend")
-        assert resp.get("ok") is True
-        assert calls == ["kill", "reap"]
-        assert resp["engine"] == "codex"
+        assert "error" in resp
+        assert "WORKING" in resp["error"]
+        assert calls == []
 
-    def test_switch_right_after_spawn_respawns_on_new_backend(
-        self, ilan_server: IlanServer
-    ) -> None:
-        """Switching a task that *just* spawned (WORKING, but no output
-        produced yet) must not brand it ERROR. The premature kill+reap keeps
-        it WORKING and the handler re-spawns it on the new backend."""
-        _post(ilan_server, "/tasks", {"name": "sw-race", "prompt": "P"})
-        store = ilan_server.store
-        task = store.get_task("sw-race")
-        assert task is not None
-        # The task just spawned: WORKING, opening prompt logged, but the
-        # agent has written no output file yet.
-        task.pid = None
-        store.put_task(task)
-
-        resp = _post(ilan_server, "/tasks/sw-race/switch-backend")
-        assert resp.get("ok") is True
-        assert resp["engine"] == "codex"
-        updated = _get(ilan_server, "/tasks/sw-race")["task"]
-        assert updated["status"] == "WORKING"
-        assert updated["engine"] == "codex"
+        task = _get(ilan_server, "/tasks/sw-working")["task"]
+        assert task["status"] == "WORKING"
+        assert task["engine"] == "claude"
 
 
 # ── Clear Everything ────────────────────────────────────────────────────
