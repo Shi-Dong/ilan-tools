@@ -1184,21 +1184,25 @@ def task_kill(name: str) -> None:
 
 # ── task rename ─────────────────────────────────────────────────────
 
-def _do_rename(old_name: str, new_name: str) -> None:
+def _do_rename(old_name: str, new_name: str, description: str | None = None) -> None:
     resp = _client().rename_task(old_name, new_name)
     if _check_error(resp):
         raise SystemExit(1)
     console.print(
         f"[green]Renamed [bold]{resp['old_name']}[/bold] → [bold]{resp['new_name']}[/bold][/green]"
     )
+    if description is not None:
+        _do_reply(resp["new_name"], description)
 
 
 @task_group.command("rename")
 @click.argument("old_name", shell_complete=_complete_task_names)
 @click.argument("new_name")
-def task_rename(old_name: str, new_name: str) -> None:
+@click.option("-d", "--description", default=None,
+              help="Reply to send to the task right after renaming.")
+def task_rename(old_name: str, new_name: str, description: str | None) -> None:
     """Rename a task."""
-    _do_rename(old_name, new_name)
+    _do_rename(old_name, new_name, description)
 
 
 # ── task alias ──────────────────────────────────────────────────────
@@ -1857,9 +1861,11 @@ def shortcut_switch_backend(name: str) -> None:
 @main.command("rename")
 @click.argument("old_name", shell_complete=_complete_task_names)
 @click.argument("new_name")
-def shortcut_rename(old_name: str, new_name: str) -> None:
+@click.option("-d", "--description", default=None,
+              help="Reply to send to the task right after renaming.")
+def shortcut_rename(old_name: str, new_name: str, description: str | None) -> None:
     """Shorthand for 'ilan task rename'."""
-    _do_rename(old_name, new_name)
+    _do_rename(old_name, new_name, description)
 
 
 @main.command("alias")
