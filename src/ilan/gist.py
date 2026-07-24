@@ -198,6 +198,30 @@ def post_comment(token: str, gist_id: str, body: str) -> None:
     _api_request("POST", f"/gists/{gist_id}/comments", token, {"body": body})
 
 
+def last_comment_url(token: str, gist_id: str, html_url: str) -> str:
+    """Return a deep link to the most recent comment on the task's Gist.
+
+    GitHub's comment permalink format is
+    ``<gist-url>?permalink_comment_id=<id>#gistcomment-<id>``. The comments
+    endpoint is paginated oldest-first, so the last comment is fetched
+    directly with ``per_page=1&page=<comment count>``. Falls back to the
+    plain Gist page when the Gist has no comments yet.
+    """
+    meta = _api_request("GET", f"/gists/{gist_id}", token)
+    count = int(meta.get("comments") or 0)
+    if count <= 0:
+        return html_url
+    comments = _api_request(
+        "GET", f"/gists/{gist_id}/comments?per_page=1&page={count}", token
+    )
+    # The comments endpoint returns a JSON array (not the dict most other
+    # endpoints return), so guard the shape before indexing.
+    if not isinstance(comments, list) or not comments:
+        return html_url
+    comment_id = comments[-1]["id"]
+    return f"{html_url}?permalink_comment_id={comment_id}#gistcomment-{comment_id}"
+
+
 def fetch_gist_filename(token: str, gist_id: str) -> str | None:
     """Return the name of the Gist's landing file (its only file), or ``None``.
 

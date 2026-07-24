@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 
 import pytest
 
+import ilan.server as srv_mod
 from ilan import __version__
 from ilan.models import FABLE_MODEL, TaskStatus
 from ilan.server import IlanServer, read_server_info
@@ -989,6 +990,67 @@ class TestLastModel:
             ilan_server.store.put_task(task)
         resp = _get(ilan_server, "/tasks/lm-logs/logs")
         assert resp["last_assistant_model"] == "claude-opus-4-8"
+
+
+# ── History URL ────────────────────────────────────────────────────────
+
+
+class TestHistoryUrl:
+    GIST_URL = "https://gist.github.com/u/gid1"
+
+    def _attach_gist(self, server: IlanServer, name: str) -> None:
+        with server.lock:
+            task = server.store.get_task(name)
+            task.gist_id = "gid1"
+            task.gist_url = self.GIST_URL
+            server.store.put_task(task)
+
+    def test_history_url_unknown_task(self, ilan_server: IlanServer) -> None:
+        resp = _get(ilan_server, "/tasks/no-such-task/history-url")
+        assert "error" in resp
+
+    def test_history_url_no_gist(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "hu-nogist", "prompt": "P"})
+        resp = _get(ilan_server, "/tasks/hu-nogist/history-url")
+        assert resp == {"url": None}
+
+    def test_history_url_no_token_returns_gist_page(
+        self, ilan_server: IlanServer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _post(ilan_server, "/tasks", {"name": "hu-notoken", "prompt": "P"})
+        self._attach_gist(ilan_server, "hu-notoken")
+        monkeypatch.setattr(srv_mod, "github_token", lambda: "")
+        resp = _get(ilan_server, "/tasks/hu-notoken/history-url")
+        assert resp == {"url": self.GIST_URL}
+
+    def test_history_url_deep_links_last_comment(
+        self, ilan_server: IlanServer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _post(ilan_server, "/tasks", {"name": "hu-deep", "prompt": "P"})
+        self._attach_gist(ilan_server, "hu-deep")
+        deep = f"{self.GIST_URL}?permalink_comment_id=7#gistcomment-7"
+        monkeypatch.setattr(srv_mod, "github_token", lambda: "tok")
+        monkeypatch.setattr(
+            srv_mod,
+            "last_comment_url",
+            lambda token, gist_id, html_url: deep,
+        )
+        resp = _get(ilan_server, "/tasks/hu-deep/history-url")
+        assert resp == {"url": deep}
+
+    def test_history_url_api_failure_falls_back(
+        self, ilan_server: IlanServer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _post(ilan_server, "/tasks", {"name": "hu-fail", "prompt": "P"})
+        self._attach_gist(ilan_server, "hu-fail")
+        monkeypatch.setattr(srv_mod, "github_token", lambda: "tok")
+
+        def boom(token, gist_id, html_url):
+            raise RuntimeError("GitHub down")
+
+        monkeypatch.setattr(srv_mod, "last_comment_url", boom)
+        resp = _get(ilan_server, "/tasks/hu-fail/history-url")
+        assert resp == {"url": self.GIST_URL}
 
 
 # ── Needs Review ───────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ import tempfile
 import termios
 import time
 import tty
+import webbrowser
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -1393,6 +1394,29 @@ def task_logs(name: str, path: bool) -> None:
     _open_log(name, path=path)
 
 
+# ── task open ────────────────────────────────────────────────────────
+
+def _do_open(name: str) -> None:
+    resp = _client().get_history_url(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    url = resp.get("url")
+    if not url:
+        console.print(
+            f"[yellow]Task '{name}' has no history page yet.[/yellow]"
+        )
+        return
+    console.print(f"Opening {url}")
+    webbrowser.open(url)
+
+
+@task_group.command("open")
+@click.argument("name", shell_complete=_complete_task_names)
+def task_open(name: str) -> None:
+    """Open the task's Gist history page in the default browser."""
+    _do_open(name)
+
+
 # ── task rm ──────────────────────────────────────────────────────────
 
 @task_group.command("rm")
@@ -1897,6 +1921,13 @@ def shortcut_log(name: str, path: bool) -> None:
 def shortcut_logs(name: str, path: bool) -> None:
     """Shorthand for 'ilan task logs'."""
     _open_log(name, path=path)
+
+
+@main.command("open")
+@click.argument("name", shell_complete=_complete_task_names)
+def shortcut_open(name: str) -> None:
+    """Shorthand for 'ilan task open'."""
+    _do_open(name)
 
 
 @main.command("check-model")

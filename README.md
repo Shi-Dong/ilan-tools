@@ -99,6 +99,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task tap NAME` | Ask for a status update (nudges `WORKING` agents; re-prompts `AGENT_FINISHED`/`NEEDS_ATTENTION`/`ERROR` tasks) |
 | `ilan task sleep NAME DURATION` | Re-prompt a `NEEDS_ATTENTION` / `AGENT_FINISHED` task to sleep for DURATION and report back. DURATION is an integer or decimal with an optional unit suffix — no whitespace — e.g. `300`, `300s`, `5m`, `2h`, `1.5h`. Units: `s`/`sec`/`second`/`seconds`, `m`/`min`/`mins`/`minute`/`minutes`, `h`/`hr`/`hrs`/`hour`/`hours`; bare numbers are seconds. The task goes back to `WORKING` and shows `(sleeping for Xs)` in `ilan ls` / `ilan dashboard`. |
 | `ilan task log [-p] NAME` | Open the full conversation log in your editor (`-p` prints the log file path instead) |
+| `ilan task open NAME` | Open the task's GitHub Gist history page in your default browser, deep-linked to the most recent comment. Warns and does nothing if the task has no Gist yet (see [Gist conversation mirroring](#gist-conversation-mirroring)) |
 | `ilan task rename OLD NEW` | Rename a task |
 | `ilan task alias NAME NEW_ALIAS` | Change the two-letter alias of an active task (`NEW_ALIAS` must be two letters from `asdfghjkl` and not already in use) |
 | `ilan task branch OLD -n NEW [-d "msg" \| -f FILE]` | Branch a new task from `OLD`, inheriting its full Claude Code context (both tasks stay repliable and diverge from there) |
@@ -132,6 +133,7 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan sleep NAME DURATION` | `ilan task sleep NAME DURATION` |
 | `ilan attach NAME` | `ilan task attach NAME` |
 | `ilan log [-p] NAME` | `ilan task log [-p] NAME` |
+| `ilan open NAME` | `ilan task open NAME` |
 | `ilan check-model NAME` | `ilan task check-model NAME` |
 | `ilan done NAME [NAME...]` | `ilan task done NAME [NAME...]` |
 | `ilan discard NAME [NAME...]` | `ilan task discard NAME [NAME...]` |
