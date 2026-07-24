@@ -12,7 +12,6 @@ import os
 import re
 import signal
 import threading
-import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -736,25 +735,22 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                         409,
                     )
                     return
+                # A WORKING task is mid-flight: killing it to flip the backend
+                # would either discard the in-flight turn or misattribute its
+                # output. Refuse and let the user wait or kill explicitly.
+                if task.status == TaskStatus.WORKING:
+                    self._json(
+                        {"error": (
+                            f"Task {task.name} is WORKING; cannot switch its "
+                            "backend while the agent is running. Wait for it "
+                            "to finish (or kill it) and try again."
+                        )},
+                        409,
+                    )
+                    return
                 from_engine = task.engine
                 target = other_engine(from_engine)
-                # A WORKING task must be reaped before flipping so its in-flight
-                # output is parsed by the engine that produced it — advancing
-                # that engine's native session and log cursor — before the other
-                # backend takes over. The reap is ``interrupted`` because we
-                # just killed the agent: if it was only moments into its run
-                # (e.g. switched right after being spawned) it has no parseable
-                # output yet; it then stays WORKING — not ERROR — and is
-                # re-spawned below on the new backend.
-                restart = False
-                if task.status == TaskStatus.WORKING:
-                    self._ilan.runner.kill(task)
-                    time.sleep(0.5)
-                    self._ilan.runner._try_reap(task, interrupted=True)
-                    restart = task.status == TaskStatus.WORKING
                 self._ilan.runner.switch_engine(task, target)
-                if restart:
-                    self._ilan.runner.start(task)
             self._json({
                 "ok": True,
                 "name": task.name,

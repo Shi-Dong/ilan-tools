@@ -1732,9 +1732,9 @@ def _do_switch_backend(name: str) -> None:
 def task_switch_backend(name: str) -> None:
     """Toggle a task's agent backend (claude <-> codex).
 
-    The switch is lazy: the running agent is not restarted. A WORKING task is
-    reaped first so its output is captured by the current backend, then the
-    task flips to the other backend and catches up on its next turn.
+    The switch is lazy: it only rewires which backend the task uses on its
+    next spawn, and the task catches up on its next turn. A WORKING task
+    cannot be switched — wait for the agent to finish (or kill it) first.
     """
     _do_switch_backend(name)
 

@@ -112,7 +112,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task unread NAME [NAME...]` | Restore the unread marker on task(s) |
 | `ilan task max NAME` | Run this task on the Fable model (`claude-fable-5`) instead of the default; a red `FABLE` tag shows beneath the task name in `ilan ls` / `ilan dashboard`. Takes effect on the task's next agent spawn. Fable is Claude-only, so this is a no-op (with a warning) on a `codex` task — switch it to `claude` first. The tag is hidden while the task is on `codex` (Fable is inactive there) and reappears when it is switched back to `claude`. |
 | `ilan task unmax NAME` | Reset the task's model back to the `model` config default |
-| `ilan task switch-backend NAME` | Toggle the task's agent backend (`claude` ↔ `codex`). Lazy: doesn't restart a running agent — a `WORKING` task is reaped first so its output is captured, then the task flips and the new backend catches up on its next turn. See [Agent backends](#agent-backends) |
+| `ilan task switch-backend NAME` | Toggle the task's agent backend (`claude` ↔ `codex`). Lazy: takes effect on the task's next spawn, and the new backend catches up on its next turn. Not allowed on a `WORKING` task (warns and does nothing) — wait for the agent to finish or kill it first. See [Agent backends](#agent-backends) |
 | `ilan task rm [-f] NAME [NAME...]` | Delete task(s) and all their data (refuses if any has an active descendant; `-f` overrides) |
 
 ### Shorthands
@@ -323,14 +323,14 @@ ilan task switch-backend fix-bug   # flip an existing task's backend
   than starting over. On top of the native sessions, ilan keeps a unified
   conversation log (the user prompts + final assistant replies, spanning both
   backends).
-- **Catch-up on switch.** `ilan task switch-backend` is *lazy* — it doesn't
-  restart a running agent. A `WORKING` task is reaped first so its in-flight
-  output is captured by the engine that produced it; then the task flips. On the
-  incoming backend's next turn it is caught up on everything it missed: its native
-  session is resumed and the interim turns are injected, or — if that backend has
-  never run this task — a fresh session is seeded with the full transcript. A task
-  switched the instant after it was spawned (`WORKING`, but with no output yet)
-  simply re-spawns cleanly on the new backend.
+- **Catch-up on switch.** `ilan task switch-backend` is *lazy* — it only
+  rewires which backend the task uses on its next spawn. A `WORKING` task
+  cannot be switched: the command warns and does nothing, so an in-flight
+  turn is never interrupted (wait for the agent to finish, or `ilan task
+  kill` it, then switch). On the incoming backend's next turn it is caught
+  up on everything it missed: its native session is resumed and the interim
+  turns are injected, or — if that backend has never run this task — a
+  fresh session is seeded with the full transcript.
 - **Catch-up prompts are size-capped.** A very long history is truncated to the
   newest ~500K characters when it is rendered into the catch-up prompt (Codex
   hard-rejects inputs over 1 MiB); the prompt notes how many earlier turns were
