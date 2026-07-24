@@ -63,7 +63,7 @@ class TestStoreBranch:
         assert child.parent_name == "parent"
         assert child.alias == "bb"
         assert child.task_hash == "deadbeef"
-        assert child.status == TaskStatus.UNCLAIMED
+        assert child.status == TaskStatus.WORKING
         assert child.cached_replies == []
         assert child.cost_usd == 0.0
         # A claude parent yields a claude child that resumes the forked native
@@ -231,7 +231,7 @@ class TestStoreBranch:
 def _row(name: str, parent: str | None = None, created_at: str = "") -> dict:
     return {
         "name": name,
-        "status": "UNCLAIMED",
+        "status": "WORKING",
         "created_at": created_at or f"2026-01-01T00:00:{ord(name[0]):02d}+00:00",
         "status_changed_at": "",
         "alias": None,
@@ -317,7 +317,14 @@ def ilan_server(tmp_workdir: Path, tmp_config: Path, env_with_mock_claude: None)
     cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
 
     server = IlanServer()
-    server.runner.schedule = lambda: None
+
+    def _fake_start(task) -> bool:
+        task.set_status(TaskStatus.WORKING)
+        server.store.put_task(task)
+        return True
+
+    server.runner.start = _fake_start  # type: ignore[method-assign]
+    server.runner.reap_finished = lambda: None  # type: ignore[method-assign]
 
     with patch.object(signal, "signal"):
         t = threading.Thread(
@@ -538,7 +545,7 @@ class TestListTerminalAncestors:
         """A→B→C where B is DONE but C is active: default ls must keep B."""
         parent = Task(
             name="A", prompt="p", session_id="sid-1",
-            status=TaskStatus.UNCLAIMED, alias="aa",
+            status=TaskStatus.NEEDS_ATTENTION, alias="aa",
             created_at="2026-01-01T00:00:00+00:00",
             status_changed_at="2026-01-01T00:00:00+00:00",
         )
@@ -570,7 +577,7 @@ class TestListTerminalAncestors:
         ))
         ilan_server.store.put_task(Task(
             name="active-solo", prompt="p", alias="aa",
-            status=TaskStatus.UNCLAIMED,
+            status=TaskStatus.NEEDS_ATTENTION,
             created_at="2026-01-01T00:00:00+00:00",
             status_changed_at="2026-01-01T00:00:00+00:00",
         ))
@@ -594,7 +601,7 @@ def _delete(server: IlanServer, path: str) -> tuple[int, dict]:
 class TestDeleteWithDescendants:
     def _seed_chain(self, server: IlanServer) -> None:
         server.store.put_task(Task(
-            name="A", prompt="p", status=TaskStatus.UNCLAIMED, alias="aa",
+            name="A", prompt="p", status=TaskStatus.NEEDS_ATTENTION, alias="aa",
             created_at="2026-01-01T00:00:00+00:00",
         ))
         server.store.put_task(Task(

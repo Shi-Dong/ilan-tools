@@ -33,25 +33,12 @@ class TestTaskStatus:
 
     def test_non_terminal_states(self) -> None:
         for status in (
-            TaskStatus.UNCLAIMED,
             TaskStatus.WORKING,
             TaskStatus.NEEDS_ATTENTION,
             TaskStatus.AGENT_FINISHED,
             TaskStatus.ERROR,
         ):
             assert not status.is_terminal
-
-    def test_claimable(self) -> None:
-        assert TaskStatus.UNCLAIMED.is_claimable
-        for status in (
-            TaskStatus.WORKING,
-            TaskStatus.NEEDS_ATTENTION,
-            TaskStatus.AGENT_FINISHED,
-            TaskStatus.DONE,
-            TaskStatus.DISCARDED,
-            TaskStatus.ERROR,
-        ):
-            assert not status.is_claimable
 
     def test_string_value_roundtrip(self) -> None:
         for status in TaskStatus:
@@ -131,7 +118,7 @@ class TestTask:
         defaults = {
             "name": "test-task",
             "prompt": "Do something",
-            "status": TaskStatus.UNCLAIMED,
+            "status": TaskStatus.WORKING,
             "created_at": "2025-01-01T00:00:00+00:00",
             "status_changed_at": "2025-01-01T00:00:00+00:00",
         }
@@ -140,7 +127,7 @@ class TestTask:
 
     def test_default_fields(self) -> None:
         t = Task(name="x", prompt="y")
-        assert t.status == TaskStatus.UNCLAIMED
+        assert t.status == TaskStatus.WORKING
         assert t.session_id is None
         assert t.pid is None
         assert t.cached_replies == []
@@ -148,7 +135,7 @@ class TestTask:
         assert t.needs_review is False
 
     def test_set_status_updates_timestamp(self) -> None:
-        t = self._make_task()
+        t = self._make_task(status=TaskStatus.NEEDS_ATTENTION)
         old_ts = t.status_changed_at
         t.set_status(TaskStatus.WORKING)
         assert t.status == TaskStatus.WORKING
@@ -194,15 +181,21 @@ class TestTask:
 
     def test_from_dict_with_missing_optional_fields(self) -> None:
         """Backward compatibility: old dicts may lack newer fields."""
-        d = {"name": "old", "prompt": "p", "status": "UNCLAIMED"}
+        d = {"name": "old", "prompt": "p", "status": "WORKING"}
         t = Task.from_dict(d)
         assert t.name == "old"
-        assert t.status == TaskStatus.UNCLAIMED
+        assert t.status == TaskStatus.WORKING
         assert t.created_at == ""
         assert t.session_id is None
         assert t.cached_replies == []
         assert t.alias is None
         assert t.needs_review is False
+
+    def test_from_dict_migrates_legacy_unclaimed(self) -> None:
+        """Tasks persisted before UNCLAIMED was retired load as NEEDS_ATTENTION."""
+        d = {"name": "old", "prompt": "p", "status": "UNCLAIMED"}
+        t = Task.from_dict(d)
+        assert t.status == TaskStatus.NEEDS_ATTENTION
 
     def test_from_dict_status_changed_at_fallback(self) -> None:
         """status_changed_at falls back to created_at if missing."""
@@ -233,7 +226,7 @@ class TestTask:
         assert t.task_hash is None
 
     def test_from_dict_missing_task_hash(self) -> None:
-        d = {"name": "old", "prompt": "p", "status": "UNCLAIMED"}
+        d = {"name": "old", "prompt": "p", "status": "WORKING"}
         t = Task.from_dict(d)
         assert t.task_hash is None
 
@@ -332,14 +325,14 @@ class TestTask:
 
     def test_from_dict_migrates_legacy_session_id(self) -> None:
         """A pre-map task with only session_id seeds the map under its engine."""
-        d = {"name": "old", "prompt": "p", "status": "UNCLAIMED",
+        d = {"name": "old", "prompt": "p", "status": "WORKING",
              "session_id": "legacy-sid"}
         t = Task.from_dict(d)
         assert t.sessions == {"claude": "legacy-sid"}
         assert t.session_for(ENGINE_CLAUDE) == "legacy-sid"
 
     def test_from_dict_explicit_sessions_not_overwritten(self) -> None:
-        d = {"name": "x", "prompt": "p", "status": "UNCLAIMED",
+        d = {"name": "x", "prompt": "p", "status": "WORKING",
              "session_id": "active-sid", "engine": "codex",
              "sessions": {"claude": "c", "codex": "active-sid"}}
         t = Task.from_dict(d)

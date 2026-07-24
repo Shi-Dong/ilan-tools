@@ -1,6 +1,6 @@
 # Ilan CLI
 
-A CLI tool that manages and runs a swarm of coding agents on a list of user-defined tasks. Each task is dispatched to an agent backend — [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude -p`) or [Codex](https://github.com/openai/codex) (`codex exec`) — in the background; when an agent finishes or gets blocked, the next unclaimed task is picked up automatically. A task can be moved between backends at any time without losing its conversation — see [Agent backends](#agent-backends).
+A CLI tool that manages and runs a swarm of coding agents on a list of user-defined tasks. Each task is dispatched to an agent backend — [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude -p`) or [Codex](https://github.com/openai/codex) (`codex exec`) — in the background, starting the instant the task is created or replied to. A task can be moved between backends at any time without losing its conversation — see [Agent backends](#agent-backends).
 
 ## Installation
 
@@ -97,7 +97,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task tail NAME` | Show the last assistant message together with the user prompt that elicited it and any user replies after it; ends with a line naming the model that generated the last assistant message |
 | `ilan task reply NAME ["msg"]` | Send a reply to an agent (omit message to show tail) |
 | `ilan task tap NAME` | Ask for a status update (nudges `WORKING` agents; re-prompts `AGENT_FINISHED`/`NEEDS_ATTENTION`/`ERROR` tasks) |
-| `ilan task sleep NAME DURATION` | Re-prompt a `NEEDS_ATTENTION` / `AGENT_FINISHED` task to sleep for DURATION and report back. DURATION is an integer or decimal with an optional unit suffix — no whitespace — e.g. `300`, `300s`, `5m`, `2h`, `1.5h`. Units: `s`/`sec`/`second`/`seconds`, `m`/`min`/`mins`/`minute`/`minutes`, `h`/`hr`/`hrs`/`hour`/`hours`; bare numbers are seconds. The task transitions to `UNCLAIMED` and shows `(sleeping for Xs)` in `ilan ls` / `ilan dashboard` while `UNCLAIMED` / `WORKING`. |
+| `ilan task sleep NAME DURATION` | Re-prompt a `NEEDS_ATTENTION` / `AGENT_FINISHED` task to sleep for DURATION and report back. DURATION is an integer or decimal with an optional unit suffix — no whitespace — e.g. `300`, `300s`, `5m`, `2h`, `1.5h`. Units: `s`/`sec`/`second`/`seconds`, `m`/`min`/`mins`/`minute`/`minutes`, `h`/`hr`/`hrs`/`hour`/`hours`; bare numbers are seconds. The task goes back to `WORKING` and shows `(sleeping for Xs)` in `ilan ls` / `ilan dashboard`. |
 | `ilan task log [-p] NAME` | Open the full conversation log in your editor (`-p` prints the log file path instead) |
 | `ilan task summarize NAME` | Summarize the task's log and print the summary (works on local and remote clients) |
 | `ilan task rename OLD NEW` | Rename a task |
@@ -183,7 +183,6 @@ Configuration is stored at `~/.config/ilan/config.json` (created with defaults o
 | Key | Default | Description |
 |---|---|---|
 | `workdir` | `~/.ilan` | Where all ilan data is stored |
-| `num-agents` | `5` | Max concurrent agents |
 | `agent` | `claude` | Default agent backend for newly added tasks (`claude` or `codex`). Override per task with `ilan add --claude`/`--codex`, or flip an existing task with `ilan task switch-backend` — see [Agent backends](#agent-backends) |
 | `time-zone` | `US/Pacific` | Time zone for displayed timestamps (client-side: set on each machine running the CLI). Accepts friendly aliases — see [Time-zone aliases](#time-zone-aliases) |
 | `model` | `opus` | Model passed to `claude -p`. Accepts Claude Code aliases (`opus`, `sonnet`, `haiku`) or a full Claude model id. Only applies to the `claude` backend; Codex tasks use OpenAI's GPT models via `codex exec` — see [Agent backends](#agent-backends) |
@@ -301,8 +300,7 @@ the task is on the `codex` backend, since Fable is Claude-only and inactive
 there; it reappears on switching back to `claude`). The override is per
 task and persists across replies until you run `ilan unmax`, which clears
 it back to the `model` config default. A change takes effect on the task's
-next agent spawn (the next reply / scheduled run), not on an already-running
-agent.
+next agent spawn (the next reply), not on an already-running agent.
 
 ## Agent backends
 
@@ -331,8 +329,8 @@ ilan task switch-backend fix-bug   # flip an existing task's backend
   incoming backend's next turn it is caught up on everything it missed: its native
   session is resumed and the interim turns are injected, or — if that backend has
   never run this task — a fresh session is seeded with the full transcript. A task
-  switched the instant after it was claimed (`WORKING`, but with no output yet)
-  simply returns to `UNCLAIMED` and re-spawns cleanly on the new backend.
+  switched the instant after it was spawned (`WORKING`, but with no output yet)
+  simply re-spawns cleanly on the new backend.
 - **Catch-up prompts are size-capped.** A very long history is truncated to the
   newest ~500K characters when it is rendered into the catch-up prompt (Codex
   hard-rejects inputs over 1 MiB); the prompt notes how many earlier turns were
@@ -357,22 +355,26 @@ reaching whichever backend runs a task, see
 ## Task lifecycle
 
 ```
-UNCLAIMED ──▶ WORKING ──▶ AGENT_FINISHED ──▶ DONE
-                │               │
-                │               ▼
-                │         NEEDS_ATTENTION ◀── undone
-                │               │
-                ▼               ▼
-              ERROR        (reply) ──▶ UNCLAIMED
-                │
-                ▼
-           (reply) ──▶ UNCLAIMED
+WORKING ──▶ AGENT_FINISHED ──▶ DONE
+   │               │
+   │               ▼
+   │         NEEDS_ATTENTION ◀── undone
+   │               │
+   ▼               ▼
+ ERROR        (reply) ──▶ WORKING
+   │
+   ▼
+(reply) ──▶ WORKING
 
-                        DISCARDED ◀── discard
-                            │
-                            ▼
-                      (undiscard) ──▶ NEEDS_ATTENTION
+             DISCARDED ◀── discard
+                 │
+                 ▼
+           (undiscard) ──▶ NEEDS_ATTENTION
 ```
+
+A task starts `WORKING` the moment it is created; a reply to a finished,
+blocked, or errored task immediately re-spawns its agent. There is no cap on
+the number of concurrently running agents.
 
 Agents self-report their status via a `[STATUS: DONE]` or `[STATUS: NEEDS_ATTENTION]` marker injected into every prompt. The injected convention also requires the agent to provide a substantive answer before emitting the marker.
 
@@ -386,7 +388,7 @@ All `claude -p` processes are spawned with `cwd` set to the configured workdir s
 │  (client)   │    localhost:4526           │  (background)    │
 └─────────────┘                             │                  │
                                             │  ┌────────────┐  │
-                                            │  │ scheduler  │  │ ── poll every 3s
+                                            │  │ reaper     │  │ ── poll every 3s
                                             │  └────────────┘  │
                                             │        │         │
                                             │        ▼         │
@@ -415,7 +417,7 @@ ilan config set github-token ghp_xxxxxxxxxxxxxxxxxxxx
 ```
 
 - Each task gets **one** secret Gist. Its landing file is just a title card — the conversation itself is posted as Gist **comments**, one message per comment, so GitHub renders the `User` and `Assistant` turns as separate Markdown bubbles. Messages are already Markdown, so they are posted as-is.
-- Mirroring is fully **asynchronous**: a background syncer thread does all GitHub I/O off the hot path, so it never blocks the scheduler or a client reply. As soon as a message is appended to a task's log, the task is enqueued and mirrored shortly after.
+- Mirroring is fully **asynchronous**: a background syncer thread does all GitHub I/O off the hot path, so it never blocks the reaper or a client reply. As soon as a message is appended to a task's log, the task is enqueued and mirrored shortly after.
 - **Existing tasks are back-filled**: the first new message on any pre-existing task creates its Gist and posts the entire prior history in order.
 - `ilan ls` and `ilan dashboard` gain a **History** column: a `history` hyperlink (over the Gist URL) for tasks that have been mirrored, or a dim `-` placeholder otherwise.
 

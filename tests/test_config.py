@@ -13,7 +13,7 @@ import ilan.config as cfg
 class TestDefaults:
     def test_default_keys(self) -> None:
         expected = {
-            "workdir", "num-agents", "model", "effort",
+            "workdir", "model", "effort",
             "summarize-model", "summarize-effort",
             "time-zone", "editor", "agent",
             "api-key-claude", "api-key-codex", "github-token",
@@ -44,7 +44,7 @@ class TestDefaults:
         assert cfg.VALID_KEYS == set(cfg.DEFAULTS.keys())
 
     def test_int_keys(self) -> None:
-        assert cfg.INT_KEYS == {"num-agents", "dashboard-interval"}
+        assert cfg.INT_KEYS == {"dashboard-interval"}
 
     def test_bool_keys(self) -> None:
         assert cfg.BOOL_KEYS == {"line-number", "markdown", "one-line-summary"}
@@ -138,7 +138,7 @@ class TestLoad:
         assert not tmp_config.exists()
         conf = cfg.load()
         assert tmp_config.exists()
-        assert conf["num-agents"] == 5
+        assert conf["dashboard-interval"] == 1
         assert conf["model"] == "opus"
 
     def test_load_merges_with_defaults(self, tmp_config: Path) -> None:
@@ -148,25 +148,25 @@ class TestLoad:
         conf = cfg.load()
         assert conf["model"] == "sonnet"
         # Other defaults still present
-        assert conf["num-agents"] == 5
+        assert conf["dashboard-interval"] == 1
         assert conf["workdir"] == "~/.ilan"
 
     def test_load_preserves_user_overrides(self, tmp_config: Path) -> None:
         tmp_config.parent.mkdir(parents=True, exist_ok=True)
         with open(tmp_config, "w") as f:
-            json.dump({"num-agents": 10, "editor": "vim"}, f)
+            json.dump({"dashboard-interval": 10, "editor": "vim"}, f)
         conf = cfg.load()
-        assert conf["num-agents"] == 10
+        assert conf["dashboard-interval"] == 10
         assert conf["editor"] == "vim"
 
 
 class TestSave:
     def test_save_writes_json(self, tmp_config: Path) -> None:
-        cfg.save({"model": "haiku", "num-agents": 3})
+        cfg.save({"model": "haiku", "dashboard-interval": 3})
         with open(tmp_config) as f:
             data = json.load(f)
         assert data["model"] == "haiku"
-        assert data["num-agents"] == 3
+        assert data["dashboard-interval"] == 3
 
     def test_save_creates_dir_if_needed(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         nested = tmp_path / "deep" / "nested"
@@ -177,7 +177,7 @@ class TestSave:
         assert config_file.exists()
 
     def test_roundtrip(self, tmp_config: Path) -> None:
-        original = {"workdir": "/custom", "num-agents": 8, "model": "sonnet",
+        original = {"workdir": "/custom", "dashboard-interval": 8, "model": "sonnet",
                      "effort": "low", "time-zone": "UTC", "editor": "nano"}
         cfg.save(original)
         loaded = cfg.load()

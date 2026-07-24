@@ -103,7 +103,7 @@ def _render_catchup(entries: list, *, fresh: bool) -> str:
 
 
 class Runner:
-    """Spawns / kills / reaps agent processes and schedules work.
+    """Spawns / kills / reaps agent processes.
 
     The backend (Claude Code, Codex, …) owns every CLI-specific detail; this
     class stays agnostic and drives it through the ``Backend`` interface.
@@ -146,22 +146,28 @@ class Runner:
             recovered.append(task.name)
         return recovered
 
-    def schedule(self) -> None:
-        """Reap finished agents, then fill empty slots with unclaimed tasks."""
-        self._reap_all()
+    def start(self, task: Task) -> bool:
+        """Build the task's next prompt and spawn its agent immediately.
 
-        max_agents = int(cfg.load().get("num-agents", 5))
-        tasks = self.store.load_tasks()
-        running = sum(1 for t in tasks.values() if t.status == TaskStatus.WORKING)
+        Returns True on success. The caller must persist any state the
+        prompt depends on (e.g. ``cached_replies``) before calling, so a
+        failed spawn can retry from the stored copy without losing it.
+        """
+        prompt, resume = self._build_prompt(task)
+        return self._spawn(task, prompt, resume=resume)
 
-        for task in sorted(tasks.values(), key=lambda t: t.created_at):
-            if running >= max_agents:
-                break
-            if task.status != TaskStatus.UNCLAIMED:
+    def reap_finished(self) -> None:
+        """Reap agents whose process has exited. Called by the poll loop."""
+        for task in self.store.load_tasks().values():
+            if task.status != TaskStatus.WORKING or task.pid is None:
                 continue
-            prompt, resume = self._build_prompt(task)
-            self._spawn(task, prompt, resume=resume)
-            running += 1
+            proc = self._procs.get(task.name)
+            if proc is not None:
+                if proc.poll() is not None:
+                    self._procs.pop(task.name, None)
+                    self._try_reap(task)
+            elif not self._pid_alive(task.pid) or self._output_complete(task.name):
+                self._try_reap(task)
 
     def reply_to_working(self, task: Task, message: str) -> None:
         """Kill the running agent and immediately resume the session."""
@@ -181,14 +187,14 @@ class Runner:
             self._spawn(task, message, resume=True)
         else:
             task.cached_replies.append(message)
-            task.set_status(TaskStatus.UNCLAIMED)
             self.store.put_task(task)
+            self.start(task)
 
     def switch_engine(self, task: Task, target_engine: str) -> None:
         """Lazily switch a task's backend to *target_engine*.
 
         This does not restart the agent — it only rewires which backend the
-        task will use on its next schedule. The outgoing engine's active
+        task will use on its next spawn. The outgoing engine's active
         session is preserved in the per-engine map, and the incoming engine's
         own native session (if any) is made active so switching back and forth
         never discards a backend's conversation. When the incoming engine is
@@ -229,7 +235,7 @@ class Runner:
 
         The prompt is written to a file and fed to the agent over stdin, not
         argv: a long catch-up transcript can exceed the OS ARG_MAX (E2BIG at
-        exec would kill the scheduler thread) and ~1 MB argv values crash
+        exec would kill the calling thread) and ~1 MB argv values crash
         codex-cli outright with SIGSEGV before it writes any output. stderr
         is captured to a per-task file so CLI startup failures — which leave
         an empty stdout and would otherwise vanish — stay diagnosable.
@@ -326,25 +332,13 @@ class Runner:
 
         return _render_catchup(interim, fresh=not has_session), has_session
 
-    def _reap_all(self) -> None:
-        for task in self.store.load_tasks().values():
-            if task.status != TaskStatus.WORKING or task.pid is None:
-                continue
-            proc = self._procs.get(task.name)
-            if proc is not None:
-                if proc.poll() is not None:
-                    self._procs.pop(task.name, None)
-                    self._try_reap(task)
-            elif not self._pid_alive(task.pid) or self._output_complete(task.name):
-                self._try_reap(task)
-
     def _try_reap(self, task: Task, *, interrupted: bool = False) -> None:
         """Parse agent output and update task status after process exits.
 
         *interrupted* marks a deliberate mid-flight kill (a backend switch).
         A task killed that way before it produced any parseable output never
-        really ran, so it is returned to ``UNCLAIMED`` to be re-scheduled
-        cleanly rather than marked ``ERROR`` — which is reserved for an agent
+        really ran, so it stays ``WORKING`` for the caller to re-spawn cleanly
+        rather than being marked ``ERROR`` — which is reserved for an agent
         that ran and failed on its own.
         """
         task.pid = None
@@ -353,7 +347,8 @@ class Runner:
         backend = self._backend_for(task.engine)
         result = backend.parse_output(out_path)
         if result is None:
-            task.set_status(TaskStatus.UNCLAIMED if interrupted else TaskStatus.ERROR)
+            if not interrupted:
+                task.set_status(TaskStatus.ERROR)
             self.store.put_task(task)
             return
 

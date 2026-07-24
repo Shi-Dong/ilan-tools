@@ -311,11 +311,11 @@ class TestClientSideConfigSet:
     def test_server_side_key_still_routes_to_server(self, runner: CliRunner, tmp_config: Path) -> None:
         """Non-client-side keys continue to go through the server."""
         client = _make_client()
-        client.set_config.return_value = {"ok": True, "key": "num-agents", "value": 7}
+        client.set_config.return_value = {"ok": True, "key": "dashboard-interval", "value": 7}
         with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["config", "set", "num-agents", "7"])
+            result = runner.invoke(main, ["config", "set", "dashboard-interval", "7"])
         assert result.exit_code == 0
-        client.set_config.assert_called_once_with("num-agents", "7")
+        client.set_config.assert_called_once_with("dashboard-interval", "7")
 
     def test_show_overlays_client_side_keys(self, runner: CliRunner, tmp_config: Path) -> None:
         """``config show`` should surface the local value for client-side keys,

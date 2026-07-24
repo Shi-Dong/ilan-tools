@@ -6,8 +6,9 @@ Instructions for coding agents (Claude Code, Codex, …) working in this repo.
 ## What this is
 
 A client–server CLI that manages a swarm of coding agents. The CLI talks to a
-background HTTP server (`localhost:4526`) that schedules tasks, spawns agent
-processes, and persists state to `~/.ilan/`. Each task runs on a pluggable
+background HTTP server (`localhost:4526`) that spawns agent processes the
+moment a task is created or replied to, reaps them when they finish, and
+persists state to `~/.ilan/`. Each task runs on a pluggable
 **backend** — Claude Code (`claude -p`) or Codex (`codex exec`). See `README.md`
 for the user-facing docs.
 
@@ -15,7 +16,7 @@ for the user-facing docs.
 
 - `src/ilan/cli.py` — Click commands (client side).
 - `src/ilan/client.py` — thin HTTP client to the server.
-- `src/ilan/server.py` — HTTP routes + scheduler loop.
+- `src/ilan/server.py` — HTTP routes + reaper loop.
 - `src/ilan/runner.py` — spawns / kills / reaps agents; builds prompts.
 - `src/ilan/backends/` — one adapter per engine (`base.py`, `claude.py`, `codex.py`).
 - `src/ilan/models.py` — `Task`, `TaskStatus`, engine constants.

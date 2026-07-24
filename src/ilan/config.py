@@ -7,7 +7,6 @@ from pathlib import Path
 
 DEFAULTS: dict[str, str | int | bool] = {
     "workdir": "~/.ilan",
-    "num-agents": 5,
     "model": "opus",
     "effort": "high",
     "summarize-model": "sonnet",
@@ -26,7 +25,7 @@ DEFAULTS: dict[str, str | int | bool] = {
 
 VALID_KEYS = set(DEFAULTS)
 
-INT_KEYS = {"num-agents", "dashboard-interval"}
+INT_KEYS = {"dashboard-interval"}
 BOOL_KEYS = {"line-number", "markdown", "one-line-summary"}
 
 # Values that should never be printed in full by `ilan config show`.

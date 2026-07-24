@@ -193,12 +193,12 @@ class TestTryReap:
         assert updated is not None
         assert updated.status == TaskStatus.ERROR
 
-    def test_reap_interrupted_no_output_reverts_to_unclaimed(
+    def test_reap_interrupted_no_output_stays_working(
         self, store: Store, runner: Runner
     ) -> None:
         """A deliberately-killed task with no output yet (e.g. switched right
-        after it was claimed) never really ran, so it returns to UNCLAIMED for
-        a clean re-spawn instead of being branded ERROR."""
+        after it was spawned) never really ran, so it stays WORKING for the
+        caller to re-spawn cleanly instead of being branded ERROR."""
         t = Task(name="t5i", prompt="p", status=TaskStatus.WORKING, pid=99999)
         store.put_task(t)
         # No output file: the agent was killed before it produced anything.
@@ -206,7 +206,7 @@ class TestTryReap:
         runner._try_reap(t, interrupted=True)
         updated = store.get_task("t5i")
         assert updated is not None
-        assert updated.status == TaskStatus.UNCLAIMED
+        assert updated.status == TaskStatus.WORKING
 
     def test_reap_interrupted_with_output_still_attributed(
         self, store: Store, runner: Runner
@@ -713,54 +713,32 @@ class TestSpawn:
         assert stored.cached_replies == ["finish it"]
 
 
-# ── schedule ────────────────────────────────────────────────────────────
+# ── start ───────────────────────────────────────────────────────────────
 
 
-class TestSchedule:
-    def test_schedule_claims_unclaimed_tasks(
+class TestStart:
+    def test_start_spawns_all_tasks_immediately(
         self, store: Store, tmp_workdir: Path, tmp_config: Path,
         env_with_mock_claude: None,
     ) -> None:
+        """Every task spawns the moment start() is called — there is no
+        concurrency cap and no UNCLAIMED holding pen."""
         import ilan.config as cfg_mod
 
-        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir), "num-agents": 2})
+        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
 
         runner = Runner(store)
         for i in range(3):
-            t = Task(name=f"sched-{i}", prompt=f"task {i}", created_at=f"2025-01-0{i+1}T00:00:00+00:00")
+            t = Task(name=f"start-{i}", prompt=f"task {i}", created_at=f"2025-01-0{i+1}T00:00:00+00:00")
             store.put_task(t)
-
-        runner.schedule()
+            assert runner.start(t) is True
 
         tasks = store.load_tasks()
         working = [t for t in tasks.values() if t.status == TaskStatus.WORKING]
-        unclaimed = [t for t in tasks.values() if t.status == TaskStatus.UNCLAIMED]
-        assert len(working) == 2
-        assert len(unclaimed) == 1
+        assert len(working) == 3
+        assert all(t.pid is not None for t in working)
 
         # Clean up
-        for proc in runner._procs.values():
-            proc.wait(timeout=5)
-
-    def test_schedule_respects_max_agents(
-        self, store: Store, tmp_workdir: Path, tmp_config: Path,
-        env_with_mock_claude: None,
-    ) -> None:
-        import ilan.config as cfg_mod
-
-        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir), "num-agents": 1})
-
-        runner = Runner(store)
-        for i in range(3):
-            t = Task(name=f"max-{i}", prompt=f"task {i}", created_at=f"2025-01-0{i+1}T00:00:00+00:00")
-            store.put_task(t)
-
-        runner.schedule()
-
-        tasks = store.load_tasks()
-        working = [t for t in tasks.values() if t.status == TaskStatus.WORKING]
-        assert len(working) == 1
-
         for proc in runner._procs.values():
             proc.wait(timeout=5)
 
@@ -992,11 +970,11 @@ class TestCatchupPrompt:
         _, _ = runner._build_prompt(t)
         assert t.cached_replies == []
 
-    def test_lazy_switch_then_schedule_seeds_fresh_codex(
+    def test_lazy_switch_then_start_seeds_fresh_codex(
         self, store: Store, runner: Runner
     ) -> None:
         """End-to-end: Claude finishes, user switches to Codex and replies; the
-        next schedule seeds a fresh Codex session with the whole transcript."""
+        next spawn seeds a fresh Codex session with the whole transcript."""
         t = Task(name="e2e", prompt="build X", engine=ENGINE_CLAUDE,
                  session_id="claude-sid", sessions={"claude": "claude-sid"},
                  log_cursors={"claude": 2}, status=TaskStatus.AGENT_FINISHED)
@@ -1007,7 +985,7 @@ class TestCatchupPrompt:
         runner.switch_engine(t, ENGINE_CODEX)
         assert t.awaiting_catchup is True
 
-        # Server appends the reply to the log and caches it before scheduling.
+        # Server appends the reply to the log and caches it before starting.
         store.append_log("e2e", "user", "finish it with codex")
         t.cached_replies = ["finish it with codex"]
 

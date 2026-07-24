@@ -417,7 +417,7 @@ def _set_local_config(key: str, value: str) -> object:
 @click.argument("key", shell_complete=_complete_config_keys)
 @click.argument("value")
 def config_set(key: str, value: str) -> None:
-    """Set a configuration value (e.g. ilan config set num-agents 3).
+    """Set a configuration value (e.g. ilan config set model sonnet).
 
     Time-zone accepts friendly aliases, e.g. ``ilan config set time-zone
     tokyo`` or ``ilan config set time-zone pacific`` (case-insensitive).
@@ -614,7 +614,7 @@ def _build_name_cell(row: dict, prefix: str) -> Text:
     cell.append(row["name"], style=f"bold {name_style}".strip())
     if row.get("needs_review"):
         cell.append(" !!", style="bold yellow")
-    if status in (TaskStatus.UNCLAIMED, TaskStatus.WORKING):
+    if status is TaskStatus.WORKING:
         sleep_suffix = _format_sleep_suffix(row.get("sleep_seconds"))
         if sleep_suffix:
             cell.append(sleep_suffix, style=SLEEP_STYLE)

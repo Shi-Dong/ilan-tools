@@ -5,7 +5,7 @@ separate Gist *comment* so GitHub renders the two roles as distinct Markdown
 bubbles, giving a clean web view of the whole conversation.
 
 The work happens on a background thread (:class:`GistSyncer`) so it never
-blocks the scheduler or a client reply: as soon as the agent finishes and the
+blocks the reaper or a client reply: as soon as the agent finishes and the
 task transitions status, the message is enqueued and mirrored asynchronously.
 
 The feature is enabled purely by setting a ``github-token`` config value. When
@@ -232,7 +232,7 @@ class GistSyncer:
 
     Enqueued task names are processed on a single daemon thread. The GitHub
     calls (slow) run outside the server lock; only the short task-state reads
-    and writes take the lock, so the scheduler and client requests are never
+    and writes take the lock, so the reaper and client requests are never
     blocked by network I/O.
     """
 
