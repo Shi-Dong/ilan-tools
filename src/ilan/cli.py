@@ -1028,15 +1028,26 @@ def task_tail(name: str, num: int | None, markdown: bool, line_number: bool | No
 
 # ── task reply ───────────────────────────────────────────────────────
 
+def _model_switch_needed(name: str, max_: bool) -> bool:
+    """Return False when the task's model is already in the requested state."""
+    resp = _client().get_task(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    model = resp.get("task", {}).get("model")
+    return not is_fable_model(model) if max_ else model is not None
+
+
 def _do_reply(
     name: str, message: str, max_: bool = False, unmax: bool = False
 ) -> None:
     # Switch the model first so this reply's own turn (and every one after
     # it) already runs on the new model. On a codex task the max endpoint
-    # warns and leaves the model untouched; the reply is still posted.
-    if max_:
+    # warns and leaves the model untouched; the reply is still posted. If
+    # the model is already in the requested state the switch is silently
+    # skipped.
+    if max_ and _model_switch_needed(name, max_=True):
         _do_max(name)
-    elif unmax:
+    elif unmax and _model_switch_needed(name, max_=False):
         _do_unmax(name)
     if _line_number_enabled():
         message = _expand_at_refs(message, cfg.load_last_tail(name))

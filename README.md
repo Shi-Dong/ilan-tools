@@ -285,9 +285,12 @@ next agent spawn (the next reply), not on an already-running agent.
 `ilan reply` (and its `re` / `ilan task reply` forms) accepts `--max` /
 `--unmax` to combine the two steps: the model is switched first, then the
 reply is posted, so the reply's own turn already runs on the new model and
-the switch persists for every message after it. `--max` on a `codex` task
-prints the same warning as `ilan max` and posts the reply with the model
-untouched. Both flags require a reply message and are mutually exclusive.
+the switch persists for every message after it. If the model is already in
+the requested state (`--max` on a task already running Fable, `--unmax` on
+a task already on the default model), the switch is silently skipped and
+the reply is posted as usual. `--max` on a `codex` task prints the same
+warning as `ilan max` and posts the reply with the model untouched. Both
+flags require a reply message and are mutually exclusive.
 
 ## Agent backends
 

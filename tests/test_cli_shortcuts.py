@@ -911,10 +911,12 @@ class TestUnmaxShorthand:
 class TestReplyMaxFlags:
     """``ilan reply --max`` switches the task to Fable, then posts the reply;
     ``--unmax`` resets the model first. The switch persists (it is the same
-    server-side pin as ``ilan max`` / ``ilan unmax``)."""
+    server-side pin as ``ilan max`` / ``ilan unmax``). When the model is
+    already in the requested state the switch is a silent no-op."""
 
-    def _client_for_reply(self) -> MagicMock:
+    def _client_for_reply(self, model: str | None = None) -> MagicMock:
         client = _make_client()
+        client.get_task.return_value = {"task": {"name": "my-task", "model": model}}
         client.reply.return_value = {"message": "Reply sent."}
         client.max_task.return_value = {"name": "my-task", "model": "claude-fable-5"}
         client.unmax_task.return_value = {"name": "my-task", "model": None}
@@ -980,7 +982,7 @@ class TestReplyMaxFlags:
     def test_reply_unmax_resets_then_replies(
         self, runner: CliRunner, tmp_config
     ) -> None:
-        client = self._client_for_reply()
+        client = self._client_for_reply(model="claude-fable-5")
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["reply", "my-task", "go on", "--unmax"])
         assert result.exit_code == 0
@@ -989,6 +991,35 @@ class TestReplyMaxFlags:
         client.reply.assert_called_once_with("my-task", "go on")
         names = [c[0] for c in client.method_calls]
         assert names.index("unmax_task") < names.index("reply")
+
+    def test_max_on_fable_task_is_silent_noop(
+        self, runner: CliRunner, tmp_config
+    ) -> None:
+        """A task already on Fable is left alone: no switch call, no output
+        beyond the reply confirmation."""
+        client = self._client_for_reply(model="claude-fable-5")
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["reply", "my-task", "go on", "--max"])
+        assert result.exit_code == 0
+        client.max_task.assert_not_called()
+        client.reply.assert_called_once_with("my-task", "go on")
+        out = _strip_ansi(result.output)
+        assert "FABLE" not in out
+        assert "Reply sent." in out
+
+    def test_unmax_on_default_model_is_silent_noop(
+        self, runner: CliRunner, tmp_config
+    ) -> None:
+        """A task already on the default model is left alone by --unmax."""
+        client = self._client_for_reply(model=None)
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["reply", "my-task", "go on", "--unmax"])
+        assert result.exit_code == 0
+        client.unmax_task.assert_not_called()
+        client.reply.assert_called_once_with("my-task", "go on")
+        out = _strip_ansi(result.output)
+        assert "default model" not in out
+        assert "Reply sent." in out
 
     def test_max_and_unmax_are_mutually_exclusive(
         self, runner: CliRunner, tmp_config
@@ -1032,6 +1063,7 @@ class TestReplyMaxFlags:
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["reply", "my-task", "go on"])
         assert result.exit_code == 0
+        client.get_task.assert_not_called()
         client.max_task.assert_not_called()
         client.unmax_task.assert_not_called()
         client.reply.assert_called_once_with("my-task", "go on")
