@@ -407,7 +407,7 @@ class Runner:
         """Best-effort one-line summary of the WORKING→finished transition.
 
         Reads the last user message from the task's log and feeds it +
-        the assistant's new reply to Haiku. Returns ``None`` if there is
+        the assistant's new reply to Luna. Returns ``None`` if there is
         no API key or the request fails — the field stays unset and the
         display falls back to status-only.
         """

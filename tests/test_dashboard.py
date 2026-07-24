@@ -700,14 +700,14 @@ class TestOneLinerWarning:
         monkeypatch.setattr(cli_mod, "console", console_)
 
         client = _make_client()
-        client.get_config.return_value = {"config": {"api-key-claude": ""}}
+        client.get_config.return_value = {"config": {"api-key-codex": ""}}
 
         _maybe_warn_one_liner_unconfigured(client)
         out = buf.getvalue()
         assert "Note" in out
         assert "one-line-summary" in out
-        # The note should explain the local `claude` CLI fallback.
-        assert "claude" in out
+        # The note should explain the local `codex` CLI fallback.
+        assert "codex" in out
 
     def test_no_warning_when_api_key_is_set(
         self, tmp_config, monkeypatch: pytest.MonkeyPatch,
@@ -721,7 +721,7 @@ class TestOneLinerWarning:
         monkeypatch.setattr(cli_mod, "console", console_)
 
         client = _make_client()
-        client.get_config.return_value = {"config": {"api-key-claude": "sk-secret"}}
+        client.get_config.return_value = {"config": {"api-key-codex": "sk-secret"}}
 
         _maybe_warn_one_liner_unconfigured(client)
         assert buf.getvalue() == ""
