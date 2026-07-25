@@ -7,10 +7,12 @@ the PID + port to ``<workdir>/server.pid``.
 
 from __future__ import annotations
 
+import getpass
 import json
 import os
 import re
 import signal
+import sys
 import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -66,6 +68,27 @@ def read_server_info() -> dict | None:
         pf.unlink(missing_ok=True)
         return None
     return info
+
+
+# ── server owner pinning (shared with client.py) ─────────────────────
+
+def server_owner_path() -> Path:
+    return cfg.get_workdir() / "server.owner"
+
+
+def read_server_owner() -> str | None:
+    """Return the account server startup is pinned to, or *None*.
+
+    A ``server.owner`` file in the workdir (containing a username) pins
+    server startup to that account.  This matters when several accounts
+    share one workdir (e.g. on a ``noowners`` volume): a server started
+    under another account spawns agents the pinned owner cannot signal,
+    so every kill/reply on those tasks fails with EPERM.
+    """
+    path = server_owner_path()
+    if not path.exists():
+        return None
+    return path.read_text().strip() or None
 
 
 # ── URL routing table ────────────────────────────────────────────────
@@ -962,6 +985,15 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
 
 
 def main() -> None:
+    owner = read_server_owner()
+    user = getpass.getuser()
+    if owner is not None and user != owner:
+        print(
+            f"ilan workdir {cfg.get_workdir()} is pinned to user {owner!r} "
+            f"(server.owner file); refusing to start a server as {user!r}.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     server = IlanServer()
     server.run()
 

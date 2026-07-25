@@ -15,8 +15,9 @@ import pytest
 
 import ilan.server as srv_mod
 from ilan import __version__
+from ilan.client import Client
 from ilan.models import FABLE_MODEL, TaskStatus
-from ilan.server import IlanServer, read_server_info
+from ilan.server import IlanServer, read_server_info, read_server_owner
 
 
 @pytest.fixture()
@@ -172,6 +173,105 @@ class TestReadServerInfo:
         pf.write_text(json.dumps({"port": 4526}))
         assert read_server_info() is None
         assert not pf.exists()
+
+
+# ── server.owner pinning ────────────────────────────────────────────────
+
+
+class TestServerOwnerPinning:
+    """The ``server.owner`` marker that pins server startup to one account."""
+
+    def _owner_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        path = tmp_path / "server.owner"
+        monkeypatch.setattr("ilan.server.server_owner_path", lambda: path)
+        return path
+
+    def test_missing_file_means_unpinned(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        self._owner_file(tmp_path, monkeypatch)
+        assert read_server_owner() is None
+
+    def test_owner_is_stripped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        self._owner_file(tmp_path, monkeypatch).write_text("shidong\n")
+        assert read_server_owner() == "shidong"
+
+    def test_blank_file_means_unpinned(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        self._owner_file(tmp_path, monkeypatch).write_text("  \n")
+        assert read_server_owner() is None
+
+    def test_main_refuses_other_account(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setattr("ilan.server.read_server_owner", lambda: "shidong")
+        monkeypatch.setattr("ilan.server.getpass.getuser", lambda: "openclaw")
+        with patch.object(srv_mod, "IlanServer") as server_cls:
+            with pytest.raises(SystemExit) as excinfo:
+                srv_mod.main()
+        assert excinfo.value.code == 1
+        server_cls.assert_not_called()
+        err = capsys.readouterr().err
+        assert "'shidong'" in err and "'openclaw'" in err
+
+    def test_main_starts_for_pinned_account(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("ilan.server.read_server_owner", lambda: "shidong")
+        monkeypatch.setattr("ilan.server.getpass.getuser", lambda: "shidong")
+        with patch.object(srv_mod, "IlanServer") as server_cls:
+            srv_mod.main()
+        server_cls.return_value.run.assert_called_once()
+
+    def test_main_starts_when_unpinned(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("ilan.server.read_server_owner", lambda: None)
+        with patch.object(srv_mod, "IlanServer") as server_cls:
+            srv_mod.main()
+        server_cls.return_value.run.assert_called_once()
+
+    def test_client_refuses_to_autostart_for_other_account(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.delenv("ILAN_SERVER_URL", raising=False)
+        monkeypatch.setattr("ilan.client.read_server_owner", lambda: "shidong")
+        monkeypatch.setattr("ilan.client.getpass.getuser", lambda: "openclaw")
+        c = Client()
+        with patch.object(Client, "_probe", return_value=None), \
+             patch.object(Client, "_start_server") as start:
+            with pytest.raises(RuntimeError, match="pinned to user 'shidong'"):
+                c.ensure_server()
+        start.assert_not_called()
+
+    def test_client_autostarts_for_pinned_account(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.delenv("ILAN_SERVER_URL", raising=False)
+        monkeypatch.setattr("ilan.client.read_server_owner", lambda: "shidong")
+        monkeypatch.setattr("ilan.client.getpass.getuser", lambda: "shidong")
+        c = Client()
+        info = {"pid": 1, "port": 4526}
+        with patch.object(Client, "_probe", return_value=None), \
+             patch.object(Client, "_start_server") as start, \
+             patch.object(Client, "_wait_for_server", return_value=info):
+            assert c.ensure_server() == info
+        start.assert_called_once()
+
+    def test_client_uses_running_server_regardless_of_owner(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Pinning restricts *starting* servers, not talking to one."""
+        monkeypatch.delenv("ILAN_SERVER_URL", raising=False)
+        monkeypatch.setattr("ilan.client.read_server_owner", lambda: "shidong")
+        monkeypatch.setattr("ilan.client.getpass.getuser", lambda: "openclaw")
+        c = Client()
+        info = {"pid": 1, "port": 4526}
+        with patch.object(Client, "_probe", return_value=info):
+            assert c.ensure_server() == info
 
 
 # ── Health & Version ────────────────────────────────────────────────────

@@ -69,6 +69,16 @@ When the env var is unset, `ilan` starts and talks to a local server as usual.
 
 When connecting to a remote server, the CLI automatically checks whether the local and server ilan code are built from the same git commit. If they differ, a warning is printed with both commit hashes so you can decide whether to update.
 
+### Pinning the server to one account
+
+If several user accounts share one workdir (e.g. on a volume mounted with `noowners`), whichever account happens to run `ilan` first auto-starts the server — and the agents it spawns belong to that account, so the other accounts can't signal them (kills and replies fail with EPERM). To pin server startup to a single account, put that account's username in a `server.owner` file in the workdir:
+
+```bash
+echo shidong > /path/to/workdir/server.owner
+```
+
+Any other account then refuses to start (or auto-start) a server against that workdir with a clear error, but can still talk to a running server normally. Remove the file to unpin.
+
 ## Task aliases
 
 Every non-terminal task is automatically assigned a two-letter alias (e.g. `aa`, `sd`, `kl`) drawn from the characters `asdfghjkl`. Aliases are displayed in bold magenta in `ilan ls` and can be used in place of the full task name in any command:

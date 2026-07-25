@@ -5,6 +5,7 @@ Auto-starts the server on the first call if it isn't already running.
 
 from __future__ import annotations
 
+import getpass
 import json
 import os
 import subprocess
@@ -15,7 +16,7 @@ from urllib.request import Request, urlopen
 
 from ilan import config as cfg
 from ilan import get_git_commit
-from ilan.server import pid_file_path, read_server_info
+from ilan.server import pid_file_path, read_server_info, read_server_owner
 
 SERVER_URL_ENV = "ILAN_SERVER_URL"
 
@@ -73,6 +74,15 @@ class Client:
         info = self._probe()
         if info:
             return info
+
+        owner = read_server_owner()
+        user = getpass.getuser()
+        if owner is not None and user != owner:
+            raise RuntimeError(
+                f"No ilan server is running, and this workdir is pinned to "
+                f"user {owner!r} (server.owner file); not auto-starting one "
+                f"as {user!r}. Ask {owner!r} to start the server."
+            )
 
         self._start_server()
         return self._wait_for_server()
