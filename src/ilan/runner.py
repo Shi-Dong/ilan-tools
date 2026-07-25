@@ -221,7 +221,12 @@ class Runner:
         if task.pid and self._pid_alive(task.pid):
             try:
                 os.kill(task.pid, signal.SIGTERM)
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):
+                # EPERM: the stored pid now belongs to another user's
+                # process — e.g. it was spawned by a server that ran under
+                # a different account, or the OS recycled the pid after the
+                # agent died. It isn't ours to signal; forget it instead of
+                # crashing the request that triggered the kill.
                 pass
         proc = self._procs.pop(task.name, None)
         if proc is not None:
