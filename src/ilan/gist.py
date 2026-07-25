@@ -24,6 +24,8 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Sequence
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from ilan import config as cfg
 from ilan.models import LogEntry
@@ -132,14 +134,37 @@ def _convert_math_delimiters(text: str) -> str:
     return "".join(segments)
 
 
+def _format_entry_timestamp(iso: str) -> str:
+    """Render a log entry's UTC timestamp in the configured time-zone.
+
+    Runs in the server process, so the zone is the one configured on the host
+    running ilan rather than on whichever client posted the message. Returns
+    an empty string for a missing or unparseable stamp.
+    """
+    if not iso:
+        return ""
+    try:
+        tz = ZoneInfo(str(cfg.load().get("time-zone", "US/Pacific")))
+        local = datetime.fromisoformat(iso).astimezone(tz)
+        return local.strftime("%Y-%m-%d, %H:%M:%S %Z")
+    except Exception:
+        return ""
+
+
 def format_comment(entry: LogEntry) -> str:
     """Render a log entry as Markdown for a gist comment.
 
     The stored content is already Markdown, so we post it as-is under a short
     bold role header (all comments come from the same GitHub account, so the
-    header is what tells User and Assistant bubbles apart).
+    header is what tells User and Assistant bubbles apart). The header also
+    carries the message's local timestamp, since a Gist comment otherwise only
+    shows the time it was *mirrored*, which for a backfill is not the time the
+    message was actually sent.
     """
     label = _ROLE_LABELS.get(entry.role.strip().lower(), entry.role or "Message")
+    stamp = _format_entry_timestamp(entry.timestamp)
+    if stamp:
+        label = f"{label} ({stamp})"
     body = _convert_math_delimiters(entry.content or "")
     if len(body) > _MAX_COMMENT_CHARS:
         body = body[:_MAX_COMMENT_CHARS] + "\n\n…[truncated]"
