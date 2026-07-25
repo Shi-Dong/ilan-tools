@@ -987,7 +987,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
 def main() -> None:
     owner = read_server_owner()
     user = getpass.getuser()
-    if owner and user != owner:
+    if owner is not None and user != owner:
         print(
             f"ilan workdir {cfg.get_workdir()} is pinned to user {owner!r} "
             f"(server.owner file); refusing to start a server as {user!r}.",

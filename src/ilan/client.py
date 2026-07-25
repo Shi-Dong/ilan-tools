@@ -77,7 +77,7 @@ class Client:
 
         owner = read_server_owner()
         user = getpass.getuser()
-        if owner and user != owner:
+        if owner is not None and user != owner:
             raise RuntimeError(
                 f"No ilan server is running, and this workdir is pinned to "
                 f"user {owner!r} (server.owner file); not auto-starting one "
