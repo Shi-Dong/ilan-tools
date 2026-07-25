@@ -454,6 +454,34 @@ class TestReplyToWorking:
         assert updated.needs_review is False
 
 
+# ── kill ────────────────────────────────────────────────────────────────
+
+
+class TestKill:
+    def test_sigterm_eperm_is_swallowed_and_pid_cleared(
+        self, store: Store, runner: Runner,
+    ) -> None:
+        """A stored pid we cannot signal must not crash the kill.
+
+        ``os.kill`` raises EPERM when the pid belongs to another user's
+        process — the OS recycled the pid after the agent died, or the
+        agent was spawned by a server running under a different account.
+        ``_pid_alive`` deliberately reports such a pid as alive, so ``kill``
+        goes on to SIGTERM it and must swallow the EPERM like it already
+        swallows ESRCH; otherwise every reply/kill on the task 500s with
+        ``[Errno 1] Operation not permitted``.
+        """
+        t = Task(name="eperm", prompt="p", status=TaskStatus.WORKING, pid=68563)
+        store.put_task(t)
+
+        with patch.object(Runner, "_pid_alive", return_value=True), \
+             patch("ilan.runner.os.kill",
+                   side_effect=PermissionError(1, "Operation not permitted")):
+            runner.kill(t)  # must not raise
+
+        assert t.pid is None
+
+
 # ── _output_complete ────────────────────────────────────────────────────
 
 
