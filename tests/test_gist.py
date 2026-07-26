@@ -781,29 +781,6 @@ class TestSyncTask:
 
 
 class TestEnqueue:
-    def test_start_backfills_existing_gist_browser_title(
-        self, store: Store, syncer: GistSyncer, fake_gh: _FakeGitHub
-    ) -> None:
-        task = Task(name="legacy", prompt="p")
-        task.gist_id = "gid-legacy"
-        task.gist_url = "https://gist.github.com/u/gid-legacy"
-        task.gist_synced_count = 1
-        task.gist_title_name = "legacy"
-        store.put_task(task)
-        store.append_log("legacy", "user", "hi")
-
-        syncer.start()
-        try:
-            deadline = threading.Event()
-            for _ in range(50):
-                if store.get_task("legacy").gist_description_name == "legacy":
-                    break
-                deadline.wait(0.05)
-        finally:
-            syncer.stop()
-
-        assert fake_gh.title_updates == [("gid-legacy", "legacy")]
-
     def test_enqueue_dedups(
         self, syncer: GistSyncer, monkeypatch: pytest.MonkeyPatch
     ) -> None:

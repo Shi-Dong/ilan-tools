@@ -340,17 +340,6 @@ class GistSyncer:
             return
         self._thread = threading.Thread(target=self._loop, name="gist-syncer", daemon=True)
         self._thread.start()
-        # Upgrade Gists created before their descriptions tracked task names.
-        # The work stays on the background worker, so server startup is not
-        # delayed by GitHub I/O.
-        with self.lock:
-            tasks = list(self.store.load_tasks().values())
-        for task in tasks:
-            if task.gist_id is not None and (
-                task.gist_title_name != task.name
-                or task.gist_description_name != task.name
-            ):
-                self.enqueue(task.name)
 
     def stop(self) -> None:
         self._stop.set()
