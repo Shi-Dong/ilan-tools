@@ -92,7 +92,7 @@ def _title_line(task_name: str) -> str:
 
 def gist_description(task_name: str) -> str:
     """The Gist description, which GitHub uses as the browser-tab title."""
-    return f"ilan task `{task_name}`"
+    return f"ilan task ({task_name})"
 
 
 def landing_content(task_name: str) -> str:
@@ -383,7 +383,8 @@ class GistSyncer:
             already = task.gist_synced_count
             display_name = task.name
             title_name = task.gist_title_name
-            description_name = task.gist_description_name
+            current_description = task.gist_description
+            expected_description = gist_description(display_name)
 
         entries: Sequence[LogEntry] = self.store.read_logs(name)
         if gist_id is None and not entries:
@@ -395,7 +396,7 @@ class GistSyncer:
                 token,
                 filename,
                 content,
-                gist_description(display_name),
+                expected_description,
             )
             with self.lock:
                 task = self.store.get_task(name)
@@ -404,9 +405,12 @@ class GistSyncer:
                 task.gist_id = gist_id
                 task.gist_url = html_url
                 task.gist_title_name = display_name
-                task.gist_description_name = display_name
+                task.gist_description = expected_description
                 self.store.put_task(task)
-        elif title_name != display_name or description_name != display_name:
+        elif (
+            title_name != display_name
+            or current_description != expected_description
+        ):
             # The task was renamed or predates one of the title trackers:
             # rewrite both GitHub's tab title and the Markdown title line.
             update_gist_title(token, gist_id, display_name)
@@ -414,7 +418,7 @@ class GistSyncer:
                 task = self.store.get_task(name)
                 if task is not None:
                     task.gist_title_name = display_name
-                    task.gist_description_name = display_name
+                    task.gist_description = expected_description
                     self.store.put_task(task)
 
         pending = list(entries[already:])

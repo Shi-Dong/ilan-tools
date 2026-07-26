@@ -176,7 +176,7 @@ class TestTask:
             "parent_name", "summary_one_liner", "model", "last_assistant_model",
             "spawn_effort", "last_assistant_effort",
             "gist_id", "gist_url", "gist_synced_count", "gist_title_name",
-            "gist_description_name",
+            "gist_description",
             "engine", "sessions", "log_cursors", "awaiting_catchup",
         }
         assert set(d.keys()) == expected_keys
@@ -268,7 +268,7 @@ class TestTask:
         assert t.gist_url is None
         assert t.gist_synced_count == 0
         assert t.gist_title_name is None
-        assert t.gist_description_name is None
+        assert t.gist_description is None
 
     def test_gist_fields_roundtrip(self) -> None:
         t = self._make_task()
@@ -276,14 +276,14 @@ class TestTask:
         t.gist_url = "https://gist.github.com/u/gid123"
         t.gist_synced_count = 5
         t.gist_title_name = "my-task"
-        t.gist_description_name = "my-task"
+        t.gist_description = "ilan task (my-task)"
         d = t.to_dict()
         t2 = Task.from_dict(d)
         assert t2.gist_id == "gid123"
         assert t2.gist_url == "https://gist.github.com/u/gid123"
         assert t2.gist_synced_count == 5
         assert t2.gist_title_name == "my-task"
-        assert t2.gist_description_name == "my-task"
+        assert t2.gist_description == "ilan task (my-task)"
 
     def test_from_dict_missing_gist_fields(self) -> None:
         d = {"name": "old", "prompt": "p", "status": "UNCLAIMED"}
@@ -292,7 +292,17 @@ class TestTask:
         assert t.gist_url is None
         assert t.gist_synced_count == 0
         assert t.gist_title_name is None
-        assert t.gist_description_name is None
+        assert t.gist_description is None
+
+    def test_legacy_gist_description_name_is_treated_as_stale(self) -> None:
+        d = {
+            "name": "old",
+            "prompt": "p",
+            "status": "WORKING",
+            "gist_description_name": "old",
+        }
+        t = Task.from_dict(d)
+        assert t.gist_description is None
 
     # ── engine / per-backend session map ────────────────────────────────
 
