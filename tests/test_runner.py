@@ -31,6 +31,19 @@ def runner(store: Store) -> Runner:
     return Runner(store)
 
 
+@pytest.fixture(autouse=True)
+def no_real_one_liner(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the one-liner generator for every test in this module.
+
+    The real ``generate_one_liner`` reads the user's actual ilan config and,
+    with no ``api-key-codex`` set, shells out to the ``codex`` CLI — a live
+    LLM call on every reap that reaches AGENT_FINISHED/NEEDS_ATTENTION
+    (2-5s per test, network, quota). Tests that exercise the one-liner flow
+    override this with their own ``patch``.
+    """
+    monkeypatch.setattr("ilan.runner.generate_one_liner", lambda *_: None)
+
+
 # ── _parse_status_marker ────────────────────────────────────────────────
 
 
