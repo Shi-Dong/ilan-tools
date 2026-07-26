@@ -159,7 +159,15 @@ class IlanServer:
 
     # ── lifecycle ────────────────────────────────────────────────
 
-    def run(self, host: str = "0.0.0.0", port: int = DEFAULT_PORT) -> None:
+    def run(
+        self,
+        host: str = "0.0.0.0",
+        port: int = DEFAULT_PORT,
+        poll_interval: float = 0.5,
+    ) -> None:
+        # ``shutdown()`` blocks until the serve loop's next ``select()`` tick,
+        # so *poll_interval* bounds shutdown latency. Tests pass a small value
+        # to keep per-test server teardown cheap.
         handler_cls = _make_handler()
         self._httpd = _HTTPServer((host, port), handler_cls, self)
         actual_port = self._httpd.server_address[1]
@@ -182,7 +190,7 @@ class IlanServer:
         self.gist.start()
 
         try:
-            self._httpd.serve_forever(poll_interval=0.5)
+            self._httpd.serve_forever(poll_interval=poll_interval)
         finally:
             pf.unlink(missing_ok=True)
 

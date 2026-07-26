@@ -68,7 +68,13 @@ def ilan_server(tmp_workdir: Path, tmp_config: Path, env_with_mock_claude: None)
     server.runner.schedule = lambda: None
 
     with patch.object(signal, "signal"):
-        t = threading.Thread(target=server.run, kwargs={"host": "127.0.0.1", "port": 0}, daemon=True)
+        # Small poll_interval: shutdown() blocks for up to one serve-loop
+        # tick, and this function-scoped fixture tears a server down per test.
+        t = threading.Thread(
+            target=server.run,
+            kwargs={"host": "127.0.0.1", "port": 0, "poll_interval": 0.01},
+            daemon=True,
+        )
         t.start()
 
         deadline = time.monotonic() + 5
