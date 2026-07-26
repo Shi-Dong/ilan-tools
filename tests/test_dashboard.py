@@ -565,8 +565,13 @@ class TestHistoryColumn:
         table.add_column("History", width=20)  # far wider than "history"
         table.add_row("x", cell)
         buf = io.StringIO()
+        # no_color=False: Rich honors the NO_COLOR env var by dropping color
+        # SGR codes (underline survives), which would turn the expected
+        # ``4;34`` run into ``4`` and break the byte-exact assertions below
+        # whenever the test runs under NO_COLOR (CI, agent shells).
         Console(
-            file=buf, force_terminal=True, width=60, color_system="standard"
+            file=buf, force_terminal=True, width=60, color_system="standard",
+            no_color=False,
         ).print(table)
         out = buf.getvalue()
         # Underline (SGR 4) + blue (34) opens right before the word and resets
