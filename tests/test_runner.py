@@ -99,6 +99,71 @@ class TestBuildPrompt:
         assert "a\n\nb\n\nc" in prompt
 
 
+class TestBuildPromptLostSession:
+    """When a task's session log is unfindable (deleted, or created under
+    another account's home), the fresh replacement session must be seeded
+    with the unified-log transcript instead of just the original prompt."""
+
+    def test_seeds_fresh_session_with_full_transcript(
+        self, store: Store, runner: Runner
+    ) -> None:
+        # kill → ERROR → reply: the reply is in cached_replies AND the log.
+        t = Task(name="ls1", prompt="Do X", engine=ENGINE_CODEX,
+                 session_id="dead-sid", sessions={"codex": "dead-sid"},
+                 log_cursors={"codex": 2}, cached_replies=["finish it"])
+        store.append_log("ls1", "user", "Do X")
+        store.append_log("ls1", "assistant", "did step 1")
+        store.append_log("ls1", "user", "finish it")
+        store.put_task(t)
+
+        with patch.object(Runner, "_find_session_log", return_value=None):
+            prompt, resume = runner._build_prompt(t)
+
+        assert resume is False
+        assert "full conversation" in prompt.lower()
+        assert "Do X" in prompt
+        assert "did step 1" in prompt  # the turn that used to vanish
+        assert "finish it" in prompt
+        assert t.session_id is None
+        assert t.session_log_path is None
+        assert t.cached_replies == []
+        # Consumed only at reap, so a failed spawn retries the same seed.
+        assert t.awaiting_catchup is True
+        assert t.log_cursors["codex"] == 0
+
+    def test_seeds_even_without_cached_replies(
+        self, store: Store, runner: Runner
+    ) -> None:
+        t = Task(name="ls2", prompt="Do X", engine=ENGINE_CLAUDE,
+                 session_id="dead-sid", sessions={"claude": "dead-sid"})
+        store.append_log("ls2", "user", "Do X")
+        store.append_log("ls2", "assistant", "half done")
+        store.put_task(t)
+
+        with patch.object(Runner, "_find_session_log", return_value=None):
+            prompt, resume = runner._build_prompt(t)
+
+        assert resume is False
+        assert "half done" in prompt
+        assert prompt != "Please continue working on this task."
+
+    def test_clears_stale_session_map_entry(
+        self, store: Store, runner: Runner
+    ) -> None:
+        """A later engine-switch round-trip must not resurrect the dead id."""
+        t = Task(name="ls3", prompt="Do X", engine=ENGINE_CODEX,
+                 session_id="dead-sid",
+                 sessions={"codex": "dead-sid", "claude": "live-claude-sid"})
+        store.append_log("ls3", "user", "Do X")
+        store.put_task(t)
+
+        with patch.object(Runner, "_find_session_log", return_value=None):
+            runner._build_prompt(t)
+
+        assert "codex" not in t.sessions
+        assert t.sessions["claude"] == "live-claude-sid"  # untouched
+
+
 # ── _tmux_instruction ──────────────────────────────────────────────────
 
 

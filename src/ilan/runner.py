@@ -295,8 +295,17 @@ class Runner:
     def _build_prompt(self, task: Task) -> tuple[str, bool]:
         """Return (prompt_text, is_resume) for a task about to be scheduled."""
         if task.session_id and not self._find_session_log(task.session_id, task.engine):
+            # The session log is gone — deleted, or created under another
+            # account's home (both backends store session logs per-user).
+            # The next spawn must start a fresh session; seed it with the
+            # full unified-log transcript via the catch-up path, otherwise
+            # the new agent would receive only the original prompt and
+            # every intermediate turn would silently vanish.
+            task.sessions.pop(task.engine, None)
             task.session_id = None
             task.session_log_path = None
+            task.awaiting_catchup = True
+            task.log_cursors[task.engine] = 0
 
         if task.awaiting_catchup:
             return self._build_catchup_prompt(task)
