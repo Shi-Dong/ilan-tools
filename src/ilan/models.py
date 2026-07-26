@@ -137,6 +137,10 @@ class Task:
     # a task is renamed this diverges from ``name``, which tells the syncer to
     # rewrite the title so it tracks the new name.
     gist_title_name: str | None = None
+    # The exact Gist description, which GitHub uses as the browser-tab title.
+    # Tracking the rendered value makes punctuation changes detectable even
+    # when the task name itself has not changed.
+    gist_description: str | None = None
     # Which agent CLI drives this task. Toggled by ``ilan switch-backend``.
     engine: str = DEFAULT_ENGINE
     # Per-engine native session ids ({"claude": <uuid>, "codex": <uuid>}). Each
@@ -203,6 +207,7 @@ class Task:
             "gist_url": self.gist_url,
             "gist_synced_count": self.gist_synced_count,
             "gist_title_name": self.gist_title_name,
+            "gist_description": self.gist_description,
             "engine": self.engine,
             "sessions": self.sessions,
             "log_cursors": self.log_cursors,
@@ -239,6 +244,7 @@ class Task:
             gist_url=d.get("gist_url"),
             gist_synced_count=d.get("gist_synced_count", 0),
             gist_title_name=d.get("gist_title_name"),
+            gist_description=d.get("gist_description"),
             engine=d.get("engine", DEFAULT_ENGINE),
             sessions=cls._migrate_sessions(d),
             log_cursors=dict(d.get("log_cursors") or {}),

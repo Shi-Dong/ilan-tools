@@ -19,6 +19,7 @@ import ilan.gist as gist_mod
 from ilan.gist import (
     GistSyncer,
     format_comment,
+    gist_description,
     gist_enabled,
     github_token,
     initial_file,
@@ -45,6 +46,9 @@ class TestHelpers:
         # sync on rename (see the rename tests below), so it never goes stale.
         assert content.startswith("# ilan task `task-abc`\n")
         assert "task-abc" in content
+
+    def test_gist_description_contains_task_name(self) -> None:
+        assert gist_description("task-abc") == "ilan task (task-abc)"
 
     def test_format_comment_user(self) -> None:
         entry = LogEntry(role="user", content="hello **world**", timestamp="")
@@ -250,24 +254,31 @@ class TestUpdateGistTitle:
         method, path, payload = calls[1]
         assert method == "PATCH"
         assert path == "/gists/gid9"
+        assert payload["description"] == "ilan task (new-name)"
         # The pre-existing filename is reused (file edited in place), and the
         # new content's title line tracks the new name.
         content = payload["files"]["old-name.md"]["content"]
         assert content.startswith("# ilan task `new-name`\n")
 
-    def test_update_gist_title_noop_when_no_file(
+    def test_update_gist_title_still_updates_description_when_no_file(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        methods: list[str] = []
+        calls: list[tuple] = []
 
         def fake_api(method, path, token, payload=None):  # noqa: ANN001
-            methods.append(method)
+            calls.append((method, path, payload))
             return {"files": {}}
 
         monkeypatch.setattr(gist_mod, "_api_request", fake_api)
         gist_mod.update_gist_title("tok", "gid9", "new-name")
-        # No file to edit → GET only, never a PATCH.
-        assert methods == ["GET"]
+        assert calls == [
+            ("GET", "/gists/gid9", None),
+            (
+                "PATCH",
+                "/gists/gid9",
+                {"description": "ilan task (new-name)"},
+            ),
+        ]
 
 
 # ── last-comment deep link ──────────────────────────────────────────────
@@ -577,9 +588,11 @@ class TestSyncTask:
         assert task.gist_id == "gid-1"
         assert task.gist_url.endswith("gid-1")
         assert task.gist_synced_count == 2
-        # Creation records the name written into the title line and needs no
-        # separate title-update call.
+        # Creation records the name written into both title locations and needs
+        # no separate title-update call.
         assert task.gist_title_name == "t1"
+        assert task.gist_description == "ilan task (t1)"
+        assert fake_gh.created == [("t1.md", "ilan task (t1)")]
         assert fake_gh.title_updates == []
 
     def test_rename_refreshes_title(
@@ -590,8 +603,8 @@ class TestSyncTask:
         syncer.sync_task("t1")
         gid = store.get_task("t1").gist_id
 
-        # Rename, then re-sync: the title line must be rewritten to the new name
-        # without recreating the gist or reposting comments.
+        # Rename, then re-sync: both title locations must be rewritten to the
+        # new name without recreating the gist or reposting comments.
         store.rename_task("t1", "t1-renamed")
         syncer.sync_task("t1-renamed")
 
@@ -601,6 +614,7 @@ class TestSyncTask:
         task = store.get_task("t1-renamed")
         assert task is not None
         assert task.gist_title_name == "t1-renamed"
+        assert task.gist_description == "ilan task (t1-renamed)"
 
     def test_no_title_update_when_name_unchanged(
         self, store: Store, syncer: GistSyncer, fake_gh: _FakeGitHub
@@ -623,6 +637,7 @@ class TestSyncTask:
         task.gist_url = "https://gist.github.com/u/gid-legacy"
         task.gist_synced_count = 1
         task.gist_title_name = None
+        task.gist_description = None
         store.put_task(task)
         store.append_log("legacy", "user", "hi")
 
@@ -632,6 +647,29 @@ class TestSyncTask:
         refreshed = store.get_task("legacy")
         assert refreshed is not None
         assert refreshed.gist_title_name == "legacy"
+        assert refreshed.gist_description == "ilan task (legacy)"
+
+    def test_existing_gist_with_backtick_description_gets_refreshed(
+        self, store: Store, syncer: GistSyncer, fake_gh: _FakeGitHub
+    ) -> None:
+        # The previous description format used literal Markdown backticks,
+        # which browser tabs do not render. The next sync replaces them.
+        task = Task(name="legacy", prompt="p")
+        task.gist_id = "gid-legacy"
+        task.gist_url = "https://gist.github.com/u/gid-legacy"
+        task.gist_synced_count = 1
+        task.gist_title_name = "legacy"
+        task.gist_description = "ilan task `legacy`"
+        store.put_task(task)
+        store.append_log("legacy", "user", "hi")
+
+        syncer.sync_task("legacy")
+
+        assert fake_gh.title_updates == [("gid-legacy", "legacy")]
+        refreshed = store.get_task("legacy")
+        assert refreshed is not None
+        assert refreshed.gist_title_name == "legacy"
+        assert refreshed.gist_description == "ilan task (legacy)"
 
     def test_throttles_between_comments(
         self, store: Store, syncer: GistSyncer, monkeypatch: pytest.MonkeyPatch
