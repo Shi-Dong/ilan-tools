@@ -835,11 +835,21 @@ def task_check_model(name: str) -> None:
 
 # ── task tail ────────────────────────────────────────────────────────
 
-def _print_reply_hint(handle: str) -> None:
-    """Print the ``ilan re <handle>`` reminder shown at the end of tail output."""
-    console.print(
-        f"[dim]To reply to the task, run [/dim][bright_red]ilan re {handle}[/bright_red]"
+def _print_reply_hint(alias: str | None, name: str) -> None:
+    """Print the ``ilan re`` reminder shown at the end of tail output.
+
+    Both handles reach the same task, so offer the short alias first and
+    the full name second; an unaliased task only gets the name.
+    """
+    hint = (
+        "[dim]To reply to the task, run [/dim]"
+        f"[bright_red]ilan re {alias or name}[/bright_red]"
     )
+    if alias:
+        hint += f"[dim], or [/dim][bright_red]ilan re {name}[/bright_red]"
+    # highlight=False so Rich's auto-highlighter leaves the digits in
+    # date-prefixed task names alone.
+    console.print(hint, highlight=False)
 
 
 def _print_last_model_hint(
@@ -906,24 +916,24 @@ def _do_tail(
         resp = client.get_logs(name)
         if _check_error(resp):
             raise SystemExit(1)
-        reply_handle = resp.get("alias") or resp.get("name") or name
+        reply_alias, reply_name = resp.get("alias"), resp.get("name") or name
         if resp.get("warning"):
             console.print(f"[yellow]{resp['warning']}[/yellow]")
         entries = resp.get("logs", [])
         if not entries:
             if not resp.get("warning"):
                 console.print("[yellow]No logs yet.[/yellow]")
-            _print_reply_hint(reply_handle)
+            _print_reply_hint(reply_alias, reply_name)
             return
         entries = entries[-n:]
     else:
         resp = client.get_tail(name)
         if _check_error(resp):
             raise SystemExit(1)
-        reply_handle = resp.get("alias") or resp.get("name") or name
+        reply_alias, reply_name = resp.get("alias"), resp.get("name") or name
         if resp.get("warning"):
             console.print(f"[yellow]{resp['warning']}[/yellow]")
-            _print_reply_hint(reply_handle)
+            _print_reply_hint(reply_alias, reply_name)
             return
         entries = resp["entries"]
 
@@ -1035,7 +1045,7 @@ def _do_tail(
         client, name,
         resp.get("last_assistant_model"), resp.get("last_assistant_effort"),
     )
-    _print_reply_hint(reply_handle)
+    _print_reply_hint(reply_alias, reply_name)
 
 
 @task_group.command("tail")
@@ -1067,6 +1077,22 @@ def _model_switch_needed(name: str, max_: bool) -> bool:
     return not is_fable_model(model) if max_ else model is not None
 
 
+def _print_reply_confirmation(message: str, task_name: str | None) -> None:
+    """Print the server's reply confirmation, picking the task name out in bold.
+
+    Servers predating the named confirmation return no ``name``, so their
+    message stays plain green.
+    """
+    if not task_name or task_name not in message:
+        console.print(f"[green]{message}[/green]")
+        return
+    head, _, tail = message.partition(task_name)
+    console.print(
+        f"[green]{head}[/green][bold cyan]{task_name}[/bold cyan][green]{tail}[/green]",
+        highlight=False,
+    )
+
+
 def _do_reply(
     name: str, message: str, max_: bool = False, unmax: bool = False
 ) -> None:
@@ -1087,7 +1113,7 @@ def _do_reply(
     if resp.get("warning"):
         console.print(f"[yellow]{resp['warning']}[/yellow]")
     elif resp.get("message"):
-        console.print(f"[green]{resp['message']}[/green]")
+        _print_reply_confirmation(resp["message"], resp.get("name"))
 
 
 def _check_reply_model_flags(

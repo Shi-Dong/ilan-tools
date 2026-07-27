@@ -755,7 +755,8 @@ class TestReply:
 
         resp = _post(ilan_server, "/tasks/reply-na/reply", {"message": "fix it"})
         assert resp.get("ok") is True
-        assert resp["message"] == "Reply sent. Agent resumed."
+        assert resp["name"] == "reply-na"
+        assert resp["message"] == "Reply sent to reply-na. Agent resumed."
 
         task = _get(ilan_server, "/tasks/reply-na")["task"]
         assert task["status"] == "WORKING"

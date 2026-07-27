@@ -557,7 +557,11 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 store.append_log(task.name, "user", message)
                 store.put_task(task)
                 runner.start(task)
-            self._json({"ok": True, "message": "Reply sent. Agent resumed."})
+            self._json({
+                "ok": True,
+                "name": task.name,
+                "message": f"Reply sent to {task.name}. Agent resumed.",
+            })
 
         def handle_task_sleep(self, name: str):
             body = self._body()
