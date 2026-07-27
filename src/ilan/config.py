@@ -72,7 +72,14 @@ SECRET_KEYS = {"api-key-claude", "api-key-codex", "github-token"}
 # (rendering, input rewriting, etc.).  ``ilan config set`` writes these to
 # the local config file instead of routing them through the server, so the
 # toggle works the same way whether the server is local or remote.
-CLIENT_SIDE_KEYS = {"line-number", "markdown", "time-zone", "one-line-summary"}
+CLIENT_SIDE_KEYS = {
+    "dashboard-interval",
+    "editor",
+    "line-number",
+    "markdown",
+    "one-line-summary",
+    "time-zone",
+}
 
 _CONFIG_DIR = Path("~/.config/ilan").expanduser()
 _CONFIG_FILE = _CONFIG_DIR / "config.json"

@@ -293,29 +293,101 @@ class TestClientSideConfigSet:
         """``ilan config set line-number true`` must never hit the server."""
         client = _make_client()
         with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["config", "set", "line-number", "true"])
+            result = runner.invoke(
+                main,
+                ["config", "set", "line-number", "true"],
+                input="y\n",
+            )
         assert result.exit_code == 0
         client.set_config.assert_not_called()
         assert cfg.load()["line-number"] is True
-        assert "client-side" in result.output
+        assert "client-side config" in result.output
+        assert "this client" in result.output
 
     def test_line_number_false_writes_local(self, runner: CliRunner, tmp_config: Path) -> None:
         cfg.save({**cfg.DEFAULTS, "line-number": True})
         client = _make_client()
         with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["config", "set", "line-number", "false"])
+            result = runner.invoke(
+                main,
+                ["config", "set", "--yes", "line-number", "false"],
+            )
         assert result.exit_code == 0
+        client.set_config.assert_not_called()
+        assert cfg.load()["line-number"] is False
+
+    def test_declining_client_side_prompt_does_not_write(
+        self, runner: CliRunner, tmp_config: Path,
+    ) -> None:
+        client = _make_client()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main,
+                ["config", "set", "line-number", "true"],
+                input="n\n",
+            )
+        assert result.exit_code != 0
         client.set_config.assert_not_called()
         assert cfg.load()["line-number"] is False
 
     def test_server_side_key_still_routes_to_server(self, runner: CliRunner, tmp_config: Path) -> None:
         """Non-client-side keys continue to go through the server."""
         client = _make_client()
-        client.set_config.return_value = {"ok": True, "key": "dashboard-interval", "value": 7}
+        client.set_config.return_value = {
+            "ok": True,
+            "key": "model-claude",
+            "value": "claude-sonnet-4-6",
+        }
         with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["config", "set", "dashboard-interval", "7"])
+            result = runner.invoke(
+                main,
+                ["config", "set", "model-claude", "claude-sonnet-4-6"],
+                input="y\n",
+            )
         assert result.exit_code == 0
-        client.set_config.assert_called_once_with("dashboard-interval", "7")
+        client.set_config.assert_called_once_with(
+            "model-claude", "claude-sonnet-4-6"
+        )
+        assert "server-side config" in result.output
+        assert "connected ilan server" in result.output
+
+    def test_declining_server_side_prompt_does_not_write(
+        self, runner: CliRunner, tmp_config: Path,
+    ) -> None:
+        client = _make_client()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main,
+                ["config", "set", "model-claude", "claude-sonnet-4-6"],
+                input="n\n",
+            )
+        assert result.exit_code != 0
+        client.set_config.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("key", "value", "expected"),
+        [
+            ("dashboard-interval", "7", 7),
+            ("editor", "vim", "vim"),
+        ],
+    )
+    def test_locally_consumed_keys_write_local(
+        self,
+        runner: CliRunner,
+        tmp_config: Path,
+        key: str,
+        value: str,
+        expected: object,
+    ) -> None:
+        client = _make_client()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main,
+                ["config", "set", "--yes", key, value],
+            )
+        assert result.exit_code == 0
+        client.set_config.assert_not_called()
+        assert cfg.load()[key] == expected
 
     def test_show_overlays_client_side_keys(self, runner: CliRunner, tmp_config: Path) -> None:
         """``config show`` should surface the local value for client-side keys,
@@ -344,7 +416,10 @@ class TestTimeZoneAliasSet:
         """``ilan config set time-zone tokyo`` stores the resolved IANA name, no server hit."""
         client = _make_client()
         with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["config", "set", "time-zone", "tokyo"])
+            result = runner.invoke(
+                main,
+                ["config", "set", "--yes", "time-zone", "tokyo"],
+            )
         assert result.exit_code == 0
         client.set_config.assert_not_called()
         assert cfg.load()["time-zone"] == "Asia/Tokyo"
@@ -370,21 +445,30 @@ class TestTimeZoneAliasSet:
     def test_all_aliases_via_config_set(self, runner: CliRunner, tmp_config: Path, alias: str, expected: str) -> None:
         client = _make_client()
         with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["config", "set", "time-zone", alias])
+            result = runner.invoke(
+                main,
+                ["config", "set", "--yes", "time-zone", alias],
+            )
         assert result.exit_code == 0
         assert cfg.load()["time-zone"] == expected
 
     def test_alias_is_case_insensitive(self, runner: CliRunner, tmp_config: Path) -> None:
         client = _make_client()
         with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["config", "set", "time-zone", "TOKYO"])
+            result = runner.invoke(
+                main,
+                ["config", "set", "--yes", "time-zone", "TOKYO"],
+            )
         assert result.exit_code == 0
         assert cfg.load()["time-zone"] == "Asia/Tokyo"
 
     def test_raw_iana_name_still_accepted(self, runner: CliRunner, tmp_config: Path) -> None:
         client = _make_client()
         with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["config", "set", "time-zone", "Europe/Paris"])
+            result = runner.invoke(
+                main,
+                ["config", "set", "--yes", "time-zone", "Europe/Paris"],
+            )
         assert result.exit_code == 0
         assert cfg.load()["time-zone"] == "Europe/Paris"
 

@@ -179,30 +179,40 @@ Both `ilan ls` and `ilan dashboard` adapt to the terminal width: on a window nar
 
 | Command | Description |
 |---|---|
-| `ilan config show` | Print current configuration |
-| `ilan config set KEY VALUE` | Set a config value |
+| `ilan config show` | Print separate server-side and client-side configuration tables |
+| `ilan config set [-y] KEY VALUE` | Set a config value after confirming whether it changes the connected server or this client; `--yes` skips the prompt |
 | `ilan clean DURATION` | Delete tasks whose last change is older than DURATION (e.g. `5h`, `3d`); never touches tasks that have children |
 | `ilan clear-everything` | Delete all tasks, logs, and data (requires confirmation) |
 | `ilan update` | Pull the latest ilan-tools from remote and reinstall |
 
 ### Configuration keys
 
-Configuration is stored at `~/.config/ilan/config.json` (created with defaults on first run).
+Configuration is stored in `~/.config/ilan/config.json` on each machine
+(created with defaults on first run). The connected server is the sole source
+of truth for server-side keys; `ilan config show` fetches those values live and
+never substitutes values from the client's config file. Client-side keys are
+read and written only on the machine running the CLI.
+
+The client-side keys are `dashboard-interval`, `editor`, `line-number`,
+`markdown`, `one-line-summary`, and `time-zone`. All other keys are
+server-side. `ilan config set` identifies the scope and asks for confirmation
+before writing. Use `--yes` for non-interactive scripts.
 
 | Key | Default | Description |
 |---|---|---|
 | `workdir` | `~/.ilan` | Where all ilan data is stored |
 | `default-backend` | `claude` | Default agent backend for newly added tasks (`claude` or `codex`). Override per task with `ilan add --claude`/`--codex`, or flip an existing task with `ilan task switch-backend` — see [Agent backends](#agent-backends) |
-| `time-zone` | `US/Pacific` | Time zone for displayed timestamps (client-side: set on each machine running the CLI). Accepts friendly aliases — see [Time-zone aliases](#time-zone-aliases) |
+| `time-zone` | `US/Pacific` | Client-side: time zone for displayed timestamps; set it on each machine running the CLI. Accepts friendly aliases — see [Time-zone aliases](#time-zone-aliases) |
 | `model-claude` | `claude-opus-4-7` | Model passed verbatim to `claude -p --model` for tasks on the `claude` backend. Must be an exact Claude model id (e.g. `claude-opus-4-7`, `claude-sonnet-4-6`); CLI aliases like `opus` are rejected by `ilan config set` — see [Exact model ids](#exact-model-ids) |
 | `model-codex` | `gpt-5.6-sol` | Model passed verbatim to `codex exec --model` for tasks on the `codex` backend. Must be an exact model id (e.g. `gpt-5.6-sol`, `gpt-5.1-codex-max`); bare aliases are rejected — see [Exact model ids](#exact-model-ids) |
 | `effort` | `xhigh` | Reasoning-effort level for spawned agents, applied to both backends: passed as `--effort` to `claude` and as `-c model_reasoning_effort=...` to `codex exec`. Accepts `low`, `medium`, `high`, or `xhigh` (the subset both CLIs support); other values are rejected |
-| `editor` | `emacs` | Editor used by `ilan task log` |
+| `editor` | `emacs` | Client-side: editor used by `ilan task log` |
 | `api-key-claude` | _(empty)_ | Anthropic API key passed as `ANTHROPIC_API_KEY` to spawned agents. Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
 | `api-key-codex` | _(empty)_ | OpenAI API key passed as `OPENAI_API_KEY` to spawned Codex agents; also used to call `gpt-5.6-luna` for the one-line status summary in `ilan ls` and `ilan dashboard`. When empty, Codex falls back to the server's inherited environment (`codex login`, or an `OPENAI_API_KEY` already present in the server's env), and the one-line summary falls back to the server's local `codex` CLI. Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
 | `github-token` | _(empty)_ | GitHub personal-access token (needs the `gist` scope). Setting it turns on [Gist conversation mirroring](#gist-conversation-mirroring); leaving it empty keeps the feature off. Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
-| `dashboard-interval` | `1` | Seconds between automatic refreshes in `ilan dashboard` |
-| `line-number` | `false` | When `true`, `ilan tail` prefixes each assistant line with a yellow `[N]` marker and `ilan reply` / `ilan task branch` expand `@N` into the Nth line, double-quoted |
+| `dashboard-interval` | `1` | Client-side: seconds between automatic refreshes in `ilan dashboard` |
+| `line-number` | `false` | Client-side: when `true`, `ilan tail` prefixes each assistant line with a yellow `[N]` marker and `ilan reply` / `ilan task branch` expand `@N` into the Nth line, double-quoted |
+| `markdown` | `false` | Client-side: render assistant output as Markdown in `ilan tail`, `ilan reply`, and their task-command equivalents |
 | `one-line-summary` | `true` | Client-side: render the `gpt-5.6-luna`-generated one-line summary in the Status column of `ilan ls` and `ilan dashboard` (`ilan ls -a` never shows it, to keep the longer all-tasks listing compact). The summary is produced by the server: via OpenAI's API when `api-key-codex` is set, otherwise via the server's local `codex` CLI (`codex login` session). This flag only controls whether the client shows it. If on while the server has no `api-key-codex` set, the client prints a note about the CLI fallback. |
 
 ### Exact model ids
