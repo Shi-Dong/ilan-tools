@@ -1167,12 +1167,11 @@ def task_reply(
         _do_reply(name, message, max_=max_, unmax=unmax)
 
 
-# ── task tap ─────────────────────────────────────────────────────────
+# ── canned replies ───────────────────────────────────────────────────
 
-TAP_MESSAGE = "How are things now? Pause what you are doing and give me a quick summary of the current situation."
-
-
-TAP_ALLOWED_STATUSES = (
+# DONE / DISCARDED tasks are closed, so a canned reply would never reach an
+# agent; every other status either has a live agent or can be re-prompted.
+CANNED_REPLY_STATUSES = (
     TaskStatus.WORKING,
     TaskStatus.AGENT_FINISHED,
     TaskStatus.NEEDS_ATTENTION,
@@ -1180,7 +1179,7 @@ TAP_ALLOWED_STATUSES = (
 )
 
 
-def _do_tap(name: str) -> None:
+def _do_canned_reply(name: str, message: str, label: str) -> None:
     client = _client()
     resp = client.get_task(name)
     if _check_error(resp):
@@ -1188,14 +1187,23 @@ def _do_tap(name: str) -> None:
     t = resp["task"]
     task_name = t["name"]
     status = TaskStatus(t["status"])
-    if status not in TAP_ALLOWED_STATUSES:
-        allowed = ", ".join(s.value for s in TAP_ALLOWED_STATUSES)
+    if status not in CANNED_REPLY_STATUSES:
+        allowed = ", ".join(s.value for s in CANNED_REPLY_STATUSES)
         console.print(
             f"[yellow]Task [bold]{task_name}[/bold] is {status.value}. "
-            f"Tap only works on tasks whose status is one of: {allowed}.[/yellow]"
+            f"{label} only works on tasks whose status is one of: {allowed}.[/yellow]"
         )
         return
-    _do_reply(task_name, TAP_MESSAGE)
+    _do_reply(task_name, message)
+
+
+# ── task tap ─────────────────────────────────────────────────────────
+
+TAP_MESSAGE = "How are things now? Pause what you are doing and give me a quick summary of the current situation."
+
+
+def _do_tap(name: str) -> None:
+    _do_canned_reply(name, TAP_MESSAGE, "Tap")
 
 
 @task_group.command("tap")
@@ -1203,6 +1211,26 @@ def _do_tap(name: str) -> None:
 def task_tap(name: str) -> None:
     """Ask a WORKING / AGENT_FINISHED / NEEDS_ATTENTION / ERROR agent for a status update."""
     _do_tap(name)
+
+
+# ── task cancel ──────────────────────────────────────────────────────
+
+CANCEL_MESSAGE = (
+    "My previous message was sent by mistake. You can ignore that message and "
+    "the instructions therein. If you are working on fulfilling a request "
+    "specified in that message, you should stop immediately."
+)
+
+
+def _do_cancel(name: str) -> None:
+    _do_canned_reply(name, CANCEL_MESSAGE, "Cancel")
+
+
+@task_group.command("cancel")
+@click.argument("name", shell_complete=_complete_task_names)
+def task_cancel(name: str) -> None:
+    """Retract the message you last sent to a task and tell the agent to stop acting on it."""
+    _do_cancel(name)
 
 
 # ── task sleep ───────────────────────────────────────────────────────
@@ -2038,6 +2066,13 @@ def shortcut_branch(
 def shortcut_tap(name: str) -> None:
     """Shorthand for 'ilan task tap'."""
     _do_tap(name)
+
+
+@main.command("cancel")
+@click.argument("name", shell_complete=_complete_task_names)
+def shortcut_cancel(name: str) -> None:
+    """Shorthand for 'ilan task cancel'."""
+    _do_cancel(name)
 
 
 @main.command("sleep")
