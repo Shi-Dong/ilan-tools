@@ -376,11 +376,11 @@ class TestTailReplyHint:
         )
 
     def test_tail_hint_command_uses_distinct_color(self) -> None:
-        """Only the handles are styled distinctly from the prose.
+        """Each whole ``ilan re <handle>`` command is styled apart from the prose.
 
-        The prose — including the ``ilan re`` command itself — stays dim
-        (SGR 2); the alias and the task name drop dim and switch to bright
-        red (SGR 91) so they pop against the gray prose. We render
+        The prose stays dim (SGR 2); both commands — the command word
+        included, not just the handle — drop dim and switch to bright red
+        (SGR 91) so they pop against the gray prose. We render
         through a real Rich console with forced truecolor so the styling
         actually emits (CliRunner's captured output runs Rich in a degraded
         color mode that drops standalone foreground colors).
@@ -403,12 +403,11 @@ class TestTailReplyHint:
             cli_mod._print_reply_hint("aa", "my-task")
         out = buf.getvalue()
         # Rich emits one SGR per span. The prose spans are plain dim
-        # (``\x1b[2m``); each handle is bright red (``\x1b[91m``).
-        assert "\x1b[2mTo reply to the task, run ilan re " in out
-        assert "\x1b[91maa" in out
-        assert "\x1b[2m, or ilan re " in out
-        assert "\x1b[91mmy-task" in out
-        assert "\x1b[91milan re" not in out
+        # (``\x1b[2m``); each command span is bright red (``\x1b[91m``).
+        assert "\x1b[2mTo reply to the task, run " in out
+        assert "\x1b[91milan re aa" in out
+        assert "\x1b[2m, or " in out
+        assert "\x1b[91milan re my-task" in out
 
 
 # ── last-model line above the reply hint ────────────────────────────

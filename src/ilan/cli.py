@@ -842,11 +842,11 @@ def _print_reply_hint(alias: str | None, name: str) -> None:
     the full name second; an unaliased task only gets the name.
     """
     hint = (
-        "[dim]To reply to the task, run ilan re [/dim]"
-        f"[bright_red]{alias or name}[/bright_red]"
+        "[dim]To reply to the task, run [/dim]"
+        f"[bright_red]ilan re {alias or name}[/bright_red]"
     )
     if alias:
-        hint += f"[dim], or ilan re [/dim][bright_red]{name}[/bright_red]"
+        hint += f"[dim], or [/dim][bright_red]ilan re {name}[/bright_red]"
     # highlight=False so Rich's auto-highlighter leaves the digits in
     # date-prefixed task names alone.
     console.print(hint, highlight=False)
