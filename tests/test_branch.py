@@ -70,6 +70,10 @@ class TestStoreBranch:
         # session (no catch-up needed — the fork carries the full history).
         assert child.engine == ENGINE_CLAUDE
         assert child.awaiting_catchup is False
+        assert child.gist_branch_point == 2
+        assert child.gist_synced_count == 2
+        assert child.gist_branch_parent_name == "parent"
+        assert child.gist_parent_comment_url is None
 
         # Child got its own session_id (a UUID) distinct from the parent.
         assert child.session_id != "sid-1"
@@ -190,6 +194,7 @@ class TestStoreBranch:
         child = store.get_task("child")
         assert child is not None
         assert child.parent_name == "new-parent"
+        assert child.gist_branch_parent_name == "new-parent"
 
     def test_delete_reparents_children_to_grandparent(self, store: Store) -> None:
         """Deleting a middle task re-parents its children onto its parent."""
@@ -209,6 +214,9 @@ class TestStoreBranch:
         child = store.get_task("child")
         assert child is not None
         assert child.parent_name == "grand"
+        # The UI tree is re-parented, but Gist lineage still points at the
+        # task whose history was actually inherited.
+        assert child.gist_branch_parent_name == "parent"
 
     def test_delete_root_orphans_children(self, store: Store) -> None:
         root = Task(name="root", prompt="p", session_id="sid-1")
@@ -402,6 +410,9 @@ class TestServerBranchEndpoint:
         assert child.parent_name == "parent-task"
         assert child.session_id == "sid-1"
         assert child.cached_replies == ["try plan B"]
+        assert child.gist_branch_point == 2
+        assert child.gist_synced_count == 2
+        assert child.gist_branch_parent_name == "parent-task"
         logs = ilan_server.store.read_logs("child-task")
         # Copied 2 parent entries + 1 new user message.
         assert [e.content for e in logs] == ["hello", "hi", "try plan B"]
