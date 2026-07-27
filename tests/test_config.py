@@ -50,7 +50,12 @@ class TestDefaults:
 
     def test_client_side_keys(self) -> None:
         assert cfg.CLIENT_SIDE_KEYS == {
-            "line-number", "markdown", "time-zone", "one-line-summary",
+            "dashboard-interval",
+            "editor",
+            "line-number",
+            "markdown",
+            "one-line-summary",
+            "time-zone",
         }
         assert cfg.CLIENT_SIDE_KEYS <= cfg.VALID_KEYS
 

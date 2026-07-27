@@ -414,44 +414,74 @@ def _set_local_config(key: str, value: str) -> object:
 
 
 @config_group.command("set")
+@click.option(
+    "-y",
+    "--yes",
+    "skip_confirmation",
+    is_flag=True,
+    help="Skip the configuration scope confirmation.",
+)
 @click.argument("key", shell_complete=_complete_config_keys)
 @click.argument("value")
-def config_set(key: str, value: str) -> None:
+def config_set(key: str, value: str, skip_confirmation: bool) -> None:
     """Set a configuration value (e.g. ilan config set model-claude claude-sonnet-4-6).
 
     Time-zone accepts friendly aliases, e.g. ``ilan config set time-zone
     tokyo`` or ``ilan config set time-zone pacific`` (case-insensitive).
     """
-    if key in cfg.CLIENT_SIDE_KEYS:
-        if key not in cfg.VALID_KEYS:
-            console.print(f"[yellow]Unknown config key: {key}[/yellow]")
-            raise SystemExit(1)
+    client_side = key in cfg.CLIENT_SIDE_KEYS
+    scope = "client-side" if client_side else "server-side"
+    target = "this client" if client_side else "the connected ilan server"
+    if not skip_confirmation:
+        click.confirm(
+            f"'{key}' is a {scope} config and will be updated on {target}. Continue?",
+            abort=True,
+        )
+
+    if client_side:
         coerced = _set_local_config(key, value)
         console.print(f"[green]Set[/green] {key} = {coerced} [dim](client-side)[/dim]")
         return
     resp = _client().set_config(key, value)
     if _check_error(resp):
         raise SystemExit(1)
-    console.print(f"[green]Set[/green] {resp['key']} = {resp['value']}")
+    console.print(
+        f"[green]Set[/green] {resp['key']} = {resp['value']} [dim](server-side)[/dim]"
+    )
 
 
 @config_group.command("show")
 def config_show() -> None:
     """Show current configuration.
 
-    Server-managed keys come from the server; client-side keys (rendering
-    toggles like ``line-number``) come from the local config file and
-    override whatever the server might report for the same key.
+    Server-managed keys come from the server. Client-side keys come from
+    the local config file and are shown in a separate table.
 
     Secret keys (``api-key-claude``, ``api-key-codex``, …) are masked: only
     the last five characters are shown, preceded by two asterisks.
     """
     resp = _client().get_config()
-    conf = dict(resp["config"])
+    if _check_error(resp):
+        raise SystemExit(1)
+
+    server_conf = {
+        key: value
+        for key, value in resp["config"].items()
+        if key not in cfg.CLIENT_SIDE_KEYS
+    }
     local = cfg.load()
-    for k in cfg.CLIENT_SIDE_KEYS:
-        conf[k] = local.get(k, cfg.DEFAULTS.get(k))
-    table = Table()
+    client_conf = {
+        key: local.get(key, cfg.DEFAULTS[key])
+        for key in cfg.CLIENT_SIDE_KEYS
+    }
+    console.print(_config_table("Server-side configuration", server_conf))
+    console.print()
+    console.print(_config_table("Client-side configuration", client_conf))
+
+
+def _config_table(title: str, conf: dict[str, object]) -> Table:
+    """Build a configuration table with secrets masked."""
+    table = Table(title=title)
     table.add_column("Key", style="bold")
     table.add_column("Value")
     for k in sorted(conf):
@@ -459,7 +489,7 @@ def config_show() -> None:
         if k in cfg.SECRET_KEYS:
             value = _mask_secret(value)
         table.add_row(k, value)
-    console.print(table)
+    return table
 
 
 def _mask_secret(value: str) -> str:

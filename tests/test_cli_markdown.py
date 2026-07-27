@@ -204,7 +204,10 @@ class TestSetConfigMarkdown:
     ) -> None:
         client = _make_client()
         with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["config", "set", "markdown", "true"])
+            result = runner.invoke(
+                main,
+                ["config", "set", "--yes", "markdown", "true"],
+            )
         assert result.exit_code == 0
         client.set_config.assert_not_called()
         assert cfg.load()["markdown"] is True

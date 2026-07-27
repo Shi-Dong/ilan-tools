@@ -314,18 +314,23 @@ class TestConfig:
         resp = _get(ilan_server, "/config")
         assert resp["config"]["model-claude"] == "claude-sonnet-4-6"
 
-    def test_set_config_int_key(self, ilan_server: IlanServer) -> None:
-        resp = _post(ilan_server, "/config/set", {"key": "dashboard-interval", "value": "3"})
-        assert resp.get("ok") is True
-        assert resp["value"] == 3
-
     def test_set_config_invalid_key(self, ilan_server: IlanServer) -> None:
         resp = _post(ilan_server, "/config/set", {"key": "bad-key", "value": "x"})
         assert "error" in resp
 
-    def test_set_config_rejects_client_side_key(self, ilan_server: IlanServer) -> None:
-        """Client-side keys (e.g. line-number) must not be settable via the server."""
-        resp = _post(ilan_server, "/config/set", {"key": "line-number", "value": "true"})
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("dashboard-interval", "3"),
+            ("editor", "vim"),
+            ("line-number", "true"),
+        ],
+    )
+    def test_set_config_rejects_client_side_key(
+        self, ilan_server: IlanServer, key: str, value: str,
+    ) -> None:
+        """Client-side keys must not be settable via the server."""
+        resp = _post(ilan_server, "/config/set", {"key": key, "value": value})
         assert "error" in resp
         assert "client-side" in resp["error"]
 

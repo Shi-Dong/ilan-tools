@@ -1,4 +1,4 @@
-"""Tests for ``ilan config show`` — masking of secret keys."""
+"""Tests for ``ilan config show`` — config scopes and secret masking."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 from click.testing import CliRunner
 
+import ilan.config as cfg
 from ilan.cli import _mask_secret, main
 
 
@@ -82,3 +83,41 @@ class TestConfigShowMasks:
         assert result.exit_code == 0
         assert "opus" in result.output
         assert "high" in result.output
+
+
+class TestConfigShowScopes:
+    def test_renders_separate_server_and_client_tables(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        cfg.save({**cfg.DEFAULTS, "line-number": True})
+        _patch_client(
+            monkeypatch,
+            {**cfg.DEFAULTS, "line-number": False},
+        )
+
+        result = runner.invoke(main, ["config", "show"])
+
+        assert result.exit_code == 0
+        assert "Server-side configuration" in result.output
+        assert "Client-side configuration" in result.output
+        line_number_row = next(
+            line for line in result.output.splitlines() if "line-number" in line
+        )
+        assert "True" in line_number_row
+        assert result.output.count("line-number") == 1
+
+    def test_server_table_uses_live_server_value(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        cfg.save({**cfg.DEFAULTS, "model-claude": "local-stale"})
+        client = _patch_client(
+            monkeypatch,
+            {**cfg.DEFAULTS, "model-claude": "server-live"},
+        )
+
+        result = runner.invoke(main, ["config", "show"])
+
+        assert result.exit_code == 0
+        client.get_config.assert_called_once_with()
+        assert "server-live" in result.output
+        assert "local-stale" not in result.output
