@@ -271,7 +271,7 @@ class TestTailReplyHint:
     """``ilan tail`` ends with a reminder line pointing at ``ilan re <alias>``."""
 
     def test_tail_prints_reply_hint_with_alias(self, runner: CliRunner, tmp_config) -> None:
-        """When the server returns an alias, the hint uses it."""
+        """When the server returns an alias, the hint offers alias and name."""
         client = _make_client()
         client.get_tail.return_value = {
             "name": "my-task",
@@ -287,12 +287,15 @@ class TestTailReplyHint:
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["tail", "my-task"])
         assert result.exit_code == 0
-        assert "To reply to the task, run ilan re aa" in _strip_ansi(result.output)
+        assert (
+            "To reply to the task, run ilan re aa, or ilan re my-task"
+            in _strip_ansi(result.output)
+        )
 
     def test_tail_hint_falls_back_to_name_without_alias(
         self, runner: CliRunner, tmp_config
     ) -> None:
-        """If the task has no alias, fall back to the task name."""
+        """If the task has no alias, only the task name is offered."""
         client = _make_client()
         client.get_tail.return_value = {
             "name": "my-task",
@@ -308,7 +311,9 @@ class TestTailReplyHint:
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["tail", "my-task"])
         assert result.exit_code == 0
-        assert "To reply to the task, run ilan re my-task" in _strip_ansi(result.output)
+        out = _strip_ansi(result.output)
+        assert "To reply to the task, run ilan re my-task" in out
+        assert ", or ilan re" not in out
 
     def test_tail_hint_falls_back_to_input_for_old_server(
         self, runner: CliRunner, tmp_config
@@ -327,7 +332,9 @@ class TestTailReplyHint:
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["tail", "my-task"])
         assert result.exit_code == 0
-        assert "To reply to the task, run ilan re my-task" in _strip_ansi(result.output)
+        out = _strip_ansi(result.output)
+        assert "To reply to the task, run ilan re my-task" in out
+        assert ", or ilan re" not in out
 
     def test_tail_n_prints_reply_hint(self, runner: CliRunner, tmp_config) -> None:
         """The hint also appears when ``-n`` routes through ``/logs``."""
@@ -346,7 +353,10 @@ class TestTailReplyHint:
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["tail", "my-task", "-n", "1"])
         assert result.exit_code == 0
-        assert "To reply to the task, run ilan re aa" in _strip_ansi(result.output)
+        assert (
+            "To reply to the task, run ilan re aa, or ilan re my-task"
+            in _strip_ansi(result.output)
+        )
 
     def test_tail_hint_shown_when_no_logs_yet(self, runner: CliRunner, tmp_config) -> None:
         """Even when the server warns there are no logs, show the hint."""
@@ -360,14 +370,17 @@ class TestTailReplyHint:
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["tail", "my-task"])
         assert result.exit_code == 0
-        assert "To reply to the task, run ilan re aa" in _strip_ansi(result.output)
+        assert (
+            "To reply to the task, run ilan re aa, or ilan re my-task"
+            in _strip_ansi(result.output)
+        )
 
     def test_tail_hint_command_uses_distinct_color(self) -> None:
-        """The ``ilan re <alias>`` portion is styled distinctly from the prose.
+        """Only the handles are styled distinctly from the prose.
 
-        The prose stays dim (SGR 2); the command portion drops dim and
-        switches to bright red (SGR 91) so it actually pops against the gray
-        prose. We render
+        The prose — including the ``ilan re`` command itself — stays dim
+        (SGR 2); the alias and the task name drop dim and switch to bright
+        red (SGR 91) so they pop against the gray prose. We render
         through a real Rich console with forced truecolor so the styling
         actually emits (CliRunner's captured output runs Rich in a degraded
         color mode that drops standalone foreground colors).
@@ -387,12 +400,15 @@ class TestTailReplyHint:
             width=120,
         )
         with patch.object(cli_mod, "console", forced):
-            cli_mod._print_reply_hint("aa")
+            cli_mod._print_reply_hint("aa", "my-task")
         out = buf.getvalue()
-        # Rich emits one SGR per span. The prose span is plain dim
-        # (``\x1b[2m``); the command span is bright red (``\x1b[91m``).
-        assert "\x1b[2mTo reply to the task, run " in out
-        assert "\x1b[91milan re aa" in out
+        # Rich emits one SGR per span. The prose spans are plain dim
+        # (``\x1b[2m``); each handle is bright red (``\x1b[91m``).
+        assert "\x1b[2mTo reply to the task, run ilan re " in out
+        assert "\x1b[91maa" in out
+        assert "\x1b[2m, or ilan re " in out
+        assert "\x1b[91mmy-task" in out
+        assert "\x1b[91milan re" not in out
 
 
 # ── last-model line above the reply hint ────────────────────────────
@@ -905,6 +921,65 @@ class TestUnmaxShorthand:
         assert result.exit_code != 0
 
 
+# ── reply confirmation names the task ───────────────────────────────
+
+
+class TestReplyConfirmation:
+    """``ilan reply`` echoes the server's confirmation with the task name
+    picked out from the surrounding green prose."""
+
+    @staticmethod
+    def _forced_console(buf) -> object:
+        from rich.console import Console
+
+        return Console(
+            file=buf, force_terminal=True, color_system="truecolor",
+            no_color=False, width=120,
+        )
+
+    def test_task_name_is_bold_and_not_green(self) -> None:
+        """The prose is green (SGR 32); the task name is bold (1) cyan (36)."""
+        import io
+
+        from ilan import cli as cli_mod
+
+        buf = io.StringIO()
+        with patch.object(cli_mod, "console", self._forced_console(buf)):
+            cli_mod._print_reply_confirmation(
+                "Reply sent to my-task. Agent resumed.", "my-task"
+            )
+        out = buf.getvalue()
+        assert "\x1b[32mReply sent to " in out
+        assert "\x1b[1;36mmy-task" in out
+        assert "\x1b[32m. Agent resumed." in out
+
+    def test_old_server_message_stays_plain_green(self) -> None:
+        """Servers that predate the named confirmation send no ``name``."""
+        import io
+
+        from ilan import cli as cli_mod
+
+        buf = io.StringIO()
+        with patch.object(cli_mod, "console", self._forced_console(buf)):
+            cli_mod._print_reply_confirmation("Reply sent. Agent resumed.", None)
+        out = buf.getvalue()
+        assert "\x1b[32mReply sent. Agent resumed." in out
+        assert "\x1b[1;36m" not in out
+
+    def test_reply_prints_named_confirmation(
+        self, runner: CliRunner, tmp_config
+    ) -> None:
+        client = _make_client()
+        client.reply.return_value = {
+            "name": "my-task",
+            "message": "Reply sent to my-task. Agent resumed.",
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["reply", "aa", "go on"])
+        assert result.exit_code == 0
+        assert "Reply sent to my-task. Agent resumed." in _strip_ansi(result.output)
+
+
 # ── --max / --unmax on reply ────────────────────────────────────────
 
 
@@ -917,7 +992,10 @@ class TestReplyMaxFlags:
     def _client_for_reply(self, model: str | None = None) -> MagicMock:
         client = _make_client()
         client.get_task.return_value = {"task": {"name": "my-task", "model": model}}
-        client.reply.return_value = {"message": "Reply sent."}
+        client.reply.return_value = {
+            "name": "my-task",
+            "message": "Reply sent to my-task. Agent resumed.",
+        }
         client.max_task.return_value = {"name": "my-task", "model": "claude-fable-5"}
         client.unmax_task.return_value = {"name": "my-task", "model": None}
         return client
@@ -976,7 +1054,7 @@ class TestReplyMaxFlags:
         out = re.sub(r"\s+", " ", _strip_ansi(result.output))
         assert "Claude-only model, so max did nothing" in out
         assert "FABLE" not in out  # no "set to FABLE" success line
-        assert "Reply sent." in out
+        assert "Reply sent to my-task." in out
         client.reply.assert_called_once_with("my-task", "go on")
 
     def test_reply_unmax_resets_then_replies(
@@ -1005,7 +1083,7 @@ class TestReplyMaxFlags:
         client.reply.assert_called_once_with("my-task", "go on")
         out = _strip_ansi(result.output)
         assert "FABLE" not in out
-        assert "Reply sent." in out
+        assert "Reply sent to my-task." in out
 
     def test_unmax_on_default_model_is_silent_noop(
         self, runner: CliRunner, tmp_config
@@ -1019,7 +1097,7 @@ class TestReplyMaxFlags:
         client.reply.assert_called_once_with("my-task", "go on")
         out = _strip_ansi(result.output)
         assert "default model" not in out
-        assert "Reply sent." in out
+        assert "Reply sent to my-task." in out
 
     def test_max_and_unmax_are_mutually_exclusive(
         self, runner: CliRunner, tmp_config
