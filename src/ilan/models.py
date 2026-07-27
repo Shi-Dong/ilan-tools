@@ -127,12 +127,20 @@ class Task:
     # model/effort pair still describes the *previous* (visible) message.
     last_assistant_effort: str | None = None
     # GitHub Gist mirror of the conversation. ``gist_id`` / ``gist_url`` are
-    # set the first time the async syncer creates the task's secret Gist;
-    # ``gist_synced_count`` records how many log entries have already been
-    # posted as Gist comments so the syncer only posts new messages.
+    # set the first time the async syncer creates the task's secret Gist.
+    # ``gist_synced_count`` is an absolute cursor into the unified log so the
+    # syncer only posts new messages. For a branched task it starts at
+    # ``gist_branch_point``, intentionally skipping the inherited log prefix.
     gist_id: str | None = None
     gist_url: str | None = None
     gist_synced_count: int = 0
+    # Number of inherited unified-log entries present when this task was
+    # branched. Those entries stay in the local log for agent context but are
+    # represented in the child Gist by a link to the parent's final pre-branch
+    # comment instead of being posted again.
+    gist_branch_point: int = 0
+    gist_branch_parent_name: str | None = None
+    gist_parent_comment_url: str | None = None
     # The task name currently written into the Gist's Markdown title line. When
     # a task is renamed this diverges from ``name``, which tells the syncer to
     # rewrite the title so it tracks the new name.
@@ -206,6 +214,9 @@ class Task:
             "gist_id": self.gist_id,
             "gist_url": self.gist_url,
             "gist_synced_count": self.gist_synced_count,
+            "gist_branch_point": self.gist_branch_point,
+            "gist_branch_parent_name": self.gist_branch_parent_name,
+            "gist_parent_comment_url": self.gist_parent_comment_url,
             "gist_title_name": self.gist_title_name,
             "gist_description": self.gist_description,
             "engine": self.engine,
@@ -243,6 +254,9 @@ class Task:
             gist_id=d.get("gist_id"),
             gist_url=d.get("gist_url"),
             gist_synced_count=d.get("gist_synced_count", 0),
+            gist_branch_point=d.get("gist_branch_point", 0),
+            gist_branch_parent_name=d.get("gist_branch_parent_name"),
+            gist_parent_comment_url=d.get("gist_parent_comment_url"),
             gist_title_name=d.get("gist_title_name"),
             gist_description=d.get("gist_description"),
             engine=d.get("engine", DEFAULT_ENGINE),

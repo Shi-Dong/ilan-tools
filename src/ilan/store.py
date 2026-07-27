@@ -99,8 +99,10 @@ class Store:
         resuming an un-forkable native session.
 
         Also copies the parent's ilan conversation log so ``tail``/``log`` on
-        the child show the full inherited history.  The parent task is not
-        modified.
+        the child show the full inherited history. The inherited entry count
+        becomes the child's Gist branch point: its Gist links back to the
+        parent at that point and only posts subsequent entries. The parent task
+        is not modified.
         """
         child_session_id = parent.session_id
         child_session_log_path = parent.session_log_path
@@ -122,6 +124,9 @@ class Store:
                 shutil.copyfile(parent_session_log, new_session_log)
                 child_session_log_path = str(new_session_log)
 
+        parent_log = self.log_path(parent.name)
+        inherited_log_count = len(self.read_logs(parent.name))
+
         child = Task(
             name=new_name,
             prompt=parent.prompt,
@@ -132,12 +137,14 @@ class Store:
             alias=alias,
             task_hash=task_hash,
             parent_name=parent.name,
+            gist_synced_count=inherited_log_count,
+            gist_branch_point=inherited_log_count,
+            gist_branch_parent_name=parent.name,
             engine=parent.engine,
             awaiting_catchup=awaiting_catchup,
         )
         self.put_task(child)
 
-        parent_log = self.log_path(parent.name)
         if parent_log.exists():
             shutil.copyfile(parent_log, self.log_path(new_name))
 
@@ -176,6 +183,8 @@ class Store:
         for other in tasks.values():
             if other.parent_name == old_name:
                 other.parent_name = new_name
+            if other.gist_branch_parent_name == old_name:
+                other.gist_branch_parent_name = new_name
         self.save_tasks(tasks)
 
         old_log = self.log_path(old_name)

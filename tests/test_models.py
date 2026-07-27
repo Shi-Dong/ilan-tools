@@ -175,8 +175,9 @@ class TestTask:
             "cache_read_input_tokens", "cost_usd", "sleep_seconds",
             "parent_name", "summary_one_liner", "model", "last_assistant_model",
             "spawn_effort", "last_assistant_effort",
-            "gist_id", "gist_url", "gist_synced_count", "gist_title_name",
-            "gist_description",
+            "gist_id", "gist_url", "gist_synced_count", "gist_branch_point",
+            "gist_branch_parent_name", "gist_parent_comment_url",
+            "gist_title_name", "gist_description",
             "engine", "sessions", "log_cursors", "awaiting_catchup",
         }
         assert set(d.keys()) == expected_keys
@@ -267,6 +268,9 @@ class TestTask:
         assert t.gist_id is None
         assert t.gist_url is None
         assert t.gist_synced_count == 0
+        assert t.gist_branch_point == 0
+        assert t.gist_branch_parent_name is None
+        assert t.gist_parent_comment_url is None
         assert t.gist_title_name is None
         assert t.gist_description is None
 
@@ -275,6 +279,9 @@ class TestTask:
         t.gist_id = "gid123"
         t.gist_url = "https://gist.github.com/u/gid123"
         t.gist_synced_count = 5
+        t.gist_branch_point = 3
+        t.gist_branch_parent_name = "parent-task"
+        t.gist_parent_comment_url = "https://gist.github.com/u/parent#comment"
         t.gist_title_name = "my-task"
         t.gist_description = "ilan task (my-task)"
         d = t.to_dict()
@@ -282,6 +289,11 @@ class TestTask:
         assert t2.gist_id == "gid123"
         assert t2.gist_url == "https://gist.github.com/u/gid123"
         assert t2.gist_synced_count == 5
+        assert t2.gist_branch_point == 3
+        assert t2.gist_branch_parent_name == "parent-task"
+        assert t2.gist_parent_comment_url == (
+            "https://gist.github.com/u/parent#comment"
+        )
         assert t2.gist_title_name == "my-task"
         assert t2.gist_description == "ilan task (my-task)"
 
@@ -291,6 +303,9 @@ class TestTask:
         assert t.gist_id is None
         assert t.gist_url is None
         assert t.gist_synced_count == 0
+        assert t.gist_branch_point == 0
+        assert t.gist_branch_parent_name is None
+        assert t.gist_parent_comment_url is None
         assert t.gist_title_name is None
         assert t.gist_description is None
 

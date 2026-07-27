@@ -2,7 +2,8 @@
 
 Every task gets one secret Gist. Each user/assistant message is posted as a
 separate Gist *comment* so GitHub renders the two roles as distinct Markdown
-bubbles, giving a clean web view of the whole conversation.
+bubbles. A branched task links to its parent's final pre-branch comment and
+only posts its divergent suffix, avoiding a duplicate backfill.
 
 The work happens on a background thread (:class:`GistSyncer`) so it never
 blocks the reaper or a client reply: as soon as the agent finishes and the
@@ -95,18 +96,38 @@ def gist_description(task_name: str) -> str:
     return f"ilan task ({task_name})"
 
 
-def landing_content(task_name: str) -> str:
+def landing_content(
+    task_name: str,
+    parent_comment_url: str | None = None,
+) -> str:
     """The full Markdown body of the Gist's landing-page file."""
-    return f"{_title_line(task_name)}\n\n{_LANDING_BODY}"
+    if parent_comment_url is None:
+        body = _LANDING_BODY
+    else:
+        body = (
+            "This task was branched from "
+            f"[the parent conversation at the branch point]"
+            f"(<{parent_comment_url}>). Messages inherited at that point are "
+            "not repeated here; only messages added after branching are "
+            "posted below as comments.\n"
+        )
+    return f"{_title_line(task_name)}\n\n{body}"
 
 
-def initial_file(task_name: str) -> tuple[str, str]:
+def initial_file(
+    task_name: str,
+    parent_comment_url: str | None = None,
+) -> tuple[str, str]:
     """Return ``(filename, content)`` for the Gist's landing-page file.
 
-    The file is only a title card — the conversation itself lives in the
-    comments, one message per comment.
+    For a root task the file is only a title card. For a branched task it also
+    links to the parent conversation at the branch point. The task's own
+    conversation suffix lives in the comments, one message per comment.
     """
-    return _safe_filename(task_name), landing_content(task_name)
+    return _safe_filename(task_name), landing_content(
+        task_name,
+        parent_comment_url,
+    )
 
 
 # Fenced code blocks and inline code spans, captured so ``re.split`` keeps
@@ -274,8 +295,20 @@ def last_comment_url(token: str, gist_id: str, html_url: str) -> str:
     count = int(meta.get("comments") or 0)
     if count <= 0:
         return html_url
+    return comment_url(token, gist_id, html_url, count)
+
+
+def comment_url(
+    token: str,
+    gist_id: str,
+    html_url: str,
+    comment_number: int,
+) -> str:
+    """Return a permalink to a Gist comment by its one-based position."""
     comments = _api_request(
-        "GET", f"/gists/{gist_id}/comments?per_page=1&page={count}", token
+        "GET",
+        f"/gists/{gist_id}/comments?per_page=1&page={comment_number}",
+        token,
     )
     # The comments endpoint returns a JSON array (not the dict most other
     # endpoints return), so guard the shape before indexing.
@@ -297,17 +330,25 @@ def fetch_gist_filename(token: str, gist_id: str) -> str | None:
     return next(iter(files), None)
 
 
-def update_gist_title(token: str, gist_id: str, task_name: str) -> None:
+def update_gist_title(
+    token: str,
+    gist_id: str,
+    task_name: str,
+    parent_comment_url: str | None = None,
+) -> None:
     """Rewrite the Gist description and landing title to track *task_name*.
 
     The description controls GitHub's browser-tab title. The landing file is
-    edited in place (same filename, new content) when it still exists.
+    edited in place (same filename, new content) when it still exists, retaining
+    a branched task's parent-history link.
     """
     filename = fetch_gist_filename(token, gist_id)
     payload: dict = {"description": gist_description(task_name)}
     if filename is not None:
         payload["files"] = {
-            filename: {"content": landing_content(task_name)}
+            filename: {
+                "content": landing_content(task_name, parent_comment_url)
+            }
         }
     _api_request(
         "PATCH",
@@ -381,6 +422,9 @@ class GistSyncer:
                 return
             gist_id = task.gist_id
             already = task.gist_synced_count
+            branch_point = task.gist_branch_point
+            parent_name = task.gist_branch_parent_name
+            parent_comment_url = task.gist_parent_comment_url
             display_name = task.name
             title_name = task.gist_title_name
             current_description = task.gist_description
@@ -390,8 +434,25 @@ class GistSyncer:
         if gist_id is None and not entries:
             return  # nothing to mirror yet
 
+        if (
+            parent_comment_url is None
+            and branch_point > 0
+            and parent_name is not None
+        ):
+            parent_comment_url = self._resolve_parent_comment_url(
+                parent_name,
+                branch_point,
+                token,
+            )
+            with self.lock:
+                task = self.store.get_task(name)
+                if task is None:
+                    return
+                task.gist_parent_comment_url = parent_comment_url
+                self.store.put_task(task)
+
         if gist_id is None:
-            filename, content = initial_file(display_name)
+            filename, content = initial_file(display_name, parent_comment_url)
             gist_id, html_url = create_gist(
                 token,
                 filename,
@@ -413,7 +474,12 @@ class GistSyncer:
         ):
             # The task was renamed or predates one of the title trackers:
             # rewrite both GitHub's tab title and the Markdown title line.
-            update_gist_title(token, gist_id, display_name)
+            update_gist_title(
+                token,
+                gist_id,
+                display_name,
+                parent_comment_url,
+            )
             with self.lock:
                 task = self.store.get_task(name)
                 if task is not None:
@@ -439,3 +505,33 @@ class GistSyncer:
                     if task is not None:
                         task.gist_synced_count = already + posted
                         self.store.put_task(task)
+
+    def _resolve_parent_comment_url(
+        self,
+        parent_name: str,
+        branch_point: int,
+        token: str,
+    ) -> str:
+        """Resolve the parent's final comment at the child's branch cutoff."""
+        self.sync_task(parent_name)
+        with self.lock:
+            parent = self.store.get_task(parent_name)
+            if parent is None:
+                raise RuntimeError(
+                    f"Cannot resolve Gist branch parent {parent_name!r}"
+                )
+            gist_id = parent.gist_id
+            gist_url = parent.gist_url
+            synced_count = parent.gist_synced_count
+            parent_branch_point = parent.gist_branch_point
+
+        if gist_id is None or gist_url is None or synced_count < branch_point:
+            raise RuntimeError(
+                f"Gist branch parent {parent_name!r} is not synced through "
+                f"log entry {branch_point}"
+            )
+
+        comment_number = branch_point - parent_branch_point
+        if comment_number <= 0:
+            return gist_url
+        return comment_url(token, gist_id, gist_url, comment_number)

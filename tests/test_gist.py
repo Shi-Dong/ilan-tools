@@ -47,6 +47,16 @@ class TestHelpers:
         assert content.startswith("# ilan task `task-abc`\n")
         assert "task-abc" in content
 
+    def test_initial_file_links_to_parent_branch_comment(self) -> None:
+        parent_url = (
+            "https://gist.github.com/u/parent"
+            "?permalink_comment_id=7#gistcomment-7"
+        )
+        filename, content = initial_file("child", parent_url)
+        assert filename == "child.md"
+        assert f"(<{parent_url}>)" in content
+        assert "Messages inherited at that point are not repeated here" in content
+
     def test_gist_description_contains_task_name(self) -> None:
         assert gist_description("task-abc") == "ilan task (task-abc)"
 
@@ -280,6 +290,25 @@ class TestUpdateGistTitle:
             ),
         ]
 
+    def test_update_gist_title_preserves_parent_comment_link(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls: list[tuple] = []
+
+        def fake_api(method, path, token, payload=None):  # noqa: ANN001
+            calls.append((method, path, payload))
+            if method == "GET":
+                return {"files": {"child.md": {"content": "stale"}}}
+            return {}
+
+        parent_url = "https://gist.github.com/u/parent#gistcomment-9"
+        monkeypatch.setattr(gist_mod, "_api_request", fake_api)
+        gist_mod.update_gist_title("tok", "gid9", "renamed-child", parent_url)
+
+        content = calls[1][2]["files"]["child.md"]["content"]
+        assert content.startswith("# ilan task `renamed-child`\n")
+        assert f"(<{parent_url}>)" in content
+
 
 # ── last-comment deep link ──────────────────────────────────────────────
 
@@ -328,6 +357,24 @@ class TestLastCommentUrl:
 
         monkeypatch.setattr(gist_mod, "_api_request", fake_api)
         assert gist_mod.last_comment_url("tok", "gid9", self.HTML_URL) == self.HTML_URL
+
+    def test_comment_url_targets_exact_one_based_position(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls: list[tuple[str, str]] = []
+
+        def fake_api(method, path, token, payload=None):  # noqa: ANN001
+            calls.append((method, path))
+            return [{"id": 1717}]
+
+        monkeypatch.setattr(gist_mod, "_api_request", fake_api)
+        url = gist_mod.comment_url("tok", "gid9", self.HTML_URL, 17)
+        assert url == (
+            f"{self.HTML_URL}?permalink_comment_id=1717#gistcomment-1717"
+        )
+        assert calls == [
+            ("GET", "/gists/gid9/comments?per_page=1&page=17"),
+        ]
 
 
 # ── _api_request retry / backoff ────────────────────────────────────────
@@ -541,21 +588,37 @@ class _FakeGitHub:
 
     def __init__(self) -> None:
         self.created: list[tuple[str, str]] = []
+        self.created_content: list[str] = []
         self.comments: list[tuple[str, str]] = []
         self.title_updates: list[tuple[str, str]] = []
+        self.title_update_parent_urls: list[str | None] = []
+        self.comment_lookups: list[tuple[str, int]] = []
         self._counter = 0
 
     def create_gist(self, token, filename, content, description):  # noqa: ANN001
         self._counter += 1
         gid = f"gid-{self._counter}"
         self.created.append((filename, description))
+        self.created_content.append(content)
         return gid, f"https://gist.github.com/u/{gid}"
 
     def post_comment(self, token, gist_id, body):  # noqa: ANN001
         self.comments.append((gist_id, body))
 
-    def update_gist_title(self, token, gist_id, task_name):  # noqa: ANN001
+    def update_gist_title(  # noqa: ANN001
+        self, token, gist_id, task_name, parent_comment_url=None
+    ):
         self.title_updates.append((gist_id, task_name))
+        self.title_update_parent_urls.append(parent_comment_url)
+
+    def comment_url(  # noqa: ANN001
+        self, token, gist_id, html_url, comment_number
+    ):
+        self.comment_lookups.append((gist_id, comment_number))
+        return (
+            f"{html_url}?permalink_comment_id={comment_number}"
+            f"#gistcomment-{comment_number}"
+        )
 
 
 @pytest.fixture()
@@ -566,6 +629,7 @@ def fake_gh(monkeypatch: pytest.MonkeyPatch) -> _FakeGitHub:
     monkeypatch.setattr(gist_mod, "create_gist", fake.create_gist)
     monkeypatch.setattr(gist_mod, "post_comment", fake.post_comment)
     monkeypatch.setattr(gist_mod, "update_gist_title", fake.update_gist_title)
+    monkeypatch.setattr(gist_mod, "comment_url", fake.comment_url)
     # Don't actually wait out the inter-comment throttle in tests.
     monkeypatch.setattr(gist_mod.time, "sleep", lambda s: None)
     return fake
@@ -720,6 +784,93 @@ class TestSyncTask:
         syncer.sync_task("old")
         assert len(fake_gh.created) == 1
         assert len(fake_gh.comments) == 4
+
+    def test_branch_syncs_parent_then_only_posts_child_messages(
+        self, store: Store, syncer: GistSyncer, fake_gh: _FakeGitHub
+    ) -> None:
+        parent = Task(name="parent", prompt="p", session_id="sid")
+        store.put_task(parent)
+        store.append_log("parent", "user", "parent question")
+        store.append_log("parent", "assistant", "parent answer")
+        store.branch_task(
+            parent,
+            "child",
+            alias="aa",
+            task_hash="deadbeef",
+            now="2026-01-01T00:00:00+00:00",
+        )
+        store.append_log("child", "user", "child question")
+
+        syncer.sync_task("child")
+
+        # The parent is brought up to the branch cutoff first. The child gets
+        # a fresh Gist but only its post-branch message becomes a comment.
+        assert fake_gh.created == [
+            ("parent.md", "ilan task (parent)"),
+            ("child.md", "ilan task (child)"),
+        ]
+        assert len(fake_gh.comments) == 3
+        assert [gist_id for gist_id, _ in fake_gh.comments] == [
+            "gid-1",
+            "gid-1",
+            "gid-2",
+        ]
+        assert "child question" in fake_gh.comments[-1][1]
+        assert fake_gh.comment_lookups == [("gid-1", 2)]
+
+        parent_url = (
+            "https://gist.github.com/u/gid-1"
+            "?permalink_comment_id=2#gistcomment-2"
+        )
+        assert f"(<{parent_url}>)" in fake_gh.created_content[1]
+        child = store.get_task("child")
+        assert child is not None
+        assert child.gist_branch_point == 2
+        assert child.gist_synced_count == 3
+        assert child.gist_parent_comment_url == parent_url
+
+    def test_nested_branch_uses_parent_relative_comment_number(
+        self, store: Store, syncer: GistSyncer, fake_gh: _FakeGitHub
+    ) -> None:
+        grand = Task(name="grand", prompt="p", session_id="grand-sid")
+        store.put_task(grand)
+        store.append_log("grand", "user", "g1")
+        store.append_log("grand", "assistant", "g2")
+        parent = store.branch_task(
+            grand,
+            "parent",
+            alias="aa",
+            task_hash="1111aaaa",
+            now="2026-01-01T00:00:00+00:00",
+        )
+        store.append_log("parent", "user", "p1")
+        store.append_log("parent", "assistant", "p2")
+        parent = store.get_task("parent")
+        assert parent is not None
+        parent.gist_id = "gid-parent"
+        parent.gist_url = "https://gist.github.com/u/gid-parent"
+        parent.gist_synced_count = 4
+        parent.gist_parent_comment_url = "https://gist.github.com/u/grand#history"
+        parent.gist_title_name = "parent"
+        parent.gist_description = "ilan task (parent)"
+        store.put_task(parent)
+
+        store.branch_task(
+            parent,
+            "child",
+            alias="bb",
+            task_hash="2222bbbb",
+            now="2026-01-02T00:00:00+00:00",
+        )
+        store.append_log("child", "user", "c1")
+
+        syncer.sync_task("child")
+
+        # Parent's first two unified-log entries are represented by its own
+        # parent link, so log cutoff 4 maps to comment 2 in the parent Gist.
+        assert fake_gh.comment_lookups == [("gid-parent", 2)]
+        assert len(fake_gh.comments) == 1
+        assert "c1" in fake_gh.comments[0][1]
 
     def test_no_gist_when_no_entries(
         self, store: Store, syncer: GistSyncer, fake_gh: _FakeGitHub
