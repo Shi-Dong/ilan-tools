@@ -228,9 +228,9 @@ class Store:
 
     def append_log(
         self, task_name: str, role: str, content: str, model: str | None = None,
-        effort: str | None = None,
+        effort: str | None = None, budget: str | None = None,
     ) -> None:
-        entry = LogEntry.now(role, content, model, effort)
+        entry = LogEntry.now(role, content, model, effort, budget)
         with open(self.log_path(task_name), "a") as f:
             f.write(json.dumps(entry.to_dict()) + "\n")
         if self.on_append is not None:

@@ -9,6 +9,12 @@ from pathlib import Path
 
 import pytest
 
+from ilan import budget
+
+# A path no credential file can occupy, so budget lookups miss without any
+# filesystem setup.
+_NO_CREDENTIALS = Path("/nonexistent/ilan-tests/no-login.json")
+
 
 @pytest.fixture()
 def tmp_workdir(tmp_path: Path) -> Path:
@@ -60,3 +66,21 @@ def mock_claude_bin(tmp_path: Path) -> Path:
 def env_with_mock_claude(mock_claude_bin: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Put mock claude on PATH so that Runner._spawn finds it."""
     monkeypatch.setenv("PATH", f"{mock_claude_bin.parent}:{os.environ.get('PATH', '')}")
+
+
+@pytest.fixture(autouse=True)
+def isolated_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point every credential source :mod:`ilan.budget` reads at empty locations.
+
+    Applied everywhere for two reasons: budget attribution must not depend on
+    who runs the suite, and reading the macOS keychain spawns ``security`` —
+    which a test that mocks ``subprocess.Popen`` would otherwise intercept.
+
+    Deliberately avoids ``tmp_path``: as an autouse fixture this runs for every
+    test, and materializing a directory each time cost the suite ~7s.
+    """
+    monkeypatch.setattr(budget, "_read_keychain_json", lambda: None)
+    monkeypatch.setattr(budget, "_CLAUDE_CREDENTIALS_FILE", _NO_CREDENTIALS)
+    monkeypatch.setattr(budget, "_CODEX_AUTH_FILE", _NO_CREDENTIALS)
+    for var in budget._CLAUDE_KEY_VARS + budget._CODEX_KEY_VARS:
+        monkeypatch.delenv(var, raising=False)

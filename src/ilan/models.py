@@ -126,6 +126,12 @@ class Task:
     # ``spawn_effort`` so that, while a new turn is in flight, the cached
     # model/effort pair still describes the *previous* (visible) message.
     last_assistant_effort: str | None = None
+    # Which account paid for the most recent spawn ("Team", "API", …). Also
+    # absent from both session logs, so it is resolved from the local
+    # credentials at spawn time and, like the effort, copied to
+    # ``last_assistant_budget`` at reap.
+    spawn_budget: str | None = None
+    last_assistant_budget: str | None = None
     # GitHub Gist mirror of the conversation. ``gist_id`` / ``gist_url`` are
     # set the first time the async syncer creates the task's secret Gist.
     # ``gist_synced_count`` is an absolute cursor into the unified log so the
@@ -211,6 +217,8 @@ class Task:
             "last_assistant_model": self.last_assistant_model,
             "spawn_effort": self.spawn_effort,
             "last_assistant_effort": self.last_assistant_effort,
+            "spawn_budget": self.spawn_budget,
+            "last_assistant_budget": self.last_assistant_budget,
             "gist_id": self.gist_id,
             "gist_url": self.gist_url,
             "gist_synced_count": self.gist_synced_count,
@@ -251,6 +259,8 @@ class Task:
             last_assistant_model=d.get("last_assistant_model"),
             spawn_effort=d.get("spawn_effort"),
             last_assistant_effort=d.get("last_assistant_effort"),
+            spawn_budget=d.get("spawn_budget"),
+            last_assistant_budget=d.get("last_assistant_budget"),
             gist_id=d.get("gist_id"),
             gist_url=d.get("gist_url"),
             gist_synced_count=d.get("gist_synced_count", 0),
@@ -301,6 +311,9 @@ class LogEntry:
     # Reasoning-effort level the agent was spawned with (assistant replies
     # only). Older entries predate this field and stay ``None``.
     effort: str | None = None
+    # Account that paid for the message ("Team", "API", …; assistant replies
+    # only). Older entries predate this field and stay ``None``.
+    budget: str | None = None
 
     def to_dict(self) -> dict[str, str]:
         d = {"role": self.role, "content": self.content, "timestamp": self.timestamp}
@@ -308,6 +321,8 @@ class LogEntry:
             d["model"] = self.model
         if self.effort:
             d["effort"] = self.effort
+        if self.budget:
+            d["budget"] = self.budget
         return d
 
     @classmethod
@@ -318,12 +333,13 @@ class LogEntry:
             timestamp=d.get("timestamp", ""),
             model=d.get("model") or None,
             effort=d.get("effort") or None,
+            budget=d.get("budget") or None,
         )
 
     @classmethod
     def now(
         cls, role: str, content: str, model: str | None = None,
-        effort: str | None = None,
+        effort: str | None = None, budget: str | None = None,
     ) -> LogEntry:
         return cls(
             role=role,
@@ -331,4 +347,5 @@ class LogEntry:
             timestamp=datetime.now(timezone.utc).isoformat(),
             model=model,
             effort=effort,
+            budget=budget,
         )

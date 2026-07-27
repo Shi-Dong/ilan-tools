@@ -8,6 +8,7 @@ import subprocess
 import time
 from pathlib import Path
 
+from ilan import budget
 from ilan import config as cfg
 from ilan.backends import Backend, ClaudeBackend, CodexBackend
 from ilan.backends.claude import last_assistant_model
@@ -288,6 +289,10 @@ class Runner:
         # capture what this spawn was given (the ``effort`` config the
         # backend read when building the command) for attribution at reap.
         task.spawn_effort = str(cfg.load().get("effort", "xhigh"))
+        # Same for the paying account: resolve it from the credentials this
+        # spawn just authenticated with, since a later `ilan config set
+        # api-key-…` would change the answer for the *next* spawn only.
+        task.spawn_budget = budget.detect(task.engine)
         task.set_status(TaskStatus.WORKING)
         self.store.put_task(task)
         return True
@@ -383,11 +388,15 @@ class Runner:
                 if turn_model:
                     task.last_assistant_model = turn_model
 
-        # The effort behind this turn comes from the spawn-time capture, not
-        # the session log (neither backend records it there).
+        # The effort and paying account behind this turn come from the
+        # spawn-time captures, not the session log (neither backend records
+        # them there).
         turn_effort = task.spawn_effort
         if turn_effort:
             task.last_assistant_effort = turn_effort
+        turn_budget = task.spawn_budget
+        if turn_budget:
+            task.last_assistant_budget = turn_budget
 
         task.input_tokens += result.input_tokens
         task.output_tokens += result.output_tokens
@@ -396,7 +405,9 @@ class Runner:
 
         response = result.result_text
         if response:
-            self.store.append_log(task.name, "assistant", response, turn_model, turn_effort)
+            self.store.append_log(
+                task.name, "assistant", response, turn_model, turn_effort, turn_budget,
+            )
 
         # This engine's native session now reflects every unified-log entry
         # through its own just-appended turn, so advance its cursor. A future
