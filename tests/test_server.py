@@ -1212,6 +1212,63 @@ class TestLastModel:
         resp = _get(ilan_server, "/tasks/lm-logs-eff/logs")
         assert resp["last_assistant_effort"] == "xhigh"
 
+    def test_last_model_fast_path_includes_budget(
+        self, ilan_server: IlanServer
+    ) -> None:
+        _post(ilan_server, "/tasks", {"name": "lm-budget", "prompt": "P"})
+        with ilan_server.lock:
+            task = ilan_server.store.get_task("lm-budget")
+            task.last_assistant_model = "claude-opus-4-8"
+            task.last_assistant_budget = "Team"
+            ilan_server.store.put_task(task)
+        resp = _get(ilan_server, "/tasks/lm-budget/last-model")
+        assert resp["model"] == "claude-opus-4-8"
+        assert resp["budget"] == "Team"
+
+    def test_last_model_fallback_includes_cached_budget(
+        self, ilan_server: IlanServer, tmp_path: Path
+    ) -> None:
+        """Like the effort, the budget is absent from the session log, so the
+        fallback reports whatever was cached on the task."""
+        _post(ilan_server, "/tasks", {"name": "lm-budget-fb", "prompt": "P"})
+        with ilan_server.lock:
+            task = ilan_server.store.get_task("lm-budget-fb")
+            task.last_assistant_budget = "API"
+            ilan_server.store.put_task(task)
+        log = self._make_session_log(tmp_path, "lm-budget-fb", [
+            {"message": {"role": "assistant", "model": "claude-opus-4-7", "content": "a"}},
+        ])
+        self._attach_session_log(ilan_server, "lm-budget-fb", log)
+        resp = _get(ilan_server, "/tasks/lm-budget-fb/last-model")
+        assert resp["model"] == "claude-opus-4-7"
+        assert resp["budget"] == "API"
+
+    def test_tail_includes_last_assistant_budget(
+        self, ilan_server: IlanServer
+    ) -> None:
+        _post(ilan_server, "/tasks", {"name": "lm-tail-bud", "prompt": "P"})
+        ilan_server.store.append_log("lm-tail-bud", "assistant", "hi")
+        with ilan_server.lock:
+            task = ilan_server.store.get_task("lm-tail-bud")
+            task.last_assistant_model = "claude-opus-4-8"
+            task.last_assistant_budget = "Team"
+            ilan_server.store.put_task(task)
+        resp = _get(ilan_server, "/tasks/lm-tail-bud/tail")
+        assert resp["last_assistant_budget"] == "Team"
+
+    def test_logs_includes_last_assistant_budget(
+        self, ilan_server: IlanServer
+    ) -> None:
+        _post(ilan_server, "/tasks", {"name": "lm-logs-bud", "prompt": "P"})
+        ilan_server.store.append_log("lm-logs-bud", "assistant", "hi")
+        with ilan_server.lock:
+            task = ilan_server.store.get_task("lm-logs-bud")
+            task.last_assistant_model = "claude-opus-4-8"
+            task.last_assistant_budget = "Team"
+            ilan_server.store.put_task(task)
+        resp = _get(ilan_server, "/tasks/lm-logs-bud/logs")
+        assert resp["last_assistant_budget"] == "Team"
+
 
 # ── History URL ────────────────────────────────────────────────────────
 

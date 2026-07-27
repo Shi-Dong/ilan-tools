@@ -9,6 +9,7 @@ from unittest.mock import patch
 import pytest
 
 import ilan.config as cfg
+from ilan import budget
 from ilan.backends import ClaudeBackend, CodexBackend
 from ilan.models import ENGINE_CLAUDE, ENGINE_CODEX, LogEntry, Task, TaskStatus
 from ilan.runner import (
@@ -365,6 +366,43 @@ class TestTryReap:
         assert updated.last_assistant_effort is None
         assert store.read_logs("t-noeffort")[-1].effort is None
 
+    def test_reap_caches_budget_from_spawn(
+        self, store: Store, runner: Runner
+    ) -> None:
+        """The paying account captured at spawn time is copied to the task's
+        ``last_assistant_budget`` and onto the appended log entry."""
+        t = Task(name="t-budget", prompt="p", status=TaskStatus.WORKING, pid=99999)
+        t.spawn_budget = "Team"
+        store.put_task(t)
+        out = {"session_id": "sid-b", "result": "ok\n[STATUS: DONE]", "is_error": False}
+        store.output_path("t-budget").write_text(json.dumps(out))
+
+        with patch.object(Runner, "_find_session_log", return_value=None):
+            runner._try_reap(t)
+        updated = store.get_task("t-budget")
+        assert updated is not None
+        assert updated.last_assistant_budget == "Team"
+        logs = store.read_logs("t-budget")
+        assert logs[-1].role == "assistant"
+        assert logs[-1].budget == "Team"
+
+    def test_reap_without_spawn_budget_keeps_cache(
+        self, store: Store, runner: Runner
+    ) -> None:
+        """An unresolvable budget leaves the cache untouched and appends a
+        budget-less entry rather than guessing."""
+        t = Task(name="t-nobudget", prompt="p", status=TaskStatus.WORKING, pid=99999)
+        store.put_task(t)
+        out = {"session_id": "sid-nb", "result": "ok\n[STATUS: DONE]", "is_error": False}
+        store.output_path("t-nobudget").write_text(json.dumps(out))
+
+        with patch.object(Runner, "_find_session_log", return_value=None):
+            runner._try_reap(t)
+        updated = store.get_task("t-nobudget")
+        assert updated is not None
+        assert updated.last_assistant_budget is None
+        assert store.read_logs("t-nobudget")[-1].budget is None
+
     def test_reap_accumulates_cost(self, store: Store, runner: Runner) -> None:
         t = Task(name="t-cost", prompt="p", status=TaskStatus.WORKING, pid=99999)
         store.put_task(t)
@@ -668,6 +706,37 @@ class TestSpawn:
         assert updated.spawn_effort == "medium"
 
         proc = runner._procs.get("spawn-effort")
+        if proc:
+            proc.wait(timeout=5)
+
+    def test_spawn_captures_budget_for_the_engine(
+        self, store: Store, tmp_workdir: Path, tmp_config: Path,
+        env_with_mock_claude: None, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """_spawn resolves the paying account for the task's own engine, so a
+        later config change can't retroactively relabel this turn."""
+        cfg.save({**cfg.DEFAULTS, "workdir": str(tmp_workdir)})
+        seen: list[str] = []
+
+        def fake_detect(engine: str) -> str:
+            seen.append(engine)
+            return "Team"
+
+        monkeypatch.setattr(budget, "detect", fake_detect)
+
+        runner = Runner(store)
+        t = Task(name="spawn-budget", prompt="hello")
+        store.put_task(t)
+
+        ok = runner._spawn(t, "hello", resume=False)
+        assert ok is True
+        assert seen == [t.engine]
+        assert t.spawn_budget == "Team"
+        updated = store.get_task("spawn-budget")
+        assert updated is not None
+        assert updated.spawn_budget == "Team"
+
+        proc = runner._procs.get("spawn-budget")
         if proc:
             proc.wait(timeout=5)
 

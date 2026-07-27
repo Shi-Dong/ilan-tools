@@ -175,6 +175,7 @@ class TestTask:
             "cache_read_input_tokens", "cost_usd", "sleep_seconds",
             "parent_name", "summary_one_liner", "model", "last_assistant_model",
             "spawn_effort", "last_assistant_effort",
+            "spawn_budget", "last_assistant_budget",
             "gist_id", "gist_url", "gist_synced_count", "gist_branch_point",
             "gist_branch_parent_name", "gist_parent_comment_url",
             "gist_title_name", "gist_description",
@@ -262,6 +263,20 @@ class TestTask:
         t = Task.from_dict(d)
         assert t.spawn_effort is None
         assert t.last_assistant_effort is None
+
+    def test_budget_fields_roundtrip(self) -> None:
+        t = self._make_task()
+        t.spawn_budget = "API"
+        t.last_assistant_budget = "Team"
+        t2 = Task.from_dict(t.to_dict())
+        assert t2.spawn_budget == "API"
+        assert t2.last_assistant_budget == "Team"
+
+    def test_from_dict_missing_budget_fields(self) -> None:
+        d = {"name": "old", "prompt": "p", "status": "WORKING"}
+        t = Task.from_dict(d)
+        assert t.spawn_budget is None
+        assert t.last_assistant_budget is None
 
     def test_gist_fields_default(self) -> None:
         t = Task(name="x", prompt="y")

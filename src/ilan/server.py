@@ -829,6 +829,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 "alias": task.alias,
                 "last_assistant_model": task.last_assistant_model,
                 "last_assistant_effort": task.last_assistant_effort,
+                "last_assistant_budget": task.last_assistant_budget,
                 "logs": [e.to_dict() for e in entries],
             })
 
@@ -868,6 +869,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 "alias": task.alias,
                 "last_assistant_model": task.last_assistant_model,
                 "last_assistant_effort": task.last_assistant_effort,
+                "last_assistant_budget": task.last_assistant_budget,
             }
 
             if not entries:
@@ -920,12 +922,13 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task = self._get_task_or_404(name)
             if task is None:
                 return
-            # Fast path: return the model (and effort) cached at reap time.
+            # Fast path: return the model (and effort/budget) cached at reap time.
             if task.last_assistant_model:
                 self._json({
                     "name": task.name,
                     "model": task.last_assistant_model,
                     "effort": task.last_assistant_effort,
+                    "budget": task.last_assistant_budget,
                 })
                 return
             # Fallback for tasks last reaped before the cache existed: resolve
@@ -953,12 +956,14 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             task.last_assistant_model = model
             with self._ilan.lock:
                 self._ilan.store.put_task(task)
-            # The session log carries no effort information, so this fallback
-            # path reports the model alone (effort stays whatever was cached).
+            # The session log carries neither the effort nor the paying account,
+            # so this fallback path resolves the model alone; both others stay
+            # whatever was cached.
             self._json({
                 "name": task.name,
                 "model": model,
                 "effort": task.last_assistant_effort,
+                "budget": task.last_assistant_budget,
             })
 
         def handle_task_history_url(self, name: str):
