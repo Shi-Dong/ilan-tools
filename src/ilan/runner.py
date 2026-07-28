@@ -412,8 +412,16 @@ class Runner:
         response = result.result_text
         if response:
             self.store.append_log(
-                task.name, "assistant", response, turn_model, turn_effort, turn_budget,
-                turn_cost,
+                task.name,
+                "assistant",
+                response,
+                model=turn_model,
+                effort=turn_effort,
+                budget=turn_budget,
+                cost_usd=turn_cost,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                cache_read_input_tokens=result.cache_read_input_tokens,
             )
 
         # This engine's native session now reflects every unified-log entry

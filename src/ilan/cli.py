@@ -853,6 +853,20 @@ def _print_reply_hint(alias: str | None, name: str) -> None:
     console.print(hint, highlight=False)
 
 
+def _last_assistant_token_usage(
+    entries: list[dict],
+) -> tuple[int | None, int | None, int | None]:
+    """Return the newest assistant entry's input/output/cache-read counts."""
+    for entry in reversed(entries):
+        if entry.get("role") == "assistant":
+            return (
+                entry.get("input_tokens"),
+                entry.get("output_tokens"),
+                entry.get("cache_read_input_tokens"),
+            )
+    return None, None, None
+
+
 def _print_last_model_hint(
     client: Client,
     name: str,
@@ -860,8 +874,11 @@ def _print_last_model_hint(
     cached_effort: str | None = None,
     cached_budget: str | None = None,
     cached_cost_usd: float | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    cache_read_input_tokens: int | None = None,
 ) -> None:
-    """Print which model generated the last assistant message, above the reply hint.
+    """Print the last assistant message's model and token usage.
 
     The model, its reasoning effort, the account that paid for it and what it
     cost are normally piggybacked on the tail response (*cached_model* /
@@ -917,6 +934,19 @@ def _print_last_model_hint(
         f"{detail_suffix}",
         highlight=False,
     )
+    if all(
+        value is not None
+        for value in (input_tokens, output_tokens, cache_read_input_tokens)
+    ):
+        console.print(
+            "[dim]Tokens: input [/dim]"
+            f"[yellow]{input_tokens:,}[/yellow]"
+            "[dim], output [/dim]"
+            f"[yellow]{output_tokens:,}[/yellow]"
+            "[dim], cached input [/dim]"
+            f"[yellow]{cache_read_input_tokens:,}[/yellow]",
+            highlight=False,
+        )
 
 
 def _do_tail(
@@ -942,6 +972,7 @@ def _do_tail(
                 console.print("[yellow]No logs yet.[/yellow]")
             _print_reply_hint(reply_alias, reply_name)
             return
+        token_usage = _last_assistant_token_usage(entries)
         entries = entries[-n:]
     else:
         resp = client.get_tail(name)
@@ -953,6 +984,7 @@ def _do_tail(
             _print_reply_hint(reply_alias, reply_name)
             return
         entries = resp["entries"]
+        token_usage = _last_assistant_token_usage(entries)
 
     line_number_on = _line_number_enabled() if line_number is None else line_number
     if markdown is None:
@@ -1062,6 +1094,7 @@ def _do_tail(
         client, name,
         resp.get("last_assistant_model"), resp.get("last_assistant_effort"),
         resp.get("last_assistant_budget"), resp.get("last_assistant_cost_usd"),
+        *token_usage,
     )
     _print_reply_hint(reply_alias, reply_name)
 
