@@ -397,6 +397,12 @@ class Runner:
         turn_budget = task.spawn_budget
         if turn_budget:
             task.last_assistant_budget = turn_budget
+        # The backend prices each invocation separately, so this is the cost of
+        # this turn alone. Backends that report no cost leave it ``None`` so
+        # nothing is attributed rather than a misleading $0.00.
+        turn_cost = result.cost_usd or None
+        if turn_cost:
+            task.last_assistant_cost_usd = turn_cost
 
         task.input_tokens += result.input_tokens
         task.output_tokens += result.output_tokens
@@ -407,6 +413,7 @@ class Runner:
         if response:
             self.store.append_log(
                 task.name, "assistant", response, turn_model, turn_effort, turn_budget,
+                turn_cost,
             )
 
         # This engine's native session now reflects every unified-log entry

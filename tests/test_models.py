@@ -8,6 +8,7 @@ import pytest
 
 from ilan.models import (
     ALIAS_POOL,
+    API,
     ENGINE_CLAUDE,
     ENGINE_CODEX,
     ENGINE_NAME_STYLE,
@@ -16,6 +17,7 @@ from ilan.models import (
     LogEntry,
     Task,
     TaskStatus,
+    format_cost_usd,
     generate_task_hash,
     is_fable_model,
     other_engine,
@@ -175,7 +177,7 @@ class TestTask:
             "cache_read_input_tokens", "cost_usd", "sleep_seconds",
             "parent_name", "summary_one_liner", "model", "last_assistant_model",
             "spawn_effort", "last_assistant_effort",
-            "spawn_budget", "last_assistant_budget",
+            "spawn_budget", "last_assistant_budget", "last_assistant_cost_usd",
             "gist_id", "gist_url", "gist_synced_count", "gist_branch_point",
             "gist_branch_parent_name", "gist_parent_comment_url",
             "gist_title_name", "gist_description",
@@ -490,3 +492,41 @@ class TestLogEntry:
         e = LogEntry.now("assistant", "response")
         assert "effort" not in e.to_dict()
         assert LogEntry.from_dict({"role": "user", "content": "hi"}).effort is None
+
+    def test_cost_roundtrip(self) -> None:
+        e = LogEntry.now("assistant", "response", model="claude-opus-5", cost_usd=1.25)
+        d = e.to_dict()
+        assert d["cost_usd"] == 1.25
+        assert LogEntry.from_dict(d).cost_usd == 1.25
+
+    def test_cost_omitted_when_unset_or_zero(self) -> None:
+        assert "cost_usd" not in LogEntry.now("assistant", "response").to_dict()
+        assert "cost_usd" not in LogEntry.now(
+            "assistant", "response", cost_usd=0.0
+        ).to_dict()
+        assert LogEntry.from_dict({"role": "user", "content": "hi"}).cost_usd is None
+
+
+class TestFormatCostUsd:
+    def test_rounds_to_cents(self) -> None:
+        assert format_cost_usd(1.2345, API) == "$1.23"
+        assert format_cost_usd(1.999, API) == "$2.00"
+        assert format_cost_usd(2, API) == "$2.00"
+
+    def test_absent_cost_renders_nothing(self) -> None:
+        """Zero means "not priced by the backend", not "free"."""
+        assert format_cost_usd(None, API) is None
+        assert format_cost_usd(0.0, API) is None
+
+    def test_sub_cent_cost_rounds_to_zero(self) -> None:
+        """Two decimals is the agreed precision; a fraction of a cent shows $0.00."""
+        assert format_cost_usd(0.004, API) == "$0.00"
+
+    def test_subscription_spend_is_withheld(self) -> None:
+        """A plan's price is notional, so it is never shown as a dollar amount."""
+        assert format_cost_usd(1.25, "Team") is None
+        assert format_cost_usd(1.25, "Max") is None
+
+    def test_unknown_budget_withholds_cost(self) -> None:
+        """Unreadable credentials must not be assumed to mean an API key."""
+        assert format_cost_usd(1.25, None) is None
