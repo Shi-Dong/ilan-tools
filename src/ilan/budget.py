@@ -17,10 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from ilan import config as cfg
-from ilan.models import ENGINE_CLAUDE, ENGINE_CODEX
-
-# Reported when the spawn is billed to an API key rather than a subscription.
-API = "API"
+from ilan.models import API, ENGINE_CLAUDE, ENGINE_CODEX
 
 # Env vars that override the stored OAuth login for each CLI. ANTHROPIC_AUTH_TOKEN
 # counts too: it is how a third-party gateway (via ANTHROPIC_BASE_URL) gets

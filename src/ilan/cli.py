@@ -872,9 +872,9 @@ def _print_last_model_hint(
     session log yet, no assistant message, server error or unreachable) print a
     warning explaining why, rather than the model line, so attribution is never
     silently dropped. The other three are best-effort: when unknown (older
-    server, a task last reaped before they were recorded, credentials that
-    could not be read, or a backend that reports no cost) the line simply omits
-    them.
+    server, a task last reaped before they were recorded, or credentials that
+    could not be read) the line simply omits them. The cost is shown only for
+    an API-key spend — see :func:`format_cost_usd`.
     """
     model = cached_model
     effort = cached_effort
@@ -902,7 +902,8 @@ def _print_last_model_hint(
     details = [
         f"[dim]{label}: [/dim][yellow]{value}[/yellow]"
         for label, value in (
-            ("effort", effort), ("budget", budget), ("cost", format_cost_usd(cost)),
+            ("effort", effort), ("budget", budget),
+            ("cost", format_cost_usd(cost, budget)),
         )
         if value
     ]

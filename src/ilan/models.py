@@ -306,14 +306,23 @@ class Task:
         return sessions
 
 
-def format_cost_usd(cost: float | None) -> str | None:
-    """Render a message cost as ``$0.12``, or ``None`` when there is none.
+# Budget label for a spawn billed to an API key rather than a subscription.
+# Lives here rather than in :mod:`ilan.budget` (which resolves it) because the
+# cost formatter below keys off it, and ``budget`` already imports this module.
+API = "API"
+
+
+def format_cost_usd(cost: float | None, budget: str | None) -> str | None:
+    """Render a message cost as ``$0.12``, or ``None`` when it shouldn't be shown.
 
     Shared by the ``ilan task tail`` hint and the Gist attribution so the two
-    always agree. A zero cost means the backend did not price the turn rather
-    than that the turn was free, so it renders as nothing at all.
+    always agree. Only an API-key spend is real money: on a subscription the
+    backend still reports a price, but it is what the tokens *would* have cost
+    on the API, not an amount charged, so showing it next to ``budget: Team``
+    would read as a bill that nobody pays. A zero cost likewise means the
+    backend did not price the turn, not that the turn was free.
     """
-    if not cost:
+    if not cost or budget != API:
         return None
     return f"${cost:.2f}"
 

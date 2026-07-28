@@ -8,6 +8,7 @@ import pytest
 
 from ilan.models import (
     ALIAS_POOL,
+    API,
     ENGINE_CLAUDE,
     ENGINE_CODEX,
     ENGINE_NAME_STYLE,
@@ -508,15 +509,24 @@ class TestLogEntry:
 
 class TestFormatCostUsd:
     def test_rounds_to_cents(self) -> None:
-        assert format_cost_usd(1.2345) == "$1.23"
-        assert format_cost_usd(1.999) == "$2.00"
-        assert format_cost_usd(2) == "$2.00"
+        assert format_cost_usd(1.2345, API) == "$1.23"
+        assert format_cost_usd(1.999, API) == "$2.00"
+        assert format_cost_usd(2, API) == "$2.00"
 
     def test_absent_cost_renders_nothing(self) -> None:
         """Zero means "not priced by the backend", not "free"."""
-        assert format_cost_usd(None) is None
-        assert format_cost_usd(0.0) is None
+        assert format_cost_usd(None, API) is None
+        assert format_cost_usd(0.0, API) is None
 
     def test_sub_cent_cost_rounds_to_zero(self) -> None:
         """Two decimals is the agreed precision; a fraction of a cent shows $0.00."""
-        assert format_cost_usd(0.004) == "$0.00"
+        assert format_cost_usd(0.004, API) == "$0.00"
+
+    def test_subscription_spend_is_withheld(self) -> None:
+        """A plan's price is notional, so it is never shown as a dollar amount."""
+        assert format_cost_usd(1.25, "Team") is None
+        assert format_cost_usd(1.25, "Max") is None
+
+    def test_unknown_budget_withholds_cost(self) -> None:
+        """Unreadable credentials must not be assumed to mean an API key."""
+        assert format_cost_usd(1.25, None) is None
