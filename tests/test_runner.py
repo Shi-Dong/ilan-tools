@@ -403,6 +403,61 @@ class TestTryReap:
         assert updated.last_assistant_budget is None
         assert store.read_logs("t-nobudget")[-1].budget is None
 
+    def test_reap_records_per_turn_cost(self, store: Store, runner: Runner) -> None:
+        """Each turn is tagged with its own cost, not the running total.
+
+        The backend prices one invocation at a time, so a second turn must not
+        inherit the sum accumulated in ``Task.cost_usd``.
+        """
+        t = Task(name="t-turncost", prompt="p", status=TaskStatus.WORKING, pid=99999)
+        store.put_task(t)
+        out = {
+            "session_id": "sid-tc",
+            "result": "first\n[STATUS: DONE]",
+            "is_error": False,
+            "total_cost_usd": 1.25,
+        }
+        store.output_path("t-turncost").write_text(json.dumps(out))
+
+        with patch.object(Runner, "_find_session_log", return_value=None):
+            runner._try_reap(t)
+        updated = store.get_task("t-turncost")
+        assert updated is not None
+        assert updated.last_assistant_cost_usd == pytest.approx(1.25)
+        assert store.read_logs("t-turncost")[-1].cost_usd == pytest.approx(1.25)
+
+        t = updated
+        t.status = TaskStatus.WORKING
+        t.pid = 99999
+        store.put_task(t)
+        out["total_cost_usd"] = 0.75
+        out["result"] = "second\n[STATUS: DONE]"
+        store.output_path("t-turncost").write_text(json.dumps(out))
+
+        with patch.object(Runner, "_find_session_log", return_value=None):
+            runner._try_reap(t)
+        updated = store.get_task("t-turncost")
+        assert updated is not None
+        assert updated.cost_usd == pytest.approx(2.0)
+        assert updated.last_assistant_cost_usd == pytest.approx(0.75)
+        assert store.read_logs("t-turncost")[-1].cost_usd == pytest.approx(0.75)
+
+    def test_reap_without_cost_leaves_entry_untagged(
+        self, store: Store, runner: Runner
+    ) -> None:
+        """Codex reports no cost, so nothing is attributed for that turn."""
+        t = Task(name="t-nocost", prompt="p", status=TaskStatus.WORKING, pid=99999)
+        store.put_task(t)
+        out = {"session_id": "sid-nc", "result": "ok\n[STATUS: DONE]", "is_error": False}
+        store.output_path("t-nocost").write_text(json.dumps(out))
+
+        with patch.object(Runner, "_find_session_log", return_value=None):
+            runner._try_reap(t)
+        updated = store.get_task("t-nocost")
+        assert updated is not None
+        assert updated.last_assistant_cost_usd is None
+        assert store.read_logs("t-nocost")[-1].cost_usd is None
+
     def test_reap_accumulates_cost(self, store: Store, runner: Runner) -> None:
         t = Task(name="t-cost", prompt="p", status=TaskStatus.WORKING, pid=99999)
         store.put_task(t)

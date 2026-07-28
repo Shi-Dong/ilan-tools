@@ -39,6 +39,7 @@ from ilan.models import (
     FABLE_MODEL,
     STYLE_FOR_STATUS,
     TaskStatus,
+    format_cost_usd,
     is_fable_model,
 )
 from ilan.server import read_server_info
@@ -858,23 +859,27 @@ def _print_last_model_hint(
     cached_model: str | None = None,
     cached_effort: str | None = None,
     cached_budget: str | None = None,
+    cached_cost_usd: float | None = None,
 ) -> None:
     """Print which model generated the last assistant message, above the reply hint.
 
-    The model, its reasoning effort and the account that paid for it are
-    normally piggybacked on the tail response (*cached_model* / *cached_effort*
-    / *cached_budget*), so no extra request is needed. When the model is absent
-    — e.g. the task was last reaped by an older server that didn't cache it —
-    fall back to an explicit ``get_last_model`` lookup. If the model still
-    can't be determined (no session log yet, no assistant message, server error
-    or unreachable) print a warning explaining why, rather than the model line,
-    so attribution is never silently dropped. The effort and budget are
-    best-effort: when unknown (older server, a task last reaped before they were
-    recorded, or credentials that could not be read) the line simply omits them.
+    The model, its reasoning effort, the account that paid for it and what it
+    cost are normally piggybacked on the tail response (*cached_model* /
+    *cached_effort* / *cached_budget* / *cached_cost_usd*), so no extra request
+    is needed. When the model is absent — e.g. the task was last reaped by an
+    older server that didn't cache it — fall back to an explicit
+    ``get_last_model`` lookup. If the model still can't be determined (no
+    session log yet, no assistant message, server error or unreachable) print a
+    warning explaining why, rather than the model line, so attribution is never
+    silently dropped. The other three are best-effort: when unknown (older
+    server, a task last reaped before they were recorded, credentials that
+    could not be read, or a backend that reports no cost) the line simply omits
+    them.
     """
     model = cached_model
     effort = cached_effort
     budget = cached_budget
+    cost = cached_cost_usd
     if not model:
         try:
             resp = client.get_last_model(name)
@@ -887,6 +892,7 @@ def _print_last_model_hint(
         model = resp.get("model")
         effort = resp.get("effort")
         budget = resp.get("budget")
+        cost = resp.get("cost_usd")
         if resp.get("error") or not model:
             reason = resp.get("error") or "no model recorded in the session log"
             console.print(
@@ -895,7 +901,9 @@ def _print_last_model_hint(
             return
     details = [
         f"[dim]{label}: [/dim][yellow]{value}[/yellow]"
-        for label, value in (("effort", effort), ("budget", budget))
+        for label, value in (
+            ("effort", effort), ("budget", budget), ("cost", format_cost_usd(cost)),
+        )
         if value
     ]
     detail_suffix = (
@@ -1052,7 +1060,7 @@ def _do_tail(
     _print_last_model_hint(
         client, name,
         resp.get("last_assistant_model"), resp.get("last_assistant_effort"),
-        resp.get("last_assistant_budget"),
+        resp.get("last_assistant_budget"), resp.get("last_assistant_cost_usd"),
     )
     _print_reply_hint(reply_alias, reply_name)
 

@@ -132,6 +132,10 @@ class Task:
     # ``last_assistant_budget`` at reap.
     spawn_budget: str | None = None
     last_assistant_budget: str | None = None
+    # What the most recent assistant message cost, in USD. Unlike the effort
+    # and the paying account this is reported by the backend itself, so it is
+    # captured at reap rather than at spawn.
+    last_assistant_cost_usd: float | None = None
     # GitHub Gist mirror of the conversation. ``gist_id`` / ``gist_url`` are
     # set the first time the async syncer creates the task's secret Gist.
     # ``gist_synced_count`` is an absolute cursor into the unified log so the
@@ -219,6 +223,7 @@ class Task:
             "last_assistant_effort": self.last_assistant_effort,
             "spawn_budget": self.spawn_budget,
             "last_assistant_budget": self.last_assistant_budget,
+            "last_assistant_cost_usd": self.last_assistant_cost_usd,
             "gist_id": self.gist_id,
             "gist_url": self.gist_url,
             "gist_synced_count": self.gist_synced_count,
@@ -261,6 +266,7 @@ class Task:
             last_assistant_effort=d.get("last_assistant_effort"),
             spawn_budget=d.get("spawn_budget"),
             last_assistant_budget=d.get("last_assistant_budget"),
+            last_assistant_cost_usd=d.get("last_assistant_cost_usd"),
             gist_id=d.get("gist_id"),
             gist_url=d.get("gist_url"),
             gist_synced_count=d.get("gist_synced_count", 0),
@@ -300,6 +306,18 @@ class Task:
         return sessions
 
 
+def format_cost_usd(cost: float | None) -> str | None:
+    """Render a message cost as ``$0.12``, or ``None`` when there is none.
+
+    Shared by the ``ilan task tail`` hint and the Gist attribution so the two
+    always agree. A zero cost means the backend did not price the turn rather
+    than that the turn was free, so it renders as nothing at all.
+    """
+    if not cost:
+        return None
+    return f"${cost:.2f}"
+
+
 @dataclass
 class LogEntry:
     role: str
@@ -314,19 +332,26 @@ class LogEntry:
     # Account that paid for the message ("Team", "API", …; assistant replies
     # only). Older entries predate this field and stay ``None``.
     budget: str | None = None
+    # What this message cost, in USD (assistant replies only). Older entries,
+    # and backends that don't price a turn, stay ``None``.
+    cost_usd: float | None = None
 
-    def to_dict(self) -> dict[str, str]:
-        d = {"role": self.role, "content": self.content, "timestamp": self.timestamp}
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "role": self.role, "content": self.content, "timestamp": self.timestamp,
+        }
         if self.model:
             d["model"] = self.model
         if self.effort:
             d["effort"] = self.effort
         if self.budget:
             d["budget"] = self.budget
+        if self.cost_usd:
+            d["cost_usd"] = self.cost_usd
         return d
 
     @classmethod
-    def from_dict(cls, d: dict[str, str]) -> LogEntry:
+    def from_dict(cls, d: dict[str, Any]) -> LogEntry:
         return cls(
             role=d["role"],
             content=d["content"],
@@ -334,12 +359,14 @@ class LogEntry:
             model=d.get("model") or None,
             effort=d.get("effort") or None,
             budget=d.get("budget") or None,
+            cost_usd=d.get("cost_usd") or None,
         )
 
     @classmethod
     def now(
         cls, role: str, content: str, model: str | None = None,
         effort: str | None = None, budget: str | None = None,
+        cost_usd: float | None = None,
     ) -> LogEntry:
         return cls(
             role=role,
@@ -348,4 +375,5 @@ class LogEntry:
             model=model,
             effort=effort,
             budget=budget,
+            cost_usd=cost_usd,
         )

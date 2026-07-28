@@ -830,6 +830,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 "last_assistant_model": task.last_assistant_model,
                 "last_assistant_effort": task.last_assistant_effort,
                 "last_assistant_budget": task.last_assistant_budget,
+                "last_assistant_cost_usd": task.last_assistant_cost_usd,
                 "logs": [e.to_dict() for e in entries],
             })
 
@@ -870,6 +871,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 "last_assistant_model": task.last_assistant_model,
                 "last_assistant_effort": task.last_assistant_effort,
                 "last_assistant_budget": task.last_assistant_budget,
+                "last_assistant_cost_usd": task.last_assistant_cost_usd,
             }
 
             if not entries:
@@ -929,6 +931,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     "model": task.last_assistant_model,
                     "effort": task.last_assistant_effort,
                     "budget": task.last_assistant_budget,
+                    "cost_usd": task.last_assistant_cost_usd,
                 })
                 return
             # Fallback for tasks last reaped before the cache existed: resolve
@@ -956,14 +959,15 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             task.last_assistant_model = model
             with self._ilan.lock:
                 self._ilan.store.put_task(task)
-            # The session log carries neither the effort nor the paying account,
-            # so this fallback path resolves the model alone; both others stay
-            # whatever was cached.
+            # The session log carries none of the effort, the paying account or
+            # the cost, so this fallback path resolves the model alone; the rest
+            # stay whatever was cached.
             self._json({
                 "name": task.name,
                 "model": model,
                 "effort": task.last_assistant_effort,
                 "budget": task.last_assistant_budget,
+                "cost_usd": task.last_assistant_cost_usd,
             })
 
         def handle_task_history_url(self, name: str):
