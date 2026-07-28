@@ -275,7 +275,16 @@ class TestTryReap:
     def test_reap_appends_log(self, store: Store, runner: Runner) -> None:
         t = Task(name="t6", prompt="p", status=TaskStatus.WORKING, pid=99999)
         store.put_task(t)
-        out = {"session_id": "sid-6", "result": "All good\n[STATUS: DONE]", "is_error": False}
+        out = {
+            "session_id": "sid-6",
+            "result": "All good\n[STATUS: DONE]",
+            "is_error": False,
+            "usage": {
+                "input_tokens": 123,
+                "output_tokens": 45,
+                "cache_read_input_tokens": 678,
+            },
+        }
         store.output_path("t6").write_text(json.dumps(out))
 
         runner._try_reap(t)
@@ -283,6 +292,9 @@ class TestTryReap:
         assert len(logs) == 1
         assert logs[0].role == "assistant"
         assert "All good" in logs[0].content
+        assert logs[0].input_tokens == 123
+        assert logs[0].output_tokens == 45
+        assert logs[0].cache_read_input_tokens == 678
 
     def test_reap_caches_last_assistant_model(
         self, store: Store, runner: Runner, tmp_path: Path
@@ -1089,6 +1101,14 @@ class TestReapCursor:
             json.dumps({"type": "item.completed",
                         "item": {"type": "agent_message",
                                  "text": "caught up\n[STATUS: DONE]"}}),
+            json.dumps({
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": 100,
+                    "cached_input_tokens": 70,
+                    "output_tokens": 9,
+                },
+            }),
         ]) + "\n"
         store.output_path("rc2").write_text(out)
 
@@ -1101,6 +1121,10 @@ class TestReapCursor:
         assert updated is not None
         assert updated.awaiting_catchup is False
         assert updated.log_cursors[ENGINE_CODEX] == 2
+        reply = store.read_logs("rc2")[-1]
+        assert reply.input_tokens == 30
+        assert reply.output_tokens == 9
+        assert reply.cache_read_input_tokens == 70
 
 
 # ── switch_engine ────────────────────────────────────────────────────────

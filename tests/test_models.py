@@ -506,6 +506,29 @@ class TestLogEntry:
         ).to_dict()
         assert LogEntry.from_dict({"role": "user", "content": "hi"}).cost_usd is None
 
+    def test_token_usage_roundtrip_preserves_zero(self) -> None:
+        e = LogEntry.now(
+            "assistant",
+            "response",
+            input_tokens=123,
+            output_tokens=45,
+            cache_read_input_tokens=0,
+        )
+        d = e.to_dict()
+        assert d["input_tokens"] == 123
+        assert d["output_tokens"] == 45
+        assert d["cache_read_input_tokens"] == 0
+        e2 = LogEntry.from_dict(d)
+        assert e2.input_tokens == 123
+        assert e2.output_tokens == 45
+        assert e2.cache_read_input_tokens == 0
+
+    def test_token_usage_omitted_when_unknown(self) -> None:
+        d = LogEntry.now("assistant", "response").to_dict()
+        assert "input_tokens" not in d
+        assert "output_tokens" not in d
+        assert "cache_read_input_tokens" not in d
+
 
 class TestFormatCostUsd:
     def test_rounds_to_cents(self) -> None:

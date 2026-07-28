@@ -344,6 +344,12 @@ class LogEntry:
     # What this message cost, in USD (assistant replies only). Older entries,
     # and backends that don't price a turn, stay ``None``.
     cost_usd: float | None = None
+    # Token usage for the backend invocation that produced this assistant
+    # reply. Older entries predate these fields and stay ``None`` so ``ilan
+    # tail`` can distinguish unknown usage from a real zero-token category.
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cache_read_input_tokens: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -357,6 +363,13 @@ class LogEntry:
             d["budget"] = self.budget
         if self.cost_usd:
             d["cost_usd"] = self.cost_usd
+        for key, value in (
+            ("input_tokens", self.input_tokens),
+            ("output_tokens", self.output_tokens),
+            ("cache_read_input_tokens", self.cache_read_input_tokens),
+        ):
+            if value is not None:
+                d[key] = value
         return d
 
     @classmethod
@@ -369,6 +382,9 @@ class LogEntry:
             effort=d.get("effort") or None,
             budget=d.get("budget") or None,
             cost_usd=d.get("cost_usd") or None,
+            input_tokens=d.get("input_tokens"),
+            output_tokens=d.get("output_tokens"),
+            cache_read_input_tokens=d.get("cache_read_input_tokens"),
         )
 
     @classmethod
@@ -376,6 +392,8 @@ class LogEntry:
         cls, role: str, content: str, model: str | None = None,
         effort: str | None = None, budget: str | None = None,
         cost_usd: float | None = None,
+        input_tokens: int | None = None, output_tokens: int | None = None,
+        cache_read_input_tokens: int | None = None,
     ) -> LogEntry:
         return cls(
             role=role,
@@ -385,4 +403,7 @@ class LogEntry:
             effort=effort,
             budget=budget,
             cost_usd=cost_usd,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_read_input_tokens=cache_read_input_tokens,
         )
