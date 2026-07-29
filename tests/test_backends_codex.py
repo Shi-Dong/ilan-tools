@@ -383,3 +383,74 @@ class TestSessionLog:
             output_tokens=5,
             cache_read_input_tokens=40,
         )
+
+    def test_last_assistant_token_usage_uses_final_agent_message(
+        self, backend: CodexBackend, tmp_path: Path
+    ) -> None:
+        log = tmp_path / "rollout.jsonl"
+        log.write_text("\n".join([
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "task_started"}}),
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "agent_message"}}),
+            json.dumps({"type": "event_msg", "payload": {
+                "type": "token_count",
+                "info": {"last_token_usage": {
+                    "input_tokens": 100,
+                    "cached_input_tokens": 40,
+                    "output_tokens": 5,
+                }},
+            }}),
+            # A tool-only model call must not replace the message usage.
+            json.dumps({"type": "event_msg", "payload": {
+                "type": "token_count",
+                "info": {"last_token_usage": {
+                    "input_tokens": 200,
+                    "cached_input_tokens": 150,
+                    "output_tokens": 7,
+                }},
+            }}),
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "agent_message"}}),
+            json.dumps({"type": "event_msg", "payload": {
+                "type": "token_count",
+                "info": {"last_token_usage": {
+                    "input_tokens": 156_079,
+                    "cached_input_tokens": 155_392,
+                    "output_tokens": 138,
+                }},
+            }}),
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "task_complete"}}),
+        ]) + "\n")
+
+        assert backend.last_assistant_token_usage(log) == TokenUsage(
+            input_tokens=687,
+            output_tokens=138,
+            cache_read_input_tokens=155_392,
+        )
+
+    def test_last_assistant_token_usage_ignores_incomplete_latest_task(
+        self, backend: CodexBackend, tmp_path: Path
+    ) -> None:
+        log = tmp_path / "rollout.jsonl"
+        log.write_text("\n".join([
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "task_started"}}),
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "agent_message"}}),
+            json.dumps({"type": "event_msg", "payload": {
+                "type": "token_count",
+                "info": {"last_token_usage": {
+                    "input_tokens": 100,
+                    "cached_input_tokens": 40,
+                    "output_tokens": 5,
+                }},
+            }}),
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "task_complete"}}),
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "task_started"}}),
+        ]) + "\n")
+
+        assert backend.last_assistant_token_usage(log) is None

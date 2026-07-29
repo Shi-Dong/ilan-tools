@@ -15,8 +15,8 @@ _CODEX_STATIC_FLAGS = [
 ]
 
 
-def _cumulative_usage(raw: object) -> TokenUsage | None:
-    """Normalize Codex's cumulative counters into disjoint categories."""
+def _token_usage(raw: object) -> TokenUsage | None:
+    """Normalize Codex counters into disjoint categories."""
     if not isinstance(raw, dict):
         return None
     total_input = raw.get("input_tokens", 0)
@@ -160,7 +160,7 @@ class CodexBackend(Backend):
                 # Codex reports a cumulative snapshot for the resumed thread,
                 # not a delta for this invocation. Keep the latest snapshot;
                 # Runner replaces it with the transcript-derived turn delta.
-                usage = _cumulative_usage(event.get("usage") or {})
+                usage = _token_usage(event.get("usage") or {})
                 if usage is not None:
                     input_tokens = usage.input_tokens
                     cache_read = usage.cache_read_input_tokens
@@ -264,7 +264,7 @@ class CodexBackend(Backend):
                 info = payload.get("info")
                 if not isinstance(info, dict):
                     continue
-                usage = _cumulative_usage(info.get("total_token_usage"))
+                usage = _token_usage(info.get("total_token_usage"))
                 if usage is None:
                     continue
                 last_usage = usage
@@ -276,4 +276,55 @@ class CodexBackend(Backend):
                 turn_open = False
 
         # Never reuse the preceding task's usage for an incomplete latest task.
+        return None if turn_open else completed_usage
+
+    def last_assistant_token_usage(self, log_path: Path) -> TokenUsage | None:
+        """Return ``last_token_usage`` for the final agent message.
+
+        A Codex task can make many model calls for reasoning and tool use.
+        ``agent_message`` identifies calls that emitted assistant text, and
+        the following ``token_count`` carries that call's ``last_token_usage``.
+        The last such pair before ``task_complete`` produced Ilan's final reply.
+        """
+        try:
+            with open(log_path) as f:
+                lines = f.readlines()
+        except OSError:
+            return None
+
+        pending_message = False
+        message_usage: TokenUsage | None = None
+        completed_usage: TokenUsage | None = None
+        turn_open = False
+
+        for raw in lines:
+            try:
+                entry = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if entry.get("type") != "event_msg":
+                continue
+            payload = entry.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            event_type = payload.get("type")
+
+            if event_type == "task_started":
+                pending_message = False
+                message_usage = None
+                completed_usage = None
+                turn_open = True
+            elif event_type == "agent_message" and turn_open:
+                pending_message = True
+            elif event_type == "token_count" and turn_open:
+                info = payload.get("info")
+                if pending_message and isinstance(info, dict):
+                    usage = _token_usage(info.get("last_token_usage"))
+                    if usage is not None:
+                        message_usage = usage
+                pending_message = False
+            elif event_type == "task_complete" and turn_open:
+                completed_usage = message_usage
+                turn_open = False
+
         return None if turn_open else completed_usage

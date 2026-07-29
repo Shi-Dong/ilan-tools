@@ -372,6 +372,7 @@ class Runner:
         # a detection miss tags nothing rather than inheriting the prior turn's
         # model — which, after a backend switch, could be the other engine's.
         turn_model: str | None = None
+        message_usage = None
         sid = result.session_id
         if sid:
             log_path = self._find_session_log(sid, task.engine)
@@ -398,6 +399,11 @@ class Runner:
                     result.cache_read_input_tokens = (
                         turn_usage.cache_read_input_tokens
                     )
+                # The result counters cover the complete backend invocation for
+                # task-level totals. The log entry instead records only the
+                # final native assistant message so ``ilan tail`` describes the
+                # message it displays.
+                message_usage = backend.last_assistant_token_usage(log_path)
 
         # The effort and paying account behind this turn come from the
         # spawn-time captures, not the session log (neither backend records
@@ -430,9 +436,16 @@ class Runner:
                 effort=turn_effort,
                 budget=turn_budget,
                 cost_usd=turn_cost,
-                input_tokens=result.input_tokens,
-                output_tokens=result.output_tokens,
-                cache_read_input_tokens=result.cache_read_input_tokens,
+                input_tokens=(
+                    message_usage.input_tokens if message_usage else None
+                ),
+                output_tokens=(
+                    message_usage.output_tokens if message_usage else None
+                ),
+                cache_read_input_tokens=(
+                    message_usage.cache_read_input_tokens
+                    if message_usage else None
+                ),
             )
 
         # This engine's native session now reflects every unified-log entry
