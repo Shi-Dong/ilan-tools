@@ -1269,6 +1269,24 @@ def _check_reply_model_flags(
         raise SystemExit(1)
 
 
+def _do_reply_command(
+    name: str, message: str | None, num: int | None, markdown: bool,
+    line_number: bool | None, max_: bool, unmax: bool,
+) -> None:
+    """Shared body of ``ilan task reply``, ``ilan reply`` and ``ilan re``."""
+    _check_reply_model_flags(message, max_, unmax)
+    if message is None:
+        _do_tail(name, n=num, markdown=markdown or None, line_number=line_number)
+    else:
+        if line_number is not None:
+            console.print(
+                "[red]--line-number/--no-line-number cannot be used when a "
+                "response message is provided.[/red]"
+            )
+            raise SystemExit(1)
+        _do_reply(name, message, max_=max_, unmax=unmax)
+
+
 @task_group.command("reply")
 @click.argument("name", shell_complete=_complete_task_names)
 @click.argument("message", required=False, default=None)
@@ -1292,17 +1310,7 @@ def task_reply(
     line_number: bool | None, max_: bool, unmax: bool,
 ) -> None:
     """Send a response to a task. If no message is given, show the tail instead."""
-    _check_reply_model_flags(message, max_, unmax)
-    if message is None:
-        _do_tail(name, n=num, markdown=markdown or None, line_number=line_number)
-    else:
-        if line_number is not None:
-            console.print(
-                "[red]--line-number/--no-line-number cannot be used when a "
-                "response message is provided.[/red]"
-            )
-            raise SystemExit(1)
-        _do_reply(name, message, max_=max_, unmax=unmax)
+    _do_reply_command(name, message, num, markdown, line_number, max_, unmax)
 
 
 # ── canned replies ───────────────────────────────────────────────────
@@ -2101,17 +2109,7 @@ def shortcut_reply(
     line_number: bool | None, max_: bool, unmax: bool,
 ) -> None:
     """Shorthand for 'ilan task reply'."""
-    _check_reply_model_flags(message, max_, unmax)
-    if message is None:
-        _do_tail(name, n=num, markdown=markdown or None, line_number=line_number)
-    else:
-        if line_number is not None:
-            console.print(
-                "[red]--line-number/--no-line-number cannot be used when a "
-                "response message is provided.[/red]"
-            )
-            raise SystemExit(1)
-        _do_reply(name, message, max_=max_, unmax=unmax)
+    _do_reply_command(name, message, num, markdown, line_number, max_, unmax)
 
 
 @main.command("re")
@@ -2137,17 +2135,7 @@ def shortcut_re(
     line_number: bool | None, max_: bool, unmax: bool,
 ) -> None:
     """Shorthand for 'ilan task reply'."""
-    _check_reply_model_flags(message, max_, unmax)
-    if message is None:
-        _do_tail(name, n=num, markdown=markdown or None, line_number=line_number)
-    else:
-        if line_number is not None:
-            console.print(
-                "[red]--line-number/--no-line-number cannot be used when a "
-                "response message is provided.[/red]"
-            )
-            raise SystemExit(1)
-        _do_reply(name, message, max_=max_, unmax=unmax)
+    _do_reply_command(name, message, num, markdown, line_number, max_, unmax)
 
 
 @main.command("done")
