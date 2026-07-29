@@ -331,7 +331,10 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             rows = []
             # Pinned tasks float to the top; within each group, oldest first.
             for t in sorted(tasks.values(), key=lambda t: (not t.pinned, t.created_at)):
-                if not show_all and t.status.is_terminal:
+                # A pin overrides the default filter, so a pinned DONE /
+                # DISCARDED task stays visible without `-a`; unpinning it is
+                # what makes it drop out of the listing again.
+                if not show_all and t.status.is_terminal and not t.pinned:
                     continue
                 rows.append({
                     "name": t.name,

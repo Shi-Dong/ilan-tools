@@ -211,15 +211,42 @@ class TestListOrdering:
         rows = {r["name"]: r["pinned"] for r in _list(ilan_server)}
         assert rows == {"first": False, "second": True}
 
-    def test_a_pinned_terminal_task_still_needs_all(self, ilan_server: IlanServer) -> None:
-        """Pinning changes position, not the ``-a`` filter."""
+    @pytest.mark.parametrize("status", [TaskStatus.DONE, TaskStatus.DISCARDED])
+    def test_a_pinned_terminal_task_shows_without_all(
+        self, ilan_server: IlanServer, status: TaskStatus,
+    ) -> None:
+        """A pin overrides the default terminal-status filter."""
         _seed(ilan_server, "active", hour=0)
-        _seed(ilan_server, "finished", hour=1, pinned=True, status=TaskStatus.DONE)
+        _seed(ilan_server, "finished", hour=1, pinned=True, status=status)
+
+        assert [r["name"] for r in _list(ilan_server)] == ["finished", "active"]
+
+    @pytest.mark.parametrize("status", [TaskStatus.DONE, TaskStatus.DISCARDED])
+    def test_an_unpinned_terminal_task_still_needs_all(
+        self, ilan_server: IlanServer, status: TaskStatus,
+    ) -> None:
+        """Only a pin lifts the filter; terminal tasks are otherwise hidden."""
+        _seed(ilan_server, "active", hour=0)
+        _seed(ilan_server, "finished", hour=1, status=status)
 
         assert [r["name"] for r in _list(ilan_server)] == ["active"]
         assert [r["name"] for r in _list(ilan_server, show_all=True)] == [
-            "finished", "active",
+            "active", "finished",
         ]
+
+    def test_unpinning_a_terminal_task_hides_it_again(
+        self, ilan_server: IlanServer,
+    ) -> None:
+        _seed(ilan_server, "active", hour=0)
+        _seed(ilan_server, "finished", hour=1, status=TaskStatus.DONE)
+
+        _post(ilan_server, "/tasks/finished/pin")
+        assert [r["name"] for r in _list(ilan_server)] == ["finished", "active"]
+
+        _post(ilan_server, "/tasks/finished/unpin")
+        assert [r["name"] for r in _list(ilan_server)] == ["active"]
+        # Still reachable with -a, exactly as before it was ever pinned.
+        assert "finished" in [r["name"] for r in _list(ilan_server, show_all=True)]
 
 
 # ── CLI ─────────────────────────────────────────────────────────────────
