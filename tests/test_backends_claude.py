@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 import ilan.config as cfg
+from ilan.backends.base import TokenUsage
 from ilan.backends.claude import ClaudeBackend
 
 
@@ -129,3 +130,54 @@ class TestSessionLog:
         log = tmp_path / "s.jsonl"
         log.write_text(json.dumps({"message": {"role": "user", "content": "hi"}}) + "\n")
         assert backend.last_assistant_model(log) is None
+
+    def test_last_assistant_token_usage_uses_final_text_message(
+        self, backend: ClaudeBackend, tmp_path: Path
+    ) -> None:
+        log = tmp_path / "s.jsonl"
+        log.write_text("\n".join([
+            json.dumps({"message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "progress"}],
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 20,
+                    "cache_read_input_tokens": 30,
+                },
+            }}),
+            json.dumps({"message": {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "name": "shell"}],
+                "usage": {
+                    "input_tokens": 40,
+                    "output_tokens": 50,
+                    "cache_read_input_tokens": 60,
+                },
+            }}),
+            json.dumps({"message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "final answer"}],
+                "usage": {
+                    "input_tokens": 2,
+                    "output_tokens": 2_771,
+                    "cache_read_input_tokens": 89_916,
+                },
+            }}),
+        ]) + "\n")
+
+        assert backend.last_assistant_token_usage(log) == TokenUsage(
+            input_tokens=2,
+            output_tokens=2_771,
+            cache_read_input_tokens=89_916,
+        )
+
+    def test_last_assistant_token_usage_none_without_message_usage(
+        self, backend: ClaudeBackend, tmp_path: Path
+    ) -> None:
+        log = tmp_path / "s.jsonl"
+        log.write_text(json.dumps({"message": {
+            "role": "assistant",
+            "content": [{"type": "text", "text": "answer"}],
+        }}) + "\n")
+
+        assert backend.last_assistant_token_usage(log) is None

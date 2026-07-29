@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 from ilan import config as cfg
-from ilan.backends.base import Backend, ParsedResult
+from ilan.backends.base import Backend, ParsedResult, TokenUsage
 
 _CLAUDE_STATIC_FLAGS = [
     "--dangerously-skip-permissions",
@@ -63,6 +63,40 @@ def last_assistant_model(log_path: Path) -> str | None:
         if isinstance(model, str) and model:
             return model
     return None
+
+
+def _has_text(content: object) -> bool:
+    if isinstance(content, str):
+        return bool(content)
+    if not isinstance(content, list):
+        return False
+    return any(
+        isinstance(block, dict)
+        and block.get("type") == "text"
+        and isinstance(block.get("text"), str)
+        and bool(block["text"])
+        for block in content
+    )
+
+
+def _message_usage(message: dict[str, object]) -> TokenUsage | None:
+    usage = message.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    input_tokens = usage.get("input_tokens", 0)
+    output_tokens = usage.get("output_tokens", 0)
+    cache_read = usage.get("cache_read_input_tokens", 0)
+    values = (input_tokens, output_tokens, cache_read)
+    if any(
+        not isinstance(value, int) or isinstance(value, bool) or value < 0
+        for value in values
+    ):
+        return None
+    return TokenUsage(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read_input_tokens=cache_read,
+    )
 
 
 class ClaudeBackend(Backend):
@@ -125,3 +159,25 @@ class ClaudeBackend(Backend):
 
     def last_assistant_model(self, log_path: Path) -> str | None:
         return last_assistant_model(log_path)
+
+    def last_assistant_token_usage(self, log_path: Path) -> TokenUsage | None:
+        """Return usage from the final text-bearing assistant log entry."""
+        try:
+            with open(log_path, "rb") as f:
+                lines = f.readlines()
+        except OSError:
+            return None
+        for raw in reversed(lines):
+            try:
+                entry = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            message = entry.get("message")
+            if not isinstance(message, dict):
+                continue
+            if message.get("role") != "assistant":
+                continue
+            if not _has_text(message.get("content")):
+                continue
+            return _message_usage(message)
+        return None

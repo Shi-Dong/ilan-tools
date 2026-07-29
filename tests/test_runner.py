@@ -292,11 +292,61 @@ class TestTryReap:
         assert len(logs) == 1
         assert logs[0].role == "assistant"
         assert "All good" in logs[0].content
-        assert logs[0].input_tokens == 123
-        assert logs[0].output_tokens == 45
-        assert logs[0].cache_read_input_tokens == 678
+        assert logs[0].input_tokens is None
+        assert logs[0].output_tokens is None
+        assert logs[0].cache_read_input_tokens is None
+        updated = store.get_task("t6")
+        assert updated is not None
+        assert updated.input_tokens == 123
+        assert updated.output_tokens == 45
+        assert updated.cache_read_input_tokens == 678
 
-    def test_reap_replaces_codex_session_totals_with_turn_delta(
+    def test_reap_separates_final_message_usage_from_invocation_totals(
+        self, store: Store, runner: Runner, tmp_path: Path
+    ) -> None:
+        log = tmp_path / "sid-message-usage.jsonl"
+        log.write_text(json.dumps({"message": {
+            "role": "assistant",
+            "model": "claude-opus-5",
+            "content": [{"type": "text", "text": "All good"}],
+            "usage": {
+                "input_tokens": 2,
+                "output_tokens": 10,
+                "cache_read_input_tokens": 90,
+            },
+        }}) + "\n")
+        t = Task(
+            name="message-usage",
+            prompt="p",
+            status=TaskStatus.WORKING,
+            pid=99999,
+        )
+        store.put_task(t)
+        store.output_path("message-usage").write_text(json.dumps({
+            "session_id": "sid-message-usage",
+            "result": "All good\n[STATUS: DONE]",
+            "is_error": False,
+            "usage": {
+                "input_tokens": 123,
+                "output_tokens": 45,
+                "cache_read_input_tokens": 678,
+            },
+        }))
+
+        with patch.object(Runner, "_find_session_log", return_value=log):
+            runner._try_reap(t)
+
+        reply = store.read_logs("message-usage")[-1]
+        assert reply.input_tokens == 2
+        assert reply.output_tokens == 10
+        assert reply.cache_read_input_tokens == 90
+        updated = store.get_task("message-usage")
+        assert updated is not None
+        assert updated.input_tokens == 123
+        assert updated.output_tokens == 45
+        assert updated.cache_read_input_tokens == 678
+
+    def test_reap_separates_codex_message_usage_from_turn_delta(
         self, store: Store, runner: Runner, tmp_path: Path
     ) -> None:
         log = tmp_path / "rollout-codex-sid.jsonl"
@@ -318,15 +368,24 @@ class TestTryReap:
                         "payload": {"type": "task_complete"}}),
             json.dumps({"type": "event_msg",
                         "payload": {"type": "task_started"}}),
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "agent_message"}}),
             json.dumps({
                 "type": "event_msg",
                 "payload": {
                     "type": "token_count",
-                    "info": {"total_token_usage": {
-                        "input_tokens": 1_300,
-                        "cached_input_tokens": 900,
-                        "output_tokens": 80,
-                    }},
+                    "info": {
+                        "total_token_usage": {
+                            "input_tokens": 1_300,
+                            "cached_input_tokens": 900,
+                            "output_tokens": 80,
+                        },
+                        "last_token_usage": {
+                            "input_tokens": 130,
+                            "cached_input_tokens": 100,
+                            "output_tokens": 8,
+                        },
+                    },
                 },
             }),
             json.dumps({"type": "event_msg",
@@ -366,9 +425,9 @@ class TestTryReap:
             runner._try_reap(t)
 
         reply = store.read_logs("codex-delta")[-1]
-        assert reply.input_tokens == 100
-        assert reply.output_tokens == 30
-        assert reply.cache_read_input_tokens == 200
+        assert reply.input_tokens == 30
+        assert reply.output_tokens == 8
+        assert reply.cache_read_input_tokens == 100
         updated = store.get_task("codex-delta")
         assert updated is not None
         assert updated.input_tokens == 100
@@ -1201,9 +1260,9 @@ class TestReapCursor:
         assert updated.awaiting_catchup is False
         assert updated.log_cursors[ENGINE_CODEX] == 2
         reply = store.read_logs("rc2")[-1]
-        assert reply.input_tokens == 30
-        assert reply.output_tokens == 9
-        assert reply.cache_read_input_tokens == 70
+        assert reply.input_tokens is None
+        assert reply.output_tokens is None
+        assert reply.cache_read_input_tokens is None
 
 
 # ── switch_engine ────────────────────────────────────────────────────────

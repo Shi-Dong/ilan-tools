@@ -7,7 +7,7 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class TokenUsage:
-    """Disjoint token counters for one finished backend invocation."""
+    """Disjoint token counters for a backend-defined usage scope."""
 
     input_tokens: int = 0
     output_tokens: int = 0
@@ -87,4 +87,8 @@ class Backend(ABC):
         transcript adjustment. Backends whose process output reports
         cumulative session counters can override this hook.
         """
+        return None
+
+    def last_assistant_token_usage(self, log_path: Path) -> TokenUsage | None:
+        """Return usage for the final native assistant model message."""
         return None
