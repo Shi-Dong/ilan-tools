@@ -85,7 +85,7 @@ class TestBuildPrompt:
 
     def test_task_with_session_and_no_replies(self, runner: Runner) -> None:
         t = Task(name="t", prompt="Do X", session_id="sid-1")
-        with patch.object(Runner, "_find_session_log", return_value=Path("/fake/sid-1.jsonl")):
+        with patch.object(Runner, "find_session_log", return_value=Path("/fake/sid-1.jsonl")):
             prompt, resume = runner._build_prompt(t)
         assert prompt == "Please continue working on this task."
         assert resume is True
@@ -100,7 +100,7 @@ class TestBuildPrompt:
 
     def test_task_with_cached_replies_and_session(self, runner: Runner) -> None:
         t = Task(name="t", prompt="Do X", session_id="sid-1", cached_replies=["r1", "r2"])
-        with patch.object(Runner, "_find_session_log", return_value=Path("/fake/sid-1.jsonl")):
+        with patch.object(Runner, "find_session_log", return_value=Path("/fake/sid-1.jsonl")):
             prompt, resume = runner._build_prompt(t)
         assert "r1" in prompt
         assert "r2" in prompt
@@ -130,7 +130,7 @@ class TestBuildPromptLostSession:
         store.append_log("ls1", "user", "finish it")
         store.put_task(t)
 
-        with patch.object(Runner, "_find_session_log", return_value=None):
+        with patch.object(Runner, "find_session_log", return_value=None):
             prompt, resume = runner._build_prompt(t)
 
         assert resume is False
@@ -154,7 +154,7 @@ class TestBuildPromptLostSession:
         store.append_log("ls2", "assistant", "half done")
         store.put_task(t)
 
-        with patch.object(Runner, "_find_session_log", return_value=None):
+        with patch.object(Runner, "find_session_log", return_value=None):
             prompt, resume = runner._build_prompt(t)
 
         assert resume is False
@@ -171,7 +171,7 @@ class TestBuildPromptLostSession:
         store.append_log("ls3", "user", "Do X")
         store.put_task(t)
 
-        with patch.object(Runner, "_find_session_log", return_value=None):
+        with patch.object(Runner, "find_session_log", return_value=None):
             runner._build_prompt(t)
 
         assert "codex" not in t.sessions
@@ -222,7 +222,7 @@ class TestTryReap:
         out = {"session_id": "sid-1", "result": "Done!\n[STATUS: DONE]", "is_error": False}
         store.output_path("t1").write_text(json.dumps(out))
 
-        with patch.object(Runner, "_find_session_log", return_value=Path("/fake/sid-1.jsonl")):
+        with patch.object(Runner, "find_session_log", return_value=Path("/fake/sid-1.jsonl")):
             runner._try_reap(t)
         updated = store.get_task("t1")
         assert updated is not None
@@ -333,7 +333,7 @@ class TestTryReap:
             },
         }))
 
-        with patch.object(Runner, "_find_session_log", return_value=log):
+        with patch.object(Runner, "find_session_log", return_value=log):
             runner._try_reap(t)
 
         reply = store.read_logs("message-usage")[-1]
@@ -419,7 +419,7 @@ class TestTryReap:
         ]) + "\n")
 
         with (
-            patch.object(Runner, "_find_session_log", return_value=log),
+            patch.object(Runner, "find_session_log", return_value=log),
             patch.object(CodexBackend, "last_assistant_model", return_value=None),
         ):
             runner._try_reap(t)
@@ -449,7 +449,7 @@ class TestTryReap:
         out = {"session_id": "sid-model", "result": "ok\n[STATUS: DONE]", "is_error": False}
         store.output_path("t-model").write_text(json.dumps(out))
 
-        with patch.object(Runner, "_find_session_log", return_value=log):
+        with patch.object(Runner, "find_session_log", return_value=log):
             runner._try_reap(t)
         updated = store.get_task("t-model")
         assert updated is not None
@@ -472,7 +472,7 @@ class TestTryReap:
         store.output_path("t-stale").write_text(json.dumps(out))
 
         # No session log found → this turn's model is undetectable.
-        with patch.object(Runner, "_find_session_log", return_value=None):
+        with patch.object(Runner, "find_session_log", return_value=None):
             runner._try_reap(t)
         logs = store.read_logs("t-stale")
         assert logs[-1].role == "assistant"
@@ -490,7 +490,7 @@ class TestTryReap:
         out = {"session_id": "sid-e", "result": "ok\n[STATUS: DONE]", "is_error": False}
         store.output_path("t-effort").write_text(json.dumps(out))
 
-        with patch.object(Runner, "_find_session_log", return_value=None):
+        with patch.object(Runner, "find_session_log", return_value=None):
             runner._try_reap(t)
         updated = store.get_task("t-effort")
         assert updated is not None
@@ -509,7 +509,7 @@ class TestTryReap:
         out = {"session_id": "sid-ne", "result": "ok\n[STATUS: DONE]", "is_error": False}
         store.output_path("t-noeffort").write_text(json.dumps(out))
 
-        with patch.object(Runner, "_find_session_log", return_value=None):
+        with patch.object(Runner, "find_session_log", return_value=None):
             runner._try_reap(t)
         updated = store.get_task("t-noeffort")
         assert updated is not None
@@ -527,7 +527,7 @@ class TestTryReap:
         out = {"session_id": "sid-b", "result": "ok\n[STATUS: DONE]", "is_error": False}
         store.output_path("t-budget").write_text(json.dumps(out))
 
-        with patch.object(Runner, "_find_session_log", return_value=None):
+        with patch.object(Runner, "find_session_log", return_value=None):
             runner._try_reap(t)
         updated = store.get_task("t-budget")
         assert updated is not None
@@ -546,7 +546,7 @@ class TestTryReap:
         out = {"session_id": "sid-nb", "result": "ok\n[STATUS: DONE]", "is_error": False}
         store.output_path("t-nobudget").write_text(json.dumps(out))
 
-        with patch.object(Runner, "_find_session_log", return_value=None):
+        with patch.object(Runner, "find_session_log", return_value=None):
             runner._try_reap(t)
         updated = store.get_task("t-nobudget")
         assert updated is not None
@@ -569,7 +569,7 @@ class TestTryReap:
         }
         store.output_path("t-turncost").write_text(json.dumps(out))
 
-        with patch.object(Runner, "_find_session_log", return_value=None):
+        with patch.object(Runner, "find_session_log", return_value=None):
             runner._try_reap(t)
         updated = store.get_task("t-turncost")
         assert updated is not None
@@ -584,7 +584,7 @@ class TestTryReap:
         out["result"] = "second\n[STATUS: DONE]"
         store.output_path("t-turncost").write_text(json.dumps(out))
 
-        with patch.object(Runner, "_find_session_log", return_value=None):
+        with patch.object(Runner, "find_session_log", return_value=None):
             runner._try_reap(t)
         updated = store.get_task("t-turncost")
         assert updated is not None
@@ -601,7 +601,7 @@ class TestTryReap:
         out = {"session_id": "sid-nc", "result": "ok\n[STATUS: DONE]", "is_error": False}
         store.output_path("t-nocost").write_text(json.dumps(out))
 
-        with patch.object(Runner, "_find_session_log", return_value=None):
+        with patch.object(Runner, "find_session_log", return_value=None):
             runner._try_reap(t)
         updated = store.get_task("t-nocost")
         assert updated is not None
@@ -766,7 +766,7 @@ class TestReplyToWorking:
 
         with patch.object(Runner, "kill", lambda self, task: None), \
              patch.object(Runner, "_spawn", lambda self, task, prompt, resume: True), \
-             patch.object(Runner, "_find_session_log",
+             patch.object(Runner, "find_session_log",
                           return_value=Path("/fake/sid-rw.jsonl")):
             runner.reply_to_working(t, "new instructions")
 
@@ -853,7 +853,7 @@ class TestBackendSelection:
     def test_find_session_log_routes_by_engine(self, runner: Runner) -> None:
         with patch.object(CodexBackend, "find_session_log", return_value=Path("/c")) as codex, \
              patch.object(ClaudeBackend, "find_session_log", return_value=Path("/a")) as claude:
-            assert runner._find_session_log("sid", ENGINE_CODEX) == Path("/c")
+            assert runner.find_session_log("sid", ENGINE_CODEX) == Path("/c")
             codex.assert_called_once_with("sid")
             claude.assert_not_called()
 
@@ -1218,7 +1218,7 @@ class TestReapCursor:
         out = {"session_id": "sid-rc", "result": "done\n[STATUS: DONE]", "is_error": False}
         store.output_path("rc").write_text(json.dumps(out))
 
-        with patch.object(Runner, "_find_session_log",
+        with patch.object(Runner, "find_session_log",
                           return_value=Path("/fake/sid-rc.jsonl")):
             runner._try_reap(t)
 
@@ -1250,7 +1250,7 @@ class TestReapCursor:
         ]) + "\n"
         store.output_path("rc2").write_text(out)
 
-        with patch.object(Runner, "_find_session_log",
+        with patch.object(Runner, "find_session_log",
                           return_value=Path("/fake/rollout-codex-sid.jsonl")), \
              patch.object(CodexBackend, "last_assistant_model", return_value=None):
             runner._try_reap(t)
@@ -1367,7 +1367,7 @@ class TestCatchupPrompt:
         store.append_log("cp2", "assistant", "other work")  # index 1
         store.append_log("cp2", "user", "please merge")     # index 2
         store.put_task(t)
-        with patch.object(Runner, "_find_session_log",
+        with patch.object(Runner, "find_session_log",
                           return_value=Path("/fake/claude-sid.jsonl")):
             prompt, resume = runner._build_prompt(t)
         assert resume is True
@@ -1384,7 +1384,7 @@ class TestCatchupPrompt:
         store.append_log("cp3", "user", "orig")
         store.append_log("cp3", "assistant", "done")
         store.put_task(t)
-        with patch.object(Runner, "_find_session_log", return_value=Path("/x")):
+        with patch.object(Runner, "find_session_log", return_value=Path("/x")):
             prompt, resume = runner._build_prompt(t)
         assert resume is True
         assert prompt == "Please continue working on this task."

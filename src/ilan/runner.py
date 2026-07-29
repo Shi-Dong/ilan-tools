@@ -299,7 +299,7 @@ class Runner:
 
     def _build_prompt(self, task: Task) -> tuple[str, bool]:
         """Return (prompt_text, is_resume) for a task about to be scheduled."""
-        if task.session_id and not self._find_session_log(task.session_id, task.engine):
+        if task.session_id and not self.find_session_log(task.session_id, task.engine):
             # The session log is gone — deleted, or created under another
             # account's home (both backends store session logs per-user).
             # The next spawn must start a fresh session; seed it with the
@@ -375,7 +375,7 @@ class Runner:
         message_usage = None
         sid = result.session_id
         if sid:
-            log_path = self._find_session_log(sid, task.engine)
+            log_path = self.find_session_log(sid, task.engine)
             if log_path:
                 task.session_id = sid
                 task.session_log_path = str(log_path)
@@ -503,7 +503,7 @@ class Runner:
             return TaskStatus.NEEDS_ATTENTION
         return TaskStatus.AGENT_FINISHED
 
-    def _find_session_log(self, session_id: str, engine: str = DEFAULT_ENGINE) -> Path | None:
+    def find_session_log(self, session_id: str, engine: str = DEFAULT_ENGINE) -> Path | None:
         """Locate the session log for the given session ID under *engine*'s backend."""
         return self._backend_for(engine).find_session_log(session_id)
 
