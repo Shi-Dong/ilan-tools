@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 import ilan.config as cfg
+from ilan.backends.base import TokenUsage
 from ilan.backends.codex import CodexBackend
 
 # One full turn as codex streams it to stdout under --json.
@@ -188,7 +189,9 @@ class TestParseOutput:
         out.write_text("\n\n")
         assert backend.parse_output(out) is None
 
-    def test_accumulates_multiple_turns(self, backend: CodexBackend, tmp_path: Path) -> None:
+    def test_uses_latest_cumulative_snapshot(
+        self, backend: CodexBackend, tmp_path: Path
+    ) -> None:
         out = tmp_path / "out.jsonl"
         out.write_text("\n".join([
             json.dumps({"type": "turn.completed",
@@ -198,9 +201,9 @@ class TestParseOutput:
         ]) + "\n")
         parsed = backend.parse_output(out)
         assert parsed is not None
-        assert parsed.input_tokens == 60 + 50
-        assert parsed.cache_read_input_tokens == 190
-        assert parsed.output_tokens == 12
+        assert parsed.input_tokens == 50
+        assert parsed.cache_read_input_tokens == 150
+        assert parsed.output_tokens == 7
 
 
 class TestSessionLog:
@@ -240,3 +243,143 @@ class TestSessionLog:
         log = tmp_path / "rollout.jsonl"
         log.write_text(json.dumps({"type": "session_meta", "payload": {}}) + "\n")
         assert backend.last_assistant_model(log) is None
+
+    def test_last_turn_token_usage_subtracts_previous_task(
+        self, backend: CodexBackend, tmp_path: Path
+    ) -> None:
+        log = tmp_path / "rollout.jsonl"
+        log.write_text("\n".join([
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "task_started"}}),
+            json.dumps({
+                "type": "event_msg",
+                "payload": {
+                    "type": "token_count",
+                    "info": {"total_token_usage": {
+                        "input_tokens": 1_000,
+                        "cached_input_tokens": 700,
+                        "output_tokens": 50,
+                    }},
+                },
+            }),
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "task_complete"}}),
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "task_started"}}),
+            json.dumps({
+                "type": "event_msg",
+                "payload": {
+                    "type": "token_count",
+                    "info": {"total_token_usage": {
+                        "input_tokens": 1_300,
+                        "cached_input_tokens": 900,
+                        "output_tokens": 80,
+                    }},
+                },
+            }),
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "task_complete"}}),
+        ]) + "\n")
+
+        assert backend.last_turn_token_usage(log) == TokenUsage(
+            input_tokens=100,
+            output_tokens=30,
+            cache_read_input_tokens=200,
+        )
+
+    def test_last_turn_token_usage_fresh_session(
+        self, backend: CodexBackend, tmp_path: Path
+    ) -> None:
+        log = tmp_path / "rollout.jsonl"
+        log.write_text("\n".join([
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "task_started"}}),
+            json.dumps({
+                "type": "event_msg",
+                "payload": {
+                    "type": "token_count",
+                    "info": {"total_token_usage": {
+                        "input_tokens": 12_464,
+                        "cached_input_tokens": 9_984,
+                        "output_tokens": 6,
+                    }},
+                },
+            }),
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "task_complete"}}),
+        ]) + "\n")
+
+        assert backend.last_turn_token_usage(log) == TokenUsage(
+            input_tokens=2_480,
+            output_tokens=6,
+            cache_read_input_tokens=9_984,
+        )
+
+    def test_last_turn_token_usage_ignores_incomplete_latest_task(
+        self, backend: CodexBackend, tmp_path: Path
+    ) -> None:
+        log = tmp_path / "rollout.jsonl"
+        log.write_text("\n".join([
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "task_started"}}),
+            json.dumps({
+                "type": "event_msg",
+                "payload": {
+                    "type": "token_count",
+                    "info": {"total_token_usage": {
+                        "input_tokens": 100,
+                        "cached_input_tokens": 40,
+                        "output_tokens": 5,
+                    }},
+                },
+            }),
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "task_complete"}}),
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "task_started"}}),
+        ]) + "\n")
+
+        assert backend.last_turn_token_usage(log) is None
+
+    def test_last_turn_token_usage_handles_counter_reset(
+        self, backend: CodexBackend, tmp_path: Path
+    ) -> None:
+        log = tmp_path / "rollout.jsonl"
+        log.write_text("\n".join([
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "task_started"}}),
+            json.dumps({
+                "type": "event_msg",
+                "payload": {
+                    "type": "token_count",
+                    "info": {"total_token_usage": {
+                        "input_tokens": 1_000,
+                        "cached_input_tokens": 700,
+                        "output_tokens": 50,
+                    }},
+                },
+            }),
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "task_complete"}}),
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "task_started"}}),
+            json.dumps({
+                "type": "event_msg",
+                "payload": {
+                    "type": "token_count",
+                    "info": {"total_token_usage": {
+                        "input_tokens": 100,
+                        "cached_input_tokens": 40,
+                        "output_tokens": 5,
+                    }},
+                },
+            }),
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "task_complete"}}),
+        ]) + "\n")
+
+        assert backend.last_turn_token_usage(log) == TokenUsage(
+            input_tokens=60,
+            output_tokens=5,
+            cache_read_input_tokens=40,
+        )
