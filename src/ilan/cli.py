@@ -576,6 +576,7 @@ def task_add(
 # ── task ls ──────────────────────────────────────────────────────────
 
 ALIAS_STYLE = "bold magenta"
+PIN_STYLE = "bold yellow"
 
 
 def _build_name_cell(row: dict) -> Text:
@@ -584,7 +585,9 @@ def _build_name_cell(row: dict) -> Text:
     ``needs_review`` rows are flagged with a ``!!`` ASCII marker rather
     than the \u26a0\ufe0f emoji, whose unpredictable terminal width breaks
     Rich's Live layout in ``ilan dashboard`` and visually misaligns the
-    ``ilan ls`` table.
+    ``ilan ls`` table. Pinned rows get a leading ``*`` for the same reason \u2014
+    a pushpin emoji would be the obvious marker but has the same width
+    problem.
 
     Tasks running on the Fable model get a red ``FABLE`` note on a separate
     line beneath the name. Fable is Claude-only, so the note is hidden while
@@ -596,6 +599,8 @@ def _build_name_cell(row: dict) -> Text:
     status = TaskStatus(row["status"])
     alias = row.get("alias") or ""
     cell = Text()
+    if row.get("pinned"):
+        cell.append("* ", style=PIN_STYLE)
     if alias:
         cell.append(f"({alias}) ", style=ALIAS_STYLE)
     engine = row.get("engine") or DEFAULT_ENGINE
@@ -1902,6 +1907,41 @@ def task_unread(names: tuple[str, ...]) -> None:
     _do_unread(names)
 
 
+# ── task pin / unpin ─────────────────────────────────────────────────
+
+def _do_pin(name: str) -> None:
+    resp = _client().pin_task(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    task_name = resp.get("name", name)
+    console.print(
+        f"[green]Task [bold]{task_name}[/bold] pinned to the top of "
+        f"[bold]ilan ls[/bold] / [bold]ilan dashboard[/bold].[/green]"
+    )
+
+
+def _do_unpin(name: str) -> None:
+    resp = _client().unpin_task(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    task_name = resp.get("name", name)
+    console.print(f"[green]Task [bold]{task_name}[/bold] unpinned.[/green]")
+
+
+@task_group.command("pin")
+@click.argument("name", shell_complete=_complete_task_names)
+def task_pin(name: str) -> None:
+    """Pin a task to the top of ilan ls / ilan dashboard."""
+    _do_pin(name)
+
+
+@task_group.command("unpin")
+@click.argument("name", shell_complete=_complete_task_names)
+def task_unpin(name: str) -> None:
+    """Unpin a task."""
+    _do_unpin(name)
+
+
 # ── task max / unmax ─────────────────────────────────────────────────
 
 def _do_max(name: str) -> None:
@@ -2146,6 +2186,20 @@ def shortcut_undiscard(name: str) -> None:
 def shortcut_unread(names: tuple[str, ...]) -> None:
     """Shorthand for 'ilan task unread'."""
     _do_unread(names)
+
+
+@main.command("pin")
+@click.argument("name", shell_complete=_complete_task_names)
+def shortcut_pin(name: str) -> None:
+    """Shorthand for 'ilan task pin'."""
+    _do_pin(name)
+
+
+@main.command("unpin")
+@click.argument("name", shell_complete=_complete_task_names)
+def shortcut_unpin(name: str) -> None:
+    """Shorthand for 'ilan task unpin'."""
+    _do_unpin(name)
 
 
 @main.command("max")

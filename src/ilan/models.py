@@ -104,6 +104,7 @@ class Task:
     alias: str | None = None
     task_hash: str | None = None
     needs_review: bool = False
+    pinned: bool = False
     input_tokens: int = 0
     output_tokens: int = 0
     cache_read_input_tokens: int = 0
@@ -217,6 +218,7 @@ class Task:
             "alias": self.alias,
             "task_hash": self.task_hash,
             "needs_review": self.needs_review,
+            "pinned": self.pinned,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "cache_read_input_tokens": self.cache_read_input_tokens,
@@ -261,6 +263,7 @@ class Task:
             alias=d.get("alias"),
             task_hash=d.get("task_hash"),
             needs_review=d.get("needs_review", False),
+            pinned=d.get("pinned", False),
             input_tokens=d.get("input_tokens", 0),
             output_tokens=d.get("output_tokens", 0),
             cache_read_input_tokens=d.get("cache_read_input_tokens", 0),

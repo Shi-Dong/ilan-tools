@@ -107,6 +107,8 @@ ROUTES: list[tuple[str, str, str]] = [
     ("POST",   r"^/tasks/([^/]+)/undone$",     "handle_task_undone"),
     ("POST",   r"^/tasks/([^/]+)/undiscard$",  "handle_task_undiscard"),
     ("POST",   r"^/tasks/([^/]+)/unread$",     "handle_task_unread"),
+    ("POST",   r"^/tasks/([^/]+)/pin$",        "handle_task_pin"),
+    ("POST",   r"^/tasks/([^/]+)/unpin$",      "handle_task_unpin"),
     ("POST",   r"^/tasks/([^/]+)/reply$",      "handle_task_reply"),
     ("POST",   r"^/tasks/([^/]+)/sleep$",      "handle_task_sleep"),
     ("POST",   r"^/tasks/([^/]+)/kill$",       "handle_task_kill"),
@@ -327,8 +329,12 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 tasks = self._ilan.store.load_tasks()
 
             rows = []
-            for t in sorted(tasks.values(), key=lambda t: t.created_at):
-                if not show_all and t.status.is_terminal:
+            # Pinned tasks float to the top; within each group, oldest first.
+            for t in sorted(tasks.values(), key=lambda t: (not t.pinned, t.created_at)):
+                # A pin overrides the default filter, so a pinned DONE /
+                # DISCARDED task stays visible without `-a`; unpinning it is
+                # what makes it drop out of the listing again.
+                if not show_all and t.status.is_terminal and not t.pinned:
                     continue
                 rows.append({
                     "name": t.name,
@@ -337,6 +343,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     "status_changed_at": t.status_changed_at,
                     "alias": t.alias,
                     "needs_review": t.needs_review,
+                    "pinned": t.pinned,
                     "cost_usd": t.cost_usd,
                     "sleep_seconds": t.sleep_seconds,
                     "parent_name": t.parent_name,
@@ -508,6 +515,22 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     task.needs_review = True
                     self._ilan.store.put_task(task)
             self._json({"ok": True, "name": task.name})
+
+        def _set_pinned(self, name: str, pinned: bool):
+            with self._ilan.lock:
+                task = self._get_task_or_404(name)
+                if task is None:
+                    return
+                if task.pinned != pinned:
+                    task.pinned = pinned
+                    self._ilan.store.put_task(task)
+            self._json({"ok": True, "name": task.name, "pinned": pinned})
+
+        def handle_task_pin(self, name: str):
+            self._set_pinned(name, True)
+
+        def handle_task_unpin(self, name: str):
+            self._set_pinned(name, False)
 
         def handle_task_reply(self, name: str):
             body = self._body()

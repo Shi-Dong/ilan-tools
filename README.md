@@ -122,6 +122,8 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task undone NAME` | Move a `DONE` task back to `NEEDS_ATTENTION` |
 | `ilan task undiscard NAME` | Move a `DISCARDED` task back to `NEEDS_ATTENTION` |
 | `ilan task unread NAME [NAME...]` | Restore the unread marker on task(s) |
+| `ilan task pin NAME` | Pin a task to the top of `ilan ls` / `ilan dashboard`; the row is marked with a `*` before its `(Alias) Name`. A pinned `DONE` / `DISCARDED` task stays visible without `-a` |
+| `ilan task unpin NAME` | Remove the pin, returning the task to its place in creation order (and hiding it again if it is `DONE` / `DISCARDED`) |
 | `ilan task max NAME` | Run this task on the Fable model (`claude-fable-5`) instead of the default; a red `FABLE` tag shows beneath the task name in `ilan ls` / `ilan dashboard`. Takes effect on the task's next agent spawn. Fable is Claude-only, so this is a no-op (with a warning) on a `codex` task — switch it to `claude` first. The tag is hidden while the task is on `codex` (Fable is inactive there) and reappears when it is switched back to `claude`. |
 | `ilan task unmax NAME` | Reset the task's model back to the `model-claude` config default |
 | `ilan task switch-backend NAME` | Toggle the task's agent backend (`claude` ↔ `codex`). Lazy: takes effect on the task's next spawn, and the new backend catches up on its next turn. Not allowed on a `WORKING` task (warns and does nothing) — wait for the agent to finish or kill it first. See [Agent backends](#agent-backends) |
@@ -154,6 +156,8 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan undone NAME` | `ilan task undone NAME` |
 | `ilan undiscard NAME` | `ilan task undiscard NAME` |
 | `ilan unread NAME [NAME...]` | `ilan task unread NAME [NAME...]` |
+| `ilan pin NAME` | `ilan task pin NAME` |
+| `ilan unpin NAME` | `ilan task unpin NAME` |
 | `ilan max NAME` | `ilan task max NAME` |
 | `ilan unmax NAME` | `ilan task unmax NAME` |
 | `ilan switch-backend NAME` | `ilan task switch-backend NAME` |
@@ -171,6 +175,8 @@ Each row's `Status` cell carries a `gpt-5.6-luna`-generated one-line summary of 
 Both `ilan ls` and `ilan dashboard` adapt to the terminal width: on a window narrower than 120 columns they drop the `Created` column so the remaining `Name` / `Status` / `Last Changed` / `History` columns stay legible.
 
 Both listings are flat and ordered by creation time, oldest first — a branched child sits at its own creation time rather than under its parent, and a `DONE` / `DISCARDED` task is hidden without `-a` even when it has active children. To see how a task relates to the ones it was branched from, use `ilan tree`.
+
+Pinned tasks (`ilan pin`) break that order: they lead the table as a block, each marked with a `*` before its `(Alias) Name`, and are ordered among themselves by creation time, oldest first. A pin also overrides the default filter — a pinned `DONE` / `DISCARDED` task keeps showing without `-a`, and unpinning it is what drops it back out of the listing.
 
 ### Branch tree
 
