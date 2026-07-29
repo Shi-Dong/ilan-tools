@@ -387,6 +387,17 @@ class Runner:
                 turn_model = backend.last_assistant_model(log_path)
                 if turn_model:
                     task.last_assistant_model = turn_model
+                # Codex's process output carries cumulative thread counters.
+                # Its rollout transcript exposes task boundaries, allowing the
+                # backend to replace them with this invocation's delta. Other
+                # backends return None and keep their native per-turn usage.
+                turn_usage = backend.last_turn_token_usage(log_path)
+                if turn_usage is not None:
+                    result.input_tokens = turn_usage.input_tokens
+                    result.output_tokens = turn_usage.output_tokens
+                    result.cache_read_input_tokens = (
+                        turn_usage.cache_read_input_tokens
+                    )
 
         # The effort and paying account behind this turn come from the
         # spawn-time captures, not the session log (neither backend records
