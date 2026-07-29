@@ -657,11 +657,13 @@ def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
 
 
 def _build_concise_task_line(row: dict) -> Text:
-    """Build a styled ``(alias) name STATUS`` line for concise listings."""
+    """Build a styled ``* (alias) name STATUS`` line for concise listings."""
     alias = row.get("alias") or ""
     engine = row.get("engine") or DEFAULT_ENGINE
     status = TaskStatus(row["status"])
     line = Text()
+    if row.get("pinned"):
+        line.append("* ", style=PIN_STYLE)
     if alias:
         line.append(f"({alias}) ", style=ALIAS_STYLE)
     name_style = ENGINE_NAME_STYLE.get(engine, "")
@@ -754,7 +756,7 @@ def _do_ls(show_all: bool, concise: bool = False) -> None:
 @click.argument("name", required=False, default=None, shell_complete=_complete_task_names)
 @click.option("-a", "--all", "show_all", is_flag=True, help="Include DONE and DISCARDED tasks.")
 @click.option("-c", "--concise", is_flag=True,
-              help="Show only alias, task name, and status, one task per line.")
+              help="Show pin, alias, task name, and status, one task per line.")
 @click.option("-n", "--num", "num", type=int, default=None,
               help="When a task name is given, show the final N messages.")
 @click.option("--line-number/--no-line-number", "line_number", default=None,
@@ -2064,7 +2066,7 @@ def shortcut_add(
 @click.argument("name", required=False, default=None, shell_complete=_complete_task_names)
 @click.option("-a", "--all", "show_all", is_flag=True, help="Include DONE and DISCARDED tasks.")
 @click.option("-c", "--concise", is_flag=True,
-              help="Show only alias, task name, and status, one task per line.")
+              help="Show pin, alias, task name, and status, one task per line.")
 @click.option("-n", "--num", "num", type=int, default=None,
               help="When a task name is given, show the final N messages.")
 @click.option("--line-number/--no-line-number", "line_number", default=None,
