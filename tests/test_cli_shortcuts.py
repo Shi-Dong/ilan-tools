@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from ilan.cli import _build_name_cell, main
+from ilan.cli import _build_concise_task_line, _build_name_cell, main
 from ilan.models import ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_NAME_STYLE
 
 
@@ -204,6 +204,108 @@ class TestLsNoArgs:
             result = runner.invoke(main, ["task", "ls", "-a"])
         assert result.exit_code == 0
         client.list_tasks.assert_called_once_with(show_all=True)
+
+    def test_ls_concise_shows_only_alias_name_and_status(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import ilan.cli as cli_mod
+        from rich.console import Console
+
+        monkeypatch.setattr(
+            cli_mod, "console", Console(width=10, force_terminal=True)
+        )
+        client = _make_client()
+        client.get_config.return_value = {"config": {}}
+        client.list_tasks.return_value = {
+            "tasks": [
+                {
+                    "name": "a-very-long-task-name",
+                    "alias": "as",
+                    "status": "AGENT_FINISHED",
+                    "engine": ENGINE_CLAUDE,
+                    "pinned": True,
+                    "needs_review": True,
+                    "model": "claude-fable-5",
+                    "created_at": "2026-04-13T00:00:00+00:00",
+                    "status_changed_at": "2026-04-13T01:00:00+00:00",
+                    "gist_url": "https://example.com/history",
+                    "summary_one_liner": "Extra summary text",
+                },
+            ],
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["ls", "-c"])
+        assert result.exit_code == 0
+        assert _strip_ansi(result.output) == (
+            "(as) a-very-long-task-name AGENT_FINISHED\n"
+        )
+        client.list_tasks.assert_called_once_with(show_all=False)
+        client.get_config.assert_not_called()
+
+    def test_ls_all_concise_includes_terminal_tasks(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import ilan.cli as cli_mod
+        from rich.console import Console
+
+        monkeypatch.setattr(
+            cli_mod, "console", Console(width=200, force_terminal=True)
+        )
+        client = _make_client()
+        client.list_tasks.return_value = {
+            "tasks": [
+                {
+                    "name": "done-task",
+                    "alias": None,
+                    "status": "DONE",
+                    "engine": ENGINE_CLAUDE,
+                },
+                {
+                    "name": "discarded-task",
+                    "alias": "dd",
+                    "status": "DISCARDED",
+                    "engine": ENGINE_CODEX,
+                },
+            ],
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["ls", "-a", "-c"])
+        assert result.exit_code == 0
+        assert _strip_ansi(result.output) == (
+            "done-task DONE\n"
+            "(dd) discarded-task DISCARDED\n"
+        )
+        client.list_tasks.assert_called_once_with(show_all=True)
+
+    def test_task_ls_concise_empty_is_silent(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        client = _make_client()
+        client.list_tasks.return_value = {"tasks": []}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["task", "ls", "--concise"])
+        assert result.exit_code == 0
+        assert result.output == ""
+        client.list_tasks.assert_called_once_with(show_all=False)
+
+    def test_concise_line_preserves_alias_name_and_status_styles(self) -> None:
+        line = _build_concise_task_line(
+            {
+                "name": "styled-task",
+                "alias": "as",
+                "status": "AGENT_FINISHED",
+                "engine": ENGINE_CLAUDE,
+            }
+        )
+        assert line.plain == "(as) styled-task AGENT_FINISHED"
+        assert [
+            (line.plain[span.start:span.end], span.style)
+            for span in line.spans
+        ] == [
+            ("(as) ", "bold magenta"),
+            ("styled-task", "bold orange1"),
+            ("AGENT_FINISHED", "green"),
+        ]
 
     @staticmethod
     def _one_liner_row() -> dict:

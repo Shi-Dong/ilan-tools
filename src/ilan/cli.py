@@ -656,6 +656,21 @@ def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
     return cell
 
 
+def _build_concise_task_line(row: dict) -> Text:
+    """Build a styled ``(alias) name STATUS`` line for concise listings."""
+    alias = row.get("alias") or ""
+    engine = row.get("engine") or DEFAULT_ENGINE
+    status = TaskStatus(row["status"])
+    line = Text()
+    if alias:
+        line.append(f"({alias}) ", style=ALIAS_STYLE)
+    name_style = ENGINE_NAME_STYLE.get(engine, "")
+    line.append(row["name"], style=f"bold {name_style}".strip())
+    line.append(" ")
+    line.append(status.value, style=STYLE_FOR_STATUS.get(status, ""))
+    return line
+
+
 _ONE_LINER_NO_API_KEY_WARNING = (
     "[yellow]Note: `one-line-summary` is on but the server has no `api-key-codex` "
     "set, so summaries fall back to the server's local `codex` CLI (`codex "
@@ -692,15 +707,22 @@ def _terminal_is_narrow(width: int | None = None) -> bool:
     return width < _NARROW_TERMINAL_WIDTH
 
 
-def _do_ls(show_all: bool) -> None:
+def _do_ls(show_all: bool, concise: bool = False) -> None:
     client = _client()
-    if not show_all:
+    if not show_all and not concise:
         _maybe_warn_one_liner_unconfigured(client)
     resp = client.list_tasks(show_all=show_all)
     rows = resp["tasks"]
     if not rows:
+        if concise:
+            return
         msg = "[dim]No tasks.[/dim]" if show_all else "[dim]No active tasks. Use -a to see all.[/dim]"
         console.print(msg)
+        return
+
+    if concise:
+        for row in rows:
+            console.print(_build_concise_task_line(row), soft_wrap=True)
         return
 
     # `-a` lists include DONE/DISCARDED tasks, so the table gets long; the
@@ -731,13 +753,16 @@ def _do_ls(show_all: bool) -> None:
 @task_group.command("ls")
 @click.argument("name", required=False, default=None, shell_complete=_complete_task_names)
 @click.option("-a", "--all", "show_all", is_flag=True, help="Include DONE and DISCARDED tasks.")
+@click.option("-c", "--concise", is_flag=True,
+              help="Show only alias, task name, and status, one task per line.")
 @click.option("-n", "--num", "num", type=int, default=None,
               help="When a task name is given, show the final N messages.")
 @click.option("--line-number/--no-line-number", "line_number", default=None,
               help="When a task name is given, override the ``line-number`` "
                    "config for this invocation.")
 def task_ls(
-    name: str | None, show_all: bool, num: int | None, line_number: bool | None,
+    name: str | None, show_all: bool, concise: bool, num: int | None,
+    line_number: bool | None,
 ) -> None:
     """List tasks, or tail a specific task."""
     if name is not None:
@@ -748,7 +773,7 @@ def task_ls(
                 "[red]--line-number/--no-line-number requires a task name.[/red]"
             )
             raise SystemExit(1)
-        _do_ls(show_all)
+        _do_ls(show_all, concise=concise)
 
 
 # ── task tree ────────────────────────────────────────────────────────
@@ -2038,13 +2063,16 @@ def shortcut_add(
 @main.command("ls")
 @click.argument("name", required=False, default=None, shell_complete=_complete_task_names)
 @click.option("-a", "--all", "show_all", is_flag=True, help="Include DONE and DISCARDED tasks.")
+@click.option("-c", "--concise", is_flag=True,
+              help="Show only alias, task name, and status, one task per line.")
 @click.option("-n", "--num", "num", type=int, default=None,
               help="When a task name is given, show the final N messages.")
 @click.option("--line-number/--no-line-number", "line_number", default=None,
               help="When a task name is given, override the ``line-number`` "
                    "config for this invocation.")
 def shortcut_ls(
-    name: str | None, show_all: bool, num: int | None, line_number: bool | None,
+    name: str | None, show_all: bool, concise: bool, num: int | None,
+    line_number: bool | None,
 ) -> None:
     """Shorthand for 'ilan task ls'. If a task name is given, acts as 'ilan tail'."""
     if name is not None:
@@ -2055,7 +2083,7 @@ def shortcut_ls(
                 "[red]--line-number/--no-line-number requires a task name.[/red]"
             )
             raise SystemExit(1)
-        _do_ls(show_all)
+        _do_ls(show_all, concise=concise)
 
 
 @main.command("tree")
