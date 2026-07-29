@@ -1,4 +1,4 @@
-"""Tests for ``ilan task branch`` — Store helper, server endpoint, tree rendering."""
+"""Tests for ``ilan task branch`` — Store helper and server endpoint."""
 
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from urllib.request import Request, urlopen
 
 import pytest
 
-from ilan.cli import _order_tasks_as_forest
 from ilan.models import ALIAS_POOL, ENGINE_CLAUDE, ENGINE_CODEX, Task, TaskStatus
 from ilan.runner import Runner
 from ilan.server import IlanServer
@@ -231,88 +230,6 @@ class TestStoreBranch:
         child = store.get_task("child")
         assert child is not None
         assert child.parent_name is None
-
-
-# ── _order_tasks_as_forest ──────────────────────────────────────────────
-
-
-def _row(name: str, parent: str | None = None, created_at: str = "") -> dict:
-    return {
-        "name": name,
-        "status": "WORKING",
-        "created_at": created_at or f"2026-01-01T00:00:{ord(name[0]):02d}+00:00",
-        "status_changed_at": "",
-        "alias": None,
-        "needs_review": False,
-        "cost_usd": 0.0,
-        "sleep_seconds": None,
-        "parent_name": parent,
-    }
-
-
-class TestForestOrdering:
-    def test_flat_list_no_prefixes(self) -> None:
-        rows = [_row("a"), _row("b")]
-        ordered = _order_tasks_as_forest(rows)
-        assert [(r["name"], p) for r, p in ordered] == [("a", ""), ("b", "")]
-
-    def test_simple_parent_child(self) -> None:
-        rows = [_row("parent"), _row("child", parent="parent")]
-        ordered = _order_tasks_as_forest(rows)
-        assert [(r["name"], p) for r, p in ordered] == [
-            ("parent", ""),
-            ("child", "└─ "),
-        ]
-
-    def test_multiple_siblings_get_branch_glyphs(self) -> None:
-        rows = [
-            _row("parent"),
-            _row("a", parent="parent", created_at="2026-01-01T00:00:01+00:00"),
-            _row("b", parent="parent", created_at="2026-01-01T00:00:02+00:00"),
-            _row("c", parent="parent", created_at="2026-01-01T00:00:03+00:00"),
-        ]
-        ordered = _order_tasks_as_forest(rows)
-        names_prefixes = [(r["name"], p) for r, p in ordered]
-        assert names_prefixes == [
-            ("parent", ""),
-            ("a", "├─ "),
-            ("b", "├─ "),
-            ("c", "└─ "),
-        ]
-
-    def test_grandchild_uses_double_indent(self) -> None:
-        rows = [
-            _row("grand"),
-            _row("parent", parent="grand"),
-            _row("child", parent="parent"),
-        ]
-        ordered = _order_tasks_as_forest(rows)
-        assert [(r["name"], p) for r, p in ordered] == [
-            ("grand", ""),
-            ("parent", "└─ "),
-            ("child", "   └─ "),
-        ]
-
-    def test_pipe_drawn_when_ancestor_has_siblings(self) -> None:
-        rows = [
-            _row("root"),
-            _row("p1", parent="root", created_at="2026-01-01T00:00:01+00:00"),
-            _row("c1", parent="p1", created_at="2026-01-01T00:00:02+00:00"),
-            _row("p2", parent="root", created_at="2026-01-01T00:00:03+00:00"),
-        ]
-        ordered = _order_tasks_as_forest(rows)
-        assert [(r["name"], p) for r, p in ordered] == [
-            ("root", ""),
-            ("p1", "├─ "),
-            ("c1", "│  └─ "),
-            ("p2", "└─ "),
-        ]
-
-    def test_orphan_rendered_as_root(self) -> None:
-        """A child whose parent is filtered out (e.g. parent is DONE and hidden)."""
-        rows = [_row("child", parent="missing-parent")]
-        ordered = _order_tasks_as_forest(rows)
-        assert [(r["name"], p) for r, p in ordered] == [("child", "")]
 
 
 # ── server /tasks/<name>/branch ─────────────────────────────────────────
@@ -544,7 +461,7 @@ class TestServerBranchEndpoint:
         assert by_name["parent-task"]["parent_name"] is None
 
 
-# ── list filtering: terminal ancestors kept when descendants are active ─
+# ── list filtering: terminal tasks are hidden regardless of descendants ─
 
 
 def _list_default(server: IlanServer) -> list[dict]:
@@ -553,9 +470,9 @@ def _list_default(server: IlanServer) -> list[dict]:
         return json.loads(r.read())["tasks"]
 
 
-class TestListTerminalAncestors:
-    def test_done_middle_kept_when_grandchild_active(self, ilan_server: IlanServer) -> None:
-        """A→B→C where B is DONE but C is active: default ls must keep B."""
+class TestListTerminalFiltering:
+    def test_done_middle_hidden_even_when_grandchild_active(self, ilan_server: IlanServer) -> None:
+        """A→B→C where B is DONE but C is active: default ls still hides B."""
         parent = Task(
             name="A", prompt="p", session_id="sid-1",
             status=TaskStatus.NEEDS_ATTENTION, alias="aa",
@@ -578,7 +495,7 @@ class TestListTerminalAncestors:
             ilan_server.store.put_task(t)
 
         names = {r["name"] for r in _list_default(ilan_server)}
-        assert names == {"A", "B", "C"}
+        assert names == {"A", "C"}
 
     def test_done_leaf_hidden_without_active_descendants(self, ilan_server: IlanServer) -> None:
         """A DONE task with no descendants is hidden from default ls."""

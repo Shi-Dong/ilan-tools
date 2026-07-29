@@ -574,52 +574,10 @@ def task_add(
 # ── task ls ──────────────────────────────────────────────────────────
 
 ALIAS_STYLE = "bold magenta"
-TREE_STYLE = "dim"
 
 
-def _order_tasks_as_forest(rows: list[dict]) -> list[tuple[dict, str]]:
-    """Return rows in DFS order with per-row tree-drawing prefixes.
-
-    Parent/child links come from ``parent_name``.  Rows whose parent is
-    not in *rows* (filtered out or deleted) are treated as roots.
-    Roots preserve the incoming ``rows`` ordering (the server sorts by
-    ``created_at`` ascending); siblings under a parent are sorted by
-    ``created_at`` ascending so the branching order is easy to read.
-    """
-    by_name = {r["name"]: r for r in rows}
-    present = set(by_name)
-    children: dict[str, list[str]] = {}
-    for r in rows:
-        p = r.get("parent_name")
-        if p is not None and p in present:
-            children.setdefault(p, []).append(r["name"])
-    for siblings in children.values():
-        siblings.sort(key=lambda n: by_name[n].get("created_at", ""))
-
-    root_order = [r["name"] for r in rows if r.get("parent_name") not in present]
-
-    result: list[tuple[dict, str]] = []
-
-    def walk(name: str, ancestor_has_next: list[bool]) -> None:
-        depth = len(ancestor_has_next)
-        if depth == 0:
-            prefix = ""
-        else:
-            parts = ["\u2502  " if flag else "   " for flag in ancestor_has_next[:-1]]
-            parts.append("\u251c\u2500 " if ancestor_has_next[-1] else "\u2514\u2500 ")
-            prefix = "".join(parts)
-        result.append((by_name[name], prefix))
-        kids = children.get(name, [])
-        for i, kid in enumerate(kids):
-            walk(kid, ancestor_has_next + [i < len(kids) - 1])
-
-    for root in root_order:
-        walk(root, [])
-    return result
-
-
-def _build_name_cell(row: dict, prefix: str) -> Text:
-    """Build the styled "(alias) name" cell with an optional tree prefix.
+def _build_name_cell(row: dict) -> Text:
+    """Build the styled "(alias) name" cell.
 
     ``needs_review`` rows are flagged with a ``!!`` ASCII marker rather
     than the \u26a0\ufe0f emoji, whose unpredictable terminal width breaks
@@ -636,8 +594,6 @@ def _build_name_cell(row: dict, prefix: str) -> Text:
     status = TaskStatus(row["status"])
     alias = row.get("alias") or ""
     cell = Text()
-    if prefix:
-        cell.append(prefix, style=TREE_STYLE)
     if alias:
         cell.append(f"({alias}) ", style=ALIAS_STYLE)
     engine = row.get("engine") or DEFAULT_ENGINE
@@ -751,10 +707,10 @@ def _do_ls(show_all: bool) -> None:
         table.add_column("Created")
     table.add_column("Last Changed")
     table.add_column("History")
-    for row, prefix in _order_tasks_as_forest(rows):
+    for row in rows:
         changed = _format_ts(row["status_changed_at"], seconds=False) if row.get("status_changed_at") else ""
         cells = [
-            _build_name_cell(row, prefix),
+            _build_name_cell(row),
             _build_status_cell(row, show_one_liner=show_one_liner),
         ]
         if not narrow:
@@ -2223,10 +2179,10 @@ def _build_dashboard_table(
                         *[""] * (len(table.columns) - 1)))
         return table
 
-    for row, prefix in _order_tasks_as_forest(rows):
+    for row in rows:
         changed = _format_ts(row["status_changed_at"], seconds=False) if row.get("status_changed_at") else ""
         cells = [
-            _build_name_cell(row, prefix),
+            _build_name_cell(row),
             _build_status_cell(row, show_one_liner=show_one_liner),
         ]
         if not narrow:
