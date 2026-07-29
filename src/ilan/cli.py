@@ -576,7 +576,7 @@ def task_add(
 # ── task ls ──────────────────────────────────────────────────────────
 
 ALIAS_STYLE = "bold magenta"
-PIN_STYLE = "bold cyan"
+PIN_STYLE = "bold yellow"
 
 
 def _build_name_cell(row: dict) -> Text:
