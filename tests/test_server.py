@@ -6,6 +6,7 @@ import json
 import signal
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
@@ -897,6 +898,283 @@ class TestSleep:
         task = _get(ilan_server, "/tasks/sleep-re-wk")["task"]
         assert task["status"] == "WORKING"
         assert task["sleep_seconds"] is None
+
+
+# ── Reply-every (``reply -t``) ──────────────────────────────────────────
+
+
+class TestReplyEvery:
+    """The ``reply -t`` cycle: state, confirmation gate, and the timer."""
+
+    def _make_task_in_status(
+        self, ilan_server: IlanServer, name: str, status: TaskStatus
+    ) -> None:
+        _post(ilan_server, "/tasks", {"name": name, "prompt": "P"})
+        with ilan_server.lock:
+            task = ilan_server.store.get_task(name)
+            task.set_status(status)
+            ilan_server.store.put_task(task)
+
+    def _set_cycle(
+        self, ilan_server: IlanServer, name: str, *,
+        seconds: int = 60, message: str = "keep going",
+        next_in: float = 3600.0,
+    ) -> None:
+        """Plant a reply-every cycle directly in the store.
+
+        ``next_in`` is relative to now; keep it positive unless the test
+        holds the server lock, or the background reaper may fire it.
+        """
+        with ilan_server.lock:
+            task = ilan_server.store.get_task(name)
+            task.reply_every_seconds = seconds
+            task.reply_every_message = message
+            task.reply_every_next_at = (
+                datetime.now(timezone.utc) + timedelta(seconds=next_in)
+            ).isoformat()
+            ilan_server.store.put_task(task)
+
+    # ── starting a cycle ────────────────────────────────────────────
+
+    def test_reply_with_every_seconds_starts_cycle(
+        self, ilan_server: IlanServer
+    ) -> None:
+        self._make_task_in_status(ilan_server, "re-t", TaskStatus.NEEDS_ATTENTION)
+        resp = _post(
+            ilan_server, "/tasks/re-t/reply",
+            {"message": "go", "every_seconds": 3600},
+        )
+        assert resp.get("ok") is True
+        task = _get(ilan_server, "/tasks/re-t")["task"]
+        assert task["reply_every_seconds"] == 3600
+        assert task["reply_every_message"] == "go"
+        next_at = datetime.fromisoformat(task["reply_every_next_at"])
+        assert next_at > datetime.now(timezone.utc)
+        assert "go" in task["cached_replies"]
+        assert task["status"] == "WORKING"
+
+    def test_reply_with_every_seconds_on_working_persists_cycle(
+        self, ilan_server: IlanServer
+    ) -> None:
+        _post(ilan_server, "/tasks", {"name": "re-wk-t", "prompt": "P"})
+        with patch.object(ilan_server.runner, "reply_to_working") as m:
+            # The real reply_to_working persists the task mid-resume;
+            # mirror that so the handler's field changes reach the store.
+            m.side_effect = lambda task, message: ilan_server.store.put_task(task)
+            resp = _post(
+                ilan_server, "/tasks/re-wk-t/reply",
+                {"message": "go", "every_seconds": 60},
+            )
+        assert resp.get("ok") is True
+        m.assert_called_once()
+        task = _get(ilan_server, "/tasks/re-wk-t")["task"]
+        assert task["reply_every_seconds"] == 60
+        assert task["reply_every_message"] == "go"
+
+    @pytest.mark.parametrize("bad", [0, -5, "1h", 1.5])
+    def test_reply_rejects_bad_every_seconds(
+        self, ilan_server: IlanServer, bad
+    ) -> None:
+        self._make_task_in_status(ilan_server, "re-bad", TaskStatus.NEEDS_ATTENTION)
+        resp = _post(
+            ilan_server, "/tasks/re-bad/reply",
+            {"message": "go", "every_seconds": bad},
+        )
+        assert "error" in resp
+
+    def test_list_rows_include_reply_every_seconds(
+        self, ilan_server: IlanServer
+    ) -> None:
+        _post(ilan_server, "/tasks", {"name": "re-ls", "prompt": "P"})
+        self._set_cycle(ilan_server, "re-ls", seconds=60)
+        rows = _get(ilan_server, "/tasks")["tasks"]
+        row = next(r for r in rows if r["name"] == "re-ls")
+        assert row["reply_every_seconds"] == 60
+
+    # ── ending a cycle: the confirmation gate ───────────────────────
+
+    def test_reply_to_active_cycle_returns_challenge(
+        self, ilan_server: IlanServer
+    ) -> None:
+        self._make_task_in_status(ilan_server, "re-ch", TaskStatus.NEEDS_ATTENTION)
+        self._set_cycle(ilan_server, "re-ch", seconds=60)
+        resp = _post(ilan_server, "/tasks/re-ch/reply", {"message": "hi"})
+        assert resp.get("confirm_reply_every") is True
+        assert resp["name"] == "re-ch"
+        assert resp["reply_every_seconds"] == 60
+        # Nothing was delivered and the cycle is untouched.
+        task = _get(ilan_server, "/tasks/re-ch")["task"]
+        assert task["reply_every_seconds"] == 60
+        assert "hi" not in task["cached_replies"]
+        assert task["status"] == "NEEDS_ATTENTION"
+
+    def test_override_reply_clears_cycle(self, ilan_server: IlanServer) -> None:
+        self._make_task_in_status(ilan_server, "re-ov", TaskStatus.NEEDS_ATTENTION)
+        self._set_cycle(ilan_server, "re-ov", seconds=60)
+        resp = _post(
+            ilan_server, "/tasks/re-ov/reply",
+            {"message": "hi", "override_reply_every": True},
+        )
+        assert resp.get("ok") is True
+        task = _get(ilan_server, "/tasks/re-ov")["task"]
+        assert task["reply_every_seconds"] is None
+        assert task["reply_every_message"] is None
+        assert task["reply_every_next_at"] is None
+        assert "hi" in task["cached_replies"]
+
+    def test_override_reply_with_every_seconds_replaces_cycle(
+        self, ilan_server: IlanServer
+    ) -> None:
+        self._make_task_in_status(ilan_server, "re-rep", TaskStatus.NEEDS_ATTENTION)
+        self._set_cycle(ilan_server, "re-rep", seconds=3600, message="old")
+        resp = _post(
+            ilan_server, "/tasks/re-rep/reply",
+            {"message": "new", "every_seconds": 120, "override_reply_every": True},
+        )
+        assert resp.get("ok") is True
+        task = _get(ilan_server, "/tasks/re-rep")["task"]
+        assert task["reply_every_seconds"] == 120
+        assert task["reply_every_message"] == "new"
+
+    def test_sleep_on_active_cycle_returns_challenge(
+        self, ilan_server: IlanServer
+    ) -> None:
+        self._make_task_in_status(ilan_server, "re-sl", TaskStatus.NEEDS_ATTENTION)
+        self._set_cycle(ilan_server, "re-sl", seconds=60)
+        resp = _post(ilan_server, "/tasks/re-sl/sleep", {"seconds": 5})
+        assert resp.get("confirm_reply_every") is True
+        task = _get(ilan_server, "/tasks/re-sl")["task"]
+        assert task["reply_every_seconds"] == 60
+        assert task["sleep_seconds"] is None
+
+    def test_override_sleep_clears_cycle(self, ilan_server: IlanServer) -> None:
+        self._make_task_in_status(ilan_server, "re-sl-ov", TaskStatus.NEEDS_ATTENTION)
+        self._set_cycle(ilan_server, "re-sl-ov", seconds=60)
+        resp = _post(
+            ilan_server, "/tasks/re-sl-ov/sleep",
+            {"seconds": 5, "override_reply_every": True},
+        )
+        assert resp.get("ok") is True
+        task = _get(ilan_server, "/tasks/re-sl-ov")["task"]
+        assert task["reply_every_seconds"] is None
+        assert task["sleep_seconds"] == 5
+
+    # ── ending a cycle: kill / terminal statuses ────────────────────
+
+    def test_kill_clears_cycle(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "re-kill", "prompt": "P"})
+        self._set_cycle(ilan_server, "re-kill", seconds=60)
+        with patch.object(ilan_server.runner, "kill"), \
+             patch("ilan.server.kill_tmux_sessions_by_prefix"):
+            resp = _post(ilan_server, "/tasks/re-kill/kill")
+        assert resp.get("ok") is True
+        task = _get(ilan_server, "/tasks/re-kill")["task"]
+        assert task["status"] == "ERROR"
+        assert task["reply_every_seconds"] is None
+
+    def test_done_clears_cycle(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "re-done", "prompt": "P"})
+        self._set_cycle(ilan_server, "re-done", seconds=60)
+        _post(ilan_server, "/tasks/re-done/done")
+        task = _get(ilan_server, "/tasks/re-done")["task"]
+        assert task["status"] == "DONE"
+        assert task["reply_every_seconds"] is None
+
+    def test_discard_clears_cycle(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "re-disc", "prompt": "P"})
+        self._set_cycle(ilan_server, "re-disc", seconds=60)
+        _post(ilan_server, "/tasks/re-disc/discard")
+        task = _get(ilan_server, "/tasks/re-disc")["task"]
+        assert task["status"] == "DISCARDED"
+        assert task["reply_every_seconds"] is None
+
+    # ── the timer ───────────────────────────────────────────────────
+
+    def test_fire_interrupts_working_task_and_reschedules(
+        self, ilan_server: IlanServer
+    ) -> None:
+        _post(ilan_server, "/tasks", {"name": "fire-wk", "prompt": "P"})
+        with patch.object(ilan_server.runner, "reply_to_working") as m:
+            m.side_effect = lambda task, message: ilan_server.store.put_task(task)
+            # Plant the due timestamp and fire in the same lock hold so the
+            # background reaper cannot deliver it first.
+            with ilan_server.lock:
+                task = ilan_server.store.get_task("fire-wk")
+                task.reply_every_seconds = 60
+                task.reply_every_message = "keep going"
+                task.reply_every_next_at = (
+                    datetime.now(timezone.utc) - timedelta(seconds=1)
+                ).isoformat()
+                ilan_server.store.put_task(task)
+                ilan_server._fire_due_replies()
+        m.assert_called_once()
+        _, message = m.call_args[0]
+        assert message == "keep going"
+        task = _get(ilan_server, "/tasks/fire-wk")["task"]
+        assert task["reply_every_seconds"] == 60
+        next_at = datetime.fromisoformat(task["reply_every_next_at"])
+        assert next_at > datetime.now(timezone.utc)
+
+    def test_fire_restarts_non_working_task_and_reschedules(
+        self, ilan_server: IlanServer
+    ) -> None:
+        self._make_task_in_status(ilan_server, "fire-na", TaskStatus.NEEDS_ATTENTION)
+        with ilan_server.lock:
+            task = ilan_server.store.get_task("fire-na")
+            task.reply_every_seconds = 60
+            task.reply_every_message = "keep going"
+            task.reply_every_next_at = (
+                datetime.now(timezone.utc) - timedelta(seconds=1)
+            ).isoformat()
+            ilan_server.store.put_task(task)
+            ilan_server._fire_due_replies()
+        task = _get(ilan_server, "/tasks/fire-na")["task"]
+        assert task["status"] == "WORKING"
+        assert "keep going" in task["cached_replies"]
+        assert task["reply_every_seconds"] == 60
+        next_at = datetime.fromisoformat(task["reply_every_next_at"])
+        assert next_at > datetime.now(timezone.utc)
+
+    def test_fire_skips_not_due_cycle(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "fire-later", "prompt": "P"})
+        self._set_cycle(ilan_server, "fire-later", seconds=60, next_in=3600)
+        with patch.object(ilan_server.runner, "reply_to_working") as m:
+            with ilan_server.lock:
+                ilan_server._fire_due_replies()
+        m.assert_not_called()
+
+    def test_fire_clears_corrupt_next_at(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "fire-bad", "prompt": "P"})
+        with ilan_server.lock:
+            task = ilan_server.store.get_task("fire-bad")
+            task.reply_every_seconds = 60
+            task.reply_every_message = "keep going"
+            task.reply_every_next_at = "not-a-timestamp"
+            ilan_server.store.put_task(task)
+            ilan_server._fire_due_replies()
+        task = _get(ilan_server, "/tasks/fire-bad")["task"]
+        assert task["reply_every_seconds"] is None
+        assert task["reply_every_next_at"] is None
+
+    def test_fire_clears_cycle_on_terminal_task(
+        self, ilan_server: IlanServer
+    ) -> None:
+        _post(ilan_server, "/tasks", {"name": "fire-done", "prompt": "P"})
+        _post(ilan_server, "/tasks/fire-done/done")
+        # Plant a stale cycle on the already-terminal task, bypassing the
+        # set_status hook that would normally have cleared it.
+        with ilan_server.lock:
+            task = ilan_server.store.get_task("fire-done")
+            task.reply_every_seconds = 60
+            task.reply_every_message = "keep going"
+            task.reply_every_next_at = (
+                datetime.now(timezone.utc) - timedelta(seconds=1)
+            ).isoformat()
+            ilan_server.store.put_task(task)
+            ilan_server._fire_due_replies()
+        task = _get(ilan_server, "/tasks/fire-done")["task"]
+        assert task["status"] == "DONE"
+        assert task["reply_every_seconds"] is None
 
 
 # ── Logs ────────────────────────────────────────────────────────────────

@@ -14,7 +14,7 @@ import re
 import signal
 import sys
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -209,7 +209,50 @@ class IlanServer:
         while not self._stop_event.is_set():
             with self.lock:
                 self.runner.reap_finished()
+                self._fire_due_replies()
             self._stop_event.wait(POLL_INTERVAL)
+
+    def _fire_due_replies(self) -> None:
+        """Deliver due ``reply -t`` messages. Caller must hold the lock.
+
+        Each firing behaves like a human reply — a WORKING agent is
+        interrupted and resumed with the message, any other live task is
+        restarted with it — except that it does not end the cycle: the same
+        message is rescheduled ``reply_every_seconds`` later.
+        """
+        now = datetime.now(timezone.utc)
+        for task in self.store.load_tasks().values():
+            if not task.reply_every_seconds or not task.reply_every_next_at:
+                continue
+            if task.status.is_terminal:
+                # ``set_status`` already clears the cycle on done/discard;
+                # this guards tasks persisted before that rule existed.
+                task.clear_reply_every()
+                self.store.put_task(task)
+                continue
+            try:
+                next_at = datetime.fromisoformat(task.reply_every_next_at)
+            except ValueError:
+                task.clear_reply_every()
+                self.store.put_task(task)
+                continue
+            if now < next_at:
+                continue
+            message = task.reply_every_message or ""
+            # Reschedule before delivering so a crash mid-send cannot
+            # re-fire the same tick on recovery.
+            task.reply_every_next_at = (
+                now + timedelta(seconds=task.reply_every_seconds)
+            ).isoformat()
+            if task.status == TaskStatus.WORKING:
+                self.runner.reply_to_working(task, message)
+                continue
+            # NEEDS_ATTENTION / AGENT_FINISHED / ERROR
+            task.cached_replies.append(message)
+            task.needs_review = False
+            self.store.append_log(task.name, "user", message)
+            self.store.put_task(task)
+            self.runner.start(task)
 
 
 # ── Request handler (built via closure to capture IlanServer) ────────
@@ -263,6 +306,18 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             if task is None:
                 self._json({"error": f"Task {name} not found"}, 404)
             return task
+
+        def _reply_every_confirmation(self, task: Task, body: dict) -> dict | None:
+            """Challenge to return when a human message would end a ``reply -t``
+            cycle the client hasn't confirmed ending (no ``override_reply_every``
+            in *body*). ``None`` means proceed."""
+            if not task.reply_every_seconds or body.get("override_reply_every"):
+                return None
+            return {
+                "confirm_reply_every": True,
+                "name": task.name,
+                "reply_every_seconds": task.reply_every_seconds,
+            }
 
         # ── route handlers ───────────────────────────────────────
 
@@ -347,6 +402,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     "pinned": t.pinned,
                     "cost_usd": t.cost_usd,
                     "sleep_seconds": t.sleep_seconds,
+                    "reply_every_seconds": t.reply_every_seconds,
                     "parent_name": t.parent_name,
                     "deleted_ancestors": t.deleted_ancestors,
                     "summary_one_liner": t.summary_one_liner,
@@ -535,12 +591,21 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
         def handle_task_reply(self, name: str):
             body = self._body()
             message = body["message"]
+            every_seconds = body.get("every_seconds")
+            if every_seconds is not None and (
+                not isinstance(every_seconds, int) or every_seconds <= 0
+            ):
+                self._json({"error": "every_seconds must be a positive integer"}, 400)
+                return
             with self._ilan.lock:
                 task = self._get_task_or_404(name)
                 if task is None:
                     return
                 if task.status.is_terminal:
                     self._json({"error": f"Task is {task.status.value}. Cannot reply."}, 409)
+                    return
+                if confirm := self._reply_every_confirmation(task, body):
+                    self._json(confirm, 409)
                     return
 
                 store = self._ilan.store
@@ -551,6 +616,15 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 # so drop ``sleep_seconds`` in every branch below to make
                 # the ``(sleeping for Ns)`` suffix disappear.
                 task.sleep_seconds = None
+                # A human reply likewise ends the current ``reply -t`` cycle;
+                # a reply carrying ``every_seconds`` starts a fresh one.
+                task.clear_reply_every()
+                if every_seconds:
+                    task.reply_every_seconds = every_seconds
+                    task.reply_every_message = message
+                    task.reply_every_next_at = (
+                        datetime.now(timezone.utc) + timedelta(seconds=every_seconds)
+                    ).isoformat()
 
                 if task.status == TaskStatus.WORKING:
                     runner.reply_to_working(task, message)
@@ -591,10 +665,15 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                         409,
                     )
                     return
+                if confirm := self._reply_every_confirmation(task, body):
+                    self._json(confirm, 409)
+                    return
                 message = f"Sleep {seconds} seconds and give me a quick report after the sleep finishes."
                 task.cached_replies.append(message)
                 task.needs_review = False
                 task.sleep_seconds = seconds
+                # A sleep is a human reply too, so it ends any ``reply -t`` cycle.
+                task.clear_reply_every()
                 self._ilan.store.append_log(task.name, "user", message)
                 self._ilan.store.put_task(task)
                 self._ilan.runner.start(task)
@@ -615,6 +694,9 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     return
                 self._ilan.runner.kill(task)
                 task.set_status(TaskStatus.ERROR)
+                # ERROR is not terminal, so clear the ``reply -t`` cycle
+                # explicitly: a kill must not be undone by the timer.
+                task.clear_reply_every()
                 self._ilan.store.put_task(task)
             if task.task_hash:
                 kill_tmux_sessions_by_prefix(task.task_hash)

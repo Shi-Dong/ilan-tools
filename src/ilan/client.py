@@ -226,11 +226,24 @@ class Client:
     def unmax_task(self, name: str) -> dict:      return self.post(f"/tasks/{name}/unmax")
     def switch_backend(self, name: str) -> dict:  return self.post(f"/tasks/{name}/switch-backend")
 
-    def reply(self, name: str, message: str) -> dict:
-        return self.post(f"/tasks/{name}/reply", {"message": message})
+    def reply(
+        self, name: str, message: str, every_seconds: int | None = None,
+        override_reply_every: bool = False,
+    ) -> dict:
+        body: dict = {"message": message}
+        if every_seconds is not None:
+            body["every_seconds"] = every_seconds
+        if override_reply_every:
+            body["override_reply_every"] = True
+        return self.post(f"/tasks/{name}/reply", body)
 
-    def sleep_task(self, name: str, seconds: int) -> dict:
-        return self.post(f"/tasks/{name}/sleep", {"seconds": seconds})
+    def sleep_task(
+        self, name: str, seconds: int, override_reply_every: bool = False,
+    ) -> dict:
+        body: dict = {"seconds": seconds}
+        if override_reply_every:
+            body["override_reply_every"] = True
+        return self.post(f"/tasks/{name}/sleep", body)
 
     def clear_everything(self) -> dict:          return self.post("/clear-everything")
     def stop_server(self) -> dict:               return self.post("/stop")
