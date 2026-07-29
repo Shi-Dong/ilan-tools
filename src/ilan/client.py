@@ -200,6 +200,8 @@ class Client:
     def undone(self, name: str) -> dict:         return self.post(f"/tasks/{name}/undone")
     def undiscard(self, name: str) -> dict:      return self.post(f"/tasks/{name}/undiscard")
     def mark_unread(self, name: str) -> dict:    return self.post(f"/tasks/{name}/unread")
+    def pin_task(self, name: str) -> dict:       return self.post(f"/tasks/{name}/pin")
+    def unpin_task(self, name: str) -> dict:     return self.post(f"/tasks/{name}/unpin")
     def kill_task(self, name: str) -> dict:      return self.post(f"/tasks/{name}/kill")
     def get_logs(self, name: str) -> dict:       return self.get(f"/tasks/{name}/logs")
     def get_log_path(self, name: str) -> dict:   return self.get(f"/tasks/{name}/log-path")

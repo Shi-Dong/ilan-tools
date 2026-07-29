@@ -173,7 +173,7 @@ class TestTask:
         expected_keys = {
             "name", "prompt", "status", "created_at", "status_changed_at",
             "session_id", "session_log_path", "pid", "cached_replies", "alias",
-            "task_hash", "needs_review", "input_tokens", "output_tokens",
+            "task_hash", "needs_review", "pinned", "input_tokens", "output_tokens",
             "cache_read_input_tokens", "cost_usd", "sleep_seconds",
             "parent_name", "deleted_ancestors",
             "summary_one_liner", "model", "last_assistant_model",
