@@ -59,7 +59,14 @@ class TestEveryFlag:
 
     @pytest.mark.parametrize(
         ("arg", "expected_seconds"),
-        [("300", 300), ("300s", 300), ("5m", 300), ("2h", 7200), ("1.5h", 5400)],
+        [
+            ("1200", 1200),
+            ("1200s", 1200),
+            ("20m", 1200),
+            ("0.5h", 1800),
+            ("2h", 7200),
+            ("1.5h", 5400),
+        ],
     )
     def test_every_accepts_sleep_durations(
         self, runner: CliRunner, tmp_config, arg: str, expected_seconds: int
@@ -97,6 +104,17 @@ class TestEveryFlag:
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["re", "my-task", "go on", "-t", arg])
         assert result.exit_code != 0
+        client.reply.assert_not_called()
+
+    @pytest.mark.parametrize("arg", ["1199", "19m", "5m", "300s", "0.3h"])
+    def test_every_rejects_too_short_duration(
+        self, runner: CliRunner, tmp_config, arg: str
+    ) -> None:
+        client = _make_client()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["re", "my-task", "go on", "-t", arg])
+        assert result.exit_code == 1
+        assert "must be at least 20m" in result.output
         client.reply.assert_not_called()
 
     def test_plain_reply_stays_positional(

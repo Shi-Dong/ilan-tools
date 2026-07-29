@@ -50,6 +50,11 @@ class TaskStatus(str, Enum):
 # on this model instead of the configured default; ``ilan unmax`` clears it.
 FABLE_MODEL = "claude-fable-5"
 
+# Shortest allowed ``reply -t`` interval (CLI and server both enforce it):
+# more frequent re-sends would interrupt the agent faster than it can make
+# meaningful progress between messages.
+REPLY_EVERY_MIN_SECONDS = 1200
+
 
 def is_fable_model(model: str | None) -> bool:
     return model == FABLE_MODEL

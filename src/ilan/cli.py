@@ -40,6 +40,7 @@ from ilan.models import (
     ENGINE_CODEX,
     ENGINE_NAME_STYLE,
     FABLE_MODEL,
+    REPLY_EVERY_MIN_SECONDS,
     STYLE_FOR_STATUS,
     TaskStatus,
     format_cost_usd,
@@ -1341,8 +1342,12 @@ def _parse_reply_every(every: str | None) -> int | None:
     except ValueError as exc:
         console.print(f"[red]{exc}[/red]")
         raise SystemExit(1)
-    if every_seconds <= 0:
-        console.print("[red]duration must be positive[/red]")
+    if every_seconds < REPLY_EVERY_MIN_SECONDS:
+        console.print(
+            f"[red]-t/--every must be at least "
+            f"{_format_compact_duration(REPLY_EVERY_MIN_SECONDS)} "
+            f"(got {every!r}).[/red]"
+        )
         raise SystemExit(1)
     return every_seconds
 
@@ -1389,8 +1394,8 @@ def _do_reply_command(
               help="Reset the task's model to the config default before "
                    "posting the reply.")
 @click.option("-t", "--every", "every", default=None,
-              help="Re-send MESSAGE every DURATION (e.g. 300s, 5m, 1.5h; same "
-                   "format as ilan sleep) until the next human reply.")
+              help="Re-send MESSAGE every DURATION (min 20m; e.g. 30m, 1.5h; "
+                   "same format as ilan sleep) until the next human reply.")
 def task_reply(
     name: str, message: str | None, num: int | None, markdown: bool,
     line_number: bool | None, max_: bool, unmax: bool, every: str | None,
@@ -1494,7 +1499,8 @@ def _format_sleep_suffix(sleep_seconds: int | None) -> str | None:
     return f" (sleeping for {_format_compact_duration(sleep_seconds)})"
 
 
-REPLY_EVERY_STYLE = "magenta"
+# Same foreground as the sleep suffix, distinguished by the background fill.
+REPLY_EVERY_STYLE = f"{SLEEP_STYLE} on grey27"
 
 
 def _format_reply_every_suffix(reply_every_seconds: int | None) -> str | None:
@@ -2213,8 +2219,8 @@ def shortcut_tail(
               help="Reset the task's model to the config default before "
                    "posting the reply.")
 @click.option("-t", "--every", "every", default=None,
-              help="Re-send MESSAGE every DURATION (e.g. 300s, 5m, 1.5h; same "
-                   "format as ilan sleep) until the next human reply.")
+              help="Re-send MESSAGE every DURATION (min 20m; e.g. 30m, 1.5h; "
+                   "same format as ilan sleep) until the next human reply.")
 def shortcut_reply(
     name: str, message: str | None, num: int | None, markdown: bool,
     line_number: bool | None, max_: bool, unmax: bool, every: str | None,
@@ -2242,8 +2248,8 @@ def shortcut_reply(
               help="Reset the task's model to the config default before "
                    "posting the reply.")
 @click.option("-t", "--every", "every", default=None,
-              help="Re-send MESSAGE every DURATION (e.g. 300s, 5m, 1.5h; same "
-                   "format as ilan sleep) until the next human reply.")
+              help="Re-send MESSAGE every DURATION (min 20m; e.g. 30m, 1.5h; "
+                   "same format as ilan sleep) until the next human reply.")
 def shortcut_re(
     name: str, message: str | None, num: int | None, markdown: bool,
     line_number: bool | None, max_: bool, unmax: bool, every: str | None,

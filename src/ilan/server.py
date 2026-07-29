@@ -26,6 +26,7 @@ from ilan.models import (
     DEFAULT_ENGINE,
     ENGINE_CLAUDE,
     FABLE_MODEL,
+    REPLY_EVERY_MIN_SECONDS,
     VALID_ENGINES,
     Task,
     TaskStatus,
@@ -593,9 +594,16 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             message = body["message"]
             every_seconds = body.get("every_seconds")
             if every_seconds is not None and (
-                not isinstance(every_seconds, int) or every_seconds <= 0
+                not isinstance(every_seconds, int)
+                or every_seconds < REPLY_EVERY_MIN_SECONDS
             ):
-                self._json({"error": "every_seconds must be a positive integer"}, 400)
+                self._json(
+                    {
+                        "error": "every_seconds must be an integer >= "
+                        f"{REPLY_EVERY_MIN_SECONDS} (20 minutes)"
+                    },
+                    400,
+                )
                 return
             with self._ilan.lock:
                 task = self._get_task_or_404(name)

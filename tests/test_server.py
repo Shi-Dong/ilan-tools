@@ -963,15 +963,15 @@ class TestReplyEvery:
             m.side_effect = lambda task, message: ilan_server.store.put_task(task)
             resp = _post(
                 ilan_server, "/tasks/re-wk-t/reply",
-                {"message": "go", "every_seconds": 60},
+                {"message": "go", "every_seconds": 1200},
             )
         assert resp.get("ok") is True
         m.assert_called_once()
         task = _get(ilan_server, "/tasks/re-wk-t")["task"]
-        assert task["reply_every_seconds"] == 60
+        assert task["reply_every_seconds"] == 1200
         assert task["reply_every_message"] == "go"
 
-    @pytest.mark.parametrize("bad", [0, -5, "1h", 1.5])
+    @pytest.mark.parametrize("bad", [0, -5, "1h", 1.5, 1199])
     def test_reply_rejects_bad_every_seconds(
         self, ilan_server: IlanServer, bad
     ) -> None:
@@ -1029,11 +1029,11 @@ class TestReplyEvery:
         self._set_cycle(ilan_server, "re-rep", seconds=3600, message="old")
         resp = _post(
             ilan_server, "/tasks/re-rep/reply",
-            {"message": "new", "every_seconds": 120, "override_reply_every": True},
+            {"message": "new", "every_seconds": 1800, "override_reply_every": True},
         )
         assert resp.get("ok") is True
         task = _get(ilan_server, "/tasks/re-rep")["task"]
-        assert task["reply_every_seconds"] == 120
+        assert task["reply_every_seconds"] == 1800
         assert task["reply_every_message"] == "new"
 
     def test_sleep_on_active_cycle_returns_challenge(
