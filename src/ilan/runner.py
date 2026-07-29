@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -138,9 +139,12 @@ class Runner:
         for task in self.store.load_tasks().values():
             if task.status != TaskStatus.WORKING:
                 continue
-            if task.pid is not None and self._pid_alive(task.pid):
-                if not self._output_complete(task.name):
-                    continue  # genuinely still running
+            if (
+                task.pid is not None
+                and self._pid_alive(task.pid)
+                and not self._output_complete(task.name)
+            ):
+                continue  # genuinely still running
             self._try_reap(task)
             recovered.append(task.name)
         return recovered
@@ -218,15 +222,13 @@ class Runner:
 
     def kill(self, task: Task) -> None:
         if task.pid and self._pid_alive(task.pid):
-            try:
+            # EPERM: the stored pid now belongs to another user's
+            # process — e.g. it was spawned by a server that ran under
+            # a different account, or the OS recycled the pid after the
+            # agent died. It isn't ours to signal; forget it instead of
+            # crashing the request that triggered the kill.
+            with contextlib.suppress(ProcessLookupError, PermissionError):
                 os.kill(task.pid, signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
-                # EPERM: the stored pid now belongs to another user's
-                # process — e.g. it was spawned by a server that ran under
-                # a different account, or the OS recycled the pid after the
-                # agent died. It isn't ours to signal; forget it instead of
-                # crashing the request that triggered the kill.
-                pass
         proc = self._procs.pop(task.name, None)
         if proc is not None:
             proc.wait(timeout=5)
