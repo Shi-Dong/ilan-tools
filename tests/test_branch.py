@@ -150,7 +150,7 @@ class TestStoreBranch:
         """No on-disk Claude session log → child inherits parent's id verbatim.
 
         This path is reached via the public API only when the server-side
-        endpoint's ``_find_session_log`` check is bypassed (e.g. tests calling
+        endpoint's ``find_session_log`` check is bypassed (e.g. tests calling
         ``branch_task`` directly with a fake path).  We keep it as a
         pass-through so unit tests stay decoupled from the filesystem.
         """
@@ -359,7 +359,7 @@ def _seed_parent(server: IlanServer, *, session_id: str | None = "sid-1") -> Tas
 class TestServerBranchEndpoint:
     def test_branch_success(self, ilan_server: IlanServer) -> None:
         _seed_parent(ilan_server)
-        with patch.object(Runner, "_find_session_log", return_value=Path("/fake/sid-1.jsonl")):
+        with patch.object(Runner, "find_session_log", return_value=Path("/fake/sid-1.jsonl")):
             code, resp = _post(
                 ilan_server, "/tasks/parent-task/branch",
                 {"new_name": "child-task", "message": "try plan B"},
@@ -401,7 +401,7 @@ class TestServerBranchEndpoint:
         ilan_server.store.append_log("codex-parent", "assistant", "hi")
 
         with patch.object(
-            Runner, "_find_session_log",
+            Runner, "find_session_log",
             return_value=Path("/fake/rollout-x-abc.jsonl"),
         ):
             code, resp = _post(
@@ -421,7 +421,7 @@ class TestServerBranchEndpoint:
 
     def test_branch_no_message(self, ilan_server: IlanServer) -> None:
         _seed_parent(ilan_server)
-        with patch.object(Runner, "_find_session_log", return_value=Path("/fake/sid-1.jsonl")):
+        with patch.object(Runner, "find_session_log", return_value=Path("/fake/sid-1.jsonl")):
             code, resp = _post(
                 ilan_server, "/tasks/parent-task/branch",
                 {"new_name": "child-task"},
@@ -442,7 +442,7 @@ class TestServerBranchEndpoint:
 
     def test_branch_refuses_when_session_log_missing(self, ilan_server: IlanServer) -> None:
         _seed_parent(ilan_server)
-        with patch.object(Runner, "_find_session_log", return_value=None):
+        with patch.object(Runner, "find_session_log", return_value=None):
             code, resp = _post(
                 ilan_server, "/tasks/parent-task/branch",
                 {"new_name": "child-task"},
@@ -456,7 +456,7 @@ class TestServerBranchEndpoint:
             name="child-task", prompt="p",
             created_at="2026-01-01T00:00:00+00:00",
         ))
-        with patch.object(Runner, "_find_session_log", return_value=Path("/fake/sid-1.jsonl")):
+        with patch.object(Runner, "find_session_log", return_value=Path("/fake/sid-1.jsonl")):
             code, resp = _post(
                 ilan_server, "/tasks/parent-task/branch",
                 {"new_name": "child-task"},
@@ -466,7 +466,7 @@ class TestServerBranchEndpoint:
 
     def test_branch_refuses_invalid_new_name(self, ilan_server: IlanServer) -> None:
         _seed_parent(ilan_server)
-        with patch.object(Runner, "_find_session_log", return_value=Path("/fake/sid-1.jsonl")):
+        with patch.object(Runner, "find_session_log", return_value=Path("/fake/sid-1.jsonl")):
             code, resp = _post(
                 ilan_server, "/tasks/parent-task/branch",
                 {"new_name": "x"},
@@ -484,7 +484,7 @@ class TestServerBranchEndpoint:
                 name=f"filler-{i:03d}", prompt="p", alias=alias,
                 created_at="2026-01-01T00:00:00+00:00",
             ))
-        with patch.object(Runner, "_find_session_log", return_value=Path("/fake/sid-1.jsonl")):
+        with patch.object(Runner, "find_session_log", return_value=Path("/fake/sid-1.jsonl")):
             code, resp = _post(
                 ilan_server, "/tasks/parent-task/branch",
                 {"new_name": "child-task"},
@@ -495,7 +495,7 @@ class TestServerBranchEndpoint:
 
     def test_list_tasks_exposes_parent_name(self, ilan_server: IlanServer) -> None:
         _seed_parent(ilan_server)
-        with patch.object(Runner, "_find_session_log", return_value=Path("/fake/sid-1.jsonl")):
+        with patch.object(Runner, "find_session_log", return_value=Path("/fake/sid-1.jsonl")):
             _post(
                 ilan_server, "/tasks/parent-task/branch",
                 {"new_name": "child-task"},

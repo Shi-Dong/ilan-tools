@@ -714,7 +714,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                         409,
                     )
                     return
-                if self._ilan.runner._find_session_log(parent.session_id, parent.engine) is None:
+                if self._ilan.runner.find_session_log(parent.session_id, parent.engine) is None:
                     self._json(
                         {"error": (
                             f"Session log for task {parent.name} not found on disk. "
@@ -915,7 +915,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             if task is None:
                 return
             if not task.session_log_path and task.session_id and (
-                log_path := self._ilan.runner._find_session_log(task.session_id, task.engine)
+                log_path := self._ilan.runner.find_session_log(task.session_id, task.engine)
             ):
                 task.session_log_path = str(log_path)
                 with self._ilan.lock:
@@ -943,7 +943,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             # Fallback for tasks last reaped before the cache existed: resolve
             # from the session log once, then backfill so future lookups are free.
             if not task.session_log_path and task.session_id and (
-                log_path := self._ilan.runner._find_session_log(task.session_id, task.engine)
+                log_path := self._ilan.runner.find_session_log(task.session_id, task.engine)
             ):
                 task.session_log_path = str(log_path)
                 with self._ilan.lock:

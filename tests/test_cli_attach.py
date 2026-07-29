@@ -207,7 +207,7 @@ class TestAttachCodex:
 class TestAttachSessionLogMissing:
     def test_missing_log_reports_not_found(self, runner: CliRunner, tmp_config) -> None:
         """Regression: this path used to raise TypeError via an unbound
-        ``Runner._find_session_log(session_id)`` call."""
+        ``Runner.find_session_log(session_id)`` call."""
         client = _make_client({
             "task": {
                 "name": "lost-task",
