@@ -16,7 +16,6 @@ import click
 import pytest
 
 from ilan.cli import _parse_duration
-from ilan.models import TaskStatus
 from ilan.server import IlanServer
 
 

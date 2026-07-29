@@ -184,10 +184,6 @@ class Task:
     # (resume) or seed a fresh session with the transcript. Reset once spent.
     awaiting_catchup: bool = False
 
-    def session_for(self, engine: str | None = None) -> str | None:
-        """Return the native session id for *engine* (defaults to active)."""
-        return self.sessions.get(engine or self.engine)
-
     def set_session_for(self, engine: str, session_id: str) -> None:
         """Record the native session id for *engine*."""
         self.sessions[engine] = session_id

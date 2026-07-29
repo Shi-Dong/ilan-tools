@@ -11,13 +11,11 @@ from pathlib import Path
 from ilan import budget
 from ilan import config as cfg
 from ilan.backends import Backend, ClaudeBackend, CodexBackend
-from ilan.backends.claude import last_assistant_model
 from ilan.models import DEFAULT_ENGINE, ENGINE_CLAUDE, ENGINE_CODEX, Task, TaskStatus
 from ilan.oneliner import generate_one_liner
 from ilan.store import Store
 
-# Re-exported for backwards compatibility: server.py imports it from here.
-__all__ = ["Runner", "last_assistant_model", "STATUS_SUFFIX"]
+__all__ = ["Runner", "STATUS_SUFFIX"]
 
 STATUS_SUFFIX = """
 
