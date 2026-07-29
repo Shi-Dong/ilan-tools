@@ -5,6 +5,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+@dataclass(frozen=True)
+class TokenUsage:
+    """Disjoint token counters for one finished backend invocation."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_input_tokens: int = 0
+
+
 @dataclass
 class ParsedResult:
     """Backend-agnostic view of one finished agent turn.
@@ -70,3 +79,12 @@ class Backend(ABC):
     @abstractmethod
     def last_assistant_model(self, log_path: Path) -> str | None:
         """Return the model id of the last assistant turn in the transcript."""
+
+    def last_turn_token_usage(self, log_path: Path) -> TokenUsage | None:
+        """Return transcript-derived usage for the last completed invocation.
+
+        Most backends already emit invocation-local usage and need no
+        transcript adjustment. Backends whose process output reports
+        cumulative session counters can override this hook.
+        """
+        return None

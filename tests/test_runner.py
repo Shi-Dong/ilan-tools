@@ -296,6 +296,85 @@ class TestTryReap:
         assert logs[0].output_tokens == 45
         assert logs[0].cache_read_input_tokens == 678
 
+    def test_reap_replaces_codex_session_totals_with_turn_delta(
+        self, store: Store, runner: Runner, tmp_path: Path
+    ) -> None:
+        log = tmp_path / "rollout-codex-sid.jsonl"
+        log.write_text("\n".join([
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "task_started"}}),
+            json.dumps({
+                "type": "event_msg",
+                "payload": {
+                    "type": "token_count",
+                    "info": {"total_token_usage": {
+                        "input_tokens": 1_000,
+                        "cached_input_tokens": 700,
+                        "output_tokens": 50,
+                    }},
+                },
+            }),
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "task_complete"}}),
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "task_started"}}),
+            json.dumps({
+                "type": "event_msg",
+                "payload": {
+                    "type": "token_count",
+                    "info": {"total_token_usage": {
+                        "input_tokens": 1_300,
+                        "cached_input_tokens": 900,
+                        "output_tokens": 80,
+                    }},
+                },
+            }),
+            json.dumps({"type": "event_msg",
+                        "payload": {"type": "task_complete"}}),
+        ]) + "\n")
+        t = Task(
+            name="codex-delta",
+            prompt="p",
+            status=TaskStatus.WORKING,
+            pid=99999,
+            engine=ENGINE_CODEX,
+        )
+        store.put_task(t)
+        store.output_path("codex-delta").write_text("\n".join([
+            json.dumps({"type": "thread.started", "thread_id": "codex-sid"}),
+            json.dumps({
+                "type": "item.completed",
+                "item": {
+                    "type": "agent_message",
+                    "text": "done\n[STATUS: DONE]",
+                },
+            }),
+            json.dumps({
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": 1_300,
+                    "cached_input_tokens": 900,
+                    "output_tokens": 80,
+                },
+            }),
+        ]) + "\n")
+
+        with (
+            patch.object(Runner, "_find_session_log", return_value=log),
+            patch.object(CodexBackend, "last_assistant_model", return_value=None),
+        ):
+            runner._try_reap(t)
+
+        reply = store.read_logs("codex-delta")[-1]
+        assert reply.input_tokens == 100
+        assert reply.output_tokens == 30
+        assert reply.cache_read_input_tokens == 200
+        updated = store.get_task("codex-delta")
+        assert updated is not None
+        assert updated.input_tokens == 100
+        assert updated.output_tokens == 30
+        assert updated.cache_read_input_tokens == 200
+
     def test_reap_caches_last_assistant_model(
         self, store: Store, runner: Runner, tmp_path: Path
     ) -> None:

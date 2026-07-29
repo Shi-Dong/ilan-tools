@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 from ilan import config as cfg
-from ilan.backends.base import Backend, ParsedResult
+from ilan.backends.base import Backend, ParsedResult, TokenUsage
 from ilan.models import is_fable_model
 
 _CODEX_STATIC_FLAGS = [
@@ -15,15 +15,58 @@ _CODEX_STATIC_FLAGS = [
 ]
 
 
+def _cumulative_usage(raw: object) -> TokenUsage | None:
+    """Normalize Codex's cumulative counters into disjoint categories."""
+    if not isinstance(raw, dict):
+        return None
+    total_input = raw.get("input_tokens", 0)
+    cached_input = raw.get("cached_input_tokens", 0)
+    output = raw.get("output_tokens", 0)
+    values = (total_input, cached_input, output)
+    if any(
+        not isinstance(value, int) or isinstance(value, bool) or value < 0
+        for value in values
+    ):
+        return None
+    return TokenUsage(
+        input_tokens=max(0, total_input - cached_input),
+        output_tokens=output,
+        cache_read_input_tokens=cached_input,
+    )
+
+
+def _usage_delta(start: TokenUsage, end: TokenUsage) -> TokenUsage:
+    """Subtract cumulative counters, treating a counter reset as a fresh run."""
+    start_values = (
+        start.input_tokens,
+        start.output_tokens,
+        start.cache_read_input_tokens,
+    )
+    end_values = (
+        end.input_tokens,
+        end.output_tokens,
+        end.cache_read_input_tokens,
+    )
+    if any(after < before for before, after in zip(start_values, end_values)):
+        return end
+    return TokenUsage(
+        input_tokens=end.input_tokens - start.input_tokens,
+        output_tokens=end.output_tokens - start.output_tokens,
+        cache_read_input_tokens=(
+            end.cache_read_input_tokens - start.cache_read_input_tokens
+        ),
+    )
+
+
 class CodexBackend(Backend):
     """Backend for OpenAI's ``codex exec`` CLI.
 
     Codex streams a JSONL event log to stdout (``--json``): a ``thread.started``
     event carries the session id (``thread_id``), ``item.completed`` events of
     type ``agent_message`` carry the assistant text, and a ``turn.completed``
-    event carries token usage. Resuming a thread (``codex exec resume <id>``)
-    re-emits the *same* ``thread_id``, so a task's session survives switching
-    backends away and back with no context loss.
+    event carries cumulative thread token usage. Resuming a thread
+    (``codex exec resume <id>``) re-emits the *same* ``thread_id``, so a task's
+    session survives switching backends away and back with no context loss.
     """
 
     def build_command(
@@ -114,14 +157,14 @@ class CodexBackend(Backend):
                     if isinstance(text, str):
                         result_text = text
             elif etype == "turn.completed":
-                usage = event.get("usage") or {}
-                total_in = usage.get("input_tokens", 0)
-                cached = usage.get("cached_input_tokens", 0)
-                # Report uncached input separately from cache reads so the
-                # accounting matches the Claude backend's disjoint convention.
-                input_tokens += max(0, total_in - cached)
-                cache_read += cached
-                output_tokens += usage.get("output_tokens", 0)
+                # Codex reports a cumulative snapshot for the resumed thread,
+                # not a delta for this invocation. Keep the latest snapshot;
+                # Runner replaces it with the transcript-derived turn delta.
+                usage = _cumulative_usage(event.get("usage") or {})
+                if usage is not None:
+                    input_tokens = usage.input_tokens
+                    cache_read = usage.cache_read_input_tokens
+                    output_tokens = usage.output_tokens
             elif etype in ("error", "turn.failed", "thread.error"):
                 is_error = True
 
@@ -178,3 +221,59 @@ class CodexBackend(Backend):
             if isinstance(model, str) and model:
                 return model
         return None
+
+    def last_turn_token_usage(self, log_path: Path) -> TokenUsage | None:
+        """Return usage between the last task's start and completion.
+
+        ``codex exec resume --json`` emits lifetime thread totals in
+        ``turn.completed.usage``. The rollout transcript also records
+        ``task_started`` / ``task_complete`` boundaries and cumulative
+        ``token_count`` snapshots, so subtracting the boundary totals yields
+        the counters for the single invocation that produced the Ilan reply.
+        """
+        try:
+            with open(log_path) as f:
+                lines = f.readlines()
+        except OSError:
+            return None
+
+        last_usage = TokenUsage()
+        turn_start: TokenUsage | None = None
+        turn_end: TokenUsage | None = None
+        completed_usage: TokenUsage | None = None
+        turn_open = False
+
+        for raw in lines:
+            try:
+                entry = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if entry.get("type") != "event_msg":
+                continue
+            payload = entry.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            event_type = payload.get("type")
+
+            if event_type == "task_started":
+                turn_start = last_usage
+                turn_end = last_usage
+                completed_usage = None
+                turn_open = True
+            elif event_type == "token_count":
+                info = payload.get("info")
+                if not isinstance(info, dict):
+                    continue
+                usage = _cumulative_usage(info.get("total_token_usage"))
+                if usage is None:
+                    continue
+                last_usage = usage
+                if turn_open:
+                    turn_end = usage
+            elif event_type == "task_complete" and turn_open:
+                if turn_start is not None and turn_end is not None:
+                    completed_usage = _usage_delta(turn_start, turn_end)
+                turn_open = False
+
+        # Never reuse the preceding task's usage for an incomplete latest task.
+        return None if turn_open else completed_usage
