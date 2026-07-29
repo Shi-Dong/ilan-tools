@@ -499,8 +499,7 @@ class Runner:
         """Extract ``[STATUS: …]`` from the last lines of the response."""
         if not response:
             return TaskStatus.AGENT_FINISHED
-        match = re.search(r"\[STATUS:\s*NEEDS_ATTENTION\]", response)
-        if match:
+        if re.search(r"\[STATUS:\s*NEEDS_ATTENTION\]", response):
             return TaskStatus.NEEDS_ATTENTION
         return TaskStatus.AGENT_FINISHED
 
