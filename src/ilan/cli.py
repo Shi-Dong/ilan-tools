@@ -617,6 +617,9 @@ def _build_name_cell(row: dict) -> Text:
     # agent is WORKING), a reply-every cycle re-fires from any live status.
     if reply_every_suffix := _format_reply_every_suffix(row.get("reply_every_seconds")):
         cell.append(reply_every_suffix, style=REPLY_EVERY_STYLE)
+        # Extend the background under the pin/alias/name so the whole label is
+        # highlighted; the FABLE line is appended later and stays unfilled.
+        cell.stylize(f"on {REPLY_EVERY_BG}")
     if engine != ENGINE_CODEX and is_fable_model(row.get("model")):
         cell.append("\nFABLE", style="bold red")
     return cell
@@ -1499,8 +1502,10 @@ def _format_sleep_suffix(sleep_seconds: int | None) -> str | None:
     return f" (sleeping for {_format_compact_duration(sleep_seconds)})"
 
 
-# Same foreground as the sleep suffix, distinguished by the background fill.
-REPLY_EVERY_STYLE = f"{SLEEP_STYLE} on grey27"
+# Same foreground as the sleep suffix, distinguished by the background fill,
+# which _build_name_cell also paints under the row's pin/alias/name.
+REPLY_EVERY_BG = "grey27"
+REPLY_EVERY_STYLE = f"{SLEEP_STYLE} on {REPLY_EVERY_BG}"
 
 
 def _format_reply_every_suffix(reply_every_seconds: int | None) -> str | None:

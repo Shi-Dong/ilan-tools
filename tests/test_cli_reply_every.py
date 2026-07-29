@@ -8,6 +8,7 @@ import pytest
 from click.testing import CliRunner
 
 from ilan.cli import (
+    REPLY_EVERY_BG,
     REPLY_EVERY_STYLE,
     SLEEP_STYLE,
     _build_name_cell,
@@ -274,6 +275,20 @@ class TestNameCellReplyEvery:
     def test_no_suffix_without_cycle(self) -> None:
         cell = _build_name_cell(self._row())
         assert "responding every" not in cell.plain
+
+    def test_background_covers_alias_and_name(self) -> None:
+        cell = _build_name_cell(self._row(alias="aa", reply_every_seconds=3600))
+        bg_spans = [s for s in cell.spans if s.style == f"on {REPLY_EVERY_BG}"]
+        assert len(bg_spans) == 1
+        assert bg_spans[0].start == 0
+        assert bg_spans[0].end == len(cell.plain)
+        assert cell.plain.startswith("(aa) alpha")
+
+    def test_no_background_without_cycle(self) -> None:
+        cell = _build_name_cell(self._row(alias="aa"))
+        assert not any(
+            span.style == f"on {REPLY_EVERY_BG}" for span in cell.spans
+        )
 
     def test_style_differs_from_sleep_suffix(self) -> None:
         cell = _build_name_cell(
