@@ -577,6 +577,7 @@ def task_add(
 
 ALIAS_STYLE = "bold magenta"
 PIN_STYLE = "bold yellow"
+PIN_MARKER = "→ "
 
 
 def _build_name_cell(row: dict) -> Text:
@@ -585,9 +586,9 @@ def _build_name_cell(row: dict) -> Text:
     ``needs_review`` rows are flagged with a ``!!`` ASCII marker rather
     than the \u26a0\ufe0f emoji, whose unpredictable terminal width breaks
     Rich's Live layout in ``ilan dashboard`` and visually misaligns the
-    ``ilan ls`` table. Pinned rows get a leading ``*`` for the same reason \u2014
+    ``ilan ls`` table. Pinned rows get a leading ``\u2192`` for the same reason:
     a pushpin emoji would be the obvious marker but has the same width
-    problem.
+    problem, whereas a bare arrow glyph occupies a single cell.
 
     Tasks running on the Fable model get a red ``FABLE`` note on a separate
     line beneath the name. Fable is Claude-only, so the note is hidden while
@@ -599,7 +600,7 @@ def _build_name_cell(row: dict) -> Text:
     status = TaskStatus(row["status"])
     cell = Text()
     if row.get("pinned"):
-        cell.append("* ", style=PIN_STYLE)
+        cell.append(PIN_MARKER, style=PIN_STYLE)
     if alias := row.get("alias"):
         cell.append(f"({alias}) ", style=ALIAS_STYLE)
     engine = row.get("engine") or DEFAULT_ENGINE
@@ -657,13 +658,13 @@ def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
 
 
 def _build_concise_task_line(row: dict) -> Text:
-    """Build a styled ``* (alias) name STATUS`` line for concise listings."""
+    """Build a styled ``→ (alias) name STATUS`` line for concise listings."""
     alias = row.get("alias") or ""
     engine = row.get("engine") or DEFAULT_ENGINE
     status = TaskStatus(row["status"])
     line = Text()
     if row.get("pinned"):
-        line.append("* ", style=PIN_STYLE)
+        line.append(PIN_MARKER, style=PIN_STYLE)
     if alias:
         line.append(f"({alias}) ", style=ALIAS_STYLE)
     name_style = ENGINE_NAME_STYLE.get(engine, "")

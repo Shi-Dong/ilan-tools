@@ -122,7 +122,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task undone NAME` | Move a `DONE` task back to `NEEDS_ATTENTION` |
 | `ilan task undiscard NAME` | Move a `DISCARDED` task back to `NEEDS_ATTENTION` |
 | `ilan task unread NAME [NAME...]` | Restore the unread marker on task(s) |
-| `ilan task pin NAME` | Pin a task to the top of `ilan ls` / `ilan dashboard`; the row is marked with a `*` before its `(Alias) Name`. A pinned `DONE` / `DISCARDED` task stays visible without `-a` |
+| `ilan task pin NAME` | Pin a task to the top of `ilan ls` / `ilan dashboard`; the row is marked with a `→` before its `(Alias) Name`. A pinned `DONE` / `DISCARDED` task stays visible without `-a` |
 | `ilan task unpin NAME` | Remove the pin, returning the task to its place in creation order (and hiding it again if it is `DONE` / `DISCARDED`) |
 | `ilan task max NAME` | Run this task on the Fable model (`claude-fable-5`) instead of the default; a red `FABLE` tag shows beneath the task name in `ilan ls` / `ilan dashboard`. Takes effect on the task's next agent spawn. Fable is Claude-only, so this is a no-op (with a warning) on a `codex` task — switch it to `claude` first. The tag is hidden while the task is on `codex` (Fable is inactive there) and reappears when it is switched back to `claude`. |
 | `ilan task unmax NAME` | Reset the task's model back to the `model-claude` config default |
@@ -176,9 +176,9 @@ Both `ilan ls` and `ilan dashboard` adapt to the terminal width: on a window nar
 
 Both listings are flat and ordered by creation time, oldest first — a branched child sits at its own creation time rather than under its parent, and a `DONE` / `DISCARDED` task is hidden without `-a` even when it has active children. To see how a task relates to the ones it was branched from, use `ilan tree`.
 
-Use `ilan ls --concise` (or `ilan ls -c`) for a headerless, one-task-per-line view containing only the colored pin marker (when pinned), alias, task name, and status: `* (as) task-name AGENT_FINISHED`. Pinned tasks remain at the top. Combine concise mode with `-a` to include `DONE` and `DISCARDED` tasks. An empty concise listing prints nothing.
+Use `ilan ls --concise` (or `ilan ls -c`) for a headerless, one-task-per-line view containing only the colored pin marker (when pinned), alias, task name, and status: `→ (as) task-name AGENT_FINISHED`. Pinned tasks remain at the top. Combine concise mode with `-a` to include `DONE` and `DISCARDED` tasks. An empty concise listing prints nothing.
 
-Pinned tasks (`ilan pin`) break that order: they lead the table as a block, each marked with a `*` before its `(Alias) Name`, and are ordered among themselves by creation time, oldest first. A pin also overrides the default filter — a pinned `DONE` / `DISCARDED` task keeps showing without `-a`, and unpinning it is what drops it back out of the listing.
+Pinned tasks (`ilan pin`) break that order: they lead the table as a block, each marked with a `→` before its `(Alias) Name`, and are ordered among themselves by creation time, oldest first. A pin also overrides the default filter — a pinned `DONE` / `DISCARDED` task keeps showing without `-a`, and unpinning it is what drops it back out of the listing.
 
 ### Branch tree
 

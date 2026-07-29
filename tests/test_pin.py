@@ -14,10 +14,11 @@ from urllib.request import Request, urlopen
 
 import pytest
 from click.testing import CliRunner
+from rich.cells import cell_len
 from rich.console import Console
 
 import ilan.cli as cli_mod
-from ilan.cli import _build_name_cell, main
+from ilan.cli import PIN_MARKER, _build_name_cell, main
 from ilan.models import Task, TaskStatus
 from ilan.server import IlanServer
 from ilan.store import Store
@@ -271,11 +272,15 @@ def _row(name: str, *, pinned: bool = False, alias: str | None = None) -> dict:
 
 class TestNameCellMarker:
     def test_pinned_row_gets_the_marker(self) -> None:
-        assert _build_name_cell(_row("alpha", pinned=True)).plain == "* alpha"
+        assert _build_name_cell(_row("alpha", pinned=True)).plain == "→ alpha"
 
     def test_marker_precedes_the_alias(self) -> None:
         cell = _build_name_cell(_row("alpha", pinned=True, alias="aa"))
-        assert cell.plain == "* (aa) alpha"
+        assert cell.plain == "→ (aa) alpha"
+
+    def test_marker_occupies_one_cell(self) -> None:
+        """A wide marker would misalign the table and break the dashboard."""
+        assert cell_len(PIN_MARKER.rstrip()) == 1
 
     def test_unpinned_row_has_no_marker(self) -> None:
         assert _build_name_cell(_row("alpha", alias="aa")).plain == "(aa) alpha"
@@ -357,5 +362,5 @@ class TestLsRendersMarker:
         assert out.index("pinned-task") < out.index("plain-task")
         pinned_line = next(l for l in out.splitlines() if "pinned-task" in l)
         plain_line = next(l for l in out.splitlines() if "plain-task" in l)
-        assert "* pinned-task" in pinned_line
-        assert "* plain-task" not in plain_line
+        assert "→ pinned-task" in pinned_line
+        assert "→ plain-task" not in plain_line

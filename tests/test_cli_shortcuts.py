@@ -237,7 +237,7 @@ class TestLsNoArgs:
             result = runner.invoke(main, ["ls", "-c"])
         assert result.exit_code == 0
         assert _strip_ansi(result.output) == (
-            "* (as) a-very-long-task-name AGENT_FINISHED\n"
+            "→ (as) a-very-long-task-name AGENT_FINISHED\n"
         )
         client.list_tasks.assert_called_once_with(show_all=False)
         client.get_config.assert_not_called()
@@ -298,12 +298,12 @@ class TestLsNoArgs:
                 "pinned": True,
             }
         )
-        assert line.plain == "* (as) styled-task AGENT_FINISHED"
+        assert line.plain == "→ (as) styled-task AGENT_FINISHED"
         assert [
             (line.plain[span.start:span.end], span.style)
             for span in line.spans
         ] == [
-            ("* ", "bold yellow"),
+            ("→ ", "bold yellow"),
             ("(as) ", "bold magenta"),
             ("styled-task", "bold orange1"),
             ("AGENT_FINISHED", "green"),
