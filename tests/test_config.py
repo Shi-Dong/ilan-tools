@@ -22,9 +22,9 @@ class TestDefaults:
         assert set(cfg.DEFAULTS.keys()) == expected
 
     def test_secret_keys(self) -> None:
-        assert cfg.SECRET_KEYS == {
+        assert {
             "api-key-claude", "api-key-codex", "github-token"
-        }
+        } == cfg.SECRET_KEYS
         assert cfg.SECRET_KEYS <= cfg.VALID_KEYS
 
     def test_default_backend_is_claude(self) -> None:
@@ -40,23 +40,23 @@ class TestDefaults:
         assert "github-token" not in cfg.CLIENT_SIDE_KEYS
 
     def test_valid_keys_matches_defaults(self) -> None:
-        assert cfg.VALID_KEYS == set(cfg.DEFAULTS.keys())
+        assert set(cfg.DEFAULTS.keys()) == cfg.VALID_KEYS
 
     def test_int_keys(self) -> None:
-        assert cfg.INT_KEYS == {"dashboard-interval"}
+        assert {"dashboard-interval"} == cfg.INT_KEYS
 
     def test_bool_keys(self) -> None:
-        assert cfg.BOOL_KEYS == {"line-number", "markdown", "one-line-summary"}
+        assert {"line-number", "markdown", "one-line-summary"} == cfg.BOOL_KEYS
 
     def test_client_side_keys(self) -> None:
-        assert cfg.CLIENT_SIDE_KEYS == {
+        assert {
             "dashboard-interval",
             "editor",
             "line-number",
             "markdown",
             "one-line-summary",
             "time-zone",
-        }
+        } == cfg.CLIENT_SIDE_KEYS
         assert cfg.CLIENT_SIDE_KEYS <= cfg.VALID_KEYS
 
     def test_line_number_default_false(self) -> None:

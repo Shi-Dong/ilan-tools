@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 import os
 import re
@@ -254,7 +255,7 @@ def _install_completion(ctx: click.Context, _param: click.Parameter, shell: str 
 
         with open(rc_path, "a") as f:
             f.write(f"\n{source_line}\n")
-        console.print(f"[green]Completion installed. Restart your shell or run:[/green]")
+        console.print("[green]Completion installed. Restart your shell or run:[/green]")
         console.print(f"  {source_line}")
 
     ctx.exit(0)
@@ -314,10 +315,8 @@ def server_restart() -> None:
         raise SystemExit(1)
     info = read_server_info()
     if info is not None:
-        try:
+        with contextlib.suppress(Exception):
             Client(port=info["port"]).stop_server()
-        except Exception:
-            pass
         time.sleep(0.3)
     try:
         c.ensure_server()
@@ -1782,9 +1781,10 @@ def task_rm(names: tuple[str, ...], yes: bool, force: bool) -> None:
             console.print("[dim]Re-run with [bold]-f[/bold] to force delete.[/dim]")
             raise SystemExit(1)
 
-    if not yes:
-        if not click.confirm(f"Remove {len(found)} task(s): {', '.join(found)}?"):
-            return
+    if not yes and not click.confirm(
+        f"Remove {len(found)} task(s): {', '.join(found)}?"
+    ):
+        return
 
     # We've already validated the batch above (or the user passed -f), so
     # pass force=True to the server to bypass its per-task descendant check
@@ -2488,10 +2488,9 @@ def clean(duration: str, yes: bool) -> None:
         table.add_row(r["name"], Text(status.value, style=style), changed)
     console.print(table)
 
-    if not yes:
-        if not click.confirm(f"Delete {len(stale)} task(s)?"):
-            console.print("[dim]Aborted.[/dim]")
-            return
+    if not yes and not click.confirm(f"Delete {len(stale)} task(s)?"):
+        console.print("[dim]Aborted.[/dim]")
+        return
 
     for r in stale:
         client.delete_task(r["name"])

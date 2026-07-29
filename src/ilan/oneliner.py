@@ -181,10 +181,7 @@ def generate_one_liner(last_user: str, last_assistant: str) -> str | None:
 
     prompt = _build_user_prompt(last_user, last_assistant)
     try:
-        if api_key:
-            text = _call_luna(api_key, prompt)
-        else:
-            text = _call_codex_cli(prompt)
+        text = _call_luna(api_key, prompt) if api_key else _call_codex_cli(prompt)
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError):
         return None
     except (OSError, subprocess.SubprocessError):

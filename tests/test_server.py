@@ -215,9 +215,11 @@ class TestServerOwnerPinning:
     ) -> None:
         monkeypatch.setattr("ilan.server.read_server_owner", lambda: "shidong")
         monkeypatch.setattr("ilan.server.getpass.getuser", lambda: "openclaw")
-        with patch.object(srv_mod, "IlanServer") as server_cls:
-            with pytest.raises(SystemExit) as excinfo:
-                srv_mod.main()
+        with (
+            patch.object(srv_mod, "IlanServer") as server_cls,
+            pytest.raises(SystemExit) as excinfo,
+        ):
+            srv_mod.main()
         assert excinfo.value.code == 1
         server_cls.assert_not_called()
         err = capsys.readouterr().err
@@ -247,10 +249,12 @@ class TestServerOwnerPinning:
         monkeypatch.setattr("ilan.client.read_server_owner", lambda: "shidong")
         monkeypatch.setattr("ilan.client.getpass.getuser", lambda: "openclaw")
         c = Client()
-        with patch.object(Client, "_probe", return_value=None), \
-             patch.object(Client, "_start_server") as start:
-            with pytest.raises(RuntimeError, match="pinned to user 'shidong'"):
-                c.ensure_server()
+        with (
+            patch.object(Client, "_probe", return_value=None),
+            patch.object(Client, "_start_server") as start,
+            pytest.raises(RuntimeError, match="pinned to user 'shidong'"),
+        ):
+            c.ensure_server()
         start.assert_not_called()
 
     def test_client_autostarts_for_pinned_account(

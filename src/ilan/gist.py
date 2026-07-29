@@ -17,6 +17,7 @@ so it works the same on a laptop or a remote server as long as the token is set.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import queue
 import re
@@ -407,12 +408,10 @@ class GistSyncer:
                 continue
             with self._pending_lock:
                 self._pending.discard(name)
-            try:
+            # A sync failure (network, auth, deleted task) must never kill
+            # the worker; the next message re-enqueues and retries.
+            with contextlib.suppress(Exception):
                 self.sync_task(name)
-            except Exception:
-                # A sync failure (network, auth, deleted task) must never kill
-                # the worker; the next message re-enqueues and retries.
-                pass
 
     def sync_task(self, name: str) -> None:
         """Create the task's Gist if needed and post any unposted messages."""

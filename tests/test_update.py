@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,7 +12,6 @@ from ilan.cli import main, _find_repo_root, _branch_in_other_worktree
 
 
 def _make_run(returncode: int, stdout: str = "", stderr: str = "") -> "subprocess.CompletedProcess[str]":
-    import subprocess
     return subprocess.CompletedProcess([], returncode, stdout=stdout, stderr=stderr)
 
 
