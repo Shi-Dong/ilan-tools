@@ -19,6 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from ilan import __version__, config as cfg, get_git_commit
+from ilan.backends.claude import last_assistant_model
 from ilan.gist import GistSyncer, github_token, last_comment_url
 from ilan.models import (
     ALIAS_POOL,
@@ -32,7 +33,7 @@ from ilan.models import (
     other_engine,
     validate_task_name,
 )
-from ilan.runner import Runner, last_assistant_model
+from ilan.runner import Runner
 from ilan.store import Store
 from ilan.tmux import kill_tmux_sessions_by_prefix
 

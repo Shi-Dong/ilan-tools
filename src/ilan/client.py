@@ -16,7 +16,7 @@ from urllib.request import Request, urlopen
 
 from ilan import config as cfg
 from ilan import get_git_commit
-from ilan.server import pid_file_path, read_server_info, read_server_owner
+from ilan.server import read_server_info, read_server_owner
 
 SERVER_URL_ENV = "ILAN_SERVER_URL"
 

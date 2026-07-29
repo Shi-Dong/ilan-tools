@@ -373,14 +373,6 @@ class TestTask:
         assert t.log_cursors == {}
         assert t.awaiting_catchup is False
 
-    def test_session_for_defaults_to_active_engine(self) -> None:
-        t = self._make_task(engine=ENGINE_CODEX)
-        t.set_session_for(ENGINE_CLAUDE, "c-sid")
-        t.set_session_for(ENGINE_CODEX, "x-sid")
-        assert t.session_for() == "x-sid"           # active engine (codex)
-        assert t.session_for(ENGINE_CLAUDE) == "c-sid"
-        assert t.session_for("nonexistent") is None
-
     def test_from_dict_missing_engine_defaults_claude(self) -> None:
         d = {"name": "old", "prompt": "p", "status": "UNCLAIMED"}
         t = Task.from_dict(d)
@@ -393,7 +385,6 @@ class TestTask:
              "session_id": "legacy-sid"}
         t = Task.from_dict(d)
         assert t.sessions == {"claude": "legacy-sid"}
-        assert t.session_for(ENGINE_CLAUDE) == "legacy-sid"
 
     def test_from_dict_explicit_sessions_not_overwritten(self) -> None:
         d = {"name": "x", "prompt": "p", "status": "WORKING",
