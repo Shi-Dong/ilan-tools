@@ -326,27 +326,9 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             with self._ilan.lock:
                 tasks = self._ilan.store.load_tasks()
 
-            # Keep terminal ancestors of any non-terminal task so the branch
-            # tree stays readable in ls/dashboard even after a middle node is
-            # marked DONE/DISCARDED.  Walk up from each active task; the first
-            # already-seen ancestor stops the climb.
-            keep_terminal_ancestors: set[str] = set()
-            if not show_all:
-                for t in tasks.values():
-                    if t.status.is_terminal:
-                        continue
-                    cur = t.parent_name
-                    while cur and cur not in keep_terminal_ancestors:
-                        parent = tasks.get(cur)
-                        if parent is None:
-                            break
-                        if parent.status.is_terminal:
-                            keep_terminal_ancestors.add(cur)
-                        cur = parent.parent_name
-
             rows = []
             for t in sorted(tasks.values(), key=lambda t: t.created_at):
-                if not show_all and t.status.is_terminal and t.name not in keep_terminal_ancestors:
+                if not show_all and t.status.is_terminal:
                     continue
                 rows.append({
                     "name": t.name,

@@ -78,6 +78,51 @@ class TestLsNoArgs:
         assert "my-task" in result.output
         client.list_tasks.assert_called_once_with(show_all=False)
 
+    def test_ls_is_flat_and_creation_ordered(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A branched child sorts by its own creation time, not under its parent."""
+        import ilan.cli as cli_mod
+        from rich.console import Console
+
+        monkeypatch.setattr(cli_mod, "console", Console(width=200, force_terminal=True))
+        client = _make_client()
+        client.list_tasks.return_value = {
+            "tasks": [
+                {
+                    "name": "root-task", "alias": None, "status": "WORKING",
+                    "created_at": "2026-04-13T00:00:00+00:00",
+                    "status_changed_at": "2026-04-13T00:00:00+00:00",
+                    "needs_review": False, "parent_name": None,
+                },
+                {
+                    "name": "other-task", "alias": None, "status": "WORKING",
+                    "created_at": "2026-04-13T01:00:00+00:00",
+                    "status_changed_at": "2026-04-13T01:00:00+00:00",
+                    "needs_review": False, "parent_name": None,
+                },
+                {
+                    "name": "child-task", "alias": None, "status": "WORKING",
+                    "created_at": "2026-04-13T02:00:00+00:00",
+                    "status_changed_at": "2026-04-13T02:00:00+00:00",
+                    "needs_review": False, "parent_name": "root-task",
+                },
+            ],
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["ls"])
+        assert result.exit_code == 0
+        out = _strip_ansi(result.output)
+        assert out.index("root-task") < out.index("other-task") < out.index("child-task")
+        # The child starts at the same column as the roots (no tree indent).
+        # Rich's own table borders use the same box-drawing glyphs a tree
+        # prefix would, so compare offsets rather than grepping for glyphs.
+        offsets = {
+            name: next(line.index(name) for line in out.splitlines() if name in line)
+            for name in ("root-task", "other-task", "child-task")
+        }
+        assert len(set(offsets.values())) == 1
+
     def test_ls_never_shows_cost_column(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -1456,7 +1501,7 @@ class TestFableRendering:
             "needs_review": False,
             "model": "claude-fable-5",
         }
-        name_cell = _build_name_cell(row, "")
+        name_cell = _build_name_cell(row)
         assert "FABLE" in name_cell.plain
         # The note sits on a separate line beneath the "(alias) name".
         assert name_cell.plain.splitlines() == ["(aa) maxed-task", "FABLE"]
@@ -1464,7 +1509,7 @@ class TestFableRendering:
     def test_name_cell_no_fable_for_default_task(self) -> None:
         row = {"name": "plain-task", "alias": "", "status": "WORKING",
                "needs_review": False, "model": None}
-        name_cell = _build_name_cell(row, "")
+        name_cell = _build_name_cell(row)
         assert "FABLE" not in name_cell.plain
 
     def test_name_cell_fable_shown_on_claude_engine(self) -> None:
@@ -1472,7 +1517,7 @@ class TestFableRendering:
         row = {"name": "maxed-task", "alias": "", "status": "WORKING",
                "needs_review": False, "model": "claude-fable-5",
                "engine": "claude"}
-        name_cell = _build_name_cell(row, "")
+        name_cell = _build_name_cell(row)
         assert "FABLE" in name_cell.plain
 
     def test_name_cell_no_fable_after_switch_to_codex(self) -> None:
@@ -1481,7 +1526,7 @@ class TestFableRendering:
         row = {"name": "maxed-task", "alias": "", "status": "WORKING",
                "needs_review": False, "model": "claude-fable-5",
                "engine": "codex"}
-        name_cell = _build_name_cell(row, "")
+        name_cell = _build_name_cell(row)
         assert "FABLE" not in name_cell.plain
 
     def test_name_cell_fable_shown_for_unknown_engine(self) -> None:
@@ -1490,7 +1535,7 @@ class TestFableRendering:
         row = {"name": "maxed-task", "alias": "", "status": "WORKING",
                "needs_review": False, "model": "claude-fable-5",
                "engine": "some-future-engine"}
-        name_cell = _build_name_cell(row, "")
+        name_cell = _build_name_cell(row)
         assert "FABLE" in name_cell.plain
 
 
@@ -1574,17 +1619,17 @@ class TestNameCellEngineColour:
         return row
 
     def test_claude_name_uses_orange_style(self) -> None:
-        cell = _build_name_cell(self._row(ENGINE_CLAUDE), "")
+        cell = _build_name_cell(self._row(ENGINE_CLAUDE))
         styles = " ".join(str(span.style) for span in cell.spans)
         assert ENGINE_NAME_STYLE[ENGINE_CLAUDE] in styles
 
     def test_codex_name_uses_blue_style(self) -> None:
-        cell = _build_name_cell(self._row(ENGINE_CODEX), "")
+        cell = _build_name_cell(self._row(ENGINE_CODEX))
         styles = " ".join(str(span.style) for span in cell.spans)
         assert ENGINE_NAME_STYLE[ENGINE_CODEX] in styles
 
     def test_missing_engine_defaults_to_claude_style(self) -> None:
-        cell = _build_name_cell(self._row(None), "")
+        cell = _build_name_cell(self._row(None))
         styles = " ".join(str(span.style) for span in cell.spans)
         assert ENGINE_NAME_STYLE[ENGINE_CLAUDE] in styles
 
