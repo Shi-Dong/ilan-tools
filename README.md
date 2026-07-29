@@ -114,6 +114,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task rename OLD NEW [-d "msg"]` | Rename a task; with `-d`, immediately send `"msg"` as a reply to the renamed task |
 | `ilan task alias NAME NEW_ALIAS` | Change the two-letter alias of an active task (`NEW_ALIAS` must be two letters from `asdfghjkl` and not already in use) |
 | `ilan task branch OLD -n NEW [-d "msg" \| -f FILE]` | Branch a new task from `OLD`, inheriting its full Claude Code context (both tasks stay repliable and diverge from there) |
+| `ilan task tree NAME` | Draw the branch tree `NAME` belongs to, from its outermost ancestor down — see [Branch tree](#branch-tree) |
 | `ilan task kill NAME` | Kill a `WORKING` agent, move task to `ERROR` |
 | `ilan task attach NAME` | Attach to a task's agent session interactively (`claude --resume` or `codex resume`, per the task's backend) |
 | `ilan task done NAME [NAME...]` | Mark task(s) as `DONE` |
@@ -140,6 +141,7 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan rename OLD NEW [-d "msg"]` | `ilan task rename OLD NEW [-d "msg"]` |
 | `ilan alias NAME NEW_ALIAS` | `ilan task alias NAME NEW_ALIAS` |
 | `ilan branch OLD -n NEW` | `ilan task branch OLD -n NEW` |
+| `ilan tree NAME` | `ilan task tree NAME` |
 | `ilan tap NAME` | `ilan task tap NAME` |
 | `ilan cancel NAME` | `ilan task cancel NAME` |
 | `ilan sleep NAME DURATION` | `ilan task sleep NAME DURATION` |
@@ -168,7 +170,35 @@ Each row's `Status` cell carries a `gpt-5.6-luna`-generated one-line summary of 
 
 Both `ilan ls` and `ilan dashboard` adapt to the terminal width: on a window narrower than 120 columns they drop the `Created` column so the remaining `Name` / `Status` / `Last Changed` / `History` columns stay legible.
 
-Both listings are flat and ordered by creation time, oldest first — a branched child sits at its own creation time rather than under its parent, and a `DONE` / `DISCARDED` task is hidden without `-a` even when it has active children.
+Both listings are flat and ordered by creation time, oldest first — a branched child sits at its own creation time rather than under its parent, and a `DONE` / `DISCARDED` task is hidden without `-a` even when it has active children. To see how a task relates to the ones it was branched from, use `ilan tree`.
+
+### Branch tree
+
+```bash
+ilan tree oom-retry-a-fix   # or the task's alias, e.g. ilan tree ff
+```
+
+Draws the whole branch tree the task belongs to, starting from its outermost ancestor, with the task you asked about marked `← this task`. Terminal tasks are always included, so the tree doesn't fragment when a middle task is marked `DONE`:
+
+```
+(aa) investigate-oom  NEEDS_ATTENTION
+├── (ss) oom-retry-a  DONE
+│   ├── (ff) oom-retry-a-fix  WORKING  ← this task
+│   └── (gg) oom-retry-a-alt  DISCARDED
+└── (dd) oom-retry-b  WORKING
+```
+
+Permanently deleting a task with `ilan task rm` re-parents its children onto their grandparent, which on its own would make the surviving branches look like they had been branched off the grandparent directly. Instead the deleted name is remembered, and the tree draws a struck-through tombstone in its place:
+
+```
+(aa) investigate-oom  NEEDS_ATTENTION
+├── (dd) oom-retry-b  WORKING
+└── oom-retry-a (deleted)
+    ├── (ff) oom-retry-a-fix  WORKING  ← this task
+    └── (gg) oom-retry-a-alt  DISCARDED
+```
+
+Siblings orphaned by the same delete share one tombstone, chained deletes nest, and a tombstone can be the root of the tree if the outermost ancestor is the one that was deleted. A tombstone sorts among its siblings at the position of its earliest surviving descendant.
 
 ### Server
 

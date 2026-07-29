@@ -110,6 +110,13 @@ class Task:
     cost_usd: float = 0.0
     sleep_seconds: int | None = None
     parent_name: str | None = None
+    # Names of already-deleted tasks that used to sit between this task and its
+    # current ``parent_name``, nearest ancestor first. Deleting a task re-parents
+    # its children onto their grandparent, which would silently collapse the
+    # branch topology; recording the removed link lets ``ilan task tree`` draw a
+    # tombstone where the task used to be instead of pretending the child was
+    # branched off the grandparent directly.
+    deleted_ancestors: list[str] = field(default_factory=list)
     summary_one_liner: str | None = None
     model: str | None = None
     # The model that generated the most recent assistant message, cached at
@@ -216,6 +223,7 @@ class Task:
             "cost_usd": self.cost_usd,
             "sleep_seconds": self.sleep_seconds,
             "parent_name": self.parent_name,
+            "deleted_ancestors": self.deleted_ancestors,
             "summary_one_liner": self.summary_one_liner,
             "model": self.model,
             "last_assistant_model": self.last_assistant_model,
@@ -259,6 +267,7 @@ class Task:
             cost_usd=d.get("cost_usd", 0.0),
             sleep_seconds=d.get("sleep_seconds"),
             parent_name=d.get("parent_name"),
+            deleted_ancestors=list(d.get("deleted_ancestors") or []),
             summary_one_liner=d.get("summary_one_liner"),
             model=d.get("model"),
             last_assistant_model=d.get("last_assistant_model"),
