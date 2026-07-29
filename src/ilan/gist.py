@@ -223,8 +223,7 @@ def _http_error_wait(err: urllib.error.HTTPError, backoff: float) -> float:
     rate-limit (403/429) with no header backs off hard; other retryable errors
     use the ordinary exponential backoff capped at ``_MAX_BACKOFF_SECONDS``.
     """
-    retry_after = _retry_after_seconds(err)
-    if retry_after is not None:
+    if (retry_after := _retry_after_seconds(err)) is not None:
         return retry_after
     if err.code in _RATE_LIMIT_STATUS:
         return max(_SECONDARY_LIMIT_BACKOFF_SECONDS, min(backoff, _MAX_BACKOFF_SECONDS))

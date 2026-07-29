@@ -540,7 +540,8 @@ def _do_add(
         agent = "claude"
 
     prompt = Path(file_path).read_text() if file_path else description
-    assert prompt is not None
+    if prompt is None:
+        raise ValueError("either --file or --description must be provided")
 
     resp = _client().add_task(name, prompt, agent, max_model=max_model)
     if _check_error(resp):
@@ -597,21 +598,20 @@ def _build_name_cell(row: dict) -> Text:
     restores it.
     """
     status = TaskStatus(row["status"])
-    alias = row.get("alias") or ""
     cell = Text()
     if row.get("pinned"):
         cell.append("* ", style=PIN_STYLE)
-    if alias:
+    if alias := row.get("alias"):
         cell.append(f"({alias}) ", style=ALIAS_STYLE)
     engine = row.get("engine") or DEFAULT_ENGINE
     name_style = ENGINE_NAME_STYLE.get(engine, "")
     cell.append(row["name"], style=f"bold {name_style}".strip())
     if row.get("needs_review"):
         cell.append(" !!", style="bold yellow")
-    if status is TaskStatus.WORKING:
-        sleep_suffix = _format_sleep_suffix(row.get("sleep_seconds"))
-        if sleep_suffix:
-            cell.append(sleep_suffix, style=SLEEP_STYLE)
+    if status is TaskStatus.WORKING and (
+        sleep_suffix := _format_sleep_suffix(row.get("sleep_seconds"))
+    ):
+        cell.append(sleep_suffix, style=SLEEP_STYLE)
     if engine != ENGINE_CODEX and is_fable_model(row.get("model")):
         cell.append("\nFABLE", style="bold red")
     return cell
@@ -624,8 +624,7 @@ def _build_history_cell(row: dict) -> Text:
     stays hidden behind the short label. Tasks without a Gist yet (mirroring
     disabled, or the async syncer hasn't created it) show a dim placeholder.
     """
-    url = (row.get("gist_url") or "").strip()
-    if not url:
+    if not (url := (row.get("gist_url") or "").strip()):
         return Text("-", style="dim")
     # Append the styled span instead of using a base Text style: a base style
     # bleeds across the cell's right padding, so the `underline` would run well
@@ -644,15 +643,17 @@ def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
     # darker than the same spans on other rows.
     cell = Text()
     cell.append(status.value, style=style)
-    if status == TaskStatus.WORKING and row.get("status_changed_at"):
-        elapsed = _format_elapsed(row["status_changed_at"])
-        if elapsed:
-            cell.append(f" (for {elapsed})", style="dim")
-    if show_one_liner:
-        one_liner = (row.get("summary_one_liner") or "").strip()
-        if one_liner:
-            cell.append("\n")
-            cell.append(one_liner, style="yellow italic")
+    if (
+        status == TaskStatus.WORKING
+        and row.get("status_changed_at")
+        and (elapsed := _format_elapsed(row["status_changed_at"]))
+    ):
+        cell.append(f" (for {elapsed})", style="dim")
+    if show_one_liner and (
+        one_liner := (row.get("summary_one_liner") or "").strip()
+    ):
+        cell.append("\n")
+        cell.append(one_liner, style="yellow italic")
     return cell
 
 
@@ -821,8 +822,7 @@ def _build_tree_label(node: _TreeNode, focus_name: str) -> Text:
 
     row = node.row
     label = Text()
-    alias = row.get("alias") or ""
-    if alias:
+    if alias := row.get("alias"):
         label.append(f"({alias}) ", style=ALIAS_STYLE)
     engine = row.get("engine") or DEFAULT_ENGINE
     name_style = ENGINE_NAME_STYLE.get(engine, "")
@@ -1581,8 +1581,7 @@ def _do_attach(name: str) -> None:
         raise SystemExit(1)
 
     t = resp["task"]
-    session_id = t.get("session_id")
-    if not session_id:
+    if not (session_id := t.get("session_id")):
         console.print(f"[yellow]Task [bold]{t['name']}[/bold] has no session yet.[/yellow]")
         raise SystemExit(1)
 
@@ -1695,8 +1694,7 @@ def _do_open(name: str) -> None:
     resp = _client().get_history_url(name)
     if _check_error(resp):
         raise SystemExit(1)
-    url = resp.get("url")
-    if not url:
+    if not (url := resp.get("url")):
         console.print(
             f"[yellow]Task '{name}' has no history page yet.[/yellow]"
         )
@@ -1948,8 +1946,7 @@ def _do_max(name: str) -> None:
     resp = _client().max_task(name)
     if _check_error(resp):
         raise SystemExit(1)
-    warning = resp.get("warning")
-    if warning:
+    if warning := resp.get("warning"):
         console.print(f"[yellow]{warning}[/yellow]")
         return
     task_name = resp.get("name", name)
@@ -2589,8 +2586,9 @@ def update(branch: str | None) -> None:
     if result.returncode != 0:
         console.print(f"[red]git status failed:[/red] {result.stderr.strip()}")
         raise SystemExit(1)
-    dirty = [ln for ln in result.stdout.splitlines() if ln and not ln.startswith("??")]
-    if dirty:
+    if dirty := [
+        ln for ln in result.stdout.splitlines() if ln and not ln.startswith("??")
+    ]:
         console.print("[red]Uncommitted changes in ilan-tools — commit or stash them first.[/red]")
         for ln in dirty:
             console.print(f"  {ln}")

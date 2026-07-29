@@ -382,8 +382,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 )
                 return
             with self._ilan.lock:
-                if self._ilan.store.get_task(name) is not None:
-                    existing = self._ilan.store.get_task(name)
+                if (existing := self._ilan.store.get_task(name)) is not None:
                     self._json(
                         {"error": f"Task {name} already exists (status: {existing.status.value})"},
                         409,
@@ -914,12 +913,12 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task = self._get_task_or_404(name)
             if task is None:
                 return
-            if not task.session_log_path and task.session_id:
-                log_path = self._ilan.runner._find_session_log(task.session_id, task.engine)
-                if log_path:
-                    task.session_log_path = str(log_path)
-                    with self._ilan.lock:
-                        self._ilan.store.put_task(task)
+            if not task.session_log_path and task.session_id and (
+                log_path := self._ilan.runner._find_session_log(task.session_id, task.engine)
+            ):
+                task.session_log_path = str(log_path)
+                with self._ilan.lock:
+                    self._ilan.store.put_task(task)
             if not task.session_log_path:
                 self._json({"error": f"No session log path for task {task.name}"}, 404)
                 return
@@ -942,12 +941,12 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 return
             # Fallback for tasks last reaped before the cache existed: resolve
             # from the session log once, then backfill so future lookups are free.
-            if not task.session_log_path and task.session_id:
-                log_path = self._ilan.runner._find_session_log(task.session_id, task.engine)
-                if log_path:
-                    task.session_log_path = str(log_path)
-                    with self._ilan.lock:
-                        self._ilan.store.put_task(task)
+            if not task.session_log_path and task.session_id and (
+                log_path := self._ilan.runner._find_session_log(task.session_id, task.engine)
+            ):
+                task.session_log_path = str(log_path)
+                with self._ilan.lock:
+                    self._ilan.store.put_task(task)
             if not task.session_log_path:
                 self._json({"error": f"No session log path for task {task.name}"}, 404)
                 return
@@ -985,8 +984,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             if not gist_id or not gist_url:
                 self._json({"url": None})
                 return
-            token = github_token()
-            if not token:
+            if not (token := github_token()):
                 self._json({"url": gist_url})
                 return
             try:
