@@ -202,11 +202,18 @@ class Store:
         removed = tasks.pop(name, None)
         if removed is not None:
             # Re-parent surviving children onto their grandparent so the
-            # branch tree stays connected after a mid-branch delete.
+            # branch tree stays connected after a mid-branch delete, and record
+            # the vanished link so ``ilan task tree`` can still show that the
+            # child was branched off *name* rather than off the grandparent.
+            # The child's own tombstones stay nearest-first, then *name*, then
+            # whatever *name* had already absorbed from earlier deletes.
             new_parent = removed.parent_name
             for other in tasks.values():
                 if other.parent_name == name:
                     other.parent_name = new_parent
+                    other.deleted_ancestors = (
+                        other.deleted_ancestors + [name] + removed.deleted_ancestors
+                    )
         self.save_tasks(tasks)
         self.log_path(name).unlink(missing_ok=True)
         self.output_path(name).unlink(missing_ok=True)

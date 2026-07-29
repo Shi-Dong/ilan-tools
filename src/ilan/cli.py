@@ -16,6 +16,7 @@ import termios
 import time
 import tty
 import webbrowser
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -28,6 +29,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+from rich.tree import Tree
 
 from ilan import config as cfg
 from ilan.backends import ClaudeBackend, CodexBackend
@@ -742,6 +744,131 @@ def task_ls(
             )
             raise SystemExit(1)
         _do_ls(show_all)
+
+
+# ── task tree ────────────────────────────────────────────────────────
+
+TOMBSTONE_STYLE = "dim strike"
+FOCUS_STYLE = "bold cyan"
+
+
+@dataclass
+class _TreeNode:
+    """A node of a branch tree: a live task, or a tombstone for a deleted one."""
+
+    name: str
+    row: dict | None
+    children: list[_TreeNode] = field(default_factory=list)
+
+
+def _build_branch_forest(rows: list[dict]) -> list[_TreeNode]:
+    """Build the branch forest over *rows*, returning its roots.
+
+    Every task deleted from the middle of a branch leaves its name behind in
+    each surviving child's ``deleted_ancestors``, so it is re-inserted here as
+    a tombstone node between the child and the grandparent it was re-parented
+    onto.  Children that lost the *same* ancestors share one tombstone: a
+    tombstone is keyed by the chain of names leading to it, so two siblings
+    orphaned by one delete stay siblings under a single marker.
+
+    *rows* must be in ``created_at`` order — the order the server returns.
+    Children are then appended in creation order, and a tombstone lands at the
+    position of its earliest surviving descendant.
+    """
+    nodes: dict[object, _TreeNode] = {
+        ("task", r["name"]): _TreeNode(name=r["name"], row=r) for r in rows
+    }
+    roots: list[_TreeNode] = []
+
+    def children_of(key: object | None) -> list[_TreeNode]:
+        return roots if key is None else nodes[key].children
+
+    for r in rows:
+        parent_key = ("task", r.get("parent_name"))
+        attach: object | None = parent_key if parent_key in nodes else None
+        # Walk the tombstone chain from the farthest ancestor inward so each
+        # one can attach to the node above it.
+        for ancestor in reversed(r.get("deleted_ancestors") or []):
+            key = ("gone", attach, ancestor)
+            if key not in nodes:
+                nodes[key] = _TreeNode(name=ancestor, row=None)
+                children_of(attach).append(nodes[key])
+            attach = key
+        children_of(attach).append(nodes[("task", r["name"])])
+
+    return roots
+
+
+def _subtree_has(node: _TreeNode, name: str) -> bool:
+    """Whether *name* is a live task in *node*'s subtree."""
+    if node.row is not None and node.name == name:
+        return True
+    return any(_subtree_has(child, name) for child in node.children)
+
+
+def _build_tree_label(node: _TreeNode, focus_name: str) -> Text:
+    """Build the one-line label for a branch-tree node."""
+    if node.row is None:
+        label = Text()
+        label.append(node.name, style=TOMBSTONE_STYLE)
+        label.append(" (deleted)", style="dim")
+        return label
+
+    row = node.row
+    label = Text()
+    alias = row.get("alias") or ""
+    if alias:
+        label.append(f"({alias}) ", style=ALIAS_STYLE)
+    engine = row.get("engine") or DEFAULT_ENGINE
+    name_style = ENGINE_NAME_STYLE.get(engine, "")
+    label.append(row["name"], style=f"bold {name_style}".strip())
+    status = TaskStatus(row["status"])
+    label.append("  ")
+    label.append(status.value, style=STYLE_FOR_STATUS.get(status, ""))
+    if row["name"] == focus_name:
+        label.append("  ← this task", style=FOCUS_STYLE)
+    return label
+
+
+def _render_branch_tree(root: _TreeNode, focus_name: str) -> Tree:
+    tree = Tree(_build_tree_label(root, focus_name), guide_style="dim")
+
+    def attach(node: _TreeNode, branch: Tree) -> None:
+        for child in node.children:
+            attach(child, branch.add(_build_tree_label(child, focus_name)))
+
+    attach(root, tree)
+    return tree
+
+
+def _resolve_row(rows: list[dict], name_or_alias: str) -> dict | None:
+    """Find a row by task name, falling back to alias (as the server does)."""
+    for row in rows:
+        if row["name"] == name_or_alias:
+            return row
+    for row in rows:
+        if row.get("alias") == name_or_alias:
+            return row
+    return None
+
+
+def _do_tree(name: str) -> None:
+    rows = _client().list_tasks(show_all=True).get("tasks", [])
+    focus = _resolve_row(rows, name)
+    if focus is None:
+        console.print(f"[yellow]Task {name} not found[/yellow]")
+        raise SystemExit(1)
+    roots = _build_branch_forest(rows)
+    # ``focus`` came out of ``rows``, so exactly one root holds it.
+    root = next(r for r in roots if _subtree_has(r, focus["name"]))
+    console.print(_render_branch_tree(root, focus["name"]))
+
+
+@task_group.command("tree")
+@click.argument("name", shell_complete=_complete_task_names)
+def task_tree(name: str) -> None:
+    """Show the branch tree the task belongs to."""
+    _do_tree(name)
 
 
 # ── task show ────────────────────────────────────────────────────────
@@ -1889,6 +2016,13 @@ def shortcut_ls(
             )
             raise SystemExit(1)
         _do_ls(show_all)
+
+
+@main.command("tree")
+@click.argument("name", shell_complete=_complete_task_names)
+def shortcut_tree(name: str) -> None:
+    """Shorthand for 'ilan task tree'."""
+    _do_tree(name)
 
 
 @main.command("tail")

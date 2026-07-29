@@ -213,8 +213,10 @@ class TestStoreBranch:
         child = store.get_task("child")
         assert child is not None
         assert child.parent_name == "grand"
-        # The UI tree is re-parented, but Gist lineage still points at the
-        # task whose history was actually inherited.
+        # The parent link is re-pointed, but the vanished task is remembered so
+        # ``ilan task tree`` can still draw a tombstone in its place.
+        assert child.deleted_ancestors == ["parent"]
+        # Gist lineage still points at the task whose history was inherited.
         assert child.gist_branch_parent_name == "parent"
 
     def test_delete_root_orphans_children(self, store: Store) -> None:
@@ -230,6 +232,51 @@ class TestStoreBranch:
         child = store.get_task("child")
         assert child is not None
         assert child.parent_name is None
+        assert child.deleted_ancestors == ["root"]
+
+    def test_chained_deletes_accumulate_tombstones_nearest_first(self, store: Store) -> None:
+        """Deleting grand after parent leaves child with both, nearest first."""
+        grand = Task(name="grand", prompt="p", session_id="sid-1")
+        store.put_task(grand)
+        parent = store.branch_task(
+            grand, "parent",
+            alias="pp", task_hash="1111aaaa", now="2026-01-01T00:00:00+00:00",
+        )
+        store.branch_task(
+            parent, "child",
+            alias="cc", task_hash="2222bbbb", now="2026-01-02T00:00:00+00:00",
+        )
+
+        store.delete_task("parent")
+        store.delete_task("grand")
+
+        child = store.get_task("child")
+        assert child is not None
+        assert child.parent_name is None
+        assert child.deleted_ancestors == ["parent", "grand"]
+
+    def test_siblings_record_the_same_tombstone(self, store: Store) -> None:
+        grand = Task(name="grand", prompt="p", session_id="sid-1")
+        store.put_task(grand)
+        parent = store.branch_task(
+            grand, "parent",
+            alias="pp", task_hash="1111aaaa", now="2026-01-01T00:00:00+00:00",
+        )
+        for name, alias, task_hash in (
+            ("kid-a", "ka", "2222bbbb"), ("kid-b", "kb", "3333cccc"),
+        ):
+            store.branch_task(
+                parent, name,
+                alias=alias, task_hash=task_hash, now="2026-01-02T00:00:00+00:00",
+            )
+
+        store.delete_task("parent")
+
+        for name in ("kid-a", "kid-b"):
+            kid = store.get_task(name)
+            assert kid is not None
+            assert kid.parent_name == "grand"
+            assert kid.deleted_ancestors == ["parent"]
 
 
 # ── server /tasks/<name>/branch ─────────────────────────────────────────

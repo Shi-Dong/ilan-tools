@@ -175,7 +175,8 @@ class TestTask:
             "session_id", "session_log_path", "pid", "cached_replies", "alias",
             "task_hash", "needs_review", "input_tokens", "output_tokens",
             "cache_read_input_tokens", "cost_usd", "sleep_seconds",
-            "parent_name", "summary_one_liner", "model", "last_assistant_model",
+            "parent_name", "deleted_ancestors",
+            "summary_one_liner", "model", "last_assistant_model",
             "spawn_effort", "last_assistant_effort",
             "spawn_budget", "last_assistant_budget", "last_assistant_cost_usd",
             "gist_id", "gist_url", "gist_synced_count", "gist_branch_point",
@@ -196,6 +197,7 @@ class TestTask:
         assert t.cached_replies == []
         assert t.alias is None
         assert t.needs_review is False
+        assert t.deleted_ancestors == []
 
     def test_from_dict_migrates_legacy_unclaimed(self) -> None:
         """Tasks persisted before UNCLAIMED was retired load as NEEDS_ATTENTION."""
