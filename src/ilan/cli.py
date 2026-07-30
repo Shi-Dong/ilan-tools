@@ -794,6 +794,38 @@ def task_ls(
         _do_ls(show_all, concise=concise)
 
 
+# ── search ───────────────────────────────────────────────────────────
+
+def _do_search(pattern: str) -> None:
+    client = _client()
+    rows = client.list_tasks(show_all=True)["tasks"]
+    needle = pattern.lower()
+    matches = [
+        line
+        for line in (_build_concise_task_line(row) for row in rows)
+        if needle in line.plain.lower()
+    ]
+    if not matches:
+        # Text (not markup) so a pattern containing square brackets is echoed
+        # literally instead of being parsed as a Rich style tag.
+        console.print(Text(f"No task matching '{pattern}'.", style="dim"))
+        return
+    for line in matches:
+        console.print(line, soft_wrap=True)
+
+
+@main.command("search")
+@click.argument("pattern", shell_complete=_complete_task_names)
+def search(pattern: str) -> None:
+    """Print the 'ilan ls -a -c' lines that contain PATTERN.
+
+    PATTERN is matched case-insensitively as a plain substring (not a regex)
+    against the whole concise line, so it also matches on an alias or a status.
+    DONE and DISCARDED tasks are always searched.
+    """
+    _do_search(pattern)
+
+
 # ── task tree ────────────────────────────────────────────────────────
 
 TOMBSTONE_STYLE = "dim strike"
