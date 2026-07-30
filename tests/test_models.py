@@ -175,6 +175,7 @@ class TestTask:
             "session_id", "session_log_path", "pid", "cached_replies", "alias",
             "task_hash", "needs_review", "pinned", "input_tokens", "output_tokens",
             "cache_read_input_tokens", "cost_usd", "sleep_seconds",
+            "reply_every_seconds", "reply_every_message", "reply_every_next_at",
             "parent_name", "deleted_ancestors",
             "summary_one_liner", "model", "last_assistant_model",
             "spawn_effort", "last_assistant_effort",

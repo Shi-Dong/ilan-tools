@@ -40,6 +40,7 @@ from ilan.models import (
     ENGINE_CODEX,
     ENGINE_NAME_STYLE,
     FABLE_MODEL,
+    REPLY_EVERY_MIN_SECONDS,
     STYLE_FOR_STATUS,
     TaskStatus,
     format_cost_usd,
@@ -612,6 +613,13 @@ def _build_name_cell(row: dict) -> Text:
         sleep_suffix := _format_sleep_suffix(row.get("sleep_seconds"))
     ):
         cell.append(sleep_suffix, style=SLEEP_STYLE)
+    # No status filter: unlike a sleep (which only means anything while the
+    # agent is WORKING), a reply-every cycle re-fires from any live status.
+    if reply_every_suffix := _format_reply_every_suffix(row.get("reply_every_seconds")):
+        cell.append(reply_every_suffix, style=REPLY_EVERY_STYLE)
+        # Extend the background under the pin/alias/name so the whole label is
+        # highlighted; the FABLE line is appended later and stays unfilled.
+        cell.stylize(f"on {REPLY_EVERY_BG}")
     if engine != ENGINE_CODEX and is_fable_model(row.get("model")):
         cell.append("\nFABLE", style="bold red")
     return cell
@@ -1259,8 +1267,26 @@ def _print_reply_confirmation(message: str, task_name: str | None) -> None:
     )
 
 
+def _confirm_reply_every_override(resp: dict) -> None:
+    """Ask before a human reply stops an active ``reply -t`` cycle.
+
+    ``resp`` is the server's ``confirm_reply_every`` challenge. Exits
+    without sending if the user declines.
+    """
+    task_name = resp.get("name", "")
+    duration = _format_compact_duration(resp.get("reply_every_seconds") or 0)
+    if not click.confirm(
+        f"Task {task_name!r} is re-sending a reply every {duration}. "
+        "This will stop that cycle. Continue?",
+        default=False,
+    ):
+        console.print("[yellow]Not sent.[/yellow]")
+        raise SystemExit(1)
+
+
 def _do_reply(
-    name: str, message: str, max_: bool = False, unmax: bool = False
+    name: str, message: str, max_: bool = False, unmax: bool = False,
+    every_seconds: int | None = None,
 ) -> None:
     # Switch the model first so this reply's own turn (and every one after
     # it) already runs on the new model. On a codex task the max endpoint
@@ -1273,13 +1299,26 @@ def _do_reply(
         _do_unmax(name)
     if _line_number_enabled():
         message = _expand_at_refs(message, cfg.load_last_tail(name))
-    resp = _client().reply(name, message)
+    kwargs: dict = {}
+    if every_seconds is not None:
+        kwargs["every_seconds"] = every_seconds
+    client = _client()
+    resp = client.reply(name, message, **kwargs)
+    if resp.get("confirm_reply_every"):
+        _confirm_reply_every_override(resp)
+        resp = client.reply(name, message, override_reply_every=True, **kwargs)
     if _check_error(resp):
         raise SystemExit(1)
     if resp.get("warning"):
         console.print(f"[yellow]{resp['warning']}[/yellow]")
     elif resp.get("message"):
         _print_reply_confirmation(resp["message"], resp.get("name"))
+    if every_seconds is not None:
+        console.print(
+            f"[{REPLY_EVERY_STYLE}]Will re-send this reply every "
+            f"{_format_compact_duration(every_seconds)} until the next human "
+            f"reply.[/{REPLY_EVERY_STYLE}]"
+        )
 
 
 def _check_reply_model_flags(
@@ -1297,13 +1336,36 @@ def _check_reply_model_flags(
         raise SystemExit(1)
 
 
+def _parse_reply_every(every: str | None) -> int | None:
+    """Turn the ``-t/--every`` value into seconds, exiting on bad input."""
+    if every is None:
+        return None
+    try:
+        every_seconds = _parse_sleep_duration(every)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1)
+    if every_seconds < REPLY_EVERY_MIN_SECONDS:
+        console.print(
+            f"[red]-t/--every must be at least "
+            f"{_format_compact_duration(REPLY_EVERY_MIN_SECONDS)} "
+            f"(got {every!r}).[/red]"
+        )
+        raise SystemExit(1)
+    return every_seconds
+
+
 def _do_reply_command(
     name: str, message: str | None, num: int | None, markdown: bool,
     line_number: bool | None, max_: bool, unmax: bool,
+    every: str | None = None,
 ) -> None:
     """Shared body of ``ilan task reply``, ``ilan reply`` and ``ilan re``."""
     _check_reply_model_flags(message, max_, unmax)
     if message is None:
+        if every is not None:
+            console.print("[red]-t/--every requires a response message.[/red]")
+            raise SystemExit(1)
         _do_tail(name, n=num, markdown=markdown or None, line_number=line_number)
     else:
         if line_number is not None:
@@ -1312,7 +1374,8 @@ def _do_reply_command(
                 "response message is provided.[/red]"
             )
             raise SystemExit(1)
-        _do_reply(name, message, max_=max_, unmax=unmax)
+        every_seconds = _parse_reply_every(every)
+        _do_reply(name, message, max_=max_, unmax=unmax, every_seconds=every_seconds)
 
 
 @task_group.command("reply")
@@ -1333,12 +1396,15 @@ def _do_reply_command(
 @click.option("--unmax", "unmax", is_flag=True, default=False,
               help="Reset the task's model to the config default before "
                    "posting the reply.")
+@click.option("-t", "--every", "every", default=None,
+              help="Re-send MESSAGE every DURATION (min 20m; e.g. 30m, 1.5h; "
+                   "same format as ilan sleep) until the next human reply.")
 def task_reply(
     name: str, message: str | None, num: int | None, markdown: bool,
-    line_number: bool | None, max_: bool, unmax: bool,
+    line_number: bool | None, max_: bool, unmax: bool, every: str | None,
 ) -> None:
     """Send a response to a task. If no message is given, show the tail instead."""
-    _do_reply_command(name, message, num, markdown, line_number, max_, unmax)
+    _do_reply_command(name, message, num, markdown, line_number, max_, unmax, every)
 
 
 # ── canned replies ───────────────────────────────────────────────────
@@ -1413,22 +1479,40 @@ SLEEP_STYLE = "yellow"
 SLEEP_HOUR_SUFFIX_THRESHOLD_SECONDS = 1800
 
 
-def _format_sleep_suffix(sleep_seconds: int | None) -> str | None:
-    """Return ``(sleeping for Xm)`` / ``(sleeping for X.Yh)`` for an active sleep."""
-    if not sleep_seconds or sleep_seconds <= 0:
-        return None
-    seconds = int(sleep_seconds)
+def _format_compact_duration(seconds: int) -> str:
+    """Render a positive duration compactly: ``5m``, ``30m``, ``1.5h``."""
+    seconds = int(seconds)
     if seconds >= SLEEP_HOUR_SUFFIX_THRESHOLD_SECONDS:
         unit, unit_seconds = "h", 3600
     else:
         unit, unit_seconds = "m", 60
     # Truncate rather than format with `:.1f`, which rounds to nearest and would
-    # show a 1799s sleep as `30m`. Clamp to one tenth so a sleep shorter than 6s
-    # still reads as a nonzero duration.
+    # show a 1799s duration as `30m`. Clamp to one tenth so a duration shorter
+    # than 6s still reads as nonzero.
     tenths = max(1, seconds * 10 // unit_seconds)
     whole, remainder = divmod(tenths, 10)
     shown = f"{whole}.{remainder}" if remainder else str(whole)
-    return f" (sleeping for {shown}{unit})"
+    return f"{shown}{unit}"
+
+
+def _format_sleep_suffix(sleep_seconds: int | None) -> str | None:
+    """Return ``(sleeping for Xm)`` / ``(sleeping for X.Yh)`` for an active sleep."""
+    if not sleep_seconds or sleep_seconds <= 0:
+        return None
+    return f" (sleeping for {_format_compact_duration(sleep_seconds)})"
+
+
+# Same foreground as the sleep suffix, distinguished by the background fill,
+# which _build_name_cell also paints under the row's pin/alias/name.
+REPLY_EVERY_BG = "grey27"
+REPLY_EVERY_STYLE = f"{SLEEP_STYLE} on {REPLY_EVERY_BG}"
+
+
+def _format_reply_every_suffix(reply_every_seconds: int | None) -> str | None:
+    """Return ``(responding every Xm)`` for an active ``reply -t`` cycle."""
+    if not reply_every_seconds or reply_every_seconds <= 0:
+        return None
+    return f" (responding every {_format_compact_duration(reply_every_seconds)})"
 
 
 _SLEEP_SECOND_UNITS = frozenset({"s", "sec", "second", "seconds"})
@@ -1475,7 +1559,11 @@ def _do_sleep(name: str, duration: str) -> None:
     if seconds <= 0:
         console.print("[red]duration must be positive[/red]")
         raise SystemExit(1)
-    resp = _client().sleep_task(name, seconds)
+    client = _client()
+    resp = client.sleep_task(name, seconds)
+    if resp.get("confirm_reply_every"):
+        _confirm_reply_every_override(resp)
+        resp = client.sleep_task(name, seconds, override_reply_every=True)
     if _check_error(resp):
         raise SystemExit(1)
     task_name = resp.get("name", name)
@@ -2135,12 +2223,15 @@ def shortcut_tail(
 @click.option("--unmax", "unmax", is_flag=True, default=False,
               help="Reset the task's model to the config default before "
                    "posting the reply.")
+@click.option("-t", "--every", "every", default=None,
+              help="Re-send MESSAGE every DURATION (min 20m; e.g. 30m, 1.5h; "
+                   "same format as ilan sleep) until the next human reply.")
 def shortcut_reply(
     name: str, message: str | None, num: int | None, markdown: bool,
-    line_number: bool | None, max_: bool, unmax: bool,
+    line_number: bool | None, max_: bool, unmax: bool, every: str | None,
 ) -> None:
     """Shorthand for 'ilan task reply'."""
-    _do_reply_command(name, message, num, markdown, line_number, max_, unmax)
+    _do_reply_command(name, message, num, markdown, line_number, max_, unmax, every)
 
 
 @main.command("re")
@@ -2161,12 +2252,15 @@ def shortcut_reply(
 @click.option("--unmax", "unmax", is_flag=True, default=False,
               help="Reset the task's model to the config default before "
                    "posting the reply.")
+@click.option("-t", "--every", "every", default=None,
+              help="Re-send MESSAGE every DURATION (min 20m; e.g. 30m, 1.5h; "
+                   "same format as ilan sleep) until the next human reply.")
 def shortcut_re(
     name: str, message: str | None, num: int | None, markdown: bool,
-    line_number: bool | None, max_: bool, unmax: bool,
+    line_number: bool | None, max_: bool, unmax: bool, every: str | None,
 ) -> None:
     """Shorthand for 'ilan task reply'."""
-    _do_reply_command(name, message, num, markdown, line_number, max_, unmax)
+    _do_reply_command(name, message, num, markdown, line_number, max_, unmax, every)
 
 
 @main.command("done")

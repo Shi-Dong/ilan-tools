@@ -50,6 +50,11 @@ class TaskStatus(str, Enum):
 # on this model instead of the configured default; ``ilan unmax`` clears it.
 FABLE_MODEL = "claude-fable-5"
 
+# Shortest allowed ``reply -t`` interval (CLI and server both enforce it):
+# more frequent re-sends would interrupt the agent faster than it can make
+# meaningful progress between messages.
+REPLY_EVERY_MIN_SECONDS = 1200
+
 
 def is_fable_model(model: str | None) -> bool:
     return model == FABLE_MODEL
@@ -110,6 +115,14 @@ class Task:
     cache_read_input_tokens: int = 0
     cost_usd: float = 0.0
     sleep_seconds: int | None = None
+    # Active ``reply -t`` cycle: while ``reply_every_seconds`` is set, the
+    # server re-sends ``reply_every_message`` to the task whenever the wall
+    # clock passes ``reply_every_next_at`` (an ISO timestamp). Any *human*
+    # reply (reply/tap/cancel/sleep) ends the cycle; the automatic re-sends
+    # themselves do not.
+    reply_every_seconds: int | None = None
+    reply_every_message: str | None = None
+    reply_every_next_at: str | None = None
     parent_name: str | None = None
     # Names of already-deleted tasks that used to sit between this task and its
     # current ``parent_name``, nearest ancestor first. Deleting a task re-parents
@@ -188,17 +201,26 @@ class Task:
         """Record the native session id for *engine*."""
         self.sessions[engine] = session_id
 
+    def clear_reply_every(self) -> None:
+        """Drop the active ``reply -t`` cycle, if any."""
+        self.reply_every_seconds = None
+        self.reply_every_message = None
+        self.reply_every_next_at = None
+
     def set_status(self, status: TaskStatus) -> None:
         """Set status and update the ``status_changed_at`` timestamp.
 
         When the task leaves the sleep-visible ``WORKING`` state,
         ``sleep_seconds`` is dropped so stale metadata doesn't leak into a
-        future non-sleep reply cycle.
+        future non-sleep reply cycle. A terminal status additionally ends any
+        ``reply -t`` cycle: a closed task must not be revived by a timer.
         """
         self.status = status
         self.status_changed_at = datetime.now(timezone.utc).isoformat()
         if status is not TaskStatus.WORKING:
             self.sleep_seconds = None
+        if status.is_terminal:
+            self.clear_reply_every()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -220,6 +242,9 @@ class Task:
             "cache_read_input_tokens": self.cache_read_input_tokens,
             "cost_usd": self.cost_usd,
             "sleep_seconds": self.sleep_seconds,
+            "reply_every_seconds": self.reply_every_seconds,
+            "reply_every_message": self.reply_every_message,
+            "reply_every_next_at": self.reply_every_next_at,
             "parent_name": self.parent_name,
             "deleted_ancestors": self.deleted_ancestors,
             "summary_one_liner": self.summary_one_liner,
@@ -265,6 +290,9 @@ class Task:
             cache_read_input_tokens=d.get("cache_read_input_tokens", 0),
             cost_usd=d.get("cost_usd", 0.0),
             sleep_seconds=d.get("sleep_seconds"),
+            reply_every_seconds=d.get("reply_every_seconds"),
+            reply_every_message=d.get("reply_every_message"),
+            reply_every_next_at=d.get("reply_every_next_at"),
             parent_name=d.get("parent_name"),
             deleted_ancestors=list(d.get("deleted_ancestors") or []),
             summary_one_liner=d.get("summary_one_liner"),
