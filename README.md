@@ -101,6 +101,7 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 |---|---|
 | `ilan task add -n NAME -d "prompt"` | Add a task (or use `-f file`; name must be ≥ 3 chars, letters/digits/`-`/`_` only). Pass `--claude` or `--codex` to pick the backend for this task (default: the `default-backend` config value) — see [Agent backends](#agent-backends). Pass `--max` to create the task already on the [Fable model](#fable-model-ilan-max--ilan-unmax) (implies `--claude`) |
 | `ilan task ls [-a] [-c] [NAME]` | List active tasks (`-a` includes `DONE`/`DISCARDED`; `-c` prints only the pin marker, alias, name, and status, one task per line); if `NAME` is given, show its tail instead |
+| `ilan search PATTERN` | Print the `ilan ls -a -c` lines that contain `PATTERN`, keeping their colors. `PATTERN` is matched case-insensitively as a plain substring (not a regex) against the whole line, so it also matches on an alias or a status; `DONE` / `DISCARDED` tasks are always searched |
 | `ilan task show NAME` | Print the full prompt of a task |
 | `ilan task path NAME` | Print the Claude Code session log path for a task |
 | `ilan task check-model NAME` | Print the model name (e.g. `claude-opus-4-7`) that generated the last assistant message in the task's Claude Code session log |
