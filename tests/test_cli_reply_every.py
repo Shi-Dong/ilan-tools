@@ -11,6 +11,7 @@ from ilan.cli import (
     REPLY_EVERY_BG,
     REPLY_EVERY_STYLE,
     SLEEP_STYLE,
+    _build_concise_task_line,
     _build_name_cell,
     _format_reply_every_suffix,
     main,
@@ -299,3 +300,39 @@ class TestNameCellReplyEvery:
         styles = {span.style for span in cell.spans}
         assert {SLEEP_STYLE, REPLY_EVERY_STYLE} <= styles
         assert SLEEP_STYLE != REPLY_EVERY_STYLE
+
+
+class TestConciseLineReplyEvery:
+    def _row(self, **overrides) -> dict:
+        row = {
+            "name": "alpha",
+            "alias": "aa",
+            "status": "WORKING",
+        }
+        row.update(overrides)
+        return row
+
+    def test_suffix_shown_in_reply_every_style(self) -> None:
+        line = _build_concise_task_line(self._row(reply_every_seconds=3600))
+        assert line.plain == "(aa) alpha WORKING (responding every 1h)"
+        assert any(span.style == REPLY_EVERY_STYLE for span in line.spans)
+
+    def test_suffix_shown_regardless_of_status(self) -> None:
+        line = _build_concise_task_line(
+            self._row(status="NEEDS_ATTENTION", reply_every_seconds=1800)
+        )
+        assert "(responding every 0.5h)" in line.plain
+
+    def test_background_covers_whole_line(self) -> None:
+        line = _build_concise_task_line(self._row(reply_every_seconds=3600))
+        bg_spans = [s for s in line.spans if s.style == f"on {REPLY_EVERY_BG}"]
+        assert len(bg_spans) == 1
+        assert bg_spans[0].start == 0
+        assert bg_spans[0].end == len(line.plain)
+
+    def test_no_suffix_or_background_without_cycle(self) -> None:
+        line = _build_concise_task_line(self._row())
+        assert line.plain == "(aa) alpha WORKING"
+        assert not any(
+            span.style == f"on {REPLY_EVERY_BG}" for span in line.spans
+        )
