@@ -95,11 +95,11 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases),
 
 ## Task numbers
 
-Closing a task gives it a permanent number, shown as `#N` in `ilan ls -a` and `ilan search`:
+Closing a task gives it a permanent number, shown before the alias in `ilan ls -a` and `ilan search`:
 
 ```
-#1 fix-bug DONE
-#2 (sd) old-idea DISCARDED
+1 fix-bug DONE
+2 (sd) old-idea DISCARDED
 (hf) write-docs WORKING
 ```
 
@@ -110,7 +110,7 @@ ilan undone 1       # instead of: ilan undone fix-bug
 ilan undiscard 2    # instead of: ilan undiscard old-idea
 ```
 
-Numbers count up from 1 and are minted the first time a task reaches `DONE` or `DISCARDED`. A task then keeps its number for life, so one that is revived and closed again comes back under the same `#N`, and no other task is given that number while the original still exists. Deleting a task with `ilan rm` gives up its number, which a later task may then be given.
+Numbers count up from 1 and are minted the first time a task reaches `DONE` or `DISCARDED`. A task then keeps its number for life, so one that is revived and closed again comes back under the same number, and no other task is given that number while the original still exists. Deleting a task with `ilan rm` gives up its number, which a later task may then be given.
 
 Only `undone` and `undiscard` accept a number; every other command wants a name or an alias, so `ilan reply 1` is refused rather than quietly resolving to `fix-bug`. Numbers are hidden while a task is active, since there is nothing to revive.
 
