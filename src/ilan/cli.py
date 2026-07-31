@@ -1325,7 +1325,7 @@ def _confirm_reply_every_override(resp: dict) -> None:
 
 def _do_reply(
     name: str, message: str, max_: bool = False, unmax: bool = False,
-    every_seconds: int | None = None,
+    every_seconds: int | None = None, confirmation: str | None = None,
 ) -> None:
     # Switch the model first so this reply's own turn (and every one after
     # it) already runs on the new model. On a codex task the max endpoint
@@ -1350,6 +1350,10 @@ def _do_reply(
         raise SystemExit(1)
     if resp.get("warning"):
         console.print(f"[yellow]{resp['warning']}[/yellow]")
+    elif confirmation:
+        # The server only knows a reply was delivered, so its wording cannot
+        # say what a canned reply asked the agent to do.
+        _print_reply_confirmation(confirmation, name)
     elif resp.get("message"):
         _print_reply_confirmation(resp["message"], resp.get("name"))
     if every_seconds is not None:
@@ -1458,7 +1462,14 @@ CANNED_REPLY_STATUSES = (
 )
 
 
-def _do_canned_reply(name: str, message: str, label: str) -> None:
+def _do_canned_reply(
+    name: str, message: str, label: str, confirmation: str | None = None
+) -> None:
+    """Send a fixed MESSAGE to a task, if its status allows a reply at all.
+
+    ``confirmation`` is a ``{name}`` format string; when given it replaces
+    the server's confirmation line.
+    """
     client = _client()
     resp = client.get_task(name)
     if _check_error(resp):
@@ -1473,7 +1484,11 @@ def _do_canned_reply(name: str, message: str, label: str) -> None:
             f"{label} only works on tasks whose status is one of: {allowed}.[/yellow]"
         )
         return
-    _do_reply(task_name, message)
+    _do_reply(
+        task_name,
+        message,
+        confirmation=confirmation.format(name=task_name) if confirmation else None,
+    )
 
 
 # ── task tap ─────────────────────────────────────────────────────────
@@ -1500,9 +1515,13 @@ CANCEL_MESSAGE = (
     "specified in that message, you should stop immediately."
 )
 
+CANCEL_CONFIRMATION = (
+    "Retracted your last message to {name} and told the agent to stop that work."
+)
+
 
 def _do_cancel(name: str) -> None:
-    _do_canned_reply(name, CANCEL_MESSAGE, "Cancel")
+    _do_canned_reply(name, CANCEL_MESSAGE, "Cancel", CANCEL_CONFIRMATION)
 
 
 @task_group.command("cancel")
