@@ -99,11 +99,11 @@ STYLE_FOR_STATUS: dict[TaskStatus, str] = {
 # which is exactly what a cycling task does not need: its timer re-prompts the
 # agent on its own. The stored status is untouched — this is display only.
 AGENT_IN_LOOP_LABEL = "AGENT_IN_LOOP"
-# Darker than the AGENT_FINISHED green, so a cycling task reads as the calmer
-# state it is; ``dim green`` is taken by DONE. Bold because in `ls -c` this always
-# lands on the reply-every grey background, against which dark_green on its own is
-# barely legible.
-AGENT_IN_LOOP_STYLE = "bold dark_green"
+# A hue no other status uses, because every green shade is already spoken for by
+# AGENT_FINISHED and DONE — a cycling task has to be tellable apart from a finished
+# one at a glance. Light, since in `ls -c` this always lands on the reply-every grey
+# background.
+AGENT_IN_LOOP_STYLE = "medium_purple1"
 IN_LOOP_STATUSES = frozenset(
     {TaskStatus.AGENT_FINISHED, TaskStatus.NEEDS_ATTENTION}
 )

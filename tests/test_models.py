@@ -59,10 +59,12 @@ class TestTaskStatus:
 # ── display_status ──────────────────────────────────────────────────────
 
 
-def _green_channel(style: str) -> int:
+def _rgb(style: str) -> tuple[int, int, int] | None:
     color = Style.parse(style).color
-    assert color is not None, f"{style!r} names no colour"
-    return color.get_truecolor().green
+    if color is None:  # e.g. "dim", which sets no colour at all
+        return None
+    t = color.get_truecolor()
+    return t.red, t.green, t.blue
 
 
 class TestDisplayStatus:
@@ -104,10 +106,16 @@ class TestDisplayStatus:
             STYLE_FOR_STATUS[status],
         )
 
-    def test_in_loop_green_is_darker_than_agent_finished(self) -> None:
-        in_loop = _green_channel(AGENT_IN_LOOP_STYLE)
-        finished = _green_channel(STYLE_FOR_STATUS[TaskStatus.AGENT_FINISHED])
-        assert in_loop < finished
+    def test_in_loop_colour_is_purple(self) -> None:
+        rgb = _rgb(AGENT_IN_LOOP_STYLE)
+        assert rgb is not None
+        red, green, blue = rgb
+        assert red > green and blue > green
+
+    def test_in_loop_colour_matches_no_other_status(self) -> None:
+        in_loop = _rgb(AGENT_IN_LOOP_STYLE)
+        others = {_rgb(style) for style in STYLE_FOR_STATUS.values()}
+        assert in_loop not in others
 
     def test_in_loop_style_is_not_reused_by_a_real_status(self) -> None:
         assert AGENT_IN_LOOP_STYLE not in STYLE_FOR_STATUS.values()
