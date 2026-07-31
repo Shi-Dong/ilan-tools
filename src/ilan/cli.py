@@ -1516,7 +1516,8 @@ CANCEL_MESSAGE = (
 )
 
 CANCEL_CONFIRMATION = (
-    "Retracted your last message to {name} and told the agent to stop that work."
+    "Retracted the user's last message to {name} and told the agent to stop "
+    "that work."
 )
 
 

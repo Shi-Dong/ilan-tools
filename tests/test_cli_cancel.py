@@ -87,7 +87,7 @@ class TestCancelConfirmation:
         assert result.exit_code == 0
         output = _unwrapped(result.output)
         assert "Session is gone." in output
-        assert "Retracted your last message" not in output
+        assert "Retracted the user's last message" not in output
 
 
 class TestCancelDisallowedStatuses:
