@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 from click.testing import CliRunner
+from rich.text import Text
 
 from ilan.cli import (
     REPLY_EVERY_BG,
@@ -254,6 +255,16 @@ class TestFormatReplyEverySuffix:
         assert _format_reply_every_suffix(seconds) == expected
 
 
+def _background_offsets(line: Text) -> set[int]:
+    """The character offsets of *line* painted with the reply-every background."""
+    return {
+        offset
+        for span in line.spans
+        if span.style == f"on {REPLY_EVERY_BG}"
+        for offset in range(span.start, span.end)
+    }
+
+
 class TestNameCellReplyEvery:
     def _row(self, **overrides) -> dict:
         row = {
@@ -327,12 +338,13 @@ class TestConciseLineReplyEvery:
         )
         assert "(responding every 0.5h)" in line.plain
 
-    def test_background_covers_whole_line(self) -> None:
+    def test_background_covers_the_line_except_the_status(self) -> None:
         line = _build_concise_task_line(self._row(reply_every_seconds=3600))
-        bg_spans = [s for s in line.spans if s.style == f"on {REPLY_EVERY_BG}"]
-        assert len(bg_spans) == 1
-        assert bg_spans[0].start == 0
-        assert bg_spans[0].end == len(line.plain)
+        start = line.plain.index("WORKING")
+        end = start + len("WORKING")
+        assert _background_offsets(line) == set(range(start)) | set(
+            range(end, len(line.plain))
+        )
 
     def test_no_suffix_or_background_without_cycle(self) -> None:
         line = _build_concise_task_line(self._row())
@@ -397,6 +409,22 @@ class TestAgentInLoopConciseLine:
     def test_without_cycle_status_is_untouched(self) -> None:
         line = _build_concise_task_line(self._row())
         assert line.plain == "(aa) alpha AGENT_FINISHED"
+
+    def test_status_is_not_painted_with_the_reply_every_background(self) -> None:
+        line = _build_concise_task_line(self._row(reply_every_seconds=3600))
+        start = line.plain.index(AGENT_IN_LOOP_LABEL)
+        end = start + len(AGENT_IN_LOOP_LABEL)
+        assert not _background_offsets(line) & set(range(start, end))
+
+    def test_working_keeps_its_own_label_and_stays_unfilled(self) -> None:
+        line = _build_concise_task_line(
+            self._row(status="WORKING", reply_every_seconds=3600)
+        )
+        assert line.plain == "(aa) alpha WORKING (responding every 1h)"
+        start = line.plain.index("WORKING")
+        assert not _background_offsets(line) & set(
+            range(start, start + len("WORKING"))
+        )
 
 
 class TestAgentInLoopTreeLabel:

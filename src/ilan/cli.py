@@ -679,14 +679,20 @@ def _build_concise_task_line(row: dict) -> Text:
     line.append(row["name"], style=f"bold {name_style}".strip())
     line.append(" ")
     label, style = display_status(status, row.get("reply_every_seconds"))
+    status_start = len(line.plain)
     line.append(label, style=style)
+    status_end = len(line.plain)
     if reply_every_suffix := _format_reply_every_suffix(
         row.get("reply_every_seconds")
     ):
         line.append(reply_every_suffix, style=REPLY_EVERY_STYLE)
-        # Mirror _build_name_cell: paint the background under the whole line
-        # so cycling tasks are as easy to spot here as in the full table.
-        line.stylize(f"on {REPLY_EVERY_BG}")
+        # Mirror _build_name_cell: paint the background under the whole line so
+        # cycling tasks are as easy to spot here as in the full table. The status
+        # is skipped so it reads the same here as in that table, where it lives
+        # in its own unfilled column.
+        background = f"on {REPLY_EVERY_BG}"
+        line.stylize(background, 0, status_start)
+        line.stylize(background, status_end)
     return line
 
 
