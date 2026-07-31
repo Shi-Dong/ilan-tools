@@ -577,12 +577,24 @@ def task_add(
 # ── task ls ──────────────────────────────────────────────────────────
 
 ALIAS_STYLE = "bold magenta"
+NUMBER_STYLE = "bold cyan"
 PIN_STYLE = "bold yellow"
 PIN_MARKER = "→ "
 
 
+def _append_task_number(text: Text, row: dict) -> None:
+    """Prefix *text* with ``#N`` when *row* is a closed task.
+
+    Only DONE / DISCARDED rows carry the marker: the number is the handle
+    ``undone`` / ``undiscard`` accept, and neither applies to a live task, so
+    showing it on one would advertise a reference that does not resolve.
+    """
+    if TaskStatus(row["status"]).is_terminal and (number := row.get("number")):
+        text.append(f"#{number} ", style=NUMBER_STYLE)
+
+
 def _build_name_cell(row: dict) -> Text:
-    """Build the styled "(alias) name" cell.
+    """Build the styled "#number (alias) name" cell.
 
     ``needs_review`` rows are flagged with a ``!!`` ASCII marker rather
     than the \u26a0\ufe0f emoji, whose unpredictable terminal width breaks
@@ -602,6 +614,7 @@ def _build_name_cell(row: dict) -> Text:
     cell = Text()
     if row.get("pinned"):
         cell.append(PIN_MARKER, style=PIN_STYLE)
+    _append_task_number(cell, row)
     if alias := row.get("alias"):
         cell.append(f"({alias}) ", style=ALIAS_STYLE)
     engine = row.get("engine") or DEFAULT_ENGINE
@@ -666,13 +679,14 @@ def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
 
 
 def _build_concise_task_line(row: dict) -> Text:
-    """Build a styled ``→ (alias) name STATUS`` line for concise listings."""
+    """Build a styled ``→ #number (alias) name STATUS`` line for concise listings."""
     alias = row.get("alias") or ""
     engine = row.get("engine") or DEFAULT_ENGINE
     status = TaskStatus(row["status"])
     line = Text()
     if row.get("pinned"):
         line.append(PIN_MARKER, style=PIN_STYLE)
+    _append_task_number(line, row)
     if alias:
         line.append(f"({alias}) ", style=ALIAS_STYLE)
     name_style = ENGINE_NAME_STYLE.get(engine, "")
@@ -2058,14 +2072,22 @@ def _do_undiscard(name: str) -> None:
 @task_group.command("undone")
 @click.argument("name", shell_complete=_complete_task_names)
 def task_undone(name: str) -> None:
-    """Move a DONE task back to NEEDS_ATTENTION."""
+    """Move a DONE task back to NEEDS_ATTENTION.
+
+    NAME is a task name or the ``#N`` number that ``ilan ls -a`` shows next to
+    a closed task (pass the digits, without the ``#``).
+    """
     _do_undone(name)
 
 
 @task_group.command("undiscard")
 @click.argument("name", shell_complete=_complete_task_names)
 def task_undiscard(name: str) -> None:
-    """Move a DISCARDED task back to NEEDS_ATTENTION."""
+    """Move a DISCARDED task back to NEEDS_ATTENTION.
+
+    NAME is a task name, an alias, or the ``#N`` number that ``ilan ls -a``
+    shows next to a closed task (pass the digits, without the ``#``).
+    """
     _do_undiscard(name)
 
 

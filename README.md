@@ -91,7 +91,28 @@ ilan done sd
 
 Aliases are assigned when a task is created. A `DONE` task releases its alias back to the pool; moving it back out with `undone` mints a fresh alias. A `DISCARDED` task instead *keeps* its alias — a discard is a recycle-bin entry you can restore, so it stays reachable by its short alias (e.g. `ilan undiscard sd`), and `undiscard` brings it back under that same handle. To pick a specific alias for an active task, use `ilan task alias NAME NEW_ALIAS` (or the `ilan alias` shorthand); the new alias must be two letters from `asdfghjkl` and not already taken by another task.
 
-Task names must be at least 3 characters long (to avoid ambiguity with aliases) and may only contain letters, digits, hyphens (`-`), and underscores (`_`). Aliases are not included in shell tab-completion.
+Task names must be at least 3 characters long (to avoid ambiguity with aliases), may only contain letters, digits, hyphens (`-`), and underscores (`_`), and may not be all digits (those are [task numbers](#task-numbers)). Aliases are not included in shell tab-completion.
+
+## Task numbers
+
+Closing a task gives it a permanent number, shown as `#N` in `ilan ls -a` and `ilan search`:
+
+```
+#1 fix-bug DONE
+#2 (sd) old-idea DISCARDED
+(hf) write-docs WORKING
+```
+
+That number is the handle for bringing the task back, which matters most for `DONE` tasks: they release their alias, so the full name is otherwise the only way to name them.
+
+```bash
+ilan undone 1       # instead of: ilan undone fix-bug
+ilan undiscard 2    # instead of: ilan undiscard old-idea
+```
+
+Numbers count up from 1 and are minted the first time a task reaches `DONE` or `DISCARDED`. A task then keeps its number for life, so one that is revived and closed again comes back under the same `#N`, and no other task is given that number while the original still exists. Deleting a task with `ilan rm` gives up its number, which a later task may then be given.
+
+Only `undone` and `undiscard` accept a number; every other command wants a name or an alias, so `ilan reply 1` is refused rather than quietly resolving to `fix-bug`. Numbers are hidden while a task is active, since there is nothing to revive.
 
 ## Commands
 
@@ -99,9 +120,9 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 
 | Command | Description |
 |---|---|
-| `ilan task add -n NAME -d "prompt"` | Add a task (or use `-f file`; name must be ≥ 3 chars, letters/digits/`-`/`_` only). Pass `--claude` or `--codex` to pick the backend for this task (default: the `default-backend` config value) — see [Agent backends](#agent-backends). Pass `--max` to create the task already on the [Fable model](#fable-model-ilan-max--ilan-unmax) (implies `--claude`) |
-| `ilan task ls [-a] [-c] [NAME]` | List active tasks (`-a` includes `DONE`/`DISCARDED`; `-c` prints only the pin marker, alias, name, and status, one task per line); if `NAME` is given, show its tail instead |
-| `ilan search PATTERN` | Print the `ilan ls -a -c` lines that contain `PATTERN`, keeping their colors. `PATTERN` is matched case-insensitively as a plain substring (not a regex) against the whole line, so it also matches on an alias or a status; `DONE` / `DISCARDED` tasks are always searched |
+| `ilan task add -n NAME -d "prompt"` | Add a task (or use `-f file`; name must be ≥ 3 chars, letters/digits/`-`/`_` only, and not all digits). Pass `--claude` or `--codex` to pick the backend for this task (default: the `default-backend` config value) — see [Agent backends](#agent-backends). Pass `--max` to create the task already on the [Fable model](#fable-model-ilan-max--ilan-unmax) (implies `--claude`) |
+| `ilan task ls [-a] [-c] [NAME]` | List active tasks (`-a` includes `DONE`/`DISCARDED`, each shown with its [number](#task-numbers); `-c` prints only the pin marker, number, alias, name, and status, one task per line); if `NAME` is given, show its tail instead |
+| `ilan search PATTERN` | Print the `ilan ls -a -c` lines that contain `PATTERN`, keeping their colors. `PATTERN` is matched case-insensitively as a plain substring (not a regex) against the whole line, so it also matches on a number, an alias, or a status; `DONE` / `DISCARDED` tasks are always searched |
 | `ilan task show NAME` | Print the full prompt of a task |
 | `ilan task path NAME` | Print the Claude Code session log path for a task |
 | `ilan task check-model NAME` | Print the model name (e.g. `claude-opus-4-7`) that generated the last assistant message in the task's Claude Code session log |
@@ -120,8 +141,8 @@ Task names must be at least 3 characters long (to avoid ambiguity with aliases) 
 | `ilan task attach NAME` | Attach to a task's agent session interactively (`claude --resume` or `codex resume`, per the task's backend) |
 | `ilan task done NAME [NAME...]` | Mark task(s) as `DONE` |
 | `ilan task discard NAME [NAME...]` | Mark task(s) as `DISCARDED` |
-| `ilan task undone NAME` | Move a `DONE` task back to `NEEDS_ATTENTION` |
-| `ilan task undiscard NAME` | Move a `DISCARDED` task back to `NEEDS_ATTENTION` |
+| `ilan task undone NAME` | Move a `DONE` task back to `NEEDS_ATTENTION`. `NAME` may be the task's [number](#task-numbers) (`ilan undone 1`) |
+| `ilan task undiscard NAME` | Move a `DISCARDED` task back to `NEEDS_ATTENTION`. `NAME` may be the task's [number](#task-numbers) (`ilan undiscard 2`) |
 | `ilan task unread NAME [NAME...]` | Restore the unread marker on task(s) |
 | `ilan task pin NAME` | Pin a task to the top of `ilan ls` / `ilan dashboard`; the row is marked with a `→` before its `(Alias) Name`. A pinned `DONE` / `DISCARDED` task stays visible without `-a` |
 | `ilan task unpin NAME` | Remove the pin, returning the task to its place in creation order (and hiding it again if it is `DONE` / `DISCARDED`) |

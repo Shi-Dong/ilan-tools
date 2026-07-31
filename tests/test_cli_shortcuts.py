@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from ilan.cli import _build_concise_task_line, _build_name_cell, main
+from ilan.cli import PIN_MARKER, _build_concise_task_line, _build_name_cell, main
 from ilan.models import ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_NAME_STYLE
 
 
@@ -1641,6 +1641,76 @@ class TestFableRendering:
                "engine": "some-future-engine"}
         name_cell = _build_name_cell(row)
         assert "FABLE" in name_cell.plain
+
+
+# ── task numbers in listings ────────────────────────────────────────
+
+
+class TestTaskNumberDisplay:
+    @staticmethod
+    def _row(**overrides) -> dict:
+        row = {
+            "name": "closed-task",
+            "alias": None,
+            "number": 12,
+            "status": "DONE",
+            "needs_review": False,
+            "created_at": "2026-04-13T00:00:00+00:00",
+            "status_changed_at": "2026-04-13T01:00:00+00:00",
+        }
+        row.update(overrides)
+        return row
+
+    def test_concise_line_shows_number(self) -> None:
+        line = _build_concise_task_line(self._row())
+        assert line.plain == "#12 closed-task DONE"
+
+    def test_name_cell_shows_number(self) -> None:
+        assert _build_name_cell(self._row()).plain == "#12 closed-task"
+
+    def test_number_precedes_alias(self) -> None:
+        """A DISCARDED task keeps its alias, so both markers show."""
+        row = self._row(status="DISCARDED", alias="aa")
+        assert _build_name_cell(row).plain == "#12 (aa) closed-task"
+
+    def test_number_follows_pin_marker(self) -> None:
+        row = self._row(pinned=True)
+        assert _build_name_cell(row).plain == f"{PIN_MARKER}#12 closed-task"
+
+    def test_live_task_hides_its_number(self) -> None:
+        """A revived task keeps its number but cannot be undone by it."""
+        row = self._row(status="NEEDS_ATTENTION", alias="aa")
+        assert _build_name_cell(row).plain == "(aa) closed-task"
+        assert _build_concise_task_line(row).plain == "(aa) closed-task NEEDS_ATTENTION"
+
+    def test_task_closed_before_numbering_shows_none(self) -> None:
+        """Tasks already DONE when this shipped have no number to show."""
+        row = self._row(number=None)
+        assert _build_name_cell(row).plain == "closed-task"
+
+    def test_ls_all_shows_number(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.list_tasks.return_value = {"tasks": [self._row()]}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["ls", "-a"])
+        assert result.exit_code == 0
+        assert "#12" in result.output
+
+    def test_search_shows_number(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.list_tasks.return_value = {"tasks": [self._row()]}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["search", "closed-task"])
+        assert result.exit_code == 0
+        assert "#12" in result.output
+
+    def test_search_matches_on_number(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.list_tasks.return_value = {"tasks": [self._row()]}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["search", "#12"])
+        assert result.exit_code == 0
+        assert "closed-task" in result.output
 
 
 # ── ilan add --claude / --codex ─────────────────────────────────────
