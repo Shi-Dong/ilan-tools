@@ -5,18 +5,23 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
+from rich.style import Style
 
 from ilan.models import (
+    AGENT_IN_LOOP_LABEL,
+    AGENT_IN_LOOP_STYLE,
     ALIAS_POOL,
     API,
     ENGINE_CLAUDE,
     ENGINE_CODEX,
     ENGINE_NAME_STYLE,
     FABLE_MODEL,
+    STYLE_FOR_STATUS,
     VALID_ENGINES,
     LogEntry,
     Task,
     TaskStatus,
+    display_status,
     format_cost_usd,
     generate_task_hash,
     is_fable_model,
@@ -49,6 +54,67 @@ class TestTaskStatus:
     def test_is_str_subclass(self) -> None:
         assert isinstance(TaskStatus.DONE, str)
         assert TaskStatus.DONE == "DONE"
+
+
+# ── display_status ──────────────────────────────────────────────────────
+
+
+def _green_channel(style: str) -> int:
+    color = Style.parse(style).color
+    assert color is not None, f"{style!r} names no colour"
+    return color.get_truecolor().green
+
+
+class TestDisplayStatus:
+    @pytest.mark.parametrize(
+        "status", [TaskStatus.AGENT_FINISHED, TaskStatus.NEEDS_ATTENTION]
+    )
+    def test_cycling_task_reads_as_in_loop(self, status: TaskStatus) -> None:
+        assert display_status(status, 3600) == (
+            AGENT_IN_LOOP_LABEL,
+            AGENT_IN_LOOP_STYLE,
+        )
+
+    @pytest.mark.parametrize(
+        "status", [TaskStatus.AGENT_FINISHED, TaskStatus.NEEDS_ATTENTION]
+    )
+    def test_same_statuses_unchanged_without_a_cycle(
+        self, status: TaskStatus
+    ) -> None:
+        for seconds in (None, 0):
+            assert display_status(status, seconds) == (
+                status.value,
+                STYLE_FOR_STATUS[status],
+            )
+
+    @pytest.mark.parametrize(
+        "status",
+        [
+            TaskStatus.WORKING,
+            TaskStatus.ERROR,
+            TaskStatus.DONE,
+            TaskStatus.DISCARDED,
+        ],
+    )
+    def test_other_statuses_keep_their_label_while_cycling(
+        self, status: TaskStatus
+    ) -> None:
+        assert display_status(status, 3600) == (
+            status.value,
+            STYLE_FOR_STATUS[status],
+        )
+
+    def test_in_loop_green_is_darker_than_agent_finished(self) -> None:
+        in_loop = _green_channel(AGENT_IN_LOOP_STYLE)
+        finished = _green_channel(STYLE_FOR_STATUS[TaskStatus.AGENT_FINISHED])
+        assert in_loop < finished
+
+    def test_in_loop_style_is_not_reused_by_a_real_status(self) -> None:
+        assert AGENT_IN_LOOP_STYLE not in STYLE_FOR_STATUS.values()
+
+    def test_in_loop_label_is_not_a_real_status(self) -> None:
+        with pytest.raises(ValueError):
+            TaskStatus(AGENT_IN_LOOP_LABEL)
 
 
 # ── ALIAS_POOL ──────────────────────────────────────────────────────────

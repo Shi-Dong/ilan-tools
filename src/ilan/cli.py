@@ -41,8 +41,8 @@ from ilan.models import (
     ENGINE_NAME_STYLE,
     FABLE_MODEL,
     REPLY_EVERY_MIN_SECONDS,
-    STYLE_FOR_STATUS,
     TaskStatus,
+    display_status,
     format_cost_usd,
     is_fable_model,
 )
@@ -644,13 +644,13 @@ def _build_history_cell(row: dict) -> Text:
 
 def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
     status = TaskStatus(row["status"])
-    style = STYLE_FOR_STATUS.get(status, "")
+    label, style = display_status(status, row.get("reply_every_seconds"))
     # Apply the status style only to the status span (not as a base style on
     # the parent Text), so a `dim` status style (DONE / DISCARDED) doesn't
     # bleed onto the elapsed-time hint or the one-liner and render them
     # darker than the same spans on other rows.
     cell = Text()
-    cell.append(status.value, style=style)
+    cell.append(label, style=style)
     if (
         status == TaskStatus.WORKING
         and row.get("status_changed_at")
@@ -678,7 +678,8 @@ def _build_concise_task_line(row: dict) -> Text:
     name_style = ENGINE_NAME_STYLE.get(engine, "")
     line.append(row["name"], style=f"bold {name_style}".strip())
     line.append(" ")
-    line.append(status.value, style=STYLE_FOR_STATUS.get(status, ""))
+    label, style = display_status(status, row.get("reply_every_seconds"))
+    line.append(label, style=style)
     if reply_every_suffix := _format_reply_every_suffix(
         row.get("reply_every_seconds")
     ):
@@ -903,7 +904,10 @@ def _build_tree_label(node: _TreeNode, focus_name: str) -> Text:
     label.append(row["name"], style=f"bold {name_style}".strip())
     status = TaskStatus(row["status"])
     label.append("  ")
-    label.append(status.value, style=STYLE_FOR_STATUS.get(status, ""))
+    status_label, status_style = display_status(
+        status, row.get("reply_every_seconds")
+    )
+    label.append(status_label, style=status_style)
     if row["name"] == focus_name:
         label.append("  ← this task", style=FOCUS_STYLE)
     return label
@@ -2654,10 +2658,11 @@ def clean(duration: str, yes: bool) -> None:
     table.add_column("Status")
     table.add_column("Last Changed")
     for r in stale:
-        status = TaskStatus(r["status"])
-        style = STYLE_FOR_STATUS.get(status, "")
+        label, style = display_status(
+            TaskStatus(r["status"]), r.get("reply_every_seconds")
+        )
         changed = _format_ts(r["status_changed_at"]) if r.get("status_changed_at") else ""
-        table.add_row(r["name"], Text(status.value, style=style), changed)
+        table.add_row(r["name"], Text(label, style=style), changed)
     console.print(table)
 
     if not yes and not click.confirm(f"Delete {len(stale)} task(s)?"):

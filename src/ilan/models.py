@@ -94,6 +94,29 @@ STYLE_FOR_STATUS: dict[TaskStatus, str] = {
     TaskStatus.ERROR: "bold red",
 }
 
+# Label shown instead of AGENT_FINISHED / NEEDS_ATTENTION while a ``reply -t``
+# cycle is running. Those two statuses normally mean "a human has to answer",
+# which is exactly what a cycling task does not need: its timer re-prompts the
+# agent on its own. The stored status is untouched — this is display only.
+AGENT_IN_LOOP_LABEL = "AGENT_IN_LOOP"
+# Darker than the AGENT_FINISHED green, so a cycling task reads as the calmer
+# state it is; ``dim green`` is taken by DONE. Bold because in `ls -c` this always
+# lands on the reply-every grey background, against which dark_green on its own is
+# barely legible.
+AGENT_IN_LOOP_STYLE = "bold dark_green"
+IN_LOOP_STATUSES = frozenset(
+    {TaskStatus.AGENT_FINISHED, TaskStatus.NEEDS_ATTENTION}
+)
+
+
+def display_status(
+    status: TaskStatus, reply_every_seconds: int | None
+) -> tuple[str, str]:
+    """Return the (label, style) to render for a task's status."""
+    if reply_every_seconds and status in IN_LOOP_STATUSES:
+        return AGENT_IN_LOOP_LABEL, AGENT_IN_LOOP_STYLE
+    return status.value, STYLE_FOR_STATUS.get(status, "")
+
 
 @dataclass
 class Task:

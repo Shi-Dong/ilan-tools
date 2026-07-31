@@ -143,3 +143,32 @@ class TestSearch:
     def test_pattern_is_required(self, runner: CliRunner, tmp_config) -> None:
         result = runner.invoke(main, ["search"])
         assert result.exit_code != 0
+
+
+class TestSearchMatchesDisplayStatus:
+    """A cycling task is searchable by the status it displays, not the stored one."""
+
+    def _cycling(self) -> list[dict]:
+        return [
+            {
+                "name": "watch-the-run",
+                "alias": "as",
+                "status": "AGENT_FINISHED",
+                "engine": ENGINE_CLAUDE,
+                "reply_every_seconds": 3600,
+            }
+        ]
+
+    def test_found_by_in_loop(
+        self, runner: CliRunner, tmp_config, wide_console,
+    ) -> None:
+        result, _ = _invoke(runner, "AGENT_IN_LOOP", tasks=self._cycling())
+        assert _strip_ansi(result.output) == (
+            "(as) watch-the-run AGENT_IN_LOOP (responding every 1h)\n"
+        )
+
+    def test_not_found_by_stored_status(
+        self, runner: CliRunner, tmp_config, wide_console,
+    ) -> None:
+        result, _ = _invoke(runner, "AGENT_FINISHED", tasks=self._cycling())
+        assert _strip_ansi(result.output) == "No task matching 'AGENT_FINISHED'.\n"

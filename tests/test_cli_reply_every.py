@@ -13,9 +13,13 @@ from ilan.cli import (
     SLEEP_STYLE,
     _build_concise_task_line,
     _build_name_cell,
+    _build_status_cell,
+    _build_tree_label,
+    _TreeNode,
     _format_reply_every_suffix,
     main,
 )
+from ilan.models import AGENT_IN_LOOP_LABEL, AGENT_IN_LOOP_STYLE
 
 
 @pytest.fixture()
@@ -336,3 +340,85 @@ class TestConciseLineReplyEvery:
         assert not any(
             span.style == f"on {REPLY_EVERY_BG}" for span in line.spans
         )
+
+
+# ── AGENT_IN_LOOP display status ─────────────────────────────────────
+
+
+class TestAgentInLoopStatusCell:
+    def _row(self, **overrides) -> dict:
+        row = {"name": "alpha", "status": "AGENT_FINISHED"}
+        row.update(overrides)
+        return row
+
+    @pytest.mark.parametrize("status", ["AGENT_FINISHED", "NEEDS_ATTENTION"])
+    def test_cycling_task_reads_as_in_loop(self, status: str) -> None:
+        cell = _build_status_cell(
+            self._row(status=status, reply_every_seconds=3600)
+        )
+        assert cell.plain == AGENT_IN_LOOP_LABEL
+        assert cell.spans[0].style == AGENT_IN_LOOP_STYLE
+
+    @pytest.mark.parametrize("status", ["AGENT_FINISHED", "NEEDS_ATTENTION"])
+    def test_without_cycle_status_is_untouched(self, status: str) -> None:
+        cell = _build_status_cell(self._row(status=status))
+        assert cell.plain == status
+
+    @pytest.mark.parametrize("status", ["WORKING", "ERROR", "DONE", "DISCARDED"])
+    def test_other_statuses_unaffected_by_cycle(self, status: str) -> None:
+        cell = _build_status_cell(
+            self._row(status=status, reply_every_seconds=3600)
+        )
+        assert cell.plain.startswith(status)
+
+    def test_one_liner_still_appended(self) -> None:
+        cell = _build_status_cell(
+            self._row(reply_every_seconds=3600, summary_one_liner="ran the suite")
+        )
+        assert cell.plain == f"{AGENT_IN_LOOP_LABEL}\nran the suite"
+
+
+class TestAgentInLoopConciseLine:
+    def _row(self, **overrides) -> dict:
+        row = {"name": "alpha", "alias": "aa", "status": "AGENT_FINISHED"}
+        row.update(overrides)
+        return row
+
+    @pytest.mark.parametrize("status", ["AGENT_FINISHED", "NEEDS_ATTENTION"])
+    def test_cycling_task_reads_as_in_loop(self, status: str) -> None:
+        line = _build_concise_task_line(
+            self._row(status=status, reply_every_seconds=3600)
+        )
+        assert line.plain == (
+            f"(aa) alpha {AGENT_IN_LOOP_LABEL} (responding every 1h)"
+        )
+        assert any(span.style == AGENT_IN_LOOP_STYLE for span in line.spans)
+
+    def test_without_cycle_status_is_untouched(self) -> None:
+        line = _build_concise_task_line(self._row())
+        assert line.plain == "(aa) alpha AGENT_FINISHED"
+
+    def test_working_keeps_its_own_label(self) -> None:
+        line = _build_concise_task_line(
+            self._row(status="WORKING", reply_every_seconds=3600)
+        )
+        assert line.plain == "(aa) alpha WORKING (responding every 1h)"
+
+
+class TestAgentInLoopTreeLabel:
+    def _node(self, **overrides) -> _TreeNode:
+        row = {"name": "alpha", "status": "AGENT_FINISHED"}
+        row.update(overrides)
+        return _TreeNode(name=row["name"], row=row)
+
+    @pytest.mark.parametrize("status", ["AGENT_FINISHED", "NEEDS_ATTENTION"])
+    def test_cycling_task_reads_as_in_loop(self, status: str) -> None:
+        label = _build_tree_label(
+            self._node(status=status, reply_every_seconds=3600), "other"
+        )
+        assert label.plain == f"alpha  {AGENT_IN_LOOP_LABEL}"
+        assert any(span.style == AGENT_IN_LOOP_STYLE for span in label.spans)
+
+    def test_without_cycle_status_is_untouched(self) -> None:
+        label = _build_tree_label(self._node(), "other")
+        assert label.plain == "alpha  AGENT_FINISHED"
