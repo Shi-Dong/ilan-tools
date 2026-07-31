@@ -7,7 +7,7 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from ilan.models import ALIAS_POOL, ENGINE_CODEX, LogEntry, Task
+from ilan.models import ALIAS_POOL, ENGINE_CODEX, LogEntry, Task, parse_task_number
 
 
 class Store:
@@ -51,6 +51,36 @@ class Store:
             if task.alias == name_or_alias:
                 return task
         return None
+
+    def get_task_by_number(self, number: int) -> Task | None:
+        """Look up a task by its task number."""
+        for task in self.load_tasks().values():
+            if task.number == number:
+                return task
+        return None
+
+    def get_task_by_name_alias_or_number(self, ref: str) -> Task | None:
+        """Resolve *ref* as a name, then an alias, then a task number.
+
+        Name and alias are tried first so a legacy task literally named after
+        digits still wins over the number that happens to match it.
+        """
+        if (task := self.get_task_by_name_or_alias(ref)) is not None:
+            return task
+        number = parse_task_number(ref)
+        return None if number is None else self.get_task_by_number(number)
+
+    def next_task_number(self) -> int:
+        """Return the next task number to hand out.
+
+        One above the current maximum rather than from a persisted
+        counter, so deleting the highest-numbered task frees its
+        number for reuse. That is harmless — a number only ever refers to a
+        task that still exists — and it lets numbering restart after
+        ``delete_all``.
+        """
+        used = [t.number for t in self.load_tasks().values() if t.number is not None]
+        return max(used, default=0) + 1
 
     def next_available_alias(self) -> str | None:
         """Return a random unused alias from the pool, or None if exhausted."""

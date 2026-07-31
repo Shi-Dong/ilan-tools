@@ -26,6 +26,7 @@ from ilan.models import (
     generate_task_hash,
     is_fable_model,
     other_engine,
+    parse_task_number,
     validate_task_name,
 )
 
@@ -177,6 +178,33 @@ class TestValidateTaskName:
         assert err is not None
         assert "at least 3" in err
 
+    @pytest.mark.parametrize("name", ["123", "0042", "99999"])
+    def test_all_digit_names_rejected(self, name: str) -> None:
+        err = validate_task_name(name)
+        assert err is not None
+        assert "all digits" in err
+
+    @pytest.mark.parametrize("name", ["12a", "a12", "1-2", "1_2"])
+    def test_names_merely_containing_digits_allowed(self, name: str) -> None:
+        assert validate_task_name(name) is None
+
+
+# ── parse_task_number ──────────────────────────────────────────────────
+
+
+class TestParseTaskNumber:
+    @pytest.mark.parametrize(("value", "expected"), [
+        ("1", 1),
+        ("42", 42),
+        ("007", 7),
+    ])
+    def test_parses_digits(self, value: str, expected: int) -> None:
+        assert parse_task_number(value) == expected
+
+    @pytest.mark.parametrize("value", ["", "a1", "1a", "-1", "1.0", "#1", " 1"])
+    def test_rejects_non_numbers(self, value: str) -> None:
+        assert parse_task_number(value) is None
+
 
 # ── Task ────────────────────────────────────────────────────────────────
 
@@ -239,6 +267,7 @@ class TestTask:
         expected_keys = {
             "name", "prompt", "status", "created_at", "status_changed_at",
             "session_id", "session_log_path", "pid", "cached_replies", "alias",
+            "number",
             "task_hash", "needs_review", "pinned", "input_tokens", "output_tokens",
             "cache_read_input_tokens", "cost_usd", "sleep_seconds",
             "reply_every_seconds", "reply_every_message", "reply_every_next_at",

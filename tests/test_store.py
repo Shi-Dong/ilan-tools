@@ -114,6 +114,66 @@ class TestGetByNameOrAlias:
         store.put_task(Task(name="exists", prompt="p", alias="zz"))
         assert store.get_task_by_name_or_alias("nope") is None
 
+    def test_number_not_resolved(self, store: Store) -> None:
+        """Numbers belong to the undone/undiscard resolver, not this one."""
+        store.put_task(Task(name="closed", prompt="p", number=7))
+        assert store.get_task_by_name_or_alias("7") is None
+
+
+# ── task numbers ────────────────────────────────────────────────────────
+
+
+class TestTaskNumbers:
+    def test_first_number_is_one(self, store: Store) -> None:
+        assert store.next_task_number() == 1
+
+    def test_numbers_increment(self, store: Store) -> None:
+        store.put_task(Task(name="a", prompt="p", number=1))
+        store.put_task(Task(name="b", prompt="p", number=2))
+        assert store.next_task_number() == 3
+
+    def test_unnumbered_tasks_ignored(self, store: Store) -> None:
+        store.put_task(Task(name="live", prompt="p"))
+        assert store.next_task_number() == 1
+
+    def test_gap_is_not_filled(self, store: Store) -> None:
+        """Numbering follows the maximum, so a freed middle number stays free."""
+        store.put_task(Task(name="a", prompt="p", number=1))
+        store.put_task(Task(name="c", prompt="p", number=3))
+        assert store.next_task_number() == 4
+
+    def test_get_by_number(self, store: Store) -> None:
+        store.put_task(Task(name="closed", prompt="p", number=5))
+        t = store.get_task_by_number(5)
+        assert t is not None
+        assert t.name == "closed"
+
+    def test_get_by_number_missing(self, store: Store) -> None:
+        store.put_task(Task(name="closed", prompt="p", number=5))
+        assert store.get_task_by_number(6) is None
+
+    def test_ref_resolves_number(self, store: Store) -> None:
+        store.put_task(Task(name="closed", prompt="p", number=5))
+        t = store.get_task_by_name_alias_or_number("5")
+        assert t is not None
+        assert t.name == "closed"
+
+    def test_ref_resolves_name_and_alias(self, store: Store) -> None:
+        store.put_task(Task(name="closed", prompt="p", alias="gg", number=5))
+        assert store.get_task_by_name_alias_or_number("closed") is not None
+        assert store.get_task_by_name_alias_or_number("gg") is not None
+
+    def test_ref_prefers_name_over_number(self, store: Store) -> None:
+        """A legacy all-digit name still outranks the number it collides with."""
+        store.put_task(Task(name="5", prompt="legacy"))
+        store.put_task(Task(name="closed", prompt="p", number=5))
+        t = store.get_task_by_name_alias_or_number("5")
+        assert t is not None
+        assert t.prompt == "legacy"
+
+    def test_ref_not_found(self, store: Store) -> None:
+        assert store.get_task_by_name_alias_or_number("404") is None
+
 
 # ── alias management ────────────────────────────────────────────────────
 

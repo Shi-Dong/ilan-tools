@@ -14,6 +14,12 @@ def generate_task_hash() -> str:
     return os.urandom(4).hex()
 
 _TASK_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_TASK_NUMBER_RE = re.compile(r"^[0-9]+$")
+
+
+def parse_task_number(value: str) -> int | None:
+    """Return *value* read as a task number, or ``None`` if it is not one."""
+    return int(value) if _TASK_NUMBER_RE.match(value) else None
 
 
 def validate_task_name(name: str) -> str | None:
@@ -22,6 +28,10 @@ def validate_task_name(name: str) -> str | None:
         return "Task name must be at least 3 characters"
     if not _TASK_NAME_RE.match(name):
         return "Task name may only contain letters, digits, hyphens, and underscores"
+    # An all-digit name would shadow the task number that ``undone`` /
+    # ``undiscard`` resolve, since both look the name up first.
+    if parse_task_number(name) is not None:
+        return "Task name may not be all digits: numbers refer to task numbers"
     return None
 
 
@@ -130,6 +140,12 @@ class Task:
     pid: int | None = None
     cached_replies: list[str] = field(default_factory=list)
     alias: str | None = None
+    # Stable handle minted the first time the task reaches DONE or DISCARDED,
+    # so it can be revived as ``undone 12`` / ``undiscard 12`` without typing
+    # the full name (a closed task has no alias to fall back on). Unlike the
+    # alias it is never recycled while the task exists, so reviving and
+    # re-closing a task always shows the same number.
+    number: int | None = None
     task_hash: str | None = None
     needs_review: bool = False
     pinned: bool = False
@@ -257,6 +273,7 @@ class Task:
             "pid": self.pid,
             "cached_replies": self.cached_replies,
             "alias": self.alias,
+            "number": self.number,
             "task_hash": self.task_hash,
             "needs_review": self.needs_review,
             "pinned": self.pinned,
@@ -305,6 +322,7 @@ class Task:
             pid=d.get("pid"),
             cached_replies=d.get("cached_replies", []),
             alias=d.get("alias"),
+            number=d.get("number"),
             task_hash=d.get("task_hash"),
             needs_review=d.get("needs_review", False),
             pinned=d.get("pinned", False),

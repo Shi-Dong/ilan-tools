@@ -17,8 +17,9 @@ import pytest
 import ilan.server as srv_mod
 from ilan import __version__
 from ilan.client import Client
-from ilan.models import FABLE_MODEL, TaskStatus
+from ilan.models import FABLE_MODEL, Task, TaskStatus
 from ilan.server import IlanServer, read_server_info, read_server_owner
+from ilan.store import Store
 
 
 @pytest.fixture()
@@ -614,6 +615,162 @@ class TestTaskStateTransitions:
         _post(ilan_server, "/tasks", {"name": "bad-undisc", "prompt": "P"})
         resp = _post(ilan_server, "/tasks/bad-undisc/undiscard")
         assert "error" in resp
+
+
+# ── Task Numbers ───────────────────────────────────────────────────────
+
+
+class TestTaskNumbers:
+    def test_live_task_has_no_number(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "live-task", "prompt": "P"})
+        assert _get(ilan_server, "/tasks/live-task")["task"]["number"] is None
+
+    def test_done_mints_number(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "num-done", "prompt": "P"})
+        _post(ilan_server, "/tasks/num-done/done")
+        assert _get(ilan_server, "/tasks/num-done")["task"]["number"] == 1
+
+    def test_discard_mints_number(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "num-disc", "prompt": "P"})
+        _post(ilan_server, "/tasks/num-disc/discard")
+        assert _get(ilan_server, "/tasks/num-disc")["task"]["number"] == 1
+
+    def test_numbers_are_sequential(self, ilan_server: IlanServer) -> None:
+        for i in range(1, 4):
+            _post(ilan_server, "/tasks", {"name": f"seq-{i}", "prompt": "P"})
+            _post(ilan_server, f"/tasks/seq-{i}/done")
+            assert _get(ilan_server, f"/tasks/seq-{i}")["task"]["number"] == i
+
+    def test_number_survives_undone_and_redone(self, ilan_server: IlanServer) -> None:
+        """The whole point: `undone 1` still means the same task next time."""
+        _post(ilan_server, "/tasks", {"name": "stable", "prompt": "P"})
+        _post(ilan_server, "/tasks/stable/done")
+        _post(ilan_server, "/tasks/stable/undone")
+        assert _get(ilan_server, "/tasks/stable")["task"]["number"] == 1
+        _post(ilan_server, "/tasks/stable/done")
+        assert _get(ilan_server, "/tasks/stable")["task"]["number"] == 1
+
+    def test_number_kept_across_done_discard_switch(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "switcher", "prompt": "P"})
+        _post(ilan_server, "/tasks/switcher/done")
+        _post(ilan_server, "/tasks/switcher/undone")
+        _post(ilan_server, "/tasks/switcher/discard")
+        assert _get(ilan_server, "/tasks/switcher")["task"]["number"] == 1
+
+    def test_revived_number_not_handed_out_again(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "first", "prompt": "P"})
+        _post(ilan_server, "/tasks/first/done")
+        _post(ilan_server, "/tasks/first/undone")
+        _post(ilan_server, "/tasks", {"name": "second", "prompt": "P"})
+        _post(ilan_server, "/tasks/second/done")
+        assert _get(ilan_server, "/tasks/second")["task"]["number"] == 2
+
+    def test_undone_by_number(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "by-num-done", "prompt": "P"})
+        _post(ilan_server, "/tasks/by-num-done/done")
+        resp = _post(ilan_server, "/tasks/1/undone")
+        assert resp.get("ok") is True
+        assert resp["name"] == "by-num-done"
+        assert _get(ilan_server, "/tasks/by-num-done")["task"]["status"] == "NEEDS_ATTENTION"
+
+    def test_undiscard_by_number(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "by-num-disc", "prompt": "P"})
+        _post(ilan_server, "/tasks/by-num-disc/discard")
+        resp = _post(ilan_server, "/tasks/1/undiscard")
+        assert resp.get("ok") is True
+        assert resp["name"] == "by-num-disc"
+
+    def test_undone_by_unknown_number(self, ilan_server: IlanServer) -> None:
+        resp = _post(ilan_server, "/tasks/99/undone")
+        assert "error" in resp
+
+    def test_reply_rejects_number(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "no-num-reply", "prompt": "P"})
+        _post(ilan_server, "/tasks/no-num-reply/done")
+        _post(ilan_server, "/tasks/no-num-reply/undone")
+        resp = _post(ilan_server, "/tasks/1/reply", {"message": "hi"})
+        assert "error" in resp
+        assert "undone/undiscard" in resp["error"]
+
+    def test_done_rejects_number(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "no-num-done", "prompt": "P"})
+        _post(ilan_server, "/tasks/no-num-done/done")
+        _post(ilan_server, "/tasks/no-num-done/undone")
+        resp = _post(ilan_server, "/tasks/1/done")
+        assert "error" in resp
+        assert "undone/undiscard" in resp["error"]
+
+    def test_unknown_number_gets_plain_not_found(self, ilan_server: IlanServer) -> None:
+        resp = _post(ilan_server, "/tasks/42/reply", {"message": "hi"})
+        assert resp["error"] == "Task 42 not found"
+
+    def test_number_in_task_list(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "listed", "prompt": "P"})
+        _post(ilan_server, "/tasks/listed/done")
+        rows = _get(ilan_server, "/tasks?all=true")["tasks"]
+        assert [r["number"] for r in rows if r["name"] == "listed"] == [1]
+
+    def test_all_digit_name_rejected(self, ilan_server: IlanServer) -> None:
+        resp = _post(ilan_server, "/tasks", {"name": "123", "prompt": "P"})
+        assert "error" in resp
+        assert "all digits" in resp["error"]
+
+
+# ── Task Number Backfill ───────────────────────────────────────────────
+
+
+class TestTaskNumberBackfill:
+    """Tasks closed before numbering existed get numbered at server start."""
+
+    @pytest.fixture()
+    def store(self, tmp_workdir: Path, tmp_config: Path) -> Store:
+        import ilan.config as cfg_mod
+
+        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
+        return Store(tmp_workdir)
+
+    @staticmethod
+    def _put(store: Store, name: str, status: TaskStatus, created_at: str) -> None:
+        task = Task(name=name, prompt="P", created_at=created_at)
+        task.status = status
+        store.put_task(task)
+
+    def test_closed_tasks_numbered_oldest_first(self, store: Store) -> None:
+        self._put(store, "newer", TaskStatus.DONE, "2025-01-02T00:00:00+00:00")
+        self._put(store, "older", TaskStatus.DISCARDED, "2025-01-01T00:00:00+00:00")
+
+        IlanServer()
+
+        assert store.get_task("older").number == 1  # type: ignore[union-attr]
+        assert store.get_task("newer").number == 2  # type: ignore[union-attr]
+
+    def test_live_tasks_left_unnumbered(self, store: Store) -> None:
+        self._put(store, "running", TaskStatus.WORKING, "2025-01-01T00:00:00+00:00")
+
+        IlanServer()
+
+        assert store.get_task("running").number is None  # type: ignore[union-attr]
+
+    def test_existing_numbers_untouched(self, store: Store) -> None:
+        self._put(store, "kept", TaskStatus.DONE, "2025-01-01T00:00:00+00:00")
+        task = store.get_task("kept")
+        assert task is not None
+        task.number = 7
+        store.put_task(task)
+        self._put(store, "fresh", TaskStatus.DONE, "2025-01-02T00:00:00+00:00")
+
+        IlanServer()
+
+        assert store.get_task("kept").number == 7  # type: ignore[union-attr]
+        assert store.get_task("fresh").number == 8  # type: ignore[union-attr]
+
+    def test_backfilled_number_revives_task(self, ilan_server: IlanServer) -> None:
+        """End to end: a backfilled number works as an ``undone`` handle."""
+        self._put(ilan_server.store, "legacy", TaskStatus.DONE, "2025-01-01T00:00:00+00:00")
+        ilan_server._backfill_task_numbers()
+
+        resp = _post(ilan_server, "/tasks/1/undone")
+        assert resp["name"] == "legacy"
 
 
 # ── Set Alias ──────────────────────────────────────────────────────────

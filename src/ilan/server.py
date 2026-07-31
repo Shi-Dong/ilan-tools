@@ -32,6 +32,7 @@ from ilan.models import (
     TaskStatus,
     generate_task_hash,
     other_engine,
+    parse_task_number,
     validate_task_name,
 )
 from ilan.runner import Runner
@@ -160,6 +161,25 @@ class IlanServer:
         # anywhere (server handlers or runner reap) is enqueued automatically.
         self.gist = GistSyncer(self.store, self.lock)
         self.store.on_append = self.gist.enqueue
+        self._backfill_task_numbers()
+
+    def _backfill_task_numbers(self) -> None:
+        """Number tasks that were already closed before numbering existed.
+
+        Oldest first, so an existing task list ends up with the numbers it
+        would have had if they had been minted all along.
+        """
+        tasks = self.store.load_tasks()
+        pending = sorted(
+            (t for t in tasks.values() if t.status.is_terminal and t.number is None),
+            key=lambda t: t.created_at,
+        )
+        if not pending:
+            return
+        start = self.store.next_task_number()
+        for offset, task in enumerate(pending):
+            task.number = start + offset
+        self.store.save_tasks(tasks)
 
     # ── lifecycle ────────────────────────────────────────────────
 
@@ -305,8 +325,32 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
         def _get_task_or_404(self, name: str) -> Task | None:
             task = self._ilan.store.get_task_by_name_or_alias(name)
             if task is None:
-                self._json({"error": f"Task {name} not found"}, 404)
+                self._json({"error": self._not_found_error(name)}, 404)
             return task
+
+        def _get_task_by_ref_or_404(self, ref: str) -> Task | None:
+            """Like ``_get_task_or_404`` but also accepts a task number.
+
+            Only ``undone`` / ``undiscard`` use this: the number is the handle
+            for a closed task, and every other command keeps rejecting it so a
+            number never stands in for a live task's name.
+            """
+            task = self._ilan.store.get_task_by_name_alias_or_number(ref)
+            if task is None:
+                self._json({"error": f"Task {ref} not found"}, 404)
+            return task
+
+        def _not_found_error(self, name: str) -> str:
+            """404 message for *name*, calling out a number used out of place."""
+            number = parse_task_number(name)
+            if number is not None and (
+                numbered := self._ilan.store.get_task_by_number(number)
+            ) is not None:
+                return (
+                    f"Task number {number} is {numbered.name}; numbers only work "
+                    f"with undone/undiscard. Use the task name."
+                )
+            return f"Task {name} not found"
 
         def _reply_every_confirmation(self, task: Task, body: dict) -> dict | None:
             """Challenge to return when a human message would end a ``reply -t``
@@ -399,6 +443,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     "created_at": t.created_at,
                     "status_changed_at": t.status_changed_at,
                     "alias": t.alias,
+                    "number": t.number,
                     "needs_review": t.needs_review,
                     "pinned": t.pinned,
                     "cost_usd": t.cost_usd,
@@ -502,6 +547,15 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 kill_tmux_sessions_by_prefix(task_hash)
             self._json({"ok": True, "name": task.name})
 
+        def _assign_number(self, task: Task) -> None:
+            """Mint *task*'s number the first time it closes, then leave it be.
+
+            Keeping the number across a revive is the point: ``undone 12``
+            has to still mean the same task after it is closed a second time.
+            """
+            if task.number is None:
+                task.number = self._ilan.store.next_task_number()
+
         def handle_task_done(self, name: str):
             with self._ilan.lock:
                 task = self._get_task_or_404(name)
@@ -512,6 +566,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task.set_status(TaskStatus.DONE)
                 task.alias = None
                 task.needs_review = False
+                self._assign_number(task)
                 self._ilan.store.put_task(task)
             if task.task_hash:
                 kill_tmux_sessions_by_prefix(task.task_hash)
@@ -529,6 +584,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 # ``undiscard`` can bring back, so it stays reachable by its
                 # short alias (not just its full name).
                 task.needs_review = False
+                self._assign_number(task)
                 self._ilan.store.put_task(task)
             if task.task_hash:
                 kill_tmux_sessions_by_prefix(task.task_hash)
@@ -536,7 +592,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
 
         def handle_task_undone(self, name: str):
             with self._ilan.lock:
-                task = self._get_task_or_404(name)
+                task = self._get_task_by_ref_or_404(name)
                 if task is None:
                     return
                 if task.status != TaskStatus.DONE:
@@ -549,7 +605,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
 
         def handle_task_undiscard(self, name: str):
             with self._ilan.lock:
-                task = self._get_task_or_404(name)
+                task = self._get_task_by_ref_or_404(name)
                 if task is None:
                     return
                 if task.status != TaskStatus.DISCARDED:
