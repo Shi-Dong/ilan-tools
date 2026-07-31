@@ -100,8 +100,10 @@ STYLE_FOR_STATUS: dict[TaskStatus, str] = {
 # agent on its own. The stored status is untouched — this is display only.
 AGENT_IN_LOOP_LABEL = "AGENT_IN_LOOP"
 # Darker than the AGENT_FINISHED green, so a cycling task reads as the calmer
-# state it is; ``dim green`` is taken by DONE.
-AGENT_IN_LOOP_STYLE = "dark_green"
+# state it is; ``dim green`` is taken by DONE. Bold because in `ls -c` this always
+# lands on the reply-every grey background, against which dark_green on its own is
+# barely legible.
+AGENT_IN_LOOP_STYLE = "bold dark_green"
 IN_LOOP_STATUSES = frozenset(
     {TaskStatus.AGENT_FINISHED, TaskStatus.NEEDS_ATTENTION}
 )
