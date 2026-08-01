@@ -921,10 +921,10 @@ class TestSpawn:
         """_spawn resolves the paying account for the task's own engine, so a
         later config change can't retroactively relabel this turn."""
         cfg.save({**cfg.DEFAULTS, "workdir": str(tmp_workdir)})
-        seen: list[str] = []
+        seen: list[tuple[str, dict[str, str]]] = []
 
-        def fake_detect(engine: str) -> str:
-            seen.append(engine)
+        def fake_detect(engine: str, env: dict[str, str]) -> str:
+            seen.append((engine, env))
             return "Team"
 
         monkeypatch.setattr(budget, "detect", fake_detect)
@@ -935,7 +935,9 @@ class TestSpawn:
 
         ok = runner._spawn(t, "hello", resume=False)
         assert ok is True
-        assert seen == [t.engine]
+        assert len(seen) == 1
+        assert seen[0][0] == t.engine
+        assert "ANTHROPIC_API_KEY" not in seen[0][1]
         assert t.spawn_budget == "Team"
         updated = store.get_task("spawn-budget")
         assert updated is not None

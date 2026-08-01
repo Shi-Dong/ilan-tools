@@ -115,7 +115,12 @@ class ClaudeBackend(Backend):
             cmd.extend(["--resume", session_id])
 
         env = os.environ.copy()
-        api_key = str(cfg.load().get("api-key-claude", "")).strip()
+        conf = cfg.load()
+        api_key = str(conf.get("api-key-claude", "")).strip()
+        env.pop("ANTHROPIC_API_KEY", None)
+        env.pop("ANTHROPIC_AUTH_TOKEN", None)
+        if not cfg.parse_bool(conf.get("api-key-mode", False)):
+            api_key = ""
         if api_key:
             env["ANTHROPIC_API_KEY"] = api_key
         return cmd, env

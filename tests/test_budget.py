@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 from ilan import budget
-from ilan import config as cfg
 
 
 def _codex_id_token(plan: str) -> str:
@@ -24,25 +23,11 @@ def _write(path: Path, data: dict) -> Path:
     return path
 
 
-@pytest.fixture(autouse=True)
-def isolated_config(tmp_config: Path) -> None:
-    """Keep these tests' ``api-key-*`` writes out of the real user config.
-
-    The keychain, credential files and exported keys are already redirected for
-    the whole suite by ``conftest``'s ``isolated_credentials``.
-    """
-
-
 class TestClaudeBudget:
-    def test_configured_api_key_reports_api(self, tmp_path: Path) -> None:
-        conf = cfg.load()
-        conf["api-key-claude"] = "sk-ant-configured"
-        cfg.save(conf)
-        _write(
-            tmp_path / "claude.json",
-            {"claudeAiOauth": {"subscriptionType": "team"}},
-        )
-        assert budget.detect("claude") == "API"
+    def test_spawn_env_api_key_reports_api(self) -> None:
+        assert budget.detect(
+            "claude", {"ANTHROPIC_API_KEY": "sk-ant-configured"}
+        ) == "API"
 
     def test_env_api_key_reports_api(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-from-env")
@@ -62,6 +47,17 @@ class TestClaudeBudget:
         )
         monkeypatch.setattr(budget, "_CLAUDE_CREDENTIALS_FILE", path)
         assert budget.detect("claude") == "Team"
+
+    def test_explicit_spawn_env_ignores_server_api_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "server-key")
+        path = _write(
+            tmp_path / "claude.json",
+            {"claudeAiOauth": {"subscriptionType": "team"}},
+        )
+        monkeypatch.setattr(budget, "_CLAUDE_CREDENTIALS_FILE", path)
+        assert budget.detect("claude", {}) == "Team"
 
     def test_keychain_used_when_file_holds_no_login(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -123,18 +119,32 @@ class TestCodexBudget:
         monkeypatch.setattr(budget, "_CODEX_AUTH_FILE", path)
         assert budget.detect("codex") == "API"
 
-    def test_configured_api_key_reports_api(
+    def test_spawn_env_api_key_reports_api(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        conf = cfg.load()
-        conf["api-key-codex"] = "sk-configured"
-        cfg.save(conf)
         path = _write(
             tmp_path / "codex.json",
-            {"auth_mode": "chatgpt", "tokens": {"id_token": _codex_id_token("team")}},
+            {
+                "auth_mode": "chatgpt",
+                "tokens": {"id_token": _codex_id_token("team")},
+            },
         )
         monkeypatch.setattr(budget, "_CODEX_AUTH_FILE", path)
-        assert budget.detect("codex") == "API"
+        assert budget.detect("codex", {"OPENAI_API_KEY": "sk-configured"}) == "API"
+
+    def test_explicit_spawn_env_ignores_server_api_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "server-key")
+        path = _write(
+            tmp_path / "codex.json",
+            {
+                "auth_mode": "chatgpt",
+                "tokens": {"id_token": _codex_id_token("team")},
+            },
+        )
+        monkeypatch.setattr(budget, "_CODEX_AUTH_FILE", path)
+        assert budget.detect("codex", {}) == "Team"
 
     def test_missing_auth_file_reports_unknown(self) -> None:
         assert budget.detect("codex") is None

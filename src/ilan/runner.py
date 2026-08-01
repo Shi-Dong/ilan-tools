@@ -290,9 +290,9 @@ class Runner:
         # backend read when building the command) for attribution at reap.
         task.spawn_effort = str(cfg.load().get("effort", "xhigh"))
         # Same for the paying account: resolve it from the credentials this
-        # spawn just authenticated with, since a later `ilan config set
-        # api-key-…` would change the answer for the *next* spawn only.
-        task.spawn_budget = budget.detect(task.engine)
+        # spawn just authenticated with, since a later credential config change
+        # would affect the *next* spawn only.
+        task.spawn_budget = budget.detect(task.engine, env)
         task.set_status(TaskStatus.WORKING)
         self.store.put_task(task)
         return True

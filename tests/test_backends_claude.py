@@ -59,11 +59,42 @@ class TestBuildCommand:
         assert "--resume" not in cmd
 
     def test_sets_api_key_from_config(
-        self, backend: ClaudeBackend, tmp_config: Path
+        self, backend: ClaudeBackend, tmp_config: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        cfg.save({"api-key-claude": "sk-live", "model-claude": "claude-opus-4-7"})
+        monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "inherited-token")
+        cfg.save({
+            **cfg.DEFAULTS,
+            "api-key-mode": True,
+            "api-key-claude": "sk-live",
+        })
         _, env = backend.build_command(None, resume=False, session_id=None)
         assert env["ANTHROPIC_API_KEY"] == "sk-live"
+        assert "ANTHROPIC_AUTH_TOKEN" not in env
+
+    def test_disabled_api_key_mode_removes_api_credentials(
+        self, backend: ClaudeBackend, tmp_config: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "inherited-key")
+        monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "inherited-token")
+        cfg.save({
+            **cfg.DEFAULTS,
+            "api-key-mode": False,
+            "api-key-claude": "sk-configured",
+        })
+        _, env = backend.build_command(None, resume=False, session_id=None)
+        assert "ANTHROPIC_API_KEY" not in env
+        assert "ANTHROPIC_AUTH_TOKEN" not in env
+
+    def test_enabled_mode_without_configured_key_uses_subscription(
+        self, backend: ClaudeBackend, tmp_config: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "inherited-key")
+        cfg.save({**cfg.DEFAULTS, "api-key-mode": True})
+        _, env = backend.build_command(None, resume=False, session_id=None)
+        assert "ANTHROPIC_API_KEY" not in env
 
 
 class TestParseOutput:

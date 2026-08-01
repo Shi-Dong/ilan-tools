@@ -13,6 +13,7 @@ DEFAULTS: dict[str, str | int | bool] = {
     "time-zone": "US/Pacific",
     "editor": "emacs",
     "default-backend": "claude",
+    "api-key-mode": False,
     "api-key-claude": "",
     "api-key-codex": "",
     "github-token": "",
@@ -61,7 +62,7 @@ def is_valid_model_id(key: str, value: str) -> bool:
     return any(ch.isdigit() for ch in value)
 
 INT_KEYS = {"dashboard-interval"}
-BOOL_KEYS = {"line-number", "markdown", "one-line-summary"}
+BOOL_KEYS = {"api-key-mode", "line-number", "markdown", "one-line-summary"}
 
 # Values that should never be printed in full by `ilan config show`.
 # ``ilan config show`` renders these as ``**<last-5-chars>`` so the user can
