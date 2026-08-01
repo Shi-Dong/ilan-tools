@@ -2,9 +2,8 @@
 
 Neither backend records the billing source in its session log, so — like the
 reasoning effort — it is resolved locally at spawn time and cached on the task.
-Both CLIs pick their credentials the same way: an API key in the environment
-wins, otherwise the OAuth login stored on disk is used. So the answer is an
-API-key check followed by a lookup of the stored login's plan name.
+The exact environment passed to the CLI determines whether an API key wins;
+otherwise the OAuth login stored on disk supplies the subscription plan name.
 """
 
 from __future__ import annotations
@@ -13,10 +12,10 @@ import base64
 import json
 import os
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from ilan import config as cfg
 from ilan.models import API, ENGINE_CLAUDE, ENGINE_CODEX
 
 # Env vars that override the stored OAuth login for each CLI. ANTHROPIC_AUTH_TOKEN
@@ -71,15 +70,9 @@ def _plan_label(plan: Any) -> str | None:
     return plan.strip().title()
 
 
-def _has_api_key(config_key: str, env_vars: tuple[str, ...]) -> bool:
-    """Whether a spawn would authenticate with an API key.
-
-    Mirrors the backends' own precedence: they inject the configured key into a
-    copy of the current environment, so either source means key-based billing.
-    """
-    if str(cfg.load().get(config_key, "")).strip():
-        return True
-    return any(os.environ.get(var, "").strip() for var in env_vars)
+def _has_api_key(env_vars: tuple[str, ...], env: Mapping[str, str]) -> bool:
+    """Whether the exact environment for a spawn contains an API key."""
+    return any(env.get(var, "").strip() for var in env_vars)
 
 
 def _claude_oauth() -> dict[str, Any] | None:
@@ -94,8 +87,8 @@ def _claude_oauth() -> dict[str, Any] | None:
     return None
 
 
-def _claude_budget() -> str | None:
-    if _has_api_key("api-key-claude", _CLAUDE_KEY_VARS):
+def _claude_budget(env: Mapping[str, str]) -> str | None:
+    if _has_api_key(_CLAUDE_KEY_VARS, env):
         return API
     return _plan_label((_claude_oauth() or {}).get("subscriptionType"))
 
@@ -119,8 +112,8 @@ def _codex_plan(tokens: dict[str, Any]) -> str | None:
     return _plan_label(auth.get("chatgpt_plan_type"))
 
 
-def _codex_budget() -> str | None:
-    if _has_api_key("api-key-codex", _CODEX_KEY_VARS):
+def _codex_budget(env: Mapping[str, str]) -> str | None:
+    if _has_api_key(_CODEX_KEY_VARS, env):
         return API
     auth = _read_json_file(_CODEX_AUTH_FILE)
     if auth is None:
@@ -133,15 +126,19 @@ def _codex_budget() -> str | None:
     return _codex_plan(tokens) if isinstance(tokens, dict) else None
 
 
-def detect(engine: str) -> str | None:
+def detect(engine: str, env: Mapping[str, str] | None = None) -> str | None:
     """Return the budget label for a spawn on *engine*, or ``None`` if unknown.
+
+    *env* should be the exact environment handed to the backend. It defaults to
+    the current process environment for callers that are not resolving a spawn.
 
     ``None`` means the credential store could not be read (no login yet, or a
     keychain we are not allowed to open); callers omit the field rather than
     guess, so attribution is never wrong.
     """
+    spawn_env = os.environ if env is None else env
     if engine == ENGINE_CLAUDE:
-        return _claude_budget()
+        return _claude_budget(spawn_env)
     if engine == ENGINE_CODEX:
-        return _codex_budget()
+        return _codex_budget(spawn_env)
     return None

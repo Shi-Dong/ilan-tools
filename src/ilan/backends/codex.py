@@ -99,6 +99,9 @@ class CodexBackend(Backend):
 
         env = os.environ.copy()
         api_key = str(conf.get("api-key-codex", "")).strip()
+        env.pop("OPENAI_API_KEY", None)
+        if not cfg.parse_bool(conf.get("api-key-mode", False)):
+            api_key = ""
         if api_key:
             env["OPENAI_API_KEY"] = api_key
         return cmd, env

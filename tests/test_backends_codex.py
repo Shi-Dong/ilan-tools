@@ -89,9 +89,13 @@ class TestBuildCommand:
         assert cmd[cmd.index("--model") + 1] == "gpt-5.1-codex-max"
 
     def test_api_key_codex_sets_openai_key(
-        self, backend: CodexBackend, tmp_config: Path
+        self, backend: CodexBackend, tmp_config: Path,
     ) -> None:
-        cfg.save({"api-key-codex": "sk-codex-live"})
+        cfg.save({
+            **cfg.DEFAULTS,
+            "api-key-mode": True,
+            "api-key-codex": "sk-codex-live",
+        })
         _, env = backend.build_command(None, resume=False, session_id=None)
         assert env["OPENAI_API_KEY"] == "sk-codex-live"
 
@@ -113,6 +117,28 @@ class TestBuildCommand:
     ) -> None:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         cfg.save({"model-claude": "opus"})
+        _, env = backend.build_command(None, resume=False, session_id=None)
+        assert "OPENAI_API_KEY" not in env
+
+    def test_disabled_api_key_mode_removes_openai_key(
+        self, backend: CodexBackend, tmp_config: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "inherited-key")
+        cfg.save({
+            **cfg.DEFAULTS,
+            "api-key-mode": False,
+            "api-key-codex": "sk-configured",
+        })
+        _, env = backend.build_command(None, resume=False, session_id=None)
+        assert "OPENAI_API_KEY" not in env
+
+    def test_enabled_mode_without_configured_key_uses_subscription(
+        self, backend: CodexBackend, tmp_config: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "inherited-key")
+        cfg.save({**cfg.DEFAULTS, "api-key-mode": True})
         _, env = backend.build_command(None, resume=False, session_id=None)
         assert "OPENAI_API_KEY" not in env
 

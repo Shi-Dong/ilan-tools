@@ -320,6 +320,22 @@ class TestConfig:
         resp = _get(ilan_server, "/config")
         assert resp["config"]["model-claude"] == "claude-sonnet-4-6"
 
+    @pytest.mark.parametrize(
+        ("value", "expected"), [("true", True), ("false", False)]
+    )
+    def test_set_api_key_mode(
+        self, ilan_server: IlanServer, value: str, expected: bool
+    ) -> None:
+        resp = _post(
+            ilan_server,
+            "/config/set",
+            {"key": "api-key-mode", "value": value},
+        )
+        assert resp.get("ok") is True
+        assert resp["value"] is expected
+        config = _get(ilan_server, "/config")["config"]
+        assert config["api-key-mode"] is expected
+
     def test_set_config_invalid_key(self, ilan_server: IlanServer) -> None:
         resp = _post(ilan_server, "/config/set", {"key": "bad-key", "value": "x"})
         assert "error" in resp

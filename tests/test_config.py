@@ -15,7 +15,8 @@ class TestDefaults:
         expected = {
             "workdir", "model-claude", "model-codex", "effort",
             "time-zone", "editor", "default-backend",
-            "api-key-claude", "api-key-codex", "github-token",
+            "api-key-mode", "api-key-claude", "api-key-codex",
+            "github-token",
             "dashboard-interval",
             "line-number", "markdown", "one-line-summary",
         }
@@ -34,6 +35,9 @@ class TestDefaults:
         assert cfg.DEFAULTS["api-key-codex"] == ""
         assert "api-key-codex" in cfg.SECRET_KEYS
 
+    def test_api_key_mode_default_false(self) -> None:
+        assert cfg.DEFAULTS["api-key-mode"] is False
+
     def test_github_token_default_empty(self) -> None:
         assert cfg.DEFAULTS["github-token"] == ""
         # Server-side (not a client-only key), so mirroring runs on the server.
@@ -46,7 +50,9 @@ class TestDefaults:
         assert {"dashboard-interval"} == cfg.INT_KEYS
 
     def test_bool_keys(self) -> None:
-        assert {"line-number", "markdown", "one-line-summary"} == cfg.BOOL_KEYS
+        assert {
+            "api-key-mode", "line-number", "markdown", "one-line-summary",
+        } == cfg.BOOL_KEYS
 
     def test_client_side_keys(self) -> None:
         assert {
