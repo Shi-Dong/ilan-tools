@@ -1127,10 +1127,10 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task = self._get_task_or_404(name)
                 if task is None:
                     return
-                if task.needs_review:
+                gist_id, gist_url = task.gist_id, task.gist_url
+                if gist_id and gist_url and task.needs_review:
                     task.needs_review = False
                     self._ilan.store.put_task(task)
-                gist_id, gist_url = task.gist_id, task.gist_url
             if not gist_id or not gist_url:
                 self._json({"url": None})
                 return
