@@ -1825,7 +1825,7 @@ class TestNeedsReview:
         task = _get(ilan_server, "/tasks/nr-logs")["task"]
         assert task["needs_review"] is False
 
-    def test_history_url_clears_needs_review(
+    def test_history_url_without_gist_preserves_needs_review(
         self, ilan_server: IlanServer
     ) -> None:
         _post(ilan_server, "/tasks", {"name": "nr-open", "prompt": "P"})
@@ -1834,6 +1834,25 @@ class TestNeedsReview:
         resp = _get(ilan_server, "/tasks/nr-open/history-url")
 
         assert resp == {"url": None}
+        task = _get(ilan_server, "/tasks/nr-open")["task"]
+        assert task["needs_review"] is True
+
+    def test_history_url_with_gist_clears_needs_review(
+        self, ilan_server: IlanServer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        gist_url = "https://gist.github.com/u/gid1"
+        _post(ilan_server, "/tasks", {"name": "nr-open", "prompt": "P"})
+        _set_needs_review(ilan_server, "nr-open")
+        with ilan_server.lock:
+            task = ilan_server.store.get_task("nr-open")
+            task.gist_id = "gid1"
+            task.gist_url = gist_url
+            ilan_server.store.put_task(task)
+        monkeypatch.setattr(srv_mod, "github_token", lambda: "")
+
+        resp = _get(ilan_server, "/tasks/nr-open/history-url")
+
+        assert resp == {"url": gist_url}
         task = _get(ilan_server, "/tasks/nr-open")["task"]
         assert task["needs_review"] is False
 
