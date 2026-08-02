@@ -1825,6 +1825,18 @@ class TestNeedsReview:
         task = _get(ilan_server, "/tasks/nr-logs")["task"]
         assert task["needs_review"] is False
 
+    def test_history_url_clears_needs_review(
+        self, ilan_server: IlanServer
+    ) -> None:
+        _post(ilan_server, "/tasks", {"name": "nr-open", "prompt": "P"})
+        _set_needs_review(ilan_server, "nr-open")
+
+        resp = _get(ilan_server, "/tasks/nr-open/history-url")
+
+        assert resp == {"url": None}
+        task = _get(ilan_server, "/tasks/nr-open")["task"]
+        assert task["needs_review"] is False
+
     def test_reply_clears_needs_review(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "nr-reply", "prompt": "P"})
         _set_needs_review(ilan_server, "nr-reply")
