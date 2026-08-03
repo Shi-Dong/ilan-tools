@@ -420,26 +420,25 @@ class TestServerBranchEndpoint:
         logs = ilan_server.store.read_logs("codex-child")
         assert [e.content for e in logs] == ["hello", "hi", "try plan B"]
 
-    def test_branch_no_message(self, ilan_server: IlanServer) -> None:
+    def test_branch_refuses_without_message(self, ilan_server: IlanServer) -> None:
+        """A branch that would only continue the parent's work is a reply to
+        the parent, not a branch — a child spawned without its own assignment
+        just resumes the parent's in-flight instructions verbatim."""
         _seed_parent(ilan_server)
         with patch.object(Runner, "find_session_log", return_value=Path("/fake/sid-1.jsonl")):
             code, resp = _post(
                 ilan_server, "/tasks/parent-task/branch",
                 {"new_name": "child-task"},
             )
-        assert code == 200
-        child = ilan_server.store.get_task("child-task")
-        assert child is not None
-        assert child.cached_replies == []
-        # No new assignment means "carry on from here", which the inherited
-        # session already does — separating the child would leave it idle.
-        assert child.awaiting_branch_notice is False
+        assert code == 400
+        assert "requires a first assignment" in resp["error"]
+        assert ilan_server.store.get_task("child-task") is None
 
     def test_branch_refuses_when_parent_has_no_session(self, ilan_server: IlanServer) -> None:
         _seed_parent(ilan_server, session_id=None)
         code, resp = _post(
             ilan_server, "/tasks/parent-task/branch",
-            {"new_name": "child-task"},
+            {"new_name": "child-task", "message": "try plan B"},
         )
         assert code == 409
         assert "no Claude Code session" in resp["error"]
@@ -449,7 +448,7 @@ class TestServerBranchEndpoint:
         with patch.object(Runner, "find_session_log", return_value=None):
             code, resp = _post(
                 ilan_server, "/tasks/parent-task/branch",
-                {"new_name": "child-task"},
+                {"new_name": "child-task", "message": "try plan B"},
             )
         assert code == 409
         assert "not found on disk" in resp["error"]
@@ -463,7 +462,7 @@ class TestServerBranchEndpoint:
         with patch.object(Runner, "find_session_log", return_value=Path("/fake/sid-1.jsonl")):
             code, resp = _post(
                 ilan_server, "/tasks/parent-task/branch",
-                {"new_name": "child-task"},
+                {"new_name": "child-task", "message": "try plan B"},
             )
         assert code == 409
         assert "already exists" in resp["error"]
@@ -491,7 +490,7 @@ class TestServerBranchEndpoint:
         with patch.object(Runner, "find_session_log", return_value=Path("/fake/sid-1.jsonl")):
             code, resp = _post(
                 ilan_server, "/tasks/parent-task/branch",
-                {"new_name": "child-task"},
+                {"new_name": "child-task", "message": "try plan B"},
             )
         assert code == 409
         assert "Alias pool exhausted" in resp["error"]
@@ -502,7 +501,7 @@ class TestServerBranchEndpoint:
         with patch.object(Runner, "find_session_log", return_value=Path("/fake/sid-1.jsonl")):
             _post(
                 ilan_server, "/tasks/parent-task/branch",
-                {"new_name": "child-task"},
+                {"new_name": "child-task", "message": "try plan B"},
             )
         url = f"{ilan_server._test_url}/tasks"  # type: ignore[attr-defined]
         with urlopen(Request(url), timeout=5) as r:
@@ -655,19 +654,18 @@ class TestBranchCliFlags:
         assert result.exit_code != 0
         assert "Missing option" in result.output or "-n" in result.output
 
-    def test_branch_with_dash_n_invokes_client(self, tmp_config) -> None:
+    def test_branch_requires_a_message(self, tmp_config) -> None:
+        """No -d/-f means the child has no assignment of its own — refuse
+        client-side before the server is even asked."""
         from click.testing import CliRunner
         from ilan.cli import main
         runner = CliRunner()
         client = _make_cli_client()
-        client.branch_task.return_value = {
-            "ok": True, "name": "child", "parent_name": "parent",
-        }
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["branch", "parent", "-n", "child"])
-        assert result.exit_code == 0, result.output
-        client.branch_task.assert_called_once_with("parent", "child", None)
-        assert "Branched" in result.output
+        assert result.exit_code != 0
+        assert "Exactly one of --file / --description" in result.output
+        client.branch_task.assert_not_called()
 
     def test_branch_with_dash_n_and_description(self, tmp_config) -> None:
         from click.testing import CliRunner

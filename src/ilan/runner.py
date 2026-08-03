@@ -102,12 +102,10 @@ def _branch_divider(parent_name: str | None) -> str:
     with nothing marking the boundary.
 
     The wording is deliberately neutral — "the turns below define this task's
-    work" — rather than "do not touch the work above": a branch created *with*
-    a message is a new assignment (and its own turns start with that
-    assignment), but a branch created *without* one means "carry on from
-    here", so its own turns legitimately continue the inherited thread. The
-    divider states a fact that is true for both; the strong separation wording
-    stays in the notice, which only exists when an assignment was given.
+    work" — rather than repeating the notice's imperatives: a branched task's
+    own turns start with its branch assignment, so pointing below the line is
+    enough, and the full "do not resume the parent's work" instruction already
+    ran in the notice on the first prompt.
     """
     parent = f"`{parent_name}`" if parent_name else "the parent task"
     return (
@@ -189,11 +187,10 @@ def _render_catchup(
 
     # Truncation drops oldest-first, so the divider position simply shifts
     # left with the drop count; at zero or below the whole inherited prefix
-    # is gone and there is nothing left to separate. At len(kept) the slice
-    # is *purely* inherited — a message-less branch spawning straight off
-    # the parent's last turn — and a divider claiming "the turns below
-    # define the work" above zero turns would disown the very thread that
-    # branch is meant to carry on.
+    # is gone and there is nothing left to separate. The upper bound is
+    # defensive — every branch logs its assignment at branch time, so no
+    # rendered slice should be purely inherited — but a divider claiming
+    # "the turns below define the work" must never sit above zero turns.
     boundary = inherited_count - omitted
     if 0 < boundary < len(kept):
         kept.insert(boundary, _branch_divider(parent_name))

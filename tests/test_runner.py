@@ -1416,10 +1416,10 @@ class TestBranchDivider:
     def test_no_divider_when_the_slice_is_purely_inherited(
         self, store: Store, runner: Runner,
     ) -> None:
-        """A message-less codex branch spawns straight off the inherited
-        prefix ('carry on from here'). A divider disowning everything above —
-        with zero turns below it — would fight the continue-the-work footer
-        that is exactly right for that branch."""
+        """Defensive: every branch logs its assignment at branch time, so no
+        rendered slice should ever be purely inherited — but if one is, a
+        divider claiming 'the turns below define this task's work' must not
+        sit above zero turns, fighting the continue-the-work footer."""
         t = self._branched(engine=ENGINE_CODEX, awaiting_catchup=True)
         store.put_task(t)
         store.append_log("child", "user", "inherited question")

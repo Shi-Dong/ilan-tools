@@ -1727,16 +1727,13 @@ def _do_branch(
     file_path: str | None,
     description: str | None,
 ) -> None:
-    if file_path is not None and description is not None:
-        console.print("[red]Pass at most one of --file / --description.[/red]")
+    if (file_path is None) == (description is None):
+        console.print("[red]Exactly one of --file / --description must be provided.[/red]")
         raise SystemExit(1)
-    message: str | None = None
-    if file_path is not None:
-        message = Path(file_path).read_text()
-    elif description is not None:
-        message = description
+    message = Path(file_path).read_text() if file_path is not None else description
+    assert message is not None
 
-    if message is not None and _line_number_enabled():
+    if _line_number_enabled():
         message = _expand_at_refs(message, cfg.load_last_tail(old_name))
 
     resp = _client().branch_task(old_name, new_name, message)
@@ -1754,13 +1751,16 @@ def _do_branch(
 @click.option("-n", "--name", "new_name", required=True,
               help="Short name for the branched (new) task.")
 @click.option("-f", "--file", "file_path", type=click.Path(exists=True), default=None,
-              help="Path to a file containing the first reply to the child task.")
+              help="Path to a file containing the child task's first assignment.")
 @click.option("-d", "--description", default=None,
-              help="Inline first reply to the child task.")
+              help="Inline first assignment for the child task.")
 def task_branch(
     old_name: str, new_name: str, file_path: str | None, description: str | None
 ) -> None:
-    """Branch a new task from OLD_NAME, inheriting its full context."""
+    """Branch a new task from OLD_NAME, inheriting its full context.
+
+    Exactly one of -d / -f must supply the child's first assignment.
+    """
     _do_branch(old_name, new_name, file_path, description)
 
 
@@ -2441,9 +2441,9 @@ def shortcut_alias(name: str, new_alias: str) -> None:
 @click.option("-n", "--name", "new_name", required=True,
               help="Short name for the branched (new) task.")
 @click.option("-f", "--file", "file_path", type=click.Path(exists=True), default=None,
-              help="Path to a file containing the first reply to the child task.")
+              help="Path to a file containing the child task's first assignment.")
 @click.option("-d", "--description", default=None,
-              help="Inline first reply to the child task.")
+              help="Inline first assignment for the child task.")
 def shortcut_branch(
     old_name: str, new_name: str, file_path: str | None, description: str | None
 ) -> None:

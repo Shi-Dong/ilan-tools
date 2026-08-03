@@ -238,12 +238,12 @@ class Task:
     # unified log; consumed at the next spawn to inject a catch-up preamble
     # (resume) or seed a fresh session with the transcript. Reset once spent.
     awaiting_catchup: bool = False
-    # Set when this task was branched off ``parent_name`` *with* a new
-    # assignment; consumed at the next spawn to inject a notice that the
-    # inherited conversation is background context rather than work to finish.
-    # Without it the child resumes a verbatim copy of the parent's session and
-    # reads the parent's in-flight instructions — and its tmux prefix — as its
-    # own. Reset once spent.
+    # Set when this task is branched off ``parent_name`` (every branch carries
+    # the child's first assignment); consumed at the next spawn to inject a
+    # notice that the inherited conversation is background context rather than
+    # work to finish. Without it the child resumes a verbatim copy of the
+    # parent's session and reads the parent's in-flight instructions — and its
+    # tmux prefix — as its own. Reset once spent.
     awaiting_branch_notice: bool = False
 
     def set_session_for(self, engine: str, session_id: str) -> None:

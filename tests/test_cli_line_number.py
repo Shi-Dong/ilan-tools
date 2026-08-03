@@ -227,17 +227,18 @@ class TestBranchExpansion:
             "parent", "child", 'dig into "beta" please'
         )
 
-    def test_no_message_no_expansion(self, runner: CliRunner, tmp_config: Path) -> None:
+    def test_no_message_is_refused(self, runner: CliRunner, tmp_config: Path) -> None:
+        """Branching requires the child's first assignment, so there is
+        nothing to expand and the client is never called."""
         _enable_line_number(tmp_config)
         cfg.save_last_tail("parent", ["x"])
         client = _make_client()
-        client.branch_task.return_value = self._branch_resp()
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(
                 main, ["task", "branch", "parent", "-n", "child"]
             )
-        assert result.exit_code == 0
-        client.branch_task.assert_called_once_with("parent", "child", None)
+        assert result.exit_code != 0
+        client.branch_task.assert_not_called()
 
     def test_shortcut_branch_also_expands(
         self, runner: CliRunner, tmp_config: Path
