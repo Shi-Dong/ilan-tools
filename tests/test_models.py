@@ -287,6 +287,7 @@ class TestTask:
             "gist_branch_parent_name", "gist_parent_comment_url",
             "gist_title_name", "gist_description",
             "engine", "sessions", "log_cursors", "awaiting_catchup",
+            "awaiting_branch_notice",
         }
         assert set(d.keys()) == expected_keys
 

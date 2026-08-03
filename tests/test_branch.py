@@ -374,6 +374,7 @@ class TestServerBranchEndpoint:
         assert child.parent_name == "parent-task"
         assert child.session_id == "sid-1"
         assert child.cached_replies == ["try plan B"]
+        assert child.awaiting_branch_notice is True
         assert child.gist_branch_point == 2
         assert child.gist_synced_count == 2
         assert child.gist_branch_parent_name == "parent-task"
@@ -430,6 +431,9 @@ class TestServerBranchEndpoint:
         child = ilan_server.store.get_task("child-task")
         assert child is not None
         assert child.cached_replies == []
+        # No new assignment means "carry on from here", which the inherited
+        # session already does — separating the child would leave it idle.
+        assert child.awaiting_branch_notice is False
 
     def test_branch_refuses_when_parent_has_no_session(self, ilan_server: IlanServer) -> None:
         _seed_parent(ilan_server, session_id=None)

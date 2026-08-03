@@ -886,6 +886,11 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 )
                 if message:
                     child.cached_replies.append(message)
+                    # A branch carrying its own assignment needs the child told
+                    # that the inherited conversation is context, not work to
+                    # finish. A branch without one means "carry on from here",
+                    # which is exactly what the inherited session already does.
+                    child.awaiting_branch_notice = True
                     self._ilan.store.append_log(child.name, "user", message)
                     self._ilan.store.put_task(child)
                 self._ilan.runner.start(child)

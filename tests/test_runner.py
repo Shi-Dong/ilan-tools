@@ -16,6 +16,7 @@ from ilan.runner import (
     Runner,
     STATUS_SUFFIX,
     _CATCHUP_MAX_CHARS,
+    _branch_notice,
     _render_catchup,
     _tmux_instruction,
 )
@@ -1206,6 +1207,124 @@ class TestRenderCatchup:
         assert "omitted" not in out
 
 
+# ── branch notice ────────────────────────────────────────────────────────
+
+
+class TestBranchNotice:
+    """A branched child inherits its parent's conversation verbatim. Without a
+    notice it reads the parent's in-flight instructions as its own — and, since
+    every inherited turn ends in the parent's TMUX SESSION REQUIREMENT block,
+    it sees the parent's hash far more often than the one hash that is its."""
+
+    def _child(self, **kw) -> Task:
+        return Task(
+            name="child", prompt="root prompt", parent_name="parent",
+            awaiting_branch_notice=True, **kw,
+        )
+
+    def test_claude_branch_puts_notice_before_the_assignment(
+        self, runner: Runner,
+    ) -> None:
+        t = self._child(session_id="sid-c", cached_replies=["do the new thing"])
+        with patch.object(Runner, "find_session_log",
+                          return_value=Path("/fake/sid-c.jsonl")):
+            prompt, resume = runner._build_prompt(t)
+
+        assert resume is True
+        assert "BRANCHED FROM `parent`" in prompt
+        assert "REFERENCE CONTEXT ONLY" in prompt
+        assert prompt.index("BRANCHED FROM") < prompt.index("do the new thing")
+
+    def test_notice_disowns_the_inherited_tmux_prefix(self) -> None:
+        notice = _branch_notice("parent", assignment_below=True)
+        assert "task hash or tmux session prefix" in notice
+        assert "belongs to `parent`" in notice
+        # Points the child at the one block that carries its own hash.
+        assert "TMUX SESSION REQUIREMENT" in notice
+
+    def test_notice_without_a_parent_name(self) -> None:
+        assert "another task" in _branch_notice(None, assignment_below=True)
+
+    def test_no_notice_when_flag_unset(self, runner: Runner) -> None:
+        t = Task(name="plain", prompt="root", session_id="sid-p",
+                 parent_name="parent", cached_replies=["carry on"])
+        with patch.object(Runner, "find_session_log",
+                          return_value=Path("/fake/sid-p.jsonl")):
+            prompt, _ = runner._build_prompt(t)
+        assert "BRANCHED FROM" not in prompt
+
+    def test_codex_branch_notice_replaces_the_continue_footer(
+        self, store: Store, runner: Runner,
+    ) -> None:
+        """A codex child has no forkable session, so its history arrives as a
+        rendered transcript. The 'taking over / continue the work' framing is
+        exactly wrong there, and the notice must land last — after the history,
+        which ends with the child's own assignment."""
+        t = self._child(engine=ENGINE_CODEX, awaiting_catchup=True)
+        store.put_task(t)
+        store.append_log("child", "user", "inherited question")
+        store.append_log("child", "assistant", "inherited answer")
+        store.append_log("child", "user", "do the new thing")
+
+        prompt, resume = runner._build_prompt(t)
+
+        assert resume is False
+        assert "taking over" not in prompt.lower()
+        assert "inherited as background context" in prompt
+        assert "Please continue working on this task." not in prompt
+        assert "inherited answer" in prompt
+        assert prompt.index("END CONVERSATION HISTORY") < prompt.index(
+            "BRANCHED FROM `parent`"
+        )
+        assert "final user message in the history above" in prompt
+
+    def test_spawned_prompt_ends_with_the_childs_own_hash(
+        self, store: Store, tmp_workdir: Path, tmp_config: Path,
+    ) -> None:
+        """End-to-end ordering: the notice tells the child to ignore the
+        inherited prefix, and the block naming its real one comes after."""
+        import ilan.config as cfg_mod
+
+        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
+        runner = Runner(store)
+        t = self._child(session_id="sid-c", task_hash="cafe1234",
+                        cached_replies=["do the new thing"])
+        store.put_task(t)
+
+        with patch.object(Runner, "find_session_log",
+                          return_value=Path("/fake/sid-c.jsonl")), \
+             patch("subprocess.Popen") as mock_popen:
+            mock_popen.return_value.pid = 12345
+            assert runner.start(t) is True
+
+        text = store.prompt_path("child").read_text()
+        assert text.index("BRANCHED FROM `parent`") < text.index("cafe1234")
+
+    def test_spawn_failure_preserves_pending_notice(
+        self, store: Store, tmp_workdir: Path, tmp_config: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A spawn that never exec'd must not burn the notice: the retry has to
+        rebuild it, or the child silently loses its separation instruction."""
+        import ilan.config as cfg_mod
+
+        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
+        monkeypatch.setenv("PATH", "/nonexistent")
+
+        runner = Runner(store)
+        t = self._child(session_id="sid-c", cached_replies=["do the new thing"])
+        store.put_task(t)
+
+        with patch.object(Runner, "find_session_log",
+                          return_value=Path("/fake/sid-c.jsonl")):
+            assert runner.start(t) is False
+
+        stored = store.get_task("child")
+        assert stored is not None
+        assert stored.awaiting_branch_notice is True
+        assert stored.cached_replies == ["do the new thing"]
+
+
 # ── _try_reap: cursor + session map ──────────────────────────────────────
 
 
@@ -1265,6 +1384,26 @@ class TestReapCursor:
         assert reply.input_tokens is None
         assert reply.output_tokens is None
         assert reply.cache_read_input_tokens is None
+
+    def test_reap_clears_branch_notice(self, store: Store, runner: Runner) -> None:
+        """The notice is one-shot: spent here, so the child's second turn is a
+        normal turn rather than a repeated 'you are a new task' preamble."""
+        t = Task(name="rc3", prompt="p", status=TaskStatus.WORKING, pid=99999,
+                 engine=ENGINE_CLAUDE, parent_name="parent",
+                 awaiting_branch_notice=True)
+        store.put_task(t)
+        store.append_log("rc3", "user", "do the new thing")
+        out = {"session_id": "sid-rc3", "result": "done\n[STATUS: DONE]",
+               "is_error": False}
+        store.output_path("rc3").write_text(json.dumps(out))
+
+        with patch.object(Runner, "find_session_log",
+                          return_value=Path("/fake/sid-rc3.jsonl")):
+            runner._try_reap(t)
+
+        updated = store.get_task("rc3")
+        assert updated is not None
+        assert updated.awaiting_branch_notice is False
 
 
 # ── switch_engine ────────────────────────────────────────────────────────

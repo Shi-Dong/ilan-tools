@@ -235,6 +235,13 @@ class Task:
     # unified log; consumed at the next spawn to inject a catch-up preamble
     # (resume) or seed a fresh session with the transcript. Reset once spent.
     awaiting_catchup: bool = False
+    # Set when this task was branched off ``parent_name`` *with* a new
+    # assignment; consumed at the next spawn to inject a notice that the
+    # inherited conversation is background context rather than work to finish.
+    # Without it the child resumes a verbatim copy of the parent's session and
+    # reads the parent's in-flight instructions — and its tmux prefix — as its
+    # own. Reset once spent.
+    awaiting_branch_notice: bool = False
 
     def set_session_for(self, engine: str, session_id: str) -> None:
         """Record the native session id for *engine*."""
@@ -307,6 +314,7 @@ class Task:
             "sessions": self.sessions,
             "log_cursors": self.log_cursors,
             "awaiting_catchup": self.awaiting_catchup,
+            "awaiting_branch_notice": self.awaiting_branch_notice,
         }
 
     @classmethod
@@ -356,6 +364,7 @@ class Task:
             sessions=cls._migrate_sessions(d),
             log_cursors=dict(d.get("log_cursors") or {}),
             awaiting_catchup=d.get("awaiting_catchup", False),
+            awaiting_branch_notice=d.get("awaiting_branch_notice", False),
         )
 
     @staticmethod
