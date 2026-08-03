@@ -16,6 +16,8 @@ from ilan.runner import (
     Runner,
     STATUS_SUFFIX,
     _CATCHUP_MAX_CHARS,
+    _branch_divider,
+    _branch_notice,
     _render_catchup,
     _tmux_instruction,
 )
@@ -1206,6 +1208,295 @@ class TestRenderCatchup:
         assert "omitted" not in out
 
 
+# ── branch notice ────────────────────────────────────────────────────────
+
+
+class TestBranchNotice:
+    """A branched child inherits its parent's conversation verbatim. Without a
+    notice it reads the parent's in-flight instructions as its own — and, since
+    every inherited turn ends in the parent's TMUX SESSION REQUIREMENT block,
+    it sees the parent's hash far more often than the one hash that is its."""
+
+    def _child(self, **kw) -> Task:
+        return Task(
+            name="child", prompt="root prompt", parent_name="parent",
+            awaiting_branch_notice=True, **kw,
+        )
+
+    def test_claude_branch_puts_notice_before_the_assignment(
+        self, runner: Runner,
+    ) -> None:
+        t = self._child(session_id="sid-c", cached_replies=["do the new thing"])
+        with patch.object(Runner, "find_session_log",
+                          return_value=Path("/fake/sid-c.jsonl")):
+            prompt, resume = runner._build_prompt(t)
+
+        assert resume is True
+        assert "BRANCHED FROM `parent`" in prompt
+        assert "REFERENCE CONTEXT ONLY" in prompt
+        assert prompt.index("BRANCHED FROM") < prompt.index("do the new thing")
+
+    def test_notice_disowns_the_inherited_tmux_prefix(self) -> None:
+        notice = _branch_notice("parent", assignment_below=True)
+        assert "task hash or tmux session prefix" in notice
+        assert "belongs to `parent`" in notice
+        # Points the child at the one block that carries its own hash.
+        assert "TMUX SESSION REQUIREMENT" in notice
+
+    def test_notice_without_a_parent_name(self) -> None:
+        assert "another task" in _branch_notice(None, assignment_below=True)
+
+    def test_no_notice_when_flag_unset(self, runner: Runner) -> None:
+        t = Task(name="plain", prompt="root", session_id="sid-p",
+                 parent_name="parent", cached_replies=["carry on"])
+        with patch.object(Runner, "find_session_log",
+                          return_value=Path("/fake/sid-p.jsonl")):
+            prompt, _ = runner._build_prompt(t)
+        assert "BRANCHED FROM" not in prompt
+
+    def test_codex_branch_notice_replaces_the_continue_footer(
+        self, store: Store, runner: Runner,
+    ) -> None:
+        """A codex child has no forkable session, so its history arrives as a
+        rendered transcript. The 'taking over / continue the work' framing is
+        exactly wrong there, and the notice must land last — after the history,
+        which ends with the child's own assignment."""
+        t = self._child(engine=ENGINE_CODEX, awaiting_catchup=True,
+                        gist_branch_point=2)
+        store.put_task(t)
+        store.append_log("child", "user", "inherited question")
+        store.append_log("child", "assistant", "inherited answer")
+        store.append_log("child", "user", "do the new thing")
+
+        prompt, resume = runner._build_prompt(t)
+
+        assert resume is False
+        assert "taking over" not in prompt.lower()
+        assert "inherited as background context" in prompt
+        assert "Please continue working on this task." not in prompt
+        assert "inherited answer" in prompt
+        assert prompt.index("END CONVERSATION HISTORY") < prompt.index(
+            "BRANCHED FROM `parent`"
+        )
+        assert "final user message in the history above" in prompt
+        # The divider and the notice coexist on the first spawn: the divider
+        # walls off the inherited prefix, the notice names the assignment.
+        assert (
+            prompt.index("inherited answer")
+            < prompt.index("BRANCH POINT: inherited history ends here")
+            < prompt.index("do the new thing")
+            < prompt.index("BRANCHED FROM `parent`")
+        )
+
+    def test_spawned_prompt_ends_with_the_childs_own_hash(
+        self, store: Store, tmp_workdir: Path, tmp_config: Path,
+    ) -> None:
+        """End-to-end ordering: the notice tells the child to ignore the
+        inherited prefix, and the block naming its real one comes after."""
+        import ilan.config as cfg_mod
+
+        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
+        runner = Runner(store)
+        t = self._child(session_id="sid-c", task_hash="cafe1234",
+                        cached_replies=["do the new thing"])
+        store.put_task(t)
+
+        with patch.object(Runner, "find_session_log",
+                          return_value=Path("/fake/sid-c.jsonl")), \
+             patch("subprocess.Popen") as mock_popen:
+            mock_popen.return_value.pid = 12345
+            assert runner.start(t) is True
+
+        text = store.prompt_path("child").read_text()
+        assert text.index("BRANCHED FROM `parent`") < text.index("cafe1234")
+
+    def test_spawn_failure_preserves_pending_notice(
+        self, store: Store, tmp_workdir: Path, tmp_config: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A spawn that never exec'd must not burn the notice: the retry has to
+        rebuild it, or the child silently loses its separation instruction."""
+        import ilan.config as cfg_mod
+
+        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
+        monkeypatch.setenv("PATH", "/nonexistent")
+
+        runner = Runner(store)
+        t = self._child(session_id="sid-c", cached_replies=["do the new thing"])
+        store.put_task(t)
+
+        with patch.object(Runner, "find_session_log",
+                          return_value=Path("/fake/sid-c.jsonl")):
+            assert runner.start(t) is False
+
+        stored = store.get_task("child")
+        assert stored is not None
+        assert stored.awaiting_branch_notice is True
+        assert stored.cached_replies == ["do the new thing"]
+
+
+# ── branch divider ───────────────────────────────────────────────────────
+
+
+class TestBranchDivider:
+    """The one-shot branch notice covers only the first prompt. Every later
+    replay of the unified log (backend switch, lost-session reseed) must still
+    mark where the inherited prefix ends, or the parent's turns read as this
+    task's own history under a 'continue the work' framing."""
+
+    def _branched(self, **kw) -> Task:
+        # Notice already spent: this models a branched task well past its
+        # first turn, which is exactly when replays used to lose the boundary.
+        return Task(
+            name="child", prompt="root prompt", parent_name="parent",
+            gist_branch_point=2, **kw,
+        )
+
+    def _seed_log(self, store: Store) -> None:
+        store.append_log("child", "user", "inherited question")
+        store.append_log("child", "assistant", "inherited answer")
+        store.append_log("child", "user", "own question")
+        store.append_log("child", "assistant", "own answer")
+
+    def test_switch_keeps_both_boundaries(
+        self, store: Store, runner: Runner,
+    ) -> None:
+        """Switch semantics (continue this task) live in the header/footer;
+        branch semantics (the prefix belongs to the parent) in the divider."""
+        t = self._branched(engine=ENGINE_CODEX, awaiting_catchup=True)
+        store.put_task(t)
+        self._seed_log(store)
+
+        prompt, resume = runner._build_prompt(t)
+
+        assert resume is False
+        assert "taking over" in prompt.lower()
+        assert "Please continue working on this task." in prompt
+        assert (
+            prompt.index("inherited answer")
+            < prompt.index("BRANCH POINT: inherited history ends here")
+            < prompt.index("own question")
+        )
+        # No pending notice, so no assignment framing — just the divider.
+        assert "BRANCHED FROM" not in prompt
+
+    def test_no_divider_for_a_never_branched_switch(
+        self, store: Store, runner: Runner,
+    ) -> None:
+        t = Task(name="child", prompt="root prompt", engine=ENGINE_CODEX,
+                 awaiting_catchup=True)
+        store.put_task(t)
+        self._seed_log(store)
+
+        prompt, _ = runner._build_prompt(t)
+
+        assert "BRANCH POINT" not in prompt
+
+    def test_lost_session_reseed_keeps_the_divider(
+        self, store: Store, runner: Runner,
+    ) -> None:
+        """A vanished session log reseeds a fresh session from the whole
+        unified log — the same full replay a switch does, same boundary."""
+        t = self._branched(session_id="sid-gone",
+                           log_cursors={ENGINE_CLAUDE: 4})
+        store.put_task(t)
+        self._seed_log(store)
+
+        with patch.object(Runner, "find_session_log", return_value=None):
+            prompt, resume = runner._build_prompt(t)
+
+        assert resume is False
+        assert "taking over" in prompt.lower()
+        assert (
+            prompt.index("inherited answer")
+            < prompt.index("BRANCH POINT: inherited history ends here")
+            < prompt.index("own question")
+        )
+
+    def test_no_divider_when_the_slice_is_purely_inherited(
+        self, store: Store, runner: Runner,
+    ) -> None:
+        """Defensive: every branch logs its assignment at branch time, so no
+        rendered slice should ever be purely inherited — but if one is, a
+        divider claiming 'the turns below define this task's work' must not
+        sit above zero turns, fighting the continue-the-work footer."""
+        t = self._branched(engine=ENGINE_CODEX, awaiting_catchup=True)
+        store.put_task(t)
+        store.append_log("child", "user", "inherited question")
+        store.append_log("child", "assistant", "inherited answer")
+
+        prompt, resume = runner._build_prompt(t)
+
+        assert resume is False
+        assert "BRANCH POINT" not in prompt
+        assert "taking over" in prompt.lower()
+        assert "Please continue working on this task." in prompt
+
+    def test_no_divider_when_resuming_past_the_branch_point(
+        self, store: Store, runner: Runner,
+    ) -> None:
+        """A catch-up slice that starts after the branch point contains none
+        of the parent's turns, so there is no prefix to wall off."""
+        t = self._branched(engine=ENGINE_CODEX, awaiting_catchup=True,
+                           session_id="sid-x",
+                           log_cursors={ENGINE_CODEX: 3})
+        store.put_task(t)
+        self._seed_log(store)
+
+        with patch.object(Runner, "find_session_log",
+                          return_value=Path("/fake/sid-x.jsonl")):
+            prompt, resume = runner._build_prompt(t)
+
+        assert resume is True
+        assert "while you were away" in prompt.lower()
+        assert "BRANCH POINT" not in prompt
+        assert "inherited answer" not in prompt  # slice starts past it
+
+    def test_divider_dropped_with_a_fully_truncated_prefix(self) -> None:
+        """When truncation eats the whole inherited prefix there is nothing
+        left to separate — a dangling divider atop the child's own turns
+        would mislabel them as inherited."""
+        entries = [
+            LogEntry.now("user", f"inh-{i} " + "x" * 10_000) for i in range(3)
+        ] + [
+            LogEntry.now("user", f"own-{i} " + "y" * 300_000) for i in range(2)
+        ]
+        out = _render_catchup(
+            entries, fresh=True, inherited_count=3, parent_name="parent",
+        )
+        assert "earlier turn(s) omitted" in out
+        assert "BRANCH POINT" not in out
+
+    def test_divider_survives_mid_prefix_truncation(self) -> None:
+        """Dropping only the oldest part of the prefix shifts the divider
+        left by the drop count; it must still land between the surviving
+        inherited turns and the task's own."""
+        entries = [
+            LogEntry.now("user", f"inh-{i:03d} " + "x" * 10_000)
+            for i in range(60)
+        ] + [
+            LogEntry.now("user", "own question"),
+            LogEntry.now("assistant", "own answer"),
+        ]
+        out = _render_catchup(
+            entries, fresh=True, inherited_count=60, parent_name="parent",
+        )
+        assert "earlier turn(s) omitted" in out
+        assert "inh-000" not in out  # oldest inherited dropped
+        assert "inh-059" in out  # newest inherited kept
+        assert (
+            out.index("inh-059")
+            < out.index("BRANCH POINT: inherited history ends here")
+            < out.index("own question")
+        )
+
+    def test_divider_names_the_parent(self) -> None:
+        divider = _branch_divider("parent")
+        assert "inherited from `parent`" in divider
+        assert "reference context" in divider
+        assert "the parent task" in _branch_divider(None)
+
+
 # ── _try_reap: cursor + session map ──────────────────────────────────────
 
 
@@ -1265,6 +1556,26 @@ class TestReapCursor:
         assert reply.input_tokens is None
         assert reply.output_tokens is None
         assert reply.cache_read_input_tokens is None
+
+    def test_reap_clears_branch_notice(self, store: Store, runner: Runner) -> None:
+        """The notice is one-shot: spent here, so the child's second turn is a
+        normal turn rather than a repeated 'you are a new task' preamble."""
+        t = Task(name="rc3", prompt="p", status=TaskStatus.WORKING, pid=99999,
+                 engine=ENGINE_CLAUDE, parent_name="parent",
+                 awaiting_branch_notice=True)
+        store.put_task(t)
+        store.append_log("rc3", "user", "do the new thing")
+        out = {"session_id": "sid-rc3", "result": "done\n[STATUS: DONE]",
+               "is_error": False}
+        store.output_path("rc3").write_text(json.dumps(out))
+
+        with patch.object(Runner, "find_session_log",
+                          return_value=Path("/fake/sid-rc3.jsonl")):
+            runner._try_reap(t)
+
+        updated = store.get_task("rc3")
+        assert updated is not None
+        assert updated.awaiting_branch_notice is False
 
 
 # ── switch_engine ────────────────────────────────────────────────────────

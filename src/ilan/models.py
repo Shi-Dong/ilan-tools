@@ -207,7 +207,10 @@ class Task:
     # Number of inherited unified-log entries present when this task was
     # branched. Those entries stay in the local log for agent context but are
     # represented in the child Gist by a link to the parent's final pre-branch
-    # comment instead of being posted again.
+    # comment instead of being posted again. The catch-up renderer reuses this
+    # count to place a branch divider after the inherited prefix whenever the
+    # log is replayed (backend switch, lost-session reseed), so later spawns
+    # still see where the parent's conversation ends and this task's begins.
     gist_branch_point: int = 0
     gist_branch_parent_name: str | None = None
     gist_parent_comment_url: str | None = None
@@ -235,6 +238,13 @@ class Task:
     # unified log; consumed at the next spawn to inject a catch-up preamble
     # (resume) or seed a fresh session with the transcript. Reset once spent.
     awaiting_catchup: bool = False
+    # Set when this task is branched off ``parent_name`` (every branch carries
+    # the child's first assignment); consumed at the next spawn to inject a
+    # notice that the inherited conversation is background context rather than
+    # work to finish. Without it the child resumes a verbatim copy of the
+    # parent's session and reads the parent's in-flight instructions — and its
+    # tmux prefix — as its own. Reset once spent.
+    awaiting_branch_notice: bool = False
 
     def set_session_for(self, engine: str, session_id: str) -> None:
         """Record the native session id for *engine*."""
@@ -307,6 +317,7 @@ class Task:
             "sessions": self.sessions,
             "log_cursors": self.log_cursors,
             "awaiting_catchup": self.awaiting_catchup,
+            "awaiting_branch_notice": self.awaiting_branch_notice,
         }
 
     @classmethod
@@ -356,6 +367,7 @@ class Task:
             sessions=cls._migrate_sessions(d),
             log_cursors=dict(d.get("log_cursors") or {}),
             awaiting_catchup=d.get("awaiting_catchup", False),
+            awaiting_branch_notice=d.get("awaiting_branch_notice", False),
         )
 
     @staticmethod

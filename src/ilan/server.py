@@ -844,6 +844,16 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 self._json({"error": err}, 400)
                 return
             message = body.get("message")
+            if not message:
+                self._json(
+                    {"error": (
+                        "Branching requires a first assignment for the child "
+                        "task (-d/-f). To continue the parent's work in "
+                        "place, reply to the parent instead."
+                    )},
+                    400,
+                )
+                return
             with self._ilan.lock:
                 parent = self._get_task_or_404(name)
                 if parent is None:
@@ -884,10 +894,13 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     task_hash=generate_task_hash(),
                     now=now,
                 )
-                if message:
-                    child.cached_replies.append(message)
-                    self._ilan.store.append_log(child.name, "user", message)
-                    self._ilan.store.put_task(child)
+                child.cached_replies.append(message)
+                # Every branch carries the child's first assignment, so every
+                # child is told up front that the inherited conversation is
+                # context to draw on, not work to finish.
+                child.awaiting_branch_notice = True
+                self._ilan.store.append_log(child.name, "user", message)
+                self._ilan.store.put_task(child)
                 self._ilan.runner.start(child)
             self._json({
                 "ok": True,

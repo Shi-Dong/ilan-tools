@@ -48,6 +48,76 @@ def _tmux_instruction(task_hash: str, task_name: str) -> str:
     )
 
 
+def _branch_notice(parent_name: str | None, *, assignment_below: bool) -> str:
+    """Build the preamble that separates a branched task from its parent.
+
+    A branched task inherits the parent's conversation verbatim — a forked
+    session log for Claude, a rendered transcript for Codex — so without this
+    it cannot tell background context from its own assignment and resumes
+    whatever the parent had in flight. The identifier paragraph matters just as
+    much: every inherited turn ends in the parent's ``TMUX SESSION
+    REQUIREMENT`` block, so the child reads the parent's hash many times over
+    and its own exactly once, at the end of the current prompt.
+
+    ``assignment_below`` says where the real instruction sits: appended right
+    after this notice (Claude, which resumes natively and is sent only the new
+    turn) or as the last entry of the rendered history (Codex, whose catch-up
+    prompt carries the whole log).
+    """
+    parent = f"`{parent_name}`" if parent_name else "another task"
+    where = (
+        "the instruction that follows this notice"
+        if assignment_below
+        else "the final user message in the history above"
+    )
+    return (
+        "---\n"
+        f"NEW SEPARATE TASK — BRANCHED FROM {parent}\n\n"
+        f"You have inherited the conversation of {parent}. That conversation is "
+        "REFERENCE CONTEXT ONLY: read it to understand what was learned and "
+        "decided, and reuse anything from it that helps. It is not your "
+        "assignment.\n\n"
+        "You are a different task now. Do not resume, continue, or finish "
+        f"{parent}'s work. Its open steps, pending TODOs, agreed plans, and "
+        "unanswered questions stay with it, and any long-running process or "
+        "monitoring loop it started remains its responsibility — do not adopt, "
+        "babysit, or tear those down unless you are explicitly asked to.\n\n"
+        f"Discard {parent}'s identifiers too. Any task hash or tmux session "
+        f"prefix appearing in the inherited conversation belongs to {parent}, "
+        "not to you. Your own hash is the one in the TMUX SESSION REQUIREMENT "
+        "at the end of this prompt; use only that one, and never send commands "
+        "to a tmux session named with the old prefix.\n\n"
+        f"Your assignment is {where}, and nothing else.\n"
+        "---\n"
+    )
+
+
+def _branch_divider(parent_name: str | None) -> str:
+    """Mark where a branched task's inherited history ends in a rendered
+    transcript.
+
+    The one-shot branch notice covers only the child's first prompt; every
+    later replay of the unified log (a backend switch, a lost-session reseed)
+    would otherwise present the parent's turns as this task's own history,
+    with nothing marking the boundary.
+
+    The wording is deliberately neutral — "the turns below define this task's
+    work" — rather than repeating the notice's imperatives: a branched task's
+    own turns start with its branch assignment, so pointing below the line is
+    enough, and the full "do not resume the parent's work" instruction already
+    ran in the notice on the first prompt.
+    """
+    parent = f"`{parent_name}`" if parent_name else "the parent task"
+    return (
+        "\n--- BRANCH POINT: inherited history ends here ---\n"
+        f"Every turn above this line was inherited from {parent} when this "
+        f"task was branched off it; treat it as reference context from "
+        f"{parent}. Every turn below this line is this task's own "
+        "conversation, and it is the turns below that define this task's "
+        "work."
+    )
+
+
 # Budget for the rendered catch-up history. Codex rejects any input over
 # 1,048,576 characters (`input_too_large`), and a months-long unified log can
 # blow well past that; keep the newest turns and drop the oldest, staying far
@@ -55,7 +125,14 @@ def _tmux_instruction(task_hash: str, task_name: str) -> str:
 _CATCHUP_MAX_CHARS = 500_000
 
 
-def _render_catchup(entries: list, *, fresh: bool) -> str:
+def _render_catchup(
+    entries: list,
+    *,
+    fresh: bool,
+    branch_notice: str | None = None,
+    inherited_count: int = 0,
+    parent_name: str | None = None,
+) -> str:
     """Render unified-log entries as a catch-up preamble for a switched engine.
 
     ``fresh`` distinguishes seeding a brand-new session with the whole
@@ -63,8 +140,26 @@ def _render_catchup(entries: list, *, fresh: bool) -> str:
     When the history exceeds ``_CATCHUP_MAX_CHARS`` the oldest turns are
     dropped (the newest ones matter most for continuing the work); the full
     history remains available in the task's unified log and Gist mirror.
+
+    ``branch_notice`` marks the transcript as a *branched* task's inherited
+    context: the framing flips from "continue this work" to "this is
+    background", and the notice replaces the trailing continue instruction so
+    the separation is the last thing read before the assignment.
+
+    ``inherited_count`` says how many of *entries* were inherited from the
+    parent at the branch point; when the rendered window contains turns on
+    both sides of that point a divider from :func:`_branch_divider` is placed
+    between them, so a replay keeps the two boundaries distinct: the
+    header/footer carry the *switch* semantics (continue this task) while the
+    divider carries the *branch* semantics (the prefix above it belongs to
+    ``parent_name``).
     """
-    if fresh:
+    if branch_notice:
+        header = (
+            "You are a new task branched off another agent's session. Below is "
+            "that agent's conversation, inherited as background context."
+        )
+    elif fresh:
         header = (
             "You are taking over this task from another agent. Below is the "
             "full conversation so far. Read it carefully, then continue the work."
@@ -90,6 +185,16 @@ def _render_catchup(entries: list, *, fresh: bool) -> str:
     kept.reverse()
     omitted = len(segments) - len(kept)
 
+    # Truncation drops oldest-first, so the divider position simply shifts
+    # left with the drop count; at zero or below the whole inherited prefix
+    # is gone and there is nothing left to separate. The upper bound is
+    # defensive — every branch logs its assignment at branch time, so no
+    # rendered slice should be purely inherited — but a divider claiming
+    # "the turns below define the work" must never sit above zero turns.
+    boundary = inherited_count - omitted
+    if 0 < boundary < len(kept):
+        kept.insert(boundary, _branch_divider(parent_name))
+
     parts = [header, "", "--- BEGIN CONVERSATION HISTORY ---"]
     if omitted:
         parts.append(
@@ -98,7 +203,7 @@ def _render_catchup(entries: list, *, fresh: bool) -> str:
         )
     parts.extend(kept)
     parts.append("\n--- END CONVERSATION HISTORY ---")
-    parts.append("\nPlease continue working on this task.")
+    parts.append("\n" + (branch_notice or "Please continue working on this task."))
     return "\n".join(parts)
 
 
@@ -315,16 +420,22 @@ class Runner:
         if task.awaiting_catchup:
             return self._build_catchup_prompt(task)
 
+        notice = (
+            _branch_notice(task.parent_name, assignment_below=True) + "\n"
+            if task.awaiting_branch_notice
+            else ""
+        )
+
         if task.cached_replies:
             replies = "\n\n".join(task.cached_replies)
             task.cached_replies = []
             if task.session_id:
-                return replies, True
-            return task.prompt + "\n\n" + replies, False
+                return notice + replies, True
+            return notice + task.prompt + "\n\n" + replies, False
 
         if task.session_id:
-            return "Please continue working on this task.", True
-        return task.prompt, False
+            return notice + "Please continue working on this task.", True
+        return notice + task.prompt, False
 
     def _build_catchup_prompt(self, task: Task) -> tuple[str, bool]:
         """Build the post-switch prompt that catches the active engine up.
@@ -353,7 +464,27 @@ class Runner:
                 return "Please continue working on this task.", True
             return task.prompt, False
 
-        return _render_catchup(interim, fresh=not has_session), has_session
+        # A branch always logs its assignment before the first spawn, so a
+        # pending notice implies that assignment is the last interim entry.
+        notice = (
+            _branch_notice(task.parent_name, assignment_below=False)
+            if task.awaiting_branch_notice
+            else None
+        )
+        return (
+            _render_catchup(
+                interim,
+                fresh=not has_session,
+                branch_notice=notice,
+                # Cursors only ever rest at 0 or past the branch point (reap
+                # advances them to the full log length, which the inherited
+                # prefix never exceeds), so this is the prefix length when the
+                # slice spans the branch point and <= 0 otherwise.
+                inherited_count=task.gist_branch_point - seen,
+                parent_name=task.parent_name,
+            ),
+            has_session,
+        )
 
     def _try_reap(self, task: Task) -> None:
         """Parse agent output and update task status after process exits."""
@@ -456,6 +587,9 @@ class Runner:
         # verifiably completed — never at prompt-build time.
         task.log_cursors[task.engine] = len(self.store.read_logs(task.name))
         task.awaiting_catchup = False
+        # Same rule for the branch notice: only spent once a turn has actually
+        # read it, so a spawn that dies first still delivers it on the retry.
+        task.awaiting_branch_notice = False
 
         if result.is_error:
             task.set_status(TaskStatus.ERROR)
