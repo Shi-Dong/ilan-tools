@@ -92,6 +92,34 @@ def _branch_notice(parent_name: str | None, *, assignment_below: bool) -> str:
     )
 
 
+def _branch_divider(parent_name: str | None) -> str:
+    """Mark where a branched task's inherited history ends in a rendered
+    transcript.
+
+    The one-shot branch notice covers only the child's first prompt; every
+    later replay of the unified log (a backend switch, a lost-session reseed)
+    would otherwise present the parent's turns as this task's own history,
+    with nothing marking the boundary.
+
+    The wording is deliberately neutral — "the turns below define this task's
+    work" — rather than "do not touch the work above": a branch created *with*
+    a message is a new assignment (and its own turns start with that
+    assignment), but a branch created *without* one means "carry on from
+    here", so its own turns legitimately continue the inherited thread. The
+    divider states a fact that is true for both; the strong separation wording
+    stays in the notice, which only exists when an assignment was given.
+    """
+    parent = f"`{parent_name}`" if parent_name else "the parent task"
+    return (
+        "\n--- BRANCH POINT: inherited history ends here ---\n"
+        f"Every turn above this line was inherited from {parent} when this "
+        f"task was branched off it; treat it as reference context from "
+        f"{parent}. Every turn below this line is this task's own "
+        "conversation, and it is the turns below that define this task's "
+        "work."
+    )
+
+
 # Budget for the rendered catch-up history. Codex rejects any input over
 # 1,048,576 characters (`input_too_large`), and a months-long unified log can
 # blow well past that; keep the newest turns and drop the oldest, staying far
@@ -100,7 +128,12 @@ _CATCHUP_MAX_CHARS = 500_000
 
 
 def _render_catchup(
-    entries: list, *, fresh: bool, branch_notice: str | None = None
+    entries: list,
+    *,
+    fresh: bool,
+    branch_notice: str | None = None,
+    inherited_count: int = 0,
+    parent_name: str | None = None,
 ) -> str:
     """Render unified-log entries as a catch-up preamble for a switched engine.
 
@@ -114,6 +147,13 @@ def _render_catchup(
     context: the framing flips from "continue this work" to "this is
     background", and the notice replaces the trailing continue instruction so
     the separation is the last thing read before the assignment.
+
+    ``inherited_count`` says how many of *entries* were inherited from the
+    parent at the branch point; when any of them survive truncation a divider
+    from :func:`_branch_divider` is placed after the last one, so a replay
+    keeps the two boundaries distinct: the header/footer carry the *switch*
+    semantics (continue this task) while the divider carries the *branch*
+    semantics (the prefix above it belongs to ``parent_name``).
     """
     if branch_notice:
         header = (
@@ -145,6 +185,13 @@ def _render_catchup(
         total += len(segment)
     kept.reverse()
     omitted = len(segments) - len(kept)
+
+    # Truncation drops oldest-first, so the divider position simply shifts
+    # left with the drop count; at zero or below the whole inherited prefix
+    # is gone and there is nothing left to separate.
+    boundary = inherited_count - omitted
+    if inherited_count and boundary > 0:
+        kept.insert(boundary, _branch_divider(parent_name))
 
     parts = [header, "", "--- BEGIN CONVERSATION HISTORY ---"]
     if omitted:
@@ -423,7 +470,17 @@ class Runner:
             else None
         )
         return (
-            _render_catchup(interim, fresh=not has_session, branch_notice=notice),
+            _render_catchup(
+                interim,
+                fresh=not has_session,
+                branch_notice=notice,
+                # Cursors only ever rest at 0 or past the branch point (reap
+                # advances them to the full log length, which the inherited
+                # prefix never exceeds), so this is the prefix length when the
+                # slice spans the branch point and <= 0 otherwise.
+                inherited_count=task.gist_branch_point - seen,
+                parent_name=task.parent_name,
+            ),
             has_session,
         )
 

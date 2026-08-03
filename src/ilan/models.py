@@ -207,7 +207,10 @@ class Task:
     # Number of inherited unified-log entries present when this task was
     # branched. Those entries stay in the local log for agent context but are
     # represented in the child Gist by a link to the parent's final pre-branch
-    # comment instead of being posted again.
+    # comment instead of being posted again. The catch-up renderer reuses this
+    # count to place a branch divider after the inherited prefix whenever the
+    # log is replayed (backend switch, lost-session reseed), so later spawns
+    # still see where the parent's conversation ends and this task's begins.
     gist_branch_point: int = 0
     gist_branch_parent_name: str | None = None
     gist_parent_comment_url: str | None = None
