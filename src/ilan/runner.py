@@ -149,11 +149,12 @@ def _render_catchup(
     the separation is the last thing read before the assignment.
 
     ``inherited_count`` says how many of *entries* were inherited from the
-    parent at the branch point; when any of them survive truncation a divider
-    from :func:`_branch_divider` is placed after the last one, so a replay
-    keeps the two boundaries distinct: the header/footer carry the *switch*
-    semantics (continue this task) while the divider carries the *branch*
-    semantics (the prefix above it belongs to ``parent_name``).
+    parent at the branch point; when the rendered window contains turns on
+    both sides of that point a divider from :func:`_branch_divider` is placed
+    between them, so a replay keeps the two boundaries distinct: the
+    header/footer carry the *switch* semantics (continue this task) while the
+    divider carries the *branch* semantics (the prefix above it belongs to
+    ``parent_name``).
     """
     if branch_notice:
         header = (
@@ -188,9 +189,13 @@ def _render_catchup(
 
     # Truncation drops oldest-first, so the divider position simply shifts
     # left with the drop count; at zero or below the whole inherited prefix
-    # is gone and there is nothing left to separate.
+    # is gone and there is nothing left to separate. At len(kept) the slice
+    # is *purely* inherited — a message-less branch spawning straight off
+    # the parent's last turn — and a divider claiming "the turns below
+    # define the work" above zero turns would disown the very thread that
+    # branch is meant to carry on.
     boundary = inherited_count - omitted
-    if inherited_count and boundary > 0:
+    if 0 < boundary < len(kept):
         kept.insert(boundary, _branch_divider(parent_name))
 
     parts = [header, "", "--- BEGIN CONVERSATION HISTORY ---"]

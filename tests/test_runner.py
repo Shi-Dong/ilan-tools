@@ -1413,6 +1413,25 @@ class TestBranchDivider:
             < prompt.index("own question")
         )
 
+    def test_no_divider_when_the_slice_is_purely_inherited(
+        self, store: Store, runner: Runner,
+    ) -> None:
+        """A message-less codex branch spawns straight off the inherited
+        prefix ('carry on from here'). A divider disowning everything above —
+        with zero turns below it — would fight the continue-the-work footer
+        that is exactly right for that branch."""
+        t = self._branched(engine=ENGINE_CODEX, awaiting_catchup=True)
+        store.put_task(t)
+        store.append_log("child", "user", "inherited question")
+        store.append_log("child", "assistant", "inherited answer")
+
+        prompt, resume = runner._build_prompt(t)
+
+        assert resume is False
+        assert "BRANCH POINT" not in prompt
+        assert "taking over" in prompt.lower()
+        assert "Please continue working on this task." in prompt
+
     def test_no_divider_when_resuming_past_the_branch_point(
         self, store: Store, runner: Runner,
     ) -> None:
