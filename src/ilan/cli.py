@@ -789,7 +789,7 @@ def _do_ls(show_all: bool, concise: bool = False) -> None:
 @click.option("-c", "--concise", is_flag=True,
               help="Show pin, alias, task name, and status, one task per line.")
 @click.option("-n", "--num", "num", type=int, default=None,
-              help="When a task name is given, show the final N messages.")
+              help="With a task name, show the final N assistant messages.")
 @click.option("--line-number/--no-line-number", "line_number", default=None,
               help="When a task name is given, override the ``line-number`` "
                    "config for this invocation.")
@@ -1047,6 +1047,27 @@ def _last_assistant_token_usage(
     return None, None, None
 
 
+def _history_for_last_assistant_messages(
+    entries: list[dict], count: int,
+) -> list[dict]:
+    """Return history containing the final *count* assistant messages.
+
+    User messages do not consume the limit.  Start immediately after the
+    assistant message before the selected range so every user message leading
+    up to the first selected reply remains visible.
+    """
+    if count <= 0:
+        return entries
+    assistant_indexes = [
+        index
+        for index, entry in enumerate(entries)
+        if entry.get("role") == "assistant"
+    ]
+    if len(assistant_indexes) <= count:
+        return entries
+    return entries[assistant_indexes[-count - 1] + 1:]
+
+
 def _print_last_model_hint(
     client: Client,
     name: str,
@@ -1153,7 +1174,7 @@ def _do_tail(
             _print_reply_hint(reply_alias, reply_name)
             return
         token_usage = _last_assistant_token_usage(entries)
-        entries = entries[-n:]
+        entries = _history_for_last_assistant_messages(entries, n)
     else:
         resp = client.get_tail(name)
         if _check_error(resp):
@@ -1282,7 +1303,7 @@ def _do_tail(
 @task_group.command("tail")
 @click.argument("name", shell_complete=_complete_task_names)
 @click.option("-n", "--num", "num", type=int, default=None,
-              help="Show the final N messages (assistant + user combined).")
+              help="Show history for the final N assistant messages.")
 @click.option("-m", "--md", "markdown", is_flag=True, default=False,
               help="Render assistant messages as Markdown (overrides the "
                    "``markdown`` config key for this invocation).")
@@ -1292,7 +1313,7 @@ def task_tail(name: str, num: int | None, markdown: bool, line_number: bool | No
     """Show the last assistant message, the user prompt that elicited it,
     and any user messages after it.
 
-    With -n N, show the final N messages (assistant + user combined).
+    With -n N, show history containing the final N assistant messages.
     """
     _do_tail(name, n=num, markdown=markdown or None, line_number=line_number)
 
@@ -1443,7 +1464,7 @@ def _do_reply_command(
 @click.argument("name", shell_complete=_complete_task_names)
 @click.argument("message", required=False, default=None)
 @click.option("-n", "--num", "num", type=int, default=None,
-              help="When no message is given, show the final N messages.")
+              help="With no message, show the final N assistant messages.")
 @click.option("-m", "--md", "markdown", is_flag=True, default=False,
               help="When no message is given, render assistant messages as Markdown.")
 @click.option("--line-number/--no-line-number", "line_number", default=None,
@@ -2247,7 +2268,7 @@ def shortcut_add(
 @click.option("-c", "--concise", is_flag=True,
               help="Show pin, alias, task name, and status, one task per line.")
 @click.option("-n", "--num", "num", type=int, default=None,
-              help="When a task name is given, show the final N messages.")
+              help="With a task name, show the final N assistant messages.")
 @click.option("--line-number/--no-line-number", "line_number", default=None,
               help="When a task name is given, override the ``line-number`` "
                    "config for this invocation.")
@@ -2277,7 +2298,7 @@ def shortcut_tree(name: str) -> None:
 @main.command("tail")
 @click.argument("name", shell_complete=_complete_task_names)
 @click.option("-n", "--num", "num", type=int, default=None,
-              help="Show the final N messages (assistant + user combined).")
+              help="Show history for the final N assistant messages.")
 @click.option("-m", "--md", "markdown", is_flag=True, default=False,
               help="Render assistant messages as Markdown (overrides the "
                    "``markdown`` config key for this invocation).")
@@ -2294,7 +2315,7 @@ def shortcut_tail(
 @click.argument("name", shell_complete=_complete_task_names)
 @click.argument("message", required=False, default=None)
 @click.option("-n", "--num", "num", type=int, default=None,
-              help="When no message is given, show the final N messages.")
+              help="With no message, show the final N assistant messages.")
 @click.option("-m", "--md", "markdown", is_flag=True, default=False,
               help="When no message is given, render assistant messages as Markdown.")
 @click.option("--line-number/--no-line-number", "line_number", default=None,
@@ -2323,7 +2344,7 @@ def shortcut_reply(
 @click.argument("name", shell_complete=_complete_task_names)
 @click.argument("message", required=False, default=None)
 @click.option("-n", "--num", "num", type=int, default=None,
-              help="When no message is given, show the final N messages.")
+              help="With no message, show the final N assistant messages.")
 @click.option("-m", "--md", "markdown", is_flag=True, default=False,
               help="When no message is given, render assistant messages as Markdown.")
 @click.option("--line-number/--no-line-number", "line_number", default=None,

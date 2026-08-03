@@ -987,14 +987,17 @@ class TestTailNFlag:
             ],
         }
 
-    def test_ilan_tail_n_uses_logs_and_slices(self, runner: CliRunner, tmp_config) -> None:
+    def test_ilan_tail_n_counts_assistant_messages(
+        self, runner: CliRunner, tmp_config
+    ) -> None:
         client = _make_client()
         client.get_logs.return_value = self._logs_response()
         with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["tail", "my-task", "-n", "3"])
+            result = runner.invoke(main, ["tail", "my-task", "-n", "2"])
         assert result.exit_code == 0
         client.get_logs.assert_called_once_with("my-task")
         client.get_tail.assert_not_called()
+        assert "u1" in result.output
         assert "a1" in result.output
         assert "u2" in result.output
         assert "a2" in result.output
@@ -1005,14 +1008,14 @@ class TestTailNFlag:
         client = _make_client()
         client.get_logs.return_value = self._logs_response()
         with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["task", "tail", "my-task", "-n", "2"])
+            result = runner.invoke(main, ["task", "tail", "my-task", "-n", "1"])
         assert result.exit_code == 0
         client.get_logs.assert_called_once_with("my-task")
         assert "u2" in result.output
         assert "a2" in result.output
         assert "a1" not in result.output
 
-    def test_tail_n_uses_latest_assistant_usage_before_slicing(
+    def test_tail_n_includes_user_message_after_latest_assistant(
         self, runner: CliRunner, tmp_config
     ) -> None:
         client = _make_client()
@@ -1038,7 +1041,7 @@ class TestTailNFlag:
             result = runner.invoke(main, ["tail", "my-task", "-n", "1"])
         assert result.exit_code == 0
         out = _unwrap(_strip_ansi(result.output))
-        assert "answer" not in out
+        assert "answer" in out
         assert "follow-up" in out
         assert "Tokens: input 2,480, output 6, cached input 9,984" in out
 
@@ -1098,7 +1101,7 @@ class TestTailNFlag:
         client.get_tail.assert_not_called()
 
     def test_tail_n_larger_than_logs(self, runner: CliRunner, tmp_config) -> None:
-        """If N exceeds log length, return everything."""
+        """If N exceeds the assistant-message count, return everything."""
         client = _make_client()
         client.get_logs.return_value = self._logs_response()
         with patch("ilan.cli._client", return_value=client):

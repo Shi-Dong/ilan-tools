@@ -1435,7 +1435,7 @@ class TestLogs:
         resp = _get(ilan_server, "/tasks/tail-noasst/tail")
         assert "warning" in resp
 
-    def test_tail_n_returns_last_n_combined(self, ilan_server: IlanServer) -> None:
+    def test_tail_n_counts_assistant_messages(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "tail-n", "prompt": "P"})
         ilan_server.store.append_log("tail-n", "user", "u1")
         ilan_server.store.append_log("tail-n", "assistant", "a1")
@@ -1443,17 +1443,18 @@ class TestLogs:
         ilan_server.store.append_log("tail-n", "assistant", "a2")
         ilan_server.store.append_log("tail-n", "user", "u3")
 
-        resp = _get(ilan_server, "/tasks/tail-n/tail?n=4")
+        resp = _get(ilan_server, "/tasks/tail-n/tail?n=1")
         entries = resp["entries"]
         assert [(e["role"], e["content"]) for e in entries] == [
-            ("assistant", "a1"),
             ("user", "u2"),
             ("assistant", "a2"),
             ("user", "u3"),
         ]
 
-    def test_tail_n_no_assistant_still_returns(self, ilan_server: IlanServer) -> None:
-        """With -n, return user-only messages (no assistant required)."""
+    def test_tail_n_no_assistant_returns_all_history(
+        self, ilan_server: IlanServer
+    ) -> None:
+        """User-only messages do not consume the assistant-message limit."""
         _post(ilan_server, "/tasks", {"name": "tail-n-user", "prompt": "P"})
         ilan_server.store.append_log("tail-n-user", "user", "u1")
         ilan_server.store.append_log("tail-n-user", "user", "u2")
@@ -1461,6 +1462,7 @@ class TestLogs:
         resp = _get(ilan_server, "/tasks/tail-n-user/tail?n=2")
         entries = resp["entries"]
         assert [(e["role"], e["content"]) for e in entries] == [
+            ("user", "P"),
             ("user", "u1"),
             ("user", "u2"),
         ]
