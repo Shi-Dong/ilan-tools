@@ -1044,7 +1044,15 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 return
 
             if n is not None:
-                selected = entries[-n:]
+                assistant_indexes = [
+                    i for i, entry in enumerate(entries)
+                    if entry.role == "assistant"
+                ]
+                if len(assistant_indexes) <= n:
+                    selected = entries
+                else:
+                    start = assistant_indexes[-n - 1] + 1
+                    selected = entries[start:]
                 self._json({**meta, "entries": [e.to_dict() for e in selected]})
                 return
 
