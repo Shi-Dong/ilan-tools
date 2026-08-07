@@ -149,7 +149,7 @@ Only `undone` and `undiscard` accept a number; every other command wants a name 
 | `ilan task max NAME` | Run this task on the Fable model (`claude-fable-5`) instead of the default; a red `FABLE` tag shows beneath the task name in `ilan ls` / `ilan dashboard`. Takes effect on the task's next agent spawn. Fable is Claude-only, so this is a no-op (with a warning) on a `codex` task — switch it to `claude` first. The tag is hidden while the task is on `codex` (Fable is inactive there) and reappears when it is switched back to `claude`. |
 | `ilan task unmax NAME` | Reset the task's model back to the `model-claude` config default |
 | `ilan task switch-backend NAME` | Toggle the task's agent backend (`claude` ↔ `codex`). Lazy: takes effect on the task's next spawn, and the new backend catches up on its next turn. Not allowed on a `WORKING` task (warns and does nothing) — wait for the agent to finish or kill it first. See [Agent backends](#agent-backends) |
-| `ilan task rm [-f] NAME [NAME...]` | Delete task(s) and all their data (refuses if any has an active descendant; `-f` overrides) |
+| `ilan task rm NAME [NAME...]` | Delete task(s) and all their data; surviving descendants remain and are re-parented |
 
 ### Shorthands
 
@@ -177,6 +177,7 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan discard NAME [NAME...]` | `ilan task discard NAME [NAME...]` |
 | `ilan undone NAME` | `ilan task undone NAME` |
 | `ilan undiscard NAME` | `ilan task undiscard NAME` |
+| `ilan remove NAME [NAME...]` | `ilan task rm NAME [NAME...]` |
 | `ilan unread NAME [NAME...]` | `ilan task unread NAME [NAME...]` |
 | `ilan pin NAME` | `ilan task pin NAME` |
 | `ilan unpin NAME` | `ilan task unpin NAME` |
