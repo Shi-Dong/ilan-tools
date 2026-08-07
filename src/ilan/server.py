@@ -517,28 +517,10 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 self._json({"task": task.to_dict()})
 
         def handle_delete_task(self, name: str):
-            qs = self.path.split("?", 1)[1] if "?" in self.path else ""
-            force = "force=true" in qs
             with self._ilan.lock:
                 task = self._get_task_or_404(name)
                 if task is None:
                     return
-                if not force:
-                    tasks = self._ilan.store.load_tasks()
-                    descendants = self._ilan.store.collect_descendants(task.name, tasks)
-                    active = sorted(
-                        d for d in descendants
-                        if d in tasks and not tasks[d].status.is_terminal
-                    )
-                    if active:
-                        self._json(
-                            {"error": (
-                                f"Task {task.name} has active descendant(s): "
-                                f"{', '.join(active)}. Pass -f to force delete."
-                            )},
-                            409,
-                        )
-                        return
                 task_hash = task.task_hash
                 if task.status == TaskStatus.WORKING:
                     self._ilan.runner.kill(task)
