@@ -591,6 +591,17 @@ class TestLogEntry:
         assert "effort" not in e.to_dict()
         assert LogEntry.from_dict({"role": "user", "content": "hi"}).effort is None
 
+    def test_task_alias_roundtrip(self) -> None:
+        e = LogEntry.now("assistant", "response", task_alias="ds")
+        d = e.to_dict()
+        assert d["task_alias"] == "ds"
+        assert LogEntry.from_dict(d).task_alias == "ds"
+
+    def test_task_alias_omitted_when_unset(self) -> None:
+        e = LogEntry.now("assistant", "response")
+        assert "task_alias" not in e.to_dict()
+        assert LogEntry.from_dict({"role": "user", "content": "hi"}).task_alias is None
+
     def test_cost_roundtrip(self) -> None:
         e = LogEntry.now("assistant", "response", model="claude-opus-5", cost_usd=1.25)
         d = e.to_dict()

@@ -198,6 +198,8 @@ def format_comment(entry: LogEntry) -> str:
     rendered = f"**{label}**\n\n{body}"
     if entry.role.strip().lower() == "assistant" and entry.model:
         attribution = entry.model
+        if entry.task_alias:
+            attribution += f", task alias: `{entry.task_alias}`"
         if entry.effort:
             attribution += f", effort: {entry.effort}"
         if entry.budget:

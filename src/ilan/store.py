@@ -269,10 +269,12 @@ class Store:
         cost_usd: float | None = None,
         input_tokens: int | None = None, output_tokens: int | None = None,
         cache_read_input_tokens: int | None = None,
+        task_alias: str | None = None,
     ) -> None:
         entry = LogEntry.now(
             role, content, model, effort, budget, cost_usd,
             input_tokens, output_tokens, cache_read_input_tokens,
+            task_alias,
         )
         with open(self.log_path(task_name), "a") as f:
             f.write(json.dumps(entry.to_dict()) + "\n")
