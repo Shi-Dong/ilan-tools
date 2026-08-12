@@ -480,6 +480,30 @@ class TestTryReap:
         assert logs[-1].role == "assistant"
         assert logs[-1].model is None
 
+    def test_reap_records_task_alias_on_assistant_message(
+        self, store: Store, runner: Runner
+    ) -> None:
+        """The log entry freezes the alias used by the asynchronous Gist sync."""
+        t = Task(
+            name="t-alias",
+            prompt="p",
+            status=TaskStatus.WORKING,
+            pid=99999,
+            alias="ds",
+        )
+        store.put_task(t)
+        out = {
+            "session_id": "sid-alias",
+            "result": "ok\n[STATUS: DONE]",
+            "is_error": False,
+        }
+        store.output_path("t-alias").write_text(json.dumps(out))
+
+        with patch.object(Runner, "find_session_log", return_value=None):
+            runner._try_reap(t)
+
+        assert store.read_logs("t-alias")[-1].task_alias == "ds"
+
     def test_reap_caches_effort_from_spawn(
         self, store: Store, runner: Runner
     ) -> None:

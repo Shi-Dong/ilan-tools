@@ -577,6 +577,7 @@ class Runner:
                     message_usage.cache_read_input_tokens
                     if message_usage else None
                 ),
+                task_alias=task.alias,
             )
 
         # This engine's native session now reflects every unified-log entry

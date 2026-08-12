@@ -430,6 +430,10 @@ class LogEntry:
     # Account that paid for the message ("Team", "API", …; assistant replies
     # only). Older entries predate this field and stay ``None``.
     budget: str | None = None
+    # Task alias at the moment this assistant reply was recorded. Persisting
+    # the snapshot keeps asynchronously mirrored Gist comments accurate even
+    # when the live task is assigned a different alias before the sync runs.
+    task_alias: str | None = None
     # What this message cost, in USD (assistant replies only). Older entries,
     # and backends that don't price a turn, stay ``None``.
     cost_usd: float | None = None
@@ -450,6 +454,8 @@ class LogEntry:
             d["effort"] = self.effort
         if self.budget:
             d["budget"] = self.budget
+        if self.task_alias:
+            d["task_alias"] = self.task_alias
         if self.cost_usd:
             d["cost_usd"] = self.cost_usd
         for key, value in (
@@ -470,6 +476,7 @@ class LogEntry:
             model=d.get("model") or None,
             effort=d.get("effort") or None,
             budget=d.get("budget") or None,
+            task_alias=d.get("task_alias") or None,
             cost_usd=d.get("cost_usd") or None,
             input_tokens=d.get("input_tokens"),
             output_tokens=d.get("output_tokens"),
@@ -483,6 +490,7 @@ class LogEntry:
         cost_usd: float | None = None,
         input_tokens: int | None = None, output_tokens: int | None = None,
         cache_read_input_tokens: int | None = None,
+        task_alias: str | None = None,
     ) -> LogEntry:
         return cls(
             role=role,
@@ -491,6 +499,7 @@ class LogEntry:
             model=model,
             effort=effort,
             budget=budget,
+            task_alias=task_alias,
             cost_usd=cost_usd,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
