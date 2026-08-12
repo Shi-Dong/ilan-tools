@@ -211,7 +211,7 @@ class TestLsNoArgs:
         assert result.exit_code == 0
         client.list_tasks.assert_called_once_with(show_all=True)
 
-    def test_ls_concise_shows_only_pin_alias_name_and_status(
+    def test_ls_concise_shows_pin_alias_name_unread_marker_and_status(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import ilan.cli as cli_mod
@@ -243,7 +243,7 @@ class TestLsNoArgs:
             result = runner.invoke(main, ["ls", "-c"])
         assert result.exit_code == 0
         assert _strip_ansi(result.output) == (
-            "→ (as) a-very-long-task-name AGENT_FINISHED\n"
+            "→ (as) a-very-long-task-name !! AGENT_FINISHED\n"
         )
         client.list_tasks.assert_called_once_with(show_all=False)
         client.get_config.assert_not_called()
@@ -294,7 +294,7 @@ class TestLsNoArgs:
         assert result.output == ""
         client.list_tasks.assert_called_once_with(show_all=False)
 
-    def test_concise_line_preserves_pin_alias_name_and_status_styles(self) -> None:
+    def test_concise_line_preserves_all_marker_and_label_styles(self) -> None:
         line = _build_concise_task_line(
             {
                 "name": "styled-task",
@@ -302,9 +302,10 @@ class TestLsNoArgs:
                 "status": "AGENT_FINISHED",
                 "engine": ENGINE_CLAUDE,
                 "pinned": True,
+                "needs_review": True,
             }
         )
-        assert line.plain == "→ (as) styled-task AGENT_FINISHED"
+        assert line.plain == "→ (as) styled-task !! AGENT_FINISHED"
         assert [
             (line.plain[span.start:span.end], span.style)
             for span in line.spans
@@ -312,6 +313,7 @@ class TestLsNoArgs:
             ("→ ", "bold yellow"),
             ("(as) ", "bold magenta"),
             ("styled-task", "bold orange1"),
+            (" !!", "bold yellow"),
             ("AGENT_FINISHED", "green"),
         ]
 
