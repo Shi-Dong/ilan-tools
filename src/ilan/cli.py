@@ -36,6 +36,7 @@ from ilan import config as cfg
 from ilan.backends import ClaudeBackend, CodexBackend
 from ilan.client import Client
 from ilan.models import (
+    BURNABLE_PREFIX,
     DEFAULT_ENGINE,
     ENGINE_CODEX,
     ENGINE_NAME_STYLE,
@@ -44,6 +45,7 @@ from ilan.models import (
     TaskStatus,
     display_status,
     format_cost_usd,
+    is_burnable_name,
     is_fable_model,
 )
 from ilan.server import read_server_info
@@ -512,7 +514,7 @@ def task_group() -> None:
 # ── task add ─────────────────────────────────────────────────────────
 
 def _do_add(
-    name: str, file_path: str | None, description: str | None,
+    name: str | None, file_path: str | None, description: str | None,
     agent: str | None, max_model: bool = False,
 ) -> None:
     if shutil.which("tmux") is None:
@@ -546,17 +548,27 @@ def _do_add(
     resp = _client().add_task(name, prompt, agent, max_model=max_model)
     if _check_error(resp):
         raise SystemExit(1)
+    # Without ``-n`` the server mints the name, so report the one it chose.
+    task_name = str(resp.get("name") or name or "")
     if max_model:
         console.print(
-            f"[green]Task [bold]{name}[/bold] added on "
+            f"[green]Task [bold]{task_name}[/bold] added on "
             f"[bold red]FABLE[/bold red] ([cyan]{FABLE_MODEL}[/cyan]).[/green]"
         )
     else:
-        console.print(f"[green]Task [bold]{name}[/bold] added.[/green]")
+        console.print(f"[green]Task [bold]{task_name}[/bold] added.[/green]")
+    if is_burnable_name(task_name):
+        console.print(
+            f"[dim]Burnable ({BURNABLE_PREFIX}…): [bold]ilan done[/bold] / "
+            f"[bold]ilan discard[/bold] will delete it. "
+            f"Rename it to keep it.[/dim]"
+        )
 
 
 @task_group.command("add")
-@click.option("-n", "--name", required=True, help="Short name for the task.")
+@click.option("-n", "--name", default=None,
+              help="Short name for the task. Omit it to get a generated "
+                   f"burnable {BURNABLE_PREFIX}… name.")
 @click.option("-f", "--file", "file_path", type=click.Path(exists=True), default=None,
               help="Path to a file containing the task prompt.")
 @click.option("-d", "--description", default=None, help="Inline task prompt.")
@@ -567,10 +579,15 @@ def _do_add(
 @click.option("--max", "max_model", is_flag=True, default=False,
               help="Create the task on the Fable model (implies --claude).")
 def task_add(
-    name: str, file_path: str | None, description: str | None,
+    name: str | None, file_path: str | None, description: str | None,
     agent: str | None, max_model: bool,
 ) -> None:
-    """Add a new task."""
+    """Add a new task.
+
+    Without ``-n`` the task is given a random burnable name (e.g.
+    ``xxx-cat-likes-fin``): ``ilan done`` / ``ilan discard`` delete such a task
+    instead of closing it. Rename it to keep it.
+    """
     _do_add(name, file_path, description, agent, max_model)
 
 
@@ -1984,6 +2001,14 @@ main.add_command(task_rm, "remove")
 # ── task done / discard ──────────────────────────────────────────────
 
 
+def _burn_notice(task_name: str) -> str:
+    """Message for a task the server deleted instead of closing."""
+    return (
+        f"Burnable task [bold]{task_name}[/bold] removed "
+        f"(name starts with {BURNABLE_PREFIX})."
+    )
+
+
 def _do_done(names: tuple[str, ...]) -> None:
     client = _client()
     failed = False
@@ -1991,8 +2016,11 @@ def _do_done(names: tuple[str, ...]) -> None:
         resp = client.mark_done(name)
         if _check_error(resp):
             failed = True
+            continue
+        task_name = resp.get("name", name)
+        if resp.get("removed"):
+            console.print(f"[green]{_burn_notice(task_name)}[/green]")
         else:
-            task_name = resp.get("name", name)
             console.print(f"[green]Task [bold]{task_name}[/bold] marked DONE.[/green]")
     if failed:
         raise SystemExit(1)
@@ -2005,8 +2033,11 @@ def _do_discard(names: tuple[str, ...]) -> None:
         resp = client.mark_discard(name)
         if _check_error(resp):
             failed = True
+            continue
+        task_name = resp.get("name", name)
+        if resp.get("removed"):
+            console.print(f"[dim]{_burn_notice(task_name)}[/dim]")
         else:
-            task_name = resp.get("name", name)
             console.print(f"[dim]Task [bold]{task_name}[/bold] discarded.[/dim]")
     if failed:
         raise SystemExit(1)
@@ -2015,14 +2046,22 @@ def _do_discard(names: tuple[str, ...]) -> None:
 @task_group.command("done")
 @click.argument("names", nargs=-1, required=True, shell_complete=_complete_task_names)
 def task_done(names: tuple[str, ...]) -> None:
-    """Mark one or more tasks as DONE."""
+    """Mark one or more tasks as DONE.
+
+    A burnable task (one whose name starts with ``xxx-``) is deleted outright
+    instead, exactly as ``ilan task rm`` would.
+    """
     _do_done(names)
 
 
 @task_group.command("discard")
 @click.argument("names", nargs=-1, required=True, shell_complete=_complete_task_names)
 def task_discard(names: tuple[str, ...]) -> None:
-    """Mark one or more tasks as DISCARDED."""
+    """Mark one or more tasks as DISCARDED.
+
+    A burnable task (one whose name starts with ``xxx-``) is deleted outright
+    instead, exactly as ``ilan task rm`` would.
+    """
     _do_discard(names)
 
 
@@ -2198,7 +2237,9 @@ def task_switch_backend(name: str) -> None:
 # ── top-level shorthands ─────────────────────────────────────────────
 
 @main.command("add")
-@click.option("-n", "--name", required=True, help="Short name for the task.")
+@click.option("-n", "--name", default=None,
+              help="Short name for the task. Omit it to get a generated "
+                   f"burnable {BURNABLE_PREFIX}… name.")
 @click.option("-f", "--file", "file_path", type=click.Path(exists=True), default=None,
               help="Path to a file containing the task prompt.")
 @click.option("-d", "--description", default=None, help="Inline task prompt.")
@@ -2209,7 +2250,7 @@ def task_switch_backend(name: str) -> None:
 @click.option("--max", "max_model", is_flag=True, default=False,
               help="Create the task on the Fable model (implies --claude).")
 def shortcut_add(
-    name: str, file_path: str | None, description: str | None,
+    name: str | None, file_path: str | None, description: str | None,
     agent: str | None, max_model: bool,
 ) -> None:
     """Shorthand for 'ilan task add'."""

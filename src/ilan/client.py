@@ -181,10 +181,13 @@ class Client:
         return self.get(path)
 
     def add_task(
-        self, name: str, prompt: str, agent: str | None = None,
+        self, name: str | None, prompt: str, agent: str | None = None,
         max_model: bool = False,
     ) -> dict:
-        body: dict = {"name": name, "prompt": prompt}
+        """Create a task. A *name* of ``None`` lets the server mint a burnable one."""
+        body: dict = {"prompt": prompt}
+        if name is not None:
+            body["name"] = name
         if agent is not None:
             body["agent"] = agent
         if max_model:
