@@ -217,11 +217,12 @@ class Client:
     def set_alias(self, name: str, new_alias: str) -> dict:
         return self.post(f"/tasks/{name}/alias", {"alias": new_alias})
 
-    def branch_task(self, old_name: str, new_name: str, message: str) -> dict:
-        return self.post(
-            f"/tasks/{old_name}/branch",
-            {"new_name": new_name, "message": message},
-        )
+    def branch_task(self, old_name: str, new_name: str | None, message: str) -> dict:
+        """Branch a task. A *new_name* of ``None`` lets the server mint a burnable one."""
+        body: dict = {"message": message}
+        if new_name is not None:
+            body["new_name"] = new_name
+        return self.post(f"/tasks/{old_name}/branch", body)
 
     def max_task(self, name: str) -> dict:        return self.post(f"/tasks/{name}/max")
     def unmax_task(self, name: str) -> dict:      return self.post(f"/tasks/{name}/unmax")

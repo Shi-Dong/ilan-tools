@@ -32,6 +32,7 @@ from ilan.models import (
     random_burnable_name,
     validate_task_name,
 )
+from ilan.runner import Runner
 from ilan.server import IlanServer
 from ilan.store import Store
 
@@ -486,6 +487,138 @@ class TestRenameMovesTasksInAndOutOfBurnable:
         assert ilan_server.store.get_task("fix-bug") is None
 
 
+def _seed_branchable_parent(server: IlanServer, name: str = "parent-task") -> Task:
+    """Seed a parent with an established session, so it can be branched."""
+    parent = Task(
+        name=name, prompt="root prompt", created_at="2026-08-12T00:00:00+00:00",
+        status_changed_at="2026-08-12T00:00:00+00:00", session_id="sid-1",
+        session_log_path="/fake/sid-1.jsonl", alias="aa", task_hash="abcd1234",
+    )
+    server.store.put_task(parent)
+    server.store.append_log(name, "user", "hello")
+    server.store.append_log(name, "assistant", "hi")
+    return parent
+
+
+def _branch(
+    server: IlanServer, parent: str, body: dict
+) -> tuple[int, dict]:
+    """POST a branch request with the parent's session log made to look present."""
+    with patch.object(Runner, "find_session_log", return_value=Path("/fake/sid-1.jsonl")):
+        return _post(server, f"/tasks/{parent}/branch", body)
+
+
+class TestBranchWithoutAName:
+    def test_server_mints_a_burnable_child_name(self, ilan_server: IlanServer) -> None:
+        _seed_branchable_parent(ilan_server)
+        code, body = _branch(ilan_server, "parent-task", {"message": "try plan B"})
+        assert code == 200, body
+        assert body["ok"] is True
+        assert body["parent_name"] == "parent-task"
+        child_name = body["name"]
+        assert is_burnable_name(child_name)
+        assert ilan_server.store.get_task(child_name) is not None
+
+    def test_the_minted_child_is_a_normal_branch_otherwise(
+        self, ilan_server: IlanServer
+    ) -> None:
+        """A generated name must not cost the child anything a named one gets:
+        the inherited session, log, first assignment, and branch notice."""
+        _seed_branchable_parent(ilan_server)
+        _code, body = _branch(ilan_server, "parent-task", {"message": "try plan B"})
+        child = ilan_server.store.get_task(body["name"])
+        assert child.parent_name == "parent-task"
+        assert child.session_id == "sid-1"
+        assert child.cached_replies == ["try plan B"]
+        assert child.awaiting_branch_notice is True
+        assert child.alias is not None and child.alias != "aa"
+        assert child.gist_branch_point == 2
+        assert child.gist_branch_parent_name == "parent-task"
+        assert [e.content for e in ilan_server.store.read_logs(child.name)] == [
+            "hello", "hi", "try plan B",
+        ]
+
+    def test_two_unnamed_branches_get_different_names(
+        self, ilan_server: IlanServer
+    ) -> None:
+        _seed_branchable_parent(ilan_server)
+        first = _branch(ilan_server, "parent-task", {"message": "a"})[1]["name"]
+        second = _branch(ilan_server, "parent-task", {"message": "b"})[1]["name"]
+        assert first != second
+        assert len(ilan_server.store.load_tasks()) == 3  # parent + two children
+
+    def test_an_explicit_child_name_is_still_honoured(
+        self, ilan_server: IlanServer
+    ) -> None:
+        _seed_branchable_parent(ilan_server)
+        code, body = _branch(
+            ilan_server, "parent-task", {"new_name": "child-task", "message": "m"}
+        )
+        assert code == 200
+        assert body["name"] == "child-task"
+        assert ilan_server.store.get_task("child-task") is not None
+
+    def test_an_empty_child_name_is_still_an_error(
+        self, ilan_server: IlanServer
+    ) -> None:
+        _seed_branchable_parent(ilan_server)
+        code, body = _branch(
+            ilan_server, "parent-task", {"new_name": "", "message": "m"}
+        )
+        assert code == 400
+        assert "3 characters" in body["error"]
+        assert list(ilan_server.store.load_tasks()) == ["parent-task"]
+
+    def test_a_padded_child_name_is_stripped(self, ilan_server: IlanServer) -> None:
+        _seed_branchable_parent(ilan_server)
+        code, body = _branch(
+            ilan_server, "parent-task", {"new_name": "  child-task  ", "message": "m"}
+        )
+        assert code == 200
+        assert body["name"] == "child-task"
+
+    def test_a_refused_branch_mints_nothing(self, ilan_server: IlanServer) -> None:
+        """The name is drawn only once the branch is known to be viable, so a
+        rejected request leaves no half-created task behind."""
+        _seed_branchable_parent(ilan_server)
+        code, _body = _branch(ilan_server, "parent-task", {})  # no message
+        assert code == 400
+        assert list(ilan_server.store.load_tasks()) == ["parent-task"]
+
+    def test_a_branch_off_a_normal_parent_is_still_burnable(
+        self, ilan_server: IlanServer
+    ) -> None:
+        """Burnability follows the child's own name, not its parent's."""
+        _seed_branchable_parent(ilan_server, "keeper-parent")
+        _code, body = _branch(ilan_server, "keeper-parent", {"message": "m"})
+        assert is_burnable_name(body["name"])
+
+    def test_a_named_child_of_a_burnable_parent_is_not_burnable(
+        self, ilan_server: IlanServer
+    ) -> None:
+        """The other direction: a burnable parent does not infect its child."""
+        _seed_branchable_parent(ilan_server, "xxx-cat-likes-fin")
+        _code, body = _branch(
+            ilan_server, "xxx-cat-likes-fin", {"new_name": "keeper", "message": "m"}
+        )
+        assert body["name"] == "keeper"
+        code, done_body = _post(ilan_server, "/tasks/keeper/done")
+        assert code == 200
+        assert done_body["removed"] is False
+        assert ilan_server.store.get_task("keeper").status == TaskStatus.DONE
+
+    def test_a_minted_child_burns_on_done_and_leaves_the_parent(
+        self, ilan_server: IlanServer
+    ) -> None:
+        _seed_branchable_parent(ilan_server)
+        child_name = _branch(ilan_server, "parent-task", {"message": "m"})[1]["name"]
+        code, body = _post(ilan_server, f"/tasks/{child_name}/done")
+        assert code == 200
+        assert body["removed"] is True
+        assert ilan_server.store.get_task(child_name) is None
+        assert ilan_server.store.get_task("parent-task") is not None
+
+
 # ── CLI ─────────────────────────────────────────────────────────────────
 
 
@@ -582,6 +715,77 @@ class TestAddCli:
             result = runner.invoke(main, ["add"])
         assert result.exit_code == 1
         client.add_task.assert_not_called()
+
+
+class TestBranchCli:
+    @pytest.mark.parametrize("argv", [["branch"], ["task", "branch"]])
+    def test_name_is_optional_and_the_server_name_is_reported(
+        self, runner: CliRunner, tmp_config, argv: list[str]
+    ) -> None:
+        client = _make_client()
+        client.branch_task.return_value = {
+            "ok": True, "name": "xxx-cat-likes-fin", "parent_name": "fix-bug",
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, [*argv, "fix-bug", "-d", "try plan B"])
+        assert result.exit_code == 0, result.output
+        client.branch_task.assert_called_once_with("fix-bug", None, "try plan B")
+        out = _unwrap(_strip_ansi(result.output))
+        assert "Branched xxx-cat-likes-fin from fix-bug." in out
+
+    def test_a_generated_child_name_comes_with_a_burn_warning(
+        self, runner: CliRunner, tmp_config
+    ) -> None:
+        client = _make_client()
+        client.branch_task.return_value = {
+            "ok": True, "name": "xxx-cat-likes-fin", "parent_name": "fix-bug",
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["branch", "fix-bug", "-d", "m"])
+        out = _unwrap(_strip_ansi(result.output))
+        assert "Burnable" in out
+        assert "will delete it" in out
+        assert "Rename it to keep it" in out
+
+    def test_a_normal_child_name_gets_no_warning(
+        self, runner: CliRunner, tmp_config
+    ) -> None:
+        client = _make_client()
+        client.branch_task.return_value = {
+            "ok": True, "name": "child", "parent_name": "fix-bug",
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["branch", "fix-bug", "-n", "child", "-d", "m"])
+        out = _strip_ansi(result.output)
+        assert "Branched child from fix-bug." in _unwrap(out)
+        assert "Burnable" not in out
+
+    def test_an_explicitly_burnable_child_name_is_warned_about_too(
+        self, runner: CliRunner, tmp_config
+    ) -> None:
+        client = _make_client()
+        client.branch_task.return_value = {
+            "ok": True, "name": "xxx-my-spike", "parent_name": "fix-bug",
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(
+                main, ["branch", "fix-bug", "-n", "xxx-my-spike", "-d", "m"]
+            )
+        assert result.exit_code == 0
+        client.branch_task.assert_called_once_with("fix-bug", "xxx-my-spike", "m")
+        assert "Burnable" in _strip_ansi(result.output)
+
+    def test_an_assignment_is_still_required(
+        self, runner: CliRunner, tmp_config
+    ) -> None:
+        """Dropping ``-n`` must not make ``-d``/``-f`` optional as well: a child
+        with no assignment of its own is a reply to the parent, not a branch."""
+        client = _make_client()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["branch", "fix-bug"])
+        assert result.exit_code == 1
+        assert "Exactly one of --file / --description" in _strip_ansi(result.output)
+        client.branch_task.assert_not_called()
 
 
 class TestDoneDiscardCli:

@@ -513,6 +513,22 @@ def task_group() -> None:
 
 # ── task add ─────────────────────────────────────────────────────────
 
+def _print_burnable_hint(task_name: str) -> None:
+    """Warn that *task_name* is burnable, when its name says it is.
+
+    Shared by ``add`` and ``branch``, both of which mint a name when none is
+    given: a generated name is easy to skim past, and what it costs to miss —
+    ``done`` deleting the task instead of closing it — cannot be undone.
+    """
+    if not is_burnable_name(task_name):
+        return
+    console.print(
+        f"[dim]Burnable ({BURNABLE_PREFIX}…): [bold]ilan done[/bold] / "
+        f"[bold]ilan discard[/bold] will delete it. "
+        f"Rename it to keep it.[/dim]"
+    )
+
+
 def _do_add(
     name: str | None, file_path: str | None, description: str | None,
     agent: str | None, max_model: bool = False,
@@ -557,12 +573,7 @@ def _do_add(
         )
     else:
         console.print(f"[green]Task [bold]{task_name}[/bold] added.[/green]")
-    if is_burnable_name(task_name):
-        console.print(
-            f"[dim]Burnable ({BURNABLE_PREFIX}…): [bold]ilan done[/bold] / "
-            f"[bold]ilan discard[/bold] will delete it. "
-            f"Rename it to keep it.[/dim]"
-        )
+    _print_burnable_hint(task_name)
 
 
 @task_group.command("add")
@@ -1765,7 +1776,7 @@ def task_alias(name: str, new_alias: str) -> None:
 
 def _do_branch(
     old_name: str,
-    new_name: str,
+    new_name: str | None,
     file_path: str | None,
     description: str | None,
 ) -> None:
@@ -1781,27 +1792,34 @@ def _do_branch(
     resp = _client().branch_task(old_name, new_name, message)
     if _check_error(resp):
         raise SystemExit(1)
-    child = resp.get("name", new_name)
+    # Without ``-n`` the server mints the child's name, so report the one it chose.
+    child = str(resp.get("name") or new_name or "")
     parent = resp.get("parent_name", old_name)
     console.print(
         f"[green]Branched [bold]{child}[/bold] from [bold]{parent}[/bold].[/green]"
     )
+    _print_burnable_hint(child)
 
 
 @task_group.command("branch")
 @click.argument("old_name", shell_complete=_complete_task_names)
-@click.option("-n", "--name", "new_name", required=True,
-              help="Short name for the branched (new) task.")
+@click.option("-n", "--name", "new_name", default=None,
+              help="Short name for the branched (new) task. Omit it to get a "
+                   f"generated burnable {BURNABLE_PREFIX}… name.")
 @click.option("-f", "--file", "file_path", type=click.Path(exists=True), default=None,
               help="Path to a file containing the child task's first assignment.")
 @click.option("-d", "--description", default=None,
               help="Inline first assignment for the child task.")
 def task_branch(
-    old_name: str, new_name: str, file_path: str | None, description: str | None
+    old_name: str, new_name: str | None, file_path: str | None, description: str | None
 ) -> None:
     """Branch a new task from OLD_NAME, inheriting its full context.
 
     Exactly one of -d / -f must supply the child's first assignment.
+
+    Without ``-n`` the child is given a random burnable name (e.g.
+    ``xxx-cat-likes-fin``): ``ilan done`` / ``ilan discard`` delete such a task
+    instead of closing it. Rename it to keep it.
     """
     _do_branch(old_name, new_name, file_path, description)
 
@@ -2454,14 +2472,15 @@ def shortcut_alias(name: str, new_alias: str) -> None:
 
 @main.command("branch")
 @click.argument("old_name", shell_complete=_complete_task_names)
-@click.option("-n", "--name", "new_name", required=True,
-              help="Short name for the branched (new) task.")
+@click.option("-n", "--name", "new_name", default=None,
+              help="Short name for the branched (new) task. Omit it to get a "
+                   f"generated burnable {BURNABLE_PREFIX}… name.")
 @click.option("-f", "--file", "file_path", type=click.Path(exists=True), default=None,
               help="Path to a file containing the child task's first assignment.")
 @click.option("-d", "--description", default=None,
               help="Inline first assignment for the child task.")
 def shortcut_branch(
-    old_name: str, new_name: str, file_path: str | None, description: str | None
+    old_name: str, new_name: str | None, file_path: str | None, description: str | None
 ) -> None:
     """Shorthand for 'ilan task branch'."""
     _do_branch(old_name, new_name, file_path, description)

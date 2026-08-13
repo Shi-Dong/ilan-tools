@@ -132,6 +132,16 @@ $ ilan done xxx-cat-likes-fin
 Burnable task xxx-cat-likes-fin removed (name starts with xxx-).
 ```
 
+`ilan branch` works the same way — leave `-n` off and the child is burnable, which is what you usually want from a branch taken just to try something:
+
+```bash
+$ ilan branch fix-bug -d "Try the OAuth2 flow instead, as a spike"
+Branched xxx-owl-naps-dune from fix-bug.
+Burnable (xxx-…): ilan done / ilan discard will delete it. Rename it to keep it.
+```
+
+The child's name is the only thing that decides: an unnamed branch off a keeper parent is burnable, and a `-n`-named child of a burnable parent is not.
+
 Generated names read as a tiny sentence (`xxx-cat-likes-fin`, `xxx-owl-naps-dune`) so a nameless task is still something you can say out loud and pick out of a list.
 
 Burnability lives in the name and nowhere else, so **renaming is how you change your mind** — in either direction:
@@ -144,7 +154,7 @@ ilan rename fix-flaky-test xxx-fix-flaky-test  # burnable again: done deletes it
 Notes:
 
 - The prefix is matched exactly. `xxx-foo` burns; `XXX-foo`, `xxxfoo`, and `my-xxx-foo` are ordinary tasks.
-- You can name a task `xxx-…` yourself with `-n`; nothing about a generated name is special.
+- You can name a task `xxx-…` yourself with `-n` (on `add` or `branch`); nothing about a generated name is special.
 - Burning is a delete, so — like `ilan rm` — it takes the task's conversation log with it, mints no [number](#task-numbers), and re-parents any [branched](#branch-tree) children onto their grandparent. There is no undo: `undone` / `undiscard` have nothing left to bring back.
 - A burnable task's agent is killed first if it is still `WORKING`, along with its tmux sessions.
 
@@ -169,7 +179,7 @@ Notes:
 | `ilan task open NAME` | Open the task's GitHub Gist history page in your default browser, deep-linked to the most recent comment, and clear its unread marker when a page is available. Warns without opening the browser or clearing the marker if the task has no Gist yet (see [Gist conversation mirroring](#gist-conversation-mirroring)) |
 | `ilan task rename OLD NEW [-d "msg"]` | Rename a task; with `-d`, immediately send `"msg"` as a reply to the renamed task |
 | `ilan task alias NAME NEW_ALIAS` | Change the two-letter alias of an active task (`NEW_ALIAS` must be two letters from `asdfghjkl` and not already in use) |
-| `ilan task branch OLD -n NEW (-d "msg" \| -f FILE)` | Branch a new task from `OLD`, inheriting its full Claude Code context (both tasks stay repliable and diverge from there). `"msg"` is the child's first assignment — required — and the child is told up front that the inherited conversation is background context only |
+| `ilan task branch OLD [-n NEW] (-d "msg" \| -f FILE)` | Branch a new task from `OLD`, inheriting its full Claude Code context (both tasks stay repliable and diverge from there). `"msg"` is the child's first assignment — required — and the child is told up front that the inherited conversation is background context only. Omit `-n` and the child is given a generated [burnable](#burnable-tasks-xxx-) name, which makes `done`/`discard` delete it |
 | `ilan task tree NAME` | Draw the branch tree `NAME` belongs to, from its outermost ancestor down — see [Branch tree](#branch-tree) |
 | `ilan task kill NAME` | Kill a `WORKING` agent, move task to `ERROR` |
 | `ilan task attach NAME` | Attach to a task's agent session interactively (`claude --resume` or `codex resume`, per the task's backend) |
@@ -198,7 +208,7 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan re NAME ["msg"]` | `ilan task reply NAME ["msg"]` |
 | `ilan rename OLD NEW [-d "msg"]` | `ilan task rename OLD NEW [-d "msg"]` |
 | `ilan alias NAME NEW_ALIAS` | `ilan task alias NAME NEW_ALIAS` |
-| `ilan branch OLD -n NEW -d "msg"` | `ilan task branch OLD -n NEW -d "msg"` |
+| `ilan branch OLD [-n NEW] -d "msg"` | `ilan task branch OLD [-n NEW] -d "msg"` |
 | `ilan tree NAME` | `ilan task tree NAME` |
 | `ilan tap NAME` | `ilan task tap NAME` |
 | `ilan cancel NAME` | `ilan task cancel NAME` |

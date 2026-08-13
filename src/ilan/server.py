@@ -854,11 +854,16 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
 
         def handle_task_branch(self, name: str):
             body = self._body()
-            new_name = (body.get("new_name") or "").strip()
-            err = validate_task_name(new_name)
-            if err:
-                self._json({"error": err}, 400)
-                return
+            # As on ``POST /tasks``, an absent name asks for a generated burnable
+            # one; a name that is present is validated, so an empty ``-n ""``
+            # stays an error rather than a silent request for a random name.
+            new_name = body.get("new_name")
+            if new_name is not None:
+                new_name = new_name.strip()
+                err = validate_task_name(new_name)
+                if err:
+                    self._json({"error": err}, 400)
+                    return
             message = body.get("message")
             if not message:
                 self._json(
@@ -874,7 +879,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 parent = self._get_task_or_404(name)
                 if parent is None:
                     return
-                if self._ilan.store.get_task(new_name) is not None:
+                if new_name is not None and self._ilan.store.get_task(new_name) is not None:
                     self._json({"error": f"Task {new_name} already exists"}, 409)
                     return
                 if not parent.session_id:
@@ -902,6 +907,11 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                         409,
                     )
                     return
+                # Minted last, once the branch is known to be viable, so a
+                # refused request draws no name; still under the lock, so two
+                # concurrent unnamed branches can't be handed the same one.
+                if new_name is None:
+                    new_name = self._ilan.store.next_available_burnable_name()
                 now = datetime.now(timezone.utc).isoformat()
                 child = self._ilan.store.branch_task(
                     parent,

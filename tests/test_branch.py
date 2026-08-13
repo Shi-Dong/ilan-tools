@@ -637,15 +637,23 @@ def _make_cli_client(**overrides):
 
 
 class TestBranchCliFlags:
-    def test_branch_requires_dash_n(self, tmp_config) -> None:
+    def test_branch_without_dash_n_asks_the_server_to_mint_a_name(
+        self, tmp_config
+    ) -> None:
+        """``-n`` is optional: a nameless branch is a burnable child, so the
+        client sends no name and reports whichever one the server picked."""
         from click.testing import CliRunner
         from ilan.cli import main
         runner = CliRunner()
         client = _make_cli_client()
+        client.branch_task.return_value = {
+            "ok": True, "name": "xxx-cat-likes-fin", "parent_name": "parent",
+        }
         with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["branch", "parent"])
-        assert result.exit_code != 0
-        assert "Missing option" in result.output or "-n" in result.output
+            result = runner.invoke(main, ["branch", "parent", "-d", "try plan B"])
+        assert result.exit_code == 0, result.output
+        client.branch_task.assert_called_once_with("parent", None, "try plan B")
+        assert "xxx-cat-likes-fin" in result.output
 
     def test_branch_requires_a_message(self, tmp_config) -> None:
         """No -d/-f means the child has no assignment of its own — refuse
