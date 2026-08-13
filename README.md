@@ -33,6 +33,9 @@ ilan add -n fix-bug -d "Fix the null-pointer crash in auth.py"
 # Add a task (from file)
 ilan add -n big-refactor -f tasks/refactor.md
 
+# Add a throwaway task (no -n: it is named for you, and closing it deletes it)
+ilan add -d "Check whether the flaky test still flakes"
+
 # See what's running
 ilan ls
 
@@ -114,13 +117,44 @@ Numbers count up from 1 and are minted the first time a task reaches `DONE` or `
 
 Only `undone` and `undiscard` accept a number; every other command wants a name or an alias, so `ilan reply 1` is refused rather than quietly resolving to `fix-bug`. Numbers are hidden while a task is active, since there is nothing to revive.
 
+## Burnable tasks (`xxx-`)
+
+Most tasks are worth keeping once they are closed. A quick question to an agent is not — and a closed task you will never revive is just noise in `ilan ls -a`. So a task whose name starts with `xxx-` is **burnable**: `ilan done` and `ilan discard` *delete* it and its data, exactly as `ilan rm` would, instead of parking it in the closed list.
+
+Leave `-n` off `ilan add` and you get one, under a generated name:
+
+```bash
+$ ilan add -d "Check whether the flaky test still flakes"
+Task xxx-cat-likes-fin added.
+Burnable (xxx-…): ilan done / ilan discard will delete it. Rename it to keep it.
+
+$ ilan done xxx-cat-likes-fin
+Burnable task xxx-cat-likes-fin removed (name starts with xxx-).
+```
+
+Generated names read as a tiny sentence (`xxx-cat-likes-fin`, `xxx-owl-naps-dune`) so a nameless task is still something you can say out loud and pick out of a list.
+
+Burnability lives in the name and nowhere else, so **renaming is how you change your mind** — in either direction:
+
+```bash
+ilan rename xxx-cat-likes-fin fix-flaky-test   # now a normal task: done closes it
+ilan rename fix-flaky-test xxx-fix-flaky-test  # burnable again: done deletes it
+```
+
+Notes:
+
+- The prefix is matched exactly. `xxx-foo` burns; `XXX-foo`, `xxxfoo`, and `my-xxx-foo` are ordinary tasks.
+- You can name a task `xxx-…` yourself with `-n`; nothing about a generated name is special.
+- Burning is a delete, so — like `ilan rm` — it takes the task's conversation log with it, mints no [number](#task-numbers), and re-parents any [branched](#branch-tree) children onto their grandparent. There is no undo: `undone` / `undiscard` have nothing left to bring back.
+- A burnable task's agent is killed first if it is still `WORKING`, along with its tmux sessions.
+
 ## Commands
 
 ### Tasks
 
 | Command | Description |
 |---|---|
-| `ilan task add -n NAME -d "prompt"` | Add a task (or use `-f file`; name must be ≥ 3 chars, letters/digits/`-`/`_` only, and not all digits). Pass `--claude` or `--codex` to pick the backend for this task (default: the `default-backend` config value) — see [Agent backends](#agent-backends). Pass `--max` to create the task already on the [Fable model](#fable-model-ilan-max--ilan-unmax) (implies `--claude`) |
+| `ilan task add [-n NAME] -d "prompt"` | Add a task (or use `-f file`; name must be ≥ 3 chars, letters/digits/`-`/`_` only, and not all digits). Omit `-n` and the task is given a generated [burnable](#burnable-tasks-xxx-) name such as `xxx-cat-likes-fin`, which makes `done`/`discard` delete it. Pass `--claude` or `--codex` to pick the backend for this task (default: the `default-backend` config value) — see [Agent backends](#agent-backends). Pass `--max` to create the task already on the [Fable model](#fable-model-ilan-max--ilan-unmax) (implies `--claude`) |
 | `ilan task ls [-a] [-c] [NAME]` | List active tasks (`-a` includes `DONE`/`DISCARDED`, each shown with its [number](#task-numbers); `-c` prints only the pin marker, number, alias, name, and status, one task per line); if `NAME` is given, show its tail instead |
 | `ilan search PATTERN` | Print the `ilan ls -a -c` lines that contain `PATTERN`, keeping their colors. `PATTERN` is matched case-insensitively as a plain substring (not a regex) against the whole line, so it also matches on a number, an alias, or a status; `DONE` / `DISCARDED` tasks are always searched |
 | `ilan task show NAME` | Print the full prompt of a task |
@@ -139,8 +173,8 @@ Only `undone` and `undiscard` accept a number; every other command wants a name 
 | `ilan task tree NAME` | Draw the branch tree `NAME` belongs to, from its outermost ancestor down — see [Branch tree](#branch-tree) |
 | `ilan task kill NAME` | Kill a `WORKING` agent, move task to `ERROR` |
 | `ilan task attach NAME` | Attach to a task's agent session interactively (`claude --resume` or `codex resume`, per the task's backend) |
-| `ilan task done NAME [NAME...]` | Mark task(s) as `DONE` |
-| `ilan task discard NAME [NAME...]` | Mark task(s) as `DISCARDED` |
+| `ilan task done NAME [NAME...]` | Mark task(s) as `DONE`. A [burnable](#burnable-tasks-xxx-) task (name starting with `xxx-`) is deleted instead |
+| `ilan task discard NAME [NAME...]` | Mark task(s) as `DISCARDED`. A [burnable](#burnable-tasks-xxx-) task (name starting with `xxx-`) is deleted instead |
 | `ilan task undone NAME` | Move a `DONE` task back to `NEEDS_ATTENTION`. `NAME` may be the task's [number](#task-numbers) (`ilan undone 1`) |
 | `ilan task undiscard NAME` | Move a `DISCARDED` task back to `NEEDS_ATTENTION`. `NAME` may be the task's [number](#task-numbers) (`ilan undiscard 2`) |
 | `ilan task unread NAME [NAME...]` | Restore the unread marker on task(s) |
@@ -157,7 +191,7 @@ Frequently used task commands have top-level aliases to save typing:
 
 | Shorthand | Equivalent |
 |---|---|
-| `ilan add` | `ilan task add` |
+| `ilan add [-n NAME]` | `ilan task add [-n NAME]` |
 | `ilan ls [-a] [-c] [NAME]` | `ilan task ls [-a] [-c] [NAME]` |
 | `ilan tail NAME` | `ilan task tail NAME` |
 | `ilan reply NAME ["msg"]` | `ilan task reply NAME ["msg"]` |
@@ -542,6 +576,10 @@ WORKING ──▶ AGENT_FINISHED ──▶ DONE
 A task starts `WORKING` the moment it is created; a reply to a finished,
 blocked, or errored task immediately re-spawns its agent. There is no cap on
 the number of concurrently running agents.
+
+A [burnable](#burnable-tasks-xxx-) task (name starting with `xxx-`) never reaches
+`DONE` or `DISCARDED`: those two commands delete it instead, so it leaves the
+diagram above rather than moving down it.
 
 Agents self-report their status via a `[STATUS: DONE]` or `[STATUS: NEEDS_ATTENTION]` marker injected into every prompt. The injected convention also requires the agent to provide a substantive answer before emitting the marker.
 

@@ -7,7 +7,16 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from ilan.models import ALIAS_POOL, ENGINE_CODEX, LogEntry, Task, parse_task_number
+from ilan.models import (
+    ALIAS_POOL,
+    BURNABLE_PREFIX,
+    ENGINE_CODEX,
+    LogEntry,
+    Task,
+    generate_task_hash,
+    parse_task_number,
+    random_burnable_name,
+)
 
 
 class Store:
@@ -90,6 +99,24 @@ class Store:
         if not available:
             return None
         return random.choice(available)
+
+    def next_available_burnable_name(self, attempts: int = 50) -> str:
+        """Return an unused burnable name, e.g. ``xxx-cat-likes-fin``.
+
+        Draws are random, so a name may already be taken by a live or closed
+        task; a bounded number of tries is made before falling back to a
+        hash-suffixed name, which stays available even when the word pool is
+        crowded. The fallback is checked too, so the result is always free.
+        """
+        taken = self.load_tasks()
+        for _ in range(attempts):
+            name = random_burnable_name()
+            if name not in taken:
+                return name
+        name = f"{BURNABLE_PREFIX}{generate_task_hash()}"
+        while name in taken:
+            name = f"{BURNABLE_PREFIX}{generate_task_hash()}"
+        return name
 
     def put_task(self, task: Task) -> None:
         tasks = self.load_tasks()

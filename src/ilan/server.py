@@ -31,6 +31,7 @@ from ilan.models import (
     Task,
     TaskStatus,
     generate_task_hash,
+    is_burnable_name,
     other_engine,
     parse_task_number,
     validate_task_name,
@@ -460,11 +461,17 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
 
         def handle_add_task(self):
             body = self._body()
-            name, prompt = body["name"], body["prompt"]
-            err = validate_task_name(name)
-            if err:
-                self._json({"error": err}, 400)
-                return
+            prompt = body["prompt"]
+            # An absent name asks for a generated burnable one. A name that is
+            # present is validated as usual, so an empty ``-n ""`` is still an
+            # error rather than a silent request for a random name.
+            name = body.get("name")
+            if name is not None:
+                name = name.strip()
+                err = validate_task_name(name)
+                if err:
+                    self._json({"error": err}, 400)
+                    return
             engine = body.get("agent") or cfg.load().get("default-backend", DEFAULT_ENGINE)
             if engine not in VALID_ENGINES:
                 self._json(
@@ -485,7 +492,11 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 )
                 return
             with self._ilan.lock:
-                if (existing := self._ilan.store.get_task(name)) is not None:
+                # Minted under the lock so two concurrent unnamed adds can't be
+                # handed the same name.
+                if name is None:
+                    name = self._ilan.store.next_available_burnable_name()
+                elif (existing := self._ilan.store.get_task(name)) is not None:
                     self._json(
                         {"error": f"Task {name} already exists (status: {existing.status.value})"},
                         409,
@@ -508,7 +519,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 # always opens with the task statement.
                 self._ilan.store.append_log(task.name, "user", prompt)
                 self._ilan.runner.start(task)
-            self._json({"ok": True})
+            self._json({"ok": True, "name": task.name})
 
         def handle_get_task(self, name: str):
             with self._ilan.lock:
@@ -538,39 +549,62 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             if task.number is None:
                 task.number = self._ilan.store.next_task_number()
 
+        def _burn_task(self, task: Task) -> bool:
+            """Delete *task* outright when its name marks it burnable.
+
+            Closing a throwaway task means being finished with it, so ``done``
+            and ``discard`` remove it and its data instead of leaving a
+            ``DONE``/``DISCARDED`` row nobody will ever revive. Returns whether
+            the task was burned, so the caller can skip the normal close.
+
+            Must be called with the server lock held; the caller kills the
+            task's tmux sessions afterwards, off the lock, exactly as it does
+            for a normal close.
+            """
+            if not is_burnable_name(task.name):
+                return False
+            if task.status == TaskStatus.WORKING:
+                self._ilan.runner.kill(task)
+            self._ilan.store.delete_task(task.name)
+            return True
+
         def handle_task_done(self, name: str):
             with self._ilan.lock:
                 task = self._get_task_or_404(name)
                 if task is None:
                     return
-                if task.status == TaskStatus.WORKING:
-                    self._ilan.runner.kill(task)
-                task.set_status(TaskStatus.DONE)
-                task.alias = None
-                task.needs_review = False
-                self._assign_number(task)
-                self._ilan.store.put_task(task)
+                burned = self._burn_task(task)
+                if not burned:
+                    if task.status == TaskStatus.WORKING:
+                        self._ilan.runner.kill(task)
+                    task.set_status(TaskStatus.DONE)
+                    task.alias = None
+                    task.needs_review = False
+                    self._assign_number(task)
+                    self._ilan.store.put_task(task)
             if task.task_hash:
                 kill_tmux_sessions_by_prefix(task.task_hash)
-            self._json({"ok": True, "name": task.name})
+            self._json({"ok": True, "name": task.name, "removed": burned})
 
         def handle_task_discard(self, name: str):
             with self._ilan.lock:
                 task = self._get_task_or_404(name)
                 if task is None:
                     return
-                if task.status == TaskStatus.WORKING:
-                    self._ilan.runner.kill(task)
-                task.set_status(TaskStatus.DISCARDED)
-                # Keep the alias: a DISCARDED task is a recycle-bin entry that
-                # ``undiscard`` can bring back, so it stays reachable by its
-                # short alias (not just its full name).
-                task.needs_review = False
-                self._assign_number(task)
-                self._ilan.store.put_task(task)
+                burned = self._burn_task(task)
+                if not burned:
+                    if task.status == TaskStatus.WORKING:
+                        self._ilan.runner.kill(task)
+                    task.set_status(TaskStatus.DISCARDED)
+                    # Keep the alias: a DISCARDED task is a recycle-bin entry
+                    # that ``undiscard`` can bring back, so it stays reachable
+                    # by its short alias (not just its full name).
+                    task.needs_review = False
+                    self._assign_number(task)
+                    self._ilan.store.put_task(task)
             if task.task_hash:
                 kill_tmux_sessions_by_prefix(task.task_hash)
-            self._json({"ok": True, "name": task.name})
+            self._json({"ok": True, "name": task.name, "removed": burned})
 
         def handle_task_undone(self, name: str):
             with self._ilan.lock:

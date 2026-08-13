@@ -32,6 +32,10 @@ for the user-facing docs.
 - A task keeps a *separate* native session per engine plus a unified conversation
   log; never assume a single session. When touching switch/catch-up logic, keep
   the per-engine `log_cursors` and `awaiting_catchup` invariants intact.
+- A task whose name starts with `BURNABLE_PREFIX` (`xxx-`) is deleted by
+  `done`/`discard` instead of closed. Burnability is derived from the current
+  name and stored on the task nowhere, which is what lets `rename` move a task
+  in and out of it; keep it that way rather than caching a flag.
 
 ## Changes
 

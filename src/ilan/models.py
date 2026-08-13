@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import itertools
 import os
+import random
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -41,6 +42,54 @@ ALIAS_POOL: list[str] = [
     "".join(p) for p in itertools.product(ALIAS_CHARS, repeat=2)
     if "".join(p) not in _BANNED_ALIASES
 ]
+
+
+# ── Burnable tasks ───────────────────────────────────────────────────────
+# A task whose name starts with this prefix is scratch work: ``done`` and
+# ``discard`` delete it outright instead of parking it in the closed list,
+# because a throwaway task is not worth a slot in the history. ``ilan add``
+# mints such a name whenever no ``-n`` is given.
+#
+# Burnability is read off the *current* name and stored nowhere, so renaming is
+# what moves a task in or out of it: rename ``xxx-cat-likes-fin`` to ``fix-auth``
+# and it closes normally; rename ``fix-auth`` to ``xxx-fix-auth`` and it burns.
+BURNABLE_PREFIX = "xxx-"
+
+
+def is_burnable_name(name: str) -> bool:
+    """Return whether *name* marks a task as burnable (deleted when closed)."""
+    return name.startswith(BURNABLE_PREFIX)
+
+
+# Word pools for generated burnable names. They read as a tiny sentence
+# (``xxx-cat-likes-fin``) so an unnamed task is still pronounceable and
+# memorable in ``ilan ls`` — a hash would be neither. Verbs are third-person
+# singular so the middle word can never be mistaken for one of the nouns.
+BURNABLE_NOUNS: tuple[str, ...] = (
+    "ant", "bat", "bee", "cat", "cow", "crab", "dog", "elk", "fern", "fin",
+    "fox", "frog", "goat", "hawk", "hen", "ibis", "koi", "lark", "mole",
+    "moss", "moth", "newt", "owl", "pig", "pine", "ram", "reed", "seal",
+    "swan", "toad", "wasp", "wolf", "yak", "brook", "cloud", "cove", "dune",
+    "lake", "mesa", "peak", "ridge", "storm", "tide", "claw", "horn", "paw",
+    "tail", "wing",
+)
+BURNABLE_VERBS: tuple[str, ...] = (
+    "builds", "chases", "chews", "counts", "digs", "dodges", "drops", "finds",
+    "follows", "guards", "hates", "hides", "jumps", "keeps", "likes", "meets",
+    "naps", "paints", "sings", "sniffs", "spots", "steals", "wants", "watches",
+)
+
+
+def random_burnable_name() -> str:
+    """Return a random ``xxx-noun-verb-noun`` name, e.g. ``xxx-cat-likes-fin``.
+
+    The two nouns are drawn without replacement so a name never reads
+    ``xxx-cat-likes-cat``. Draws are otherwise independent, so the name is not
+    guaranteed to be free: callers that need a *unique* one go through
+    :meth:`ilan.store.Store.next_available_burnable_name`.
+    """
+    subject, obj = random.sample(BURNABLE_NOUNS, 2)
+    return f"{BURNABLE_PREFIX}{subject}-{random.choice(BURNABLE_VERBS)}-{obj}"
 
 
 class TaskStatus(str, Enum):
