@@ -393,7 +393,7 @@ class Runner:
         # Neither backend's session log records the reasoning effort, so
         # capture what this spawn was given (the ``effort`` config the
         # backend read when building the command) for attribution at reap.
-        task.spawn_effort = str(cfg.load().get("effort", "xhigh"))
+        task.spawn_effort = str(cfg.load().get("effort", "max"))
         # Same for the paying account: resolve it from the credentials this
         # spawn just authenticated with, since a later credential config change
         # would affect the *next* spawn only.

@@ -103,7 +103,7 @@ class TestBuildCommand:
         self, backend: CodexBackend, tmp_config: Path
     ) -> None:
         cmd, _ = backend.build_command(None, resume=False, session_id=None)
-        assert cmd[cmd.index("-c") + 1] == 'model_reasoning_effort="xhigh"'
+        assert cmd[cmd.index("-c") + 1] == 'model_reasoning_effort="max"'
 
     def test_configured_effort_passed_as_reasoning_config(
         self, backend: CodexBackend, tmp_config: Path
