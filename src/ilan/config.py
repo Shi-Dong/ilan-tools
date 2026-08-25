@@ -9,7 +9,7 @@ DEFAULTS: dict[str, str | int | bool] = {
     "workdir": "~/.ilan",
     "model-claude": "claude-opus-4-7",
     "model-codex": "gpt-5.6-sol",
-    "effort": "xhigh",
+    "effort": "max",
     "time-zone": "US/Pacific",
     "editor": "emacs",
     "default-backend": "claude",
@@ -25,10 +25,11 @@ DEFAULTS: dict[str, str | int | bool] = {
 
 VALID_KEYS = set(DEFAULTS)
 
-# The intersection of the effort levels supported by both backends
-# (claude --effort additionally knows "max", codex additionally knows
-# "minimal"; we only allow values that mean the same thing everywhere).
-VALID_EFFORTS = ("low", "medium", "high", "xhigh")
+# The intersection of the effort levels supported by both backends, in
+# ascending order (codex additionally knows "none" and "minimal"; we only
+# allow values that mean the same thing everywhere). "max" is the top of
+# both ladders and the default.
+VALID_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
 # ── model ids ──────────────────────────────────────────────────────
 # ``model-claude`` / ``model-codex`` hold the exact model id handed to the

@@ -29,7 +29,7 @@ def _claude_flags(model_override: str | None = None) -> list[str]:
     return [
         *_CLAUDE_STATIC_FLAGS,
         "--model", _effective_model(model_override),
-        "--effort", str(conf.get("effort", "xhigh")),
+        "--effort", str(conf.get("effort", "max")),
     ]
 
 
@@ -134,7 +134,7 @@ class ClaudeBackend(Backend):
             "--resume", session_id,
             "--dangerously-skip-permissions",
             "--model", _effective_model(model_override),
-            "--effort", str(conf.get("effort", "xhigh")),
+            "--effort", str(conf.get("effort", "max")),
         ]
 
     def parse_output(self, out_path: Path) -> ParsedResult | None:

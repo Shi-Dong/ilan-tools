@@ -84,7 +84,7 @@ class CodexBackend(Backend):
         # Mirror the Claude backend's --effort flag. Codex has no dedicated
         # CLI flag; the knob is the model_reasoning_effort config key. The
         # value is quoted so it parses as a TOML string.
-        effort = str(conf.get("effort", "xhigh")).strip()
+        effort = str(conf.get("effort", "max")).strip()
         if effort:
             cmd += ["-c", f'model_reasoning_effort="{effort}"']
         # A task's ``model`` override only makes sense for the engine that set
