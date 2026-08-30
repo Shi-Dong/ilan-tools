@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import re
 import struct
 
 from ilan import web
@@ -151,6 +152,28 @@ def test_apple_touch_icon_is_declared_and_shipped():
     index = web.read_asset("index.html").decode()
     assert 'rel="apple-touch-icon" href="icon-180.png"' in index
     assert web.read_asset("icon-180.png") is not None
+
+
+def test_engine_colour_classes_are_defined_in_both_schemes():
+    """The colour cue spans two files, so it can half-break silently.
+
+    app.js picks a class name and app.css colours it; rename one and the task
+    name simply renders in the default colour, which no status code or smoke
+    test would ever notice. Both schemes must define both variables too — a
+    variable declared only in the light block leaves dark mode uncoloured.
+    """
+    js = web.read_asset("app.js").decode()
+    css = web.read_asset("app.css").decode()
+
+    classes = set(re.findall(r"'(engine-[a-z]+)'", js))
+    assert classes == {"engine-claude", "engine-codex"}, classes
+
+    for name in classes:
+        assert f".{name} {{" in css, f"{name} is used by app.js but not styled"
+
+    # Once in :root (light) and once in the prefers-color-scheme: dark block.
+    for var in ("--engine-claude", "--engine-codex"):
+        assert css.count(f"{var}:") == 2, f"{var} is not defined for both schemes"
 
 
 def test_app_assets_are_revalidated(ilan_server: IlanServer):

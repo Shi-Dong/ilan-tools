@@ -165,6 +165,16 @@ function askChoice(title, options) {
 // agent and no human is actually being waited on.
 const IN_LOOP_STATUSES = new Set(['AGENT_FINISHED', 'NEEDS_ATTENTION']);
 
+// Backends whose task names carry a colour cue, mirroring ENGINE_NAME_STYLE in
+// models.py. A task with no engine recorded predates the field and runs on the
+// default backend, which is Claude; an engine not listed here gets no class and
+// inherits the default text colour, the same fallback the CLI takes.
+const ENGINE_CLASS = { claude: 'engine-claude', codex: 'engine-codex' };
+
+function engineClass(task) {
+  return ENGINE_CLASS[task.engine || 'claude'] || '';
+}
+
 function displayStatus(task) {
   if (task.reply_every_seconds && IN_LOOP_STATUSES.has(task.status)) {
     return 'AGENT_IN_LOOP';
@@ -206,7 +216,8 @@ function taskRow(task) {
       <button class="row" data-name="${esc(task.name)}">
         <span class="row-top">
           ${task.alias ? `<span class="alias">${esc(task.alias)}</span>` : ''}
-          <span class="row-name${task.needs_review ? ' unread' : ''}">${esc(task.name)}</span>
+          <span class="row-name ${engineClass(task)}${
+            task.needs_review ? ' unread' : ''}">${esc(task.name)}</span>
           ${task.pinned ? '<span class="pin">📌</span>' : ''}
         </span>
         ${task.summary_one_liner
@@ -357,7 +368,8 @@ async function renderDetail(name) {
       <div class="hdr-row">
         <button class="btn btn-sm btn-ghost" id="back">‹</button>
         <h1 class="hdr-title">
-          ${task.alias ? `<span class="alias">${esc(task.alias)}</span> ` : ''}${esc(task.name)}
+          ${task.alias ? `<span class="alias">${esc(task.alias)}</span> ` : ''}<span
+            class="${engineClass(task)}">${esc(task.name)}</span>
         </h1>
         <button class="btn btn-sm" id="refresh">↻</button>
         <button class="btn btn-sm" id="actions">•••</button>

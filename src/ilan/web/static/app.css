@@ -32,6 +32,23 @@
   --st-error: #c62828;
   --st-loop: #7048c4;
 
+  /* Task-name colour by backend, mirroring ENGINE_NAME_STYLE in models.py:
+   * orange for Claude, light blue for Codex, so the running backend is legible
+   * at a glance in the list the same way it is in `ilan ls`.
+   *
+   * The terminal values (orange1 #ffaf00, light_sky_blue1 #afd7ff) assume a
+   * dark background and are unreadable on a white card — 1.84:1 and 1.50:1,
+   * against the 4.5:1 that body text needs. Light mode therefore uses
+   * hue-preserving darkenings, at 5.22:1 and 8.77:1.
+   *
+   * Codex keeps the original ~210deg hue rather than being pushed toward cyan:
+   * a cyan-leaning blue lands within a few degrees of --st-working, which sits
+   * directly under the task name in the list and made the two read as one
+   * thing. It is instead separated from --accent, which shares its hue, by
+   * being markedly darker. Dark mode below uses the terminal colours verbatim. */
+  --engine-claude: #a35a00;
+  --engine-codex: #00479e;
+
   --radius: 12px;
   --tap: 44px;
 }
@@ -55,6 +72,12 @@
     --st-discarded: #8e8e93;
     --st-error: #ff6b6b;
     --st-loop: #b79cff;
+
+    /* On a dark card these are the terminal's own colours, unchanged: 9.2:1
+     * and 11.3:1. The web app and `ilan ls` render the same task name in the
+     * same colour. */
+    --engine-claude: #ffaf00;
+    --engine-codex: #afd7ff;
   }
 }
 
@@ -250,6 +273,13 @@ textarea.field {
   font-size: 12px;
   color: var(--text-dim);
 }
+
+/* Applied to the task name only — not the alias or the status — matching what
+ * _build_name_cell() colours in the CLI. An unrecognised engine gets no class
+ * and inherits the default text colour, exactly as ENGINE_NAME_STYLE.get()
+ * falls back to no style. */
+.engine-claude { color: var(--engine-claude); }
+.engine-codex { color: var(--engine-codex); }
 
 .alias {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
