@@ -1,0 +1,471 @@
+/* ilan web app — phone-first styling.
+ *
+ * Sizing rules that are load-bearing on iOS, not taste:
+ *   - Every text input is >= 16px. Safari zooms the whole page in when a
+ *     focused field is smaller, and never zooms back out.
+ *   - Tap targets are >= 44px tall, Apple's documented minimum.
+ *   - Layout height uses 100dvh so the address bar collapsing does not leave a
+ *     dead strip at the bottom.
+ *   - Fixed edges add env(safe-area-inset-*) so nothing hides under the notch
+ *     or the home indicator.
+ */
+
+:root {
+  --bg: #f2f2f7;
+  --bg-elevated: #ffffff;
+  --bg-sunken: #e6e6eb;
+  --text: #1c1c1e;
+  --text-dim: #6c6c70;
+  --border: #d8d8dd;
+  --accent: #0a63c9;
+  --accent-contrast: #ffffff;
+  --danger: #c62828;
+
+  /* Status hues mirror STYLE_FOR_STATUS in models.py. They are differentiated
+   * by hue rather than shade, so a glance separates them the way the terminal
+   * palette does. */
+  --st-working: #0b7285;
+  --st-attention: #c62828;
+  --st-finished: #2e7d32;
+  --st-done: #6b8f6e;
+  --st-discarded: #8e8e93;
+  --st-error: #c62828;
+  --st-loop: #7048c4;
+
+  --radius: 12px;
+  --tap: 44px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;
+    --bg-elevated: #1c1c1e;
+    --bg-sunken: #2c2c2e;
+    --text: #f2f2f7;
+    --text-dim: #9b9ba0;
+    --border: #38383a;
+    --accent: #4a9bff;
+    --accent-contrast: #00122b;
+    --danger: #ff6b6b;
+
+    --st-working: #4dd0e1;
+    --st-attention: #ff6b6b;
+    --st-finished: #81c784;
+    --st-done: #6f8f72;
+    --st-discarded: #8e8e93;
+    --st-error: #ff6b6b;
+    --st-loop: #b79cff;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui,
+        "Segoe UI", Roboto, sans-serif;
+  overscroll-behavior-y: contain;
+}
+
+button, input, textarea, select {
+  font: inherit;
+  color: inherit;
+  touch-action: manipulation; /* removes Safari's 300ms double-tap delay */
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+/* ── header ─────────────────────────────────────────────────────────── */
+
+.hdr {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(16px);
+  backdrop-filter: saturate(180%) blur(16px);
+  border-bottom: 1px solid var(--border);
+  padding: calc(env(safe-area-inset-top) + 8px) 12px 8px;
+}
+
+.hdr-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--tap);
+}
+
+.hdr-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hdr-sub {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 2px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── buttons ────────────────────────────────────────────────────────── */
+
+.btn {
+  min-height: var(--tap);
+  min-width: var(--tap);
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.btn:active { background: var(--bg-sunken); }
+.btn[disabled] { opacity: .45; }
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+.btn-danger { color: var(--danger); }
+.btn-ghost { background: transparent; border-color: transparent; }
+.btn-sm { min-height: 36px; padding: 0 10px; font-size: 14px; }
+
+/* ── search / inputs ────────────────────────────────────────────────── */
+
+.field {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 10px 12px;
+  font-size: 16px; /* keep >= 16px: smaller triggers iOS focus-zoom */
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+textarea.field {
+  resize: vertical;
+  min-height: 96px;
+  line-height: 1.4;
+}
+
+.field:focus-visible,
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ── list ───────────────────────────────────────────────────────────── */
+
+.main {
+  flex: 1;
+  padding: 12px 12px calc(env(safe-area-inset-bottom) + 24px);
+}
+
+.group-label {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 18px 4px 8px;
+}
+
+.card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+.row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  min-height: var(--tap);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.row:active { background: var(--bg-sunken); }
+
+.row-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.row-name {
+  font-weight: 600;
+  font-size: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.row-sum {
+  color: var(--text-dim);
+  font-size: 14px;
+  margin-top: 3px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.alias {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--bg-sunken);
+  border-radius: 6px;
+  padding: 2px 6px;
+  flex: none;
+}
+
+.pin { flex: none; font-size: 13px; }
+
+.status {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  flex: none;
+}
+
+.st-WORKING { color: var(--st-working); }
+.st-NEEDS_ATTENTION { color: var(--st-attention); }
+.st-AGENT_FINISHED { color: var(--st-finished); }
+.st-DONE { color: var(--st-done); }
+.st-DISCARDED { color: var(--st-discarded); }
+.st-ERROR { color: var(--st-error); }
+.st-AGENT_IN_LOOP { color: var(--st-loop); }
+
+.unread::after {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* ── conversation ───────────────────────────────────────────────────── */
+
+.msg {
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  /* Agent output is full of long paths and URLs; break them rather than
+   * letting one token force the whole page to scroll sideways. */
+  overflow-wrap: anywhere;
+}
+
+.msg-user {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-color: transparent;
+  margin-left: 16px;
+}
+
+.msg-assistant {
+  background: var(--bg-elevated);
+  margin-right: 16px;
+}
+
+.msg-role {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  opacity: .7;
+  margin-bottom: 4px;
+}
+
+.msg-body {
+  white-space: pre-wrap;
+  font-size: 15px;
+  margin: 0;
+}
+
+.msg-foot {
+  font-size: 11px;
+  opacity: .65;
+  margin-top: 6px;
+}
+
+/* ── composer ───────────────────────────────────────────────────────── */
+
+.composer {
+  position: sticky;
+  bottom: 0;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  border-top: 1px solid var(--border);
+  padding: 8px 12px calc(env(safe-area-inset-bottom) + 8px);
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.composer textarea {
+  flex: 1;
+  min-height: var(--tap);
+  max-height: 40dvh;
+  resize: none;
+}
+
+/* ── action sheet ───────────────────────────────────────────────────── */
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .45);
+  z-index: 40;
+  display: flex;
+  align-items: flex-end;
+}
+
+.sheet {
+  width: 100%;
+  max-height: 82dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: var(--bg);
+  border-radius: 16px 16px 0 0;
+  padding: 8px 12px calc(env(safe-area-inset-bottom) + 12px);
+}
+
+.sheet-title {
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 10px 0;
+}
+
+.sheet .btn {
+  width: 100%;
+  margin-bottom: 8px;
+  justify-content: flex-start;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.stack { display: flex; flex-direction: column; gap: 10px; }
+.split { display: flex; gap: 8px; }
+.split > * { flex: 1; }
+
+.label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-bottom: -4px;
+}
+
+.empty {
+  text-align: center;
+  color: var(--text-dim);
+  padding: 48px 16px;
+}
+
+.pre {
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  overflow-x: auto;
+  overflow-wrap: anywhere;
+}
+
+.kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 15px;
+  min-height: var(--tap);
+  align-items: center;
+}
+
+.kv:last-child { border-bottom: 0; }
+.kv-k { color: var(--text-dim); flex: none; }
+.kv-v {
+  text-align: right;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+/* ── toast ──────────────────────────────────────────────────────────── */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(env(safe-area-inset-bottom) + 76px);
+  z-index: 60;
+  max-width: min(92vw, 520px);
+  background: var(--text);
+  color: var(--bg);
+  padding: 10px 16px;
+  border-radius: 999px;
+  font-size: 14px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.toast-err { background: var(--danger); color: #fff; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .row, .btn { transition: background-color .12s ease; }
+}

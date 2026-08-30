@@ -37,11 +37,13 @@ from ilan.backends import ClaudeBackend, CodexBackend
 from ilan.client import Client
 from ilan.models import (
     BURNABLE_PREFIX,
+    CANCEL_MESSAGE,
     DEFAULT_ENGINE,
     ENGINE_CODEX,
     ENGINE_NAME_STYLE,
     FABLE_MODEL,
     REPLY_EVERY_MIN_SECONDS,
+    TAP_MESSAGE,
     TaskStatus,
     display_status,
     format_cost_usd,
@@ -1564,8 +1566,6 @@ def _do_canned_reply(
 
 # ── task tap ─────────────────────────────────────────────────────────
 
-TAP_MESSAGE = "How are things now? Pause what you are doing and give me a quick summary of the current situation."
-
 
 def _do_tap(name: str) -> None:
     _do_canned_reply(name, TAP_MESSAGE, "Tap")
@@ -1579,12 +1579,6 @@ def task_tap(name: str) -> None:
 
 
 # ── task cancel ──────────────────────────────────────────────────────
-
-CANCEL_MESSAGE = (
-    "My previous message was sent by mistake. You can ignore that message and "
-    "the instructions therein. If you are working on fulfilling a request "
-    "specified in that message, you should stop immediately."
-)
 
 CANCEL_CONFIRMATION = (
     "Retracted the user's last message to {name} and told the agent to stop "

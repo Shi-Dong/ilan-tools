@@ -510,6 +510,40 @@ the reply is posted as usual. `--max` on a `codex` task prints the same
 warning as `ilan max` and posts the reply with the model untouched. Both
 flags require a reply message and are mutually exclusive.
 
+## Web app
+
+The server also serves a phone-first web UI at **`/app`** (`/` redirects there). It ships
+with the package, so a running server needs nothing extra:
+
+```bash
+open http://127.0.0.1:4526/app/
+```
+
+To use it from a phone, point the phone at the machine running the server — a LAN
+address, a VPN hostname, an SSH tunnel, or a reverse proxy all work. The app only ever
+requests relative URLs, so no server address is configured anywhere. On iOS,
+**Share → Add to Home Screen** installs it as a standalone app with its own icon.
+
+| Screen | Commands it covers |
+|---|---|
+| List | `ls`, `ls -a`, `search` |
+| Task | `tail`, `logs`, `show` |
+| Composer | `reply`, `re` |
+| Actions | `tap`, `cancel`, `sleep`, `reply -t`, `done`, `discard`, `undone`, `undiscard`, `unread`, `pin`, `unpin`, `max`, `unmax`, `switch-backend`, `rename`, `alias`, `branch`, `kill`, `rm` |
+| New task | `add` |
+| Settings | `config get`, `config set`, `server status` |
+
+Commands that act on the host running the server stay CLI-only: `attach`, `open`, `log`,
+`dashboard`, `update`, `clean`, `clear-everything`, `check-model`, and `ping`. `workdir`
+and the credential keys are shown but not editable in Settings.
+
+The list refreshes every 15 seconds while it is the frontmost tab and pauses when it is
+not. There are no push notifications — the app shows state when you open it.
+
+The web app inherits the server's access model, which has no authentication: anyone who
+can reach the server's port can drive your agents. Expose it only on a network you
+trust, or put it behind a proxy that authenticates.
+
 ## Agent backends
 
 Every task runs on an **agent backend** (its *engine*): Claude Code (`claude -p`)

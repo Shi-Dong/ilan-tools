@@ -18,15 +18,17 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from ilan import __version__, config as cfg, get_git_commit
+from ilan import __version__, config as cfg, get_git_commit, web
 from ilan.backends.claude import last_assistant_model
 from ilan.gist import GistSyncer, github_token, last_comment_url
 from ilan.models import (
     ALIAS_POOL,
+    CANCEL_MESSAGE,
     DEFAULT_ENGINE,
     ENGINE_CLAUDE,
     FABLE_MODEL,
     REPLY_EVERY_MIN_SECONDS,
+    TAP_MESSAGE,
     VALID_ENGINES,
     Task,
     TaskStatus,
@@ -100,6 +102,13 @@ def read_server_owner() -> str | None:
 ROUTES: list[tuple[str, str, str]] = [
     ("GET",    r"^/version$",                  "handle_version"),
     ("GET",    r"^/health$",                   "handle_health"),
+    # Web app. ``/`` redirects so typing the bare host in a browser lands on
+    # the UI; the ``/app/?$`` route must precede the asset route so ``/app/``
+    # resolves to index.html instead of being read as an empty filename.
+    ("GET",    r"^/$",                         "handle_app_redirect"),
+    ("GET",    r"^/app/?$",                    "handle_app_index"),
+    ("GET",    r"^/app/(.+)$",                 "handle_app_asset"),
+    ("GET",    r"^/canned-messages$",          "handle_canned_messages"),
     ("GET",    r"^/config$",                   "handle_get_config"),
     ("POST",   r"^/config/set$",               "handle_set_config"),
     ("GET",    r"^/tasks$",                    "handle_list_tasks"),
@@ -369,6 +378,40 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
 
         def handle_health(self):
             self._json({"status": "ok"})
+
+        # ── web app ──────────────────────────────────────────────
+
+        def _asset(self, relative: str) -> None:
+            data = web.read_asset(relative)
+            if data is None:
+                self._json({"error": "Not found"}, 404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", web.content_type(relative))
+            self.send_header("Content-Length", str(len(data)))
+            # The assets ship with the server, so an upgrade can change them
+            # under a browser that already cached them. Revalidating on every
+            # load is cheap over a LAN and avoids a stale app after an update.
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def handle_app_redirect(self):
+            self.send_response(302)
+            self.send_header("Location", "/app/")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def handle_app_index(self):
+            self._asset(web.INDEX_FILE)
+
+        def handle_app_asset(self, relative: str):
+            self._asset(relative)
+
+        def handle_canned_messages(self):
+            """Messages behind ``tap`` and ``cancel``, for the web app's
+            equivalents of those two commands."""
+            self._json({"tap": TAP_MESSAGE, "cancel": CANCEL_MESSAGE})
 
         def handle_version(self):
             self._json({"version": __version__, "commit": get_git_commit()})
