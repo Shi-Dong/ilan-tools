@@ -239,6 +239,20 @@ button, input, textarea, select {
   color: var(--accent-contrast);
   font-weight: 600;
 }
+/* A disabled primary button goes neutral rather than merely faint. Fading the
+   accent leaves a pale blue — #8ab2e2 over the light dock — which still reads
+   as "the blue button", just badly printed, and invites the tap it is going to
+   refuse. Grey says the button is not available. The neutral stands 4.6:1
+   clear of the live blue in light mode and 4.9:1 in dark, so the two states
+   are not easily mistaken for one another, and the label keeps 4.2:1 and
+   5.0:1 on it respectively. */
+.btn-primary[disabled] {
+  background: var(--bg-sunken);
+  border-color: var(--border);
+  color: var(--text-dim);
+  opacity: 1;
+}
+
 .btn-danger { color: var(--danger); }
 .btn-done {
   background: var(--done);

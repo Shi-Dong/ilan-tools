@@ -777,7 +777,7 @@ async function renderDetail(name) {
         <button class="btn btn-ghost btn-clear" id="clear-reply"
                 aria-label="Clear the message" title="Clear the message" disabled>✕</button>
       </div>
-      <button class="btn btn-primary" id="send">Send</button>
+      <button class="btn btn-primary" id="send" disabled>Send</button>
     </div>`;
 
   $('#app').innerHTML = `
@@ -841,15 +841,20 @@ async function renderDetail(name) {
   const replyBox = $('#reply');
   if (replyBox) {
     const clearBtn = $('#clear-reply');
-    // Height and the clear button both follow the content, so they are kept in
-    // one place: anything that puts text in the box calls this rather than
-    // remembering to do two things.
+    const sendBtn = $('#send');
+    // The box's height and both of its buttons follow its contents, so they
+    // are decided in one place: anything that puts text in the box calls this
+    // rather than remembering to do three things.
     const syncComposer = () => {
       replyBox.style.height = 'auto';
       replyBox.style.height = `${Math.min(replyBox.scrollHeight, 220)}px`;
-      // Disabled on an empty or whitespace-only draft: there is nothing to
-      // clear, and a live button that does nothing is worse than a dim one.
-      if (clearBtn) clearBtn.disabled = !replyBox.value.trim();
+      // Whitespace is not a message and is not worth clearing, so both buttons
+      // turn on the same trimmed test rather than on the raw value.
+      const hasDraft = Boolean(replyBox.value.trim());
+      if (clearBtn) clearBtn.disabled = !hasDraft;
+      // Send goes grey rather than staying blue and refusing the tap: a button
+      // that looks live and does nothing reads as the app being broken.
+      if (sendBtn) sendBtn.disabled = !hasDraft;
     };
     replyBox.oninput = syncComposer;
     // Once up front, so the button's state is derived from what is in the box
@@ -864,13 +869,20 @@ async function renderDetail(name) {
         replyBox.focus();
       };
     }
-    $('#send').onclick = async () => {
+    sendBtn.onclick = async () => {
       const text = replyBox.value.trim();
       if (!text) return;
-      $('#send').disabled = true;
+      // Held down for the round trip so a second tap cannot send twice.
+      sendBtn.disabled = true;
       const sent = await sendReply(task.name, text);
-      $('#send').disabled = false;
-      if (sent) { replyBox.value = ''; renderDetail(name); }
+      if (sent) {
+        replyBox.value = '';
+        renderDetail(name);
+        return;
+      }
+      // The send failed, so the draft is still there: let the contents decide
+      // whether the button comes back, rather than assuming it should.
+      syncComposer();
     };
   }
 }

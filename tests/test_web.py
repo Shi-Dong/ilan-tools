@@ -383,6 +383,70 @@ def test_the_clear_button_sits_inside_the_message_box():
     )
 
 
+def test_a_disabled_primary_button_goes_grey_rather_than_faint():
+    """Fading the accent leaves a pale blue, which still reads as the blue button.
+
+    The generic disabled rule only drops opacity; over the composer's backdrop
+    that renders the accent as roughly #8ab2e2 — recognisably "the blue button,
+    badly printed" — which invites the tap it is about to refuse. A neutral fill
+    says unavailable. The rule has to come after the generic one: both are a
+    class plus an attribute, so source order alone decides which wins.
+    """
+    css = web.read_asset("app.css").decode()
+
+    rule = re.search(r"\.btn-primary\[disabled\] \{(.*?)\}", css, re.S)
+    assert rule, "a disabled primary button is still only faded"
+    body = rule.group(1)
+    assert "background: var(--bg-sunken)" in body
+    assert "color: var(--text-dim)" in body
+    assert "opacity: 1" in body, (
+        "without this the neutral fill is faded on top of being neutral"
+    )
+    assert css.index(".btn-primary[disabled]") > css.index(".btn[disabled]"), (
+        "the generic faded rule wins on source order, so the button stays blue"
+    )
+
+
+def test_the_composer_ships_both_buttons_already_disabled():
+    """The markup's own default has to be the safe one.
+
+    A freshly rendered composer is always empty, so neither button should be
+    live in the HTML that produces it. ``syncComposer`` sets them a moment
+    later either way, which is exactly why this is worth pinning: nothing about
+    the rendered result would change if the attributes were dropped, right up
+    until that call moves behind an await or throws, and then the first frame
+    offers a blue Send over an empty box.
+    """
+    js = web.read_asset("app.js").decode()
+
+    for control in ('id="send"', 'id="clear-reply"'):
+        tag = re.search(rf"<button[^>]*{re.escape(control)}[^>]*>", js)
+        assert tag, f"{control} is no longer rendered"
+        assert "disabled" in tag.group(0), (
+            f"{control} ships enabled over an empty box"
+        )
+
+
+def test_the_composer_buttons_share_one_test_for_an_empty_draft():
+    """Send and clear must agree on what counts as nothing.
+
+    Whitespace is not a message and is not worth clearing, so both turn on the
+    trimmed value. Two separate conditions would be free to drift — which is
+    exactly how Tap and Done came apart on the card.
+    """
+    js = web.read_asset("app.js").decode()
+
+    sync = re.search(r"const syncComposer = \(\) => \{(.*?)\n    \};", js, re.S)
+    assert sync, "the composer no longer derives its state in one place"
+    body = sync.group(1)
+
+    assert body.count("replyBox.value.trim()") == 1, (
+        "the emptiness test is computed more than once, so the buttons can disagree"
+    )
+    assert "clearBtn.disabled = !hasDraft" in body
+    assert "sendBtn.disabled = !hasDraft" in body
+
+
 def test_the_clear_button_is_out_of_sight_while_there_is_nothing_to_clear():
     """A text field's clear control appears only once there is text.
 
