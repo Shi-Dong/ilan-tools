@@ -609,6 +609,13 @@ textarea.field {
   resize: none;
 }
 
+/* Alone in the bar, so it takes the whole width the composer would have used
+   rather than shrinking to its label. */
+.composer .btn-revive {
+  flex: 1;
+  min-height: var(--tap);
+}
+
 /* ── action sheet ───────────────────────────────────────────────────── */
 
 .sheet-backdrop {
