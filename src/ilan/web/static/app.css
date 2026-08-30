@@ -63,6 +63,14 @@
    * scheme: 5.94:1 here, 9.05:1 in dark mode below. */
   --sleep-fg: #7a6100;
 
+  /* Fill for the card's Done button. Deliberately darker than --st-finished,
+   * the green it echoes: that one only ever colours text sitting on a card,
+   * while this is a filled control carrying a label, so the label needs 4.5:1
+   * against the fill. #2c6b30 with white gives 6.46:1, and the fill itself
+   * stands 6.46:1 clear of the card it sits on. */
+  --done: #2c6b30;
+  --done-contrast: #ffffff;
+
   --radius: 12px;
   --tap: 44px;
 }
@@ -97,6 +105,13 @@
      * and both name colours clear 5:1 on it. */
     --loop-bg: #444444;
     --sleep-fg: #e0b93c;
+
+    /* The pair inverts here, exactly as --accent does: a fill light enough to
+     * read against a dark card, with a near-black green label on it (5.16:1).
+     * Keeping the light-mode dark green and putting white on it would reach
+     * only 3.3:1, and the fill would barely separate from the card. */
+    --done: #43a047;
+    --done-contrast: #00220a;
   }
 }
 
@@ -201,6 +216,12 @@ button, input, textarea, select {
   font-weight: 600;
 }
 .btn-danger { color: var(--danger); }
+.btn-done {
+  background: var(--done);
+  border-color: var(--done);
+  color: var(--done-contrast);
+  font-weight: 600;
+}
 .btn-ghost { background: transparent; border-color: transparent; }
 .btn-sm { min-height: 36px; padding: 0 10px; font-size: 14px; }
 
@@ -312,7 +333,14 @@ textarea.field {
 
 .card.collapsed .row-actions { display: none; }
 
-.row-actions .btn { flex: 1 1 0; }
+/* Three buttons share this row at phone width, where the shared 14px of
+ * horizontal padding is enough to wrap "Show Details" onto a second line and
+ * make the whole row ragged. The buttons are stretched to equal widths anyway,
+ * so the padding is not what is holding them apart. */
+.row-actions .btn {
+  flex: 1 1 0;
+  padding: 0 6px;
+}
 
 /* Collapsed shows what `ilan ls -c` shows: pin, alias, name, unread marker
  * and status. The summary, the engine, the age and the sleep suffix are the

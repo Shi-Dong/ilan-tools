@@ -14,7 +14,7 @@ from ilan.models import (
     TAP_MESSAGE,
     TaskStatus,
 )
-from ilan.server import IlanServer
+from ilan.server import ROUTES, IlanServer
 
 # The web routes need a live server, and test_server.py already owns the
 # fixture that starts one with a stubbed-out runner.
@@ -225,6 +225,90 @@ def test_the_card_border_is_thick_enough_to_read_its_colour():
         f"card border is {match.group(1)}px; 1px is not legible enough to "
         "distinguish the status colours"
     )
+
+
+def _relative_luminance(colour: str) -> float:
+    """WCAG relative luminance of a ``#rrggbb`` string."""
+    channels = (int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    linear = [
+        c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels
+    ]
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def _contrast(a: str, b: str) -> float:
+    la, lb = _relative_luminance(a), _relative_luminance(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def test_the_done_button_is_filled_with_its_own_green():
+    """The card's Done button takes its colour from --done, not from a status.
+
+    Reusing --st-finished would tie a control's fill to a status colour, so a
+    later tweak to how AGENT_FINISHED reads on a card would silently restyle a
+    button in the same edit.
+    """
+    css = web.read_asset("app.css").decode()
+    rule = re.search(r"\.btn-done \{(.*?)\}", css, re.S)
+    assert rule, "the Done button has no fill rule"
+    assert "background: var(--done)" in rule.group(1)
+    assert "color: var(--done-contrast)" in rule.group(1)
+
+
+def test_the_done_button_label_is_legible_in_both_colour_schemes():
+    """A filled button carries a label, so the pair has to clear 4.5:1.
+
+    The green it echoes, --st-finished, only ever colours text sitting on a
+    card and is too light to carry white text at this size. Nothing else would
+    catch the difference: the button would still render, still be green, and
+    simply be hard to read — worst in whichever scheme was not being looked at
+    when the colour was chosen.
+    """
+    css = web.read_asset("app.css").decode()
+    pairs = re.findall(
+        r"--done:\s*(#[0-9a-f]{6});\s*\n\s*--done-contrast:\s*(#[0-9a-f]{6});", css,
+    )
+    assert len(pairs) == 2, (
+        f"expected --done/--done-contrast in both schemes, found {len(pairs)}"
+    )
+    for fill, label in pairs:
+        assert _contrast(fill, label) >= 4.5, (
+            f"the Done label is {_contrast(fill, label):.2f}:1 on {fill}"
+        )
+
+    # It also has to separate from the card it sits on, in both schemes; a
+    # filled control needs 3:1 against its background to read as a control.
+    for fill, card in zip([p[0] for p in pairs], ("#ffffff", "#1c1c1e")):
+        assert _contrast(fill, card) >= 3.0, (
+            f"the Done fill {fill} is {_contrast(fill, card):.2f}:1 on {card}"
+        )
+
+
+def test_the_card_actions_row_tightens_its_buttons():
+    """Three buttons share one row at phone width, and only just fit.
+
+    At the shared 14px of button padding, "Show Details" wraps onto a second
+    line and the whole row goes ragged. This is a stand-in for a measurement
+    the test suite cannot take — there is no layout engine here — so it guards
+    the override rather than the wrapping itself.
+    """
+    css = web.read_asset("app.css").decode()
+    rule = re.search(r"\.row-actions \.btn \{(.*?)\}", css, re.S)
+    assert rule, "the card action buttons no longer have a sizing rule"
+    padding = re.search(r"padding:\s*0\s+(\d+)px", rule.group(1))
+    assert padding, "the row no longer overrides the default button padding"
+    assert int(padding.group(1)) <= 8, (
+        f"{padding.group(1)}px of padding wraps the middle label at 390px"
+    )
+
+
+def test_the_done_button_posts_to_a_route_the_server_serves():
+    """A renamed route would leave the button posting into a 404."""
+    js = web.read_asset("app.js").decode()
+    assert "/done`" in js, "the card's Done button no longer posts to /done"
+    assert (
+        "POST", r"^/tasks/([^/]+)/done$", "handle_task_done",
+    ) in ROUTES
 
 
 def test_web_app_does_not_show_task_cost():

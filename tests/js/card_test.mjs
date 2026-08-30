@@ -69,6 +69,8 @@ const HARNESS = `
     return __modalEls.get(sel);
   }
   let __modalOpen = false;
+  // The dialog's own markup, so a test can read what it actually asked.
+  let __lastModal = null;
 
   const document = {
     hidden: false,
@@ -84,17 +86,21 @@ const HARNESS = `
       if (sel === '.row') return pick(/class="row" data-toggle="([^"]+)"/g, 'toggle');
       if (sel === '.act-tap') return pick(/data-tap="([^"]+)"/g, 'tap');
       if (sel === '.act-details') return pick(/data-details="([^"]+)"/g, 'details');
+      if (sel === '.act-done') return pick(/data-done="([^"]+)"/g, 'done');
       return [];
     },
     addEventListener: () => {},
     body: { appendChild: () => { __modalOpen = true; } },
-    createElement: () => ({
-      className: '', innerHTML: '',
-      addEventListener: () => {},
-      remove: () => { __modalOpen = false; },
-      querySelector: (s) => __modalEl(s),
-      querySelectorAll: () => [],
-    }),
+    createElement: () => {
+      __lastModal = {
+        className: '', innerHTML: '',
+        addEventListener: () => {},
+        remove: () => { __modalOpen = false; },
+        querySelector: (s) => __modalEl(s),
+        querySelectorAll: () => [],
+      };
+      return __lastModal;
+    },
   };
   const window = { addEventListener: () => {} };
   const location = { hash: '#/' };
@@ -109,8 +115,14 @@ const TAIL = `;return {
   row: (name) => __listEl('.row', name),
   tapBtn: (name) => __listEl('.act-tap', name),
   detailsBtn: (name) => __listEl('.act-details', name),
+  doneBtn: (name) => __listEl('.act-done', name),
   modal: (sel) => __modalEl(sel),
   modalOpen: () => __modalOpen,
+  modalTitle: () => {
+    const m = ((__lastModal && __lastModal.innerHTML) || '')
+      .match(/class="sheet-title">([^<]*)</);
+    return m ? m[1] : '';
+  },
   storage: __store,
   fetches: __fetches,
   setFetch: __setFetch,
@@ -135,6 +147,12 @@ const TASKS = [
     summary_one_liner: 'beta summary',
     created_at: '2026-01-02T00:00:00+00:00',
     status_changed_at: '2026-01-02T00:00:00+00:00' },
+  // Pinned, because that is the only way a closed task appears in the default
+  // listing at all — and it is the case that has to *not* offer Done.
+  { name: 'gamma-task', alias: null, status: 'DONE', engine: 'claude',
+    pinned: true, summary_one_liner: 'gamma summary',
+    created_at: '2026-01-03T00:00:00+00:00',
+    status_changed_at: '2026-01-03T00:00:00+00:00' },
 ];
 
 const failures = [];
@@ -187,11 +205,22 @@ check('tapping it again collapses it', isCardCollapsed(html(), 'WORKING'));
 check('the expanded set is stored',
   app.storage.get(STORAGE_KEY) === '[]', `stored=${app.storage.get(STORAGE_KEY)}`);
 
-// ── the two actions are rendered on every card ─────────────────────────
+// ── the actions are rendered on every card ─────────────────────────────
 check('a Tap button is rendered', html().includes('data-tap="alpha-task"'));
 check('a Show Details button is rendered', html().includes('data-details="alpha-task"'));
+check('a Done button is rendered', html().includes('data-done="alpha-task"'));
 check('the buttons are labelled', html().includes('>Tap</button>')
-  && html().includes('>Show Details</button>'));
+  && html().includes('>Show Details</button>') && html().includes('>Done</button>'));
+check('Done is the third button, after Show Details',
+  /data-tap="alpha-task"[\s\S]*?data-details="alpha-task"[\s\S]*?data-done="alpha-task"/
+    .test(html()));
+check('Done carries the green fill class', html().includes('btn-done act-done'));
+
+// A closed task cannot be closed again — the server answers the request, but
+// re-closing something that is already DONE is not an action worth offering.
+check('a closed task is not offered Done', !html().includes('data-done="gamma-task"'));
+check('a closed task still offers the other two',
+  html().includes('data-details="gamma-task"'));
 
 // ── Show Details opens the conversation ────────────────────────────────
 app.detailsBtn('beta-task').onclick();
@@ -237,6 +266,70 @@ if (posts.length) {
 }
 check('tapping does not toggle the card',
   isCardCollapsed(tapApp.el('app').innerHTML, 'WORKING'));
+
+// ── Done asks first, then closes ───────────────────────────────────────
+const doneApp = bootApp();
+doneApp.state.tasks = structuredClone(TASKS);
+doneApp.renderList();
+doneApp.setFetch(async (path) => ({
+  ok: true,
+  status: 200,
+  json: async () => (path.startsWith('/tasks?') ? { tasks: [] } : { ok: true }),
+}));
+
+const doneposts = (name) => doneApp.fetches.filter(
+  (f) => f.path === `/tasks/${name}/done`);
+const listReads = () => doneApp.fetches.filter((f) => f.path.startsWith('/tasks?'));
+
+doneApp.doneBtn('beta-task').onclick();
+await settle();
+check('Done opens a confirmation', doneApp.modalOpen());
+check('Done closes nothing before it is confirmed', doneposts('beta-task').length === 0,
+  `posts=${doneposts('beta-task').length}`);
+
+clickModal(doneApp, '#mc', 'Done must open a confirmation that can be declined');
+await settle();
+check('declining closes nothing', doneposts('beta-task').length === 0,
+  `posts=${doneposts('beta-task').length}`);
+
+const readsBefore = listReads().length;
+const expandedBefore = doneApp.storage.get(STORAGE_KEY);
+doneApp.doneBtn('beta-task').onclick();
+await settle();
+clickModal(doneApp, '#mo', 'Done must open a confirmation that can be accepted');
+await settle();
+await settle();
+check('confirming closes the task', doneposts('beta-task').length === 1,
+  `posts=${doneposts('beta-task').length}`);
+check('it posts against the card it was pressed on',
+  doneposts('alpha-task').length === 0);
+check('the list is reloaded so the closed task drops out of it',
+  listReads().length === readsBefore + 1,
+  `reads went ${readsBefore} -> ${listReads().length}`);
+// The card itself is gone by now — that is what reloading was for — so what
+// is left to check is that pressing Done never toggled anything on the way.
+check('pressing Done does not toggle the card',
+  doneApp.storage.get(STORAGE_KEY) === expandedBefore,
+  `expanded went ${expandedBefore} -> ${doneApp.storage.get(STORAGE_KEY)}`);
+check('the closed task is gone from the reloaded list',
+  !doneApp.el('app').innerHTML.includes('beta-task'));
+
+// A running task is killed by this, which the confirmation has to say.
+const killApp = bootApp();
+killApp.state.tasks = structuredClone(TASKS);
+killApp.renderList();
+killApp.setFetch(async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) }));
+killApp.doneBtn('alpha-task').onclick();
+await settle();
+check('closing a WORKING task warns that the agent is stopped',
+  /stops the agent/.test(killApp.modalTitle()),
+  `title=${JSON.stringify(killApp.modalTitle())}`);
+
+killApp.doneBtn('beta-task').onclick();
+await settle();
+check('closing a task with no agent running does not claim to stop one',
+  !/stops the agent/.test(killApp.modalTitle()),
+  `title=${JSON.stringify(killApp.modalTitle())}`);
 
 // ── persistence still behaves ──────────────────────────────────────────
 const restored = bootApp(['beta-task']);

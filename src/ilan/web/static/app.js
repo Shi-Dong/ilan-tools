@@ -401,6 +401,9 @@ function taskRow(task) {
         <button class="btn btn-sm act-tap" data-tap="${esc(task.name)}">Tap</button>
         <button class="btn btn-sm act-details"
                 data-details="${esc(task.name)}">Show Details</button>
+        ${TERMINAL_STATUSES.has(task.status) ? '' : `
+        <button class="btn btn-sm btn-done act-done"
+                data-done="${esc(task.name)}">Done</button>`}
       </div>
     </div>`;
 }
@@ -495,6 +498,9 @@ function renderList() {
       location.hash = `#/t/${encodeURIComponent(btn.dataset.details)}`;
     };
   });
+  document.querySelectorAll('.act-done').forEach((btn) => {
+    btn.onclick = () => doneFromCard(btn.dataset.done);
+  });
 }
 
 /** Ask a task for a status update, after confirming.
@@ -507,6 +513,29 @@ async function tapFromCard(name) {
   const ok = await askConfirm(`Ask ${name} for a status update?`, 'Tap');
   if (!ok) return;
   await sendReply(name, state.canned.tap);
+}
+
+/** Close a task from its card, after confirming.
+ *
+ * Closing is not a display change: it drops the task's alias, and it kills the
+ * agent outright if one is still running. Sitting one tap away on every
+ * expanded card, next to two buttons that change nothing, it has to ask first
+ * — the same reason Tap does, for a heavier outcome.
+ *
+ * The list is reloaded rather than patched in place: a closed task leaves the
+ * default listing entirely, so the row has to go, and the server is the thing
+ * that decides that.
+ */
+async function doneFromCard(name) {
+  const task = state.tasks.find((t) => t.name === name);
+  const ok = await askConfirm(
+    task && task.status === 'WORKING'
+      ? `Mark ${name} as done? This stops the agent that is running.`
+      : `Mark ${name} as done?`,
+    'Mark done',
+  );
+  if (!ok) return;
+  if (await act(`/tasks/${encodeURIComponent(name)}/done`)) await loadList(false);
 }
 
 /** Expand or collapse one task's card, and remember which.
