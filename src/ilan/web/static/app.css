@@ -617,18 +617,53 @@ textarea.field {
 
 /* ── composer ───────────────────────────────────────────────────────── */
 
-.composer {
+/* The composer and the ask bar stack here, so the sticky positioning and the
+   blur belong to the pair rather than to either one — otherwise the ask bar
+   would slide under the composer when it appears. */
+.dock {
   position: sticky;
   bottom: 0;
   background: color-mix(in srgb, var(--bg) 92%, transparent);
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
   border-top: 1px solid var(--border);
+}
+
+.composer {
   padding: 8px 12px calc(env(safe-area-inset-bottom) + 8px);
   display: flex;
   gap: 8px;
   align-items: flex-end;
 }
+
+/* Shown only while something is selected in a message. It sits above the
+   composer rather than floating by the selection: iOS puts its own callout
+   there and a page cannot add an entry to that menu, so a bubble would be
+   competing with Copy and Look Up for the same few square centimetres. */
+.ask-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ask-bar[hidden] { display: none; }
+
+/* One line of it, so the bar cannot grow tall enough to push the composer off
+   a small screen no matter how much was selected. */
+.ask-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.ask-bar .btn { flex: 0 0 auto; }
 
 .composer textarea {
   flex: 1;

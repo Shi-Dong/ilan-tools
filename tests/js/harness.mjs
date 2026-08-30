@@ -31,7 +31,10 @@ export const EXPANDED_KEY = 'ilan.expanded';
 
 // Controls the app renders only in some states. Asking for one of these when
 // it is not on the page has to come back null, not a stub.
-const CONDITIONAL_IDS = ['show-more', 'reply', 'send', 'revive', 'clear-search'];
+const CONDITIONAL_IDS = [
+  'show-more', 'reply', 'send', 'revive', 'clear-search',
+  'ask-bar', 'ask-btn', 'ask-preview',
+];
 
 // querySelectorAll targets, and the data- attribute that identifies each match.
 // data-toggle is on the card body; the rest are its action buttons.
@@ -75,9 +78,29 @@ const PRELUDE = `
         textContent: '', onclick: null, oninput: null, onkeydown: null,
         disabled: false, checked: false, scrollHeight: 0,
         dataset: {}, focus() {}, classList: { add() {} }, style: {},
+        setSelectionRange() {},
       });
     }
     return __els.get(key);
+  }
+
+  // A stand-in for window.getSelection(). Nodes answer closest('.msg-body')
+  // according to where the test says each end of the selection landed, which
+  // is the only thing the app asks them.
+  let __selection = null;
+  const getSelection = () => __selection;
+  function __setSelection(text, anchorInside, focusInside) {
+    if (!text) { __selection = null; return; }
+    const node = (inside) => ({
+      nodeType: 1,
+      closest: (sel) => (inside && sel === '.msg-body' ? { tagName: 'DIV' } : null),
+    });
+    __selection = {
+      isCollapsed: false,
+      anchorNode: node(anchorInside),
+      focusNode: node(focusInside),
+      toString: () => text,
+    };
   }
 
   const __CONDITIONAL = new Set(__CONDITIONAL_IDS__);
@@ -155,6 +178,7 @@ const TAIL = `;return {
   replyEverySuffix, parseDuration, displayStatus, reviveAction, isVisible,
   isLooping, isSleeping,
   sendReply, runAction, postConfirmingReplyEvery,
+  elide, quoteForReply, selectedMessageText, syncAskBar, askAboutSelection,
   el: __el,
   row: (name) => __listEl('.row', name),
   tapBtn: (name) => __listEl('.act-tap', name),
@@ -168,6 +192,10 @@ const TAIL = `;return {
       .match(/class="sheet-title">([^<]*)</);
     return m ? m[1] : '';
   },
+  /** Pretend the user selected *text*; the flags say whether each end of
+   *  the selection landed inside a message body. */
+  selectText: (text, anchorInside = true, focusInside = anchorInside) =>
+    __setSelection(text, anchorInside, focusInside),
   storage: __store,
   fetches: __fetches,
   setFetch: __setFetch,

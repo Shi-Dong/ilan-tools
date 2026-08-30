@@ -373,6 +373,9 @@ const state = {
   detailShown: 1,
   canned: { tap: '', cancel: '' },
   pollTimer: null,
+  // The text the ask bar is currently offering to quote. Cached when the bar
+  // appears rather than read on click; see syncAskBar.
+  askSelection: '',
 };
 
 // ── shared chrome ────────────────────────────────────────────────────
@@ -603,6 +606,96 @@ async function loadList(showSpinner = true) {
   renderList();
 }
 
+// ── asking about a selection ─────────────────────────────────────────
+//
+// iOS shows its own callout over a selection (Copy, Look Up, Share) and a web
+// page cannot add an entry to it — that is a native-app capability. A bubble
+// floating by the selection would therefore be fighting that menu for the same
+// few square centimetres. The action lives in a bar docked above the composer
+// instead: never covered, always in the same place, and within thumb reach.
+
+// Longer selections are quoted with the middle elided. The opening and closing
+// words are what identify a passage; a whole screen of quoted text just buries
+// the question underneath it.
+const QUOTE_MAX_CHARS = 600;
+
+/** Collapse *text* to a single line, eliding the middle past *limit*.
+ *
+ * Newlines go too. This is a citation, not a reproduction — the agent still
+ * has the message it came from, so the quote only has to say which passage is
+ * being asked about.
+ */
+function elide(text, limit = QUOTE_MAX_CHARS) {
+  const clean = String(text ?? '').replace(/\s+/g, ' ').trim();
+  if (clean.length <= limit) return clean;
+  const half = Math.floor((limit - 3) / 2);
+  return `${clean.slice(0, half).trimEnd()} … ${clean.slice(-half).trimStart()}`;
+}
+
+/** The reply text that quotes *selected* and leaves room for a question.
+ *
+ * A Markdown blockquote: it is how the agent's own replies are formatted, it
+ * survives being read back as plain text, and it keeps the quote visually
+ * separate from the question the user is about to type under it.
+ */
+function quoteForReply(selected) {
+  return `> ${elide(selected)}\n\n`;
+}
+
+/** The selected text, but only when the selection lies inside a message.
+ *
+ * Selecting the header, the status line or the composer is not a question
+ * about the conversation. Both ends have to be inside a message body: a drag
+ * that starts in a reply and ends in the page chrome would otherwise quote
+ * whatever the browser decided to include along the way.
+ */
+function selectedMessageText() {
+  const sel = typeof getSelection === 'function' ? getSelection() : null;
+  if (!sel || sel.isCollapsed) return '';
+  const text = String(sel).trim();
+  if (!text) return '';
+  const inMessage = (node) => {
+    const el = node && (node.nodeType === 1 ? node : node.parentElement);
+    return Boolean(el && el.closest && el.closest('.msg-body'));
+  };
+  return inMessage(sel.anchorNode) && inMessage(sel.focusNode) ? text : '';
+}
+
+/** Show or hide the ask bar to match what is currently selected.
+ *
+ * The text is cached rather than re-read on click: tapping anything can clear
+ * the selection before the click handler runs, so reading it at that point is
+ * a race the button loses on some browsers.
+ */
+function syncAskBar() {
+  const bar = $('#ask-bar');
+  if (!bar) return;
+  const text = selectedMessageText();
+  state.askSelection = text;
+  bar.hidden = !text;
+  const preview = $('#ask-preview');
+  if (text && preview) preview.textContent = elide(text, 90);
+}
+
+/** Put the cached selection into the composer as a quote to ask about. */
+function askAboutSelection() {
+  const selected = state.askSelection;
+  const box = $('#reply');
+  if (!selected || !box) return;
+  const quote = quoteForReply(selected);
+  // Appended, not replacing: a half-typed question is not thrown away, and
+  // quoting two passages before asking about both is a reasonable thing to do.
+  box.value = box.value.trim() ? `${box.value.trimEnd()}\n\n${quote}` : quote;
+  state.askSelection = '';
+  const bar = $('#ask-bar');
+  if (bar) bar.hidden = true;
+  box.focus();
+  if (typeof box.setSelectionRange === 'function') {
+    box.setSelectionRange(box.value.length, box.value.length);
+  }
+  if (box.oninput) box.oninput();
+}
+
 // ── detail view ──────────────────────────────────────────────────────
 
 function messageHtml(entry) {
@@ -672,6 +765,10 @@ async function renderDetail(name) {
       <button class="btn btn-primary btn-revive" id="revive">${esc(revive.label)}</button>
     </div>`
     : `
+    <div class="ask-bar" id="ask-bar" hidden>
+      <span class="ask-preview" id="ask-preview"></span>
+      <button class="btn btn-sm btn-primary" id="ask-btn">Ask about this</button>
+    </div>
     <div class="composer">
       <textarea class="field" id="reply" rows="1" placeholder="Reply to ${esc(task.name)}"></textarea>
       <button class="btn btn-primary" id="send">Send</button>
@@ -696,7 +793,7 @@ async function renderDetail(name) {
       </div>` : ''}
     </header>
     <main class="main">${body}</main>
-    ${footer}`;
+    <div class="dock">${footer}</div>`;
 
   wireBack();
   $('#refresh').onclick = () => renderDetail(name);
@@ -719,6 +816,21 @@ async function renderDetail(name) {
     // screen. Returning the promise is for the tests, as with Show More.
     reviveBtn.onclick = () => runAction(revive.choice, task);
   }
+
+  const askBtn = $('#ask-btn');
+  if (askBtn) {
+    // Pressing the bar must not clear the selection before the click lands.
+    // The text is cached anyway, but keeping the highlight up while the quote
+    // is inserted is also what makes the button feel like it acted on it.
+    const keepSelection = (ev) => { if (ev && ev.preventDefault) ev.preventDefault(); };
+    const bar = $('#ask-bar');
+    if (bar) bar.onmousedown = keepSelection;
+    askBtn.onmousedown = keepSelection;
+    askBtn.onclick = askAboutSelection;
+  }
+  // A fresh render replaces the bar, so whatever was selected before it is no
+  // longer on screen to point at.
+  state.askSelection = '';
 
   const replyBox = $('#reply');
   if (replyBox) {
@@ -1052,6 +1164,9 @@ async function route() {
 }
 
 window.addEventListener('hashchange', route);
+// Only the conversation renders an ask bar, so syncAskBar is a no-op on every
+// other view and this listener costs nothing there.
+document.addEventListener('selectionchange', syncAskBar);
 document.addEventListener('visibilitychange', () => {
   if (canAutoRefresh()) loadList(false);
 });
