@@ -868,3 +868,65 @@ def test_canned_messages_match_the_shared_constants(ilan_server: IlanServer):
     # The web app's tap/cancel buttons must send byte-identical text to what
     # `ilan tap` / `ilan cancel` send, or the two front ends diverge.
     assert payload == {"tap": TAP_MESSAGE, "cancel": CANCEL_MESSAGE}
+
+
+def _mix(fg: str, bg: str, pct: float) -> str:
+    """*pct* of *fg* composited over *bg*, as ``color-mix`` would."""
+    return "#" + "".join(
+        f"{round(pct * int(fg[i:i + 2], 16) + (1 - pct) * int(bg[i:i + 2], 16)):02x}"
+        for i in (1, 3, 5)
+    )
+
+
+def test_a_task_name_in_a_toast_is_set_as_code():
+    """The toast is an inverted pill, so the message styling does not fit it.
+
+    ``.md code`` uses a fixed light background, which on a dark pill would be
+    the wrong tone entirely. The toast's chip is a wash of its own text colour
+    instead, so one rule covers both schemes and the error variant.
+    """
+    css = web.read_asset("app.css").decode()
+
+    rule = re.search(r"\.toast code \{(.*?)\}", css, re.S)
+    assert rule, "a task name in a toast is no longer set apart"
+    assert "currentColor" in rule.group(1), (
+        "the chip uses a fixed colour, which cannot suit both pill and error pill"
+    )
+    # The toast breaks long words anywhere, so a long name splits across lines.
+    # Without this the chip is one box torn in half rather than two boxes.
+    assert "box-decoration-break: clone" in rule.group(1)
+    assert "-webkit-box-decoration-break: clone" in rule.group(1), (
+        "Safari still needs the prefix, and Safari is the target"
+    )
+
+
+def test_the_toast_chip_does_not_swallow_its_own_label():
+    """Washing the background toward the text colour costs label contrast.
+
+    The chip is drawn *from* the label's colour, so the stronger it is the less
+    the label stands out on it. Computed for both schemes at whatever
+    percentage is declared, so tuning the chip up later is checked rather than
+    just allowed.
+
+    Only the ordinary pill is checked. The error pill is a separate matter: its
+    label is white on --danger, which is already 2.78:1 in dark mode before any
+    chip exists, and no task name is put into an error toast.
+    """
+    css = web.read_asset("app.css").decode()
+    light, dark = _scheme_values(css)
+
+    rule = re.search(r"\.toast code \{(.*?)\}", css, re.S)
+    assert rule, "the toast chip is not styled"
+    pct = re.search(r"currentColor\s+(\d+)%", rule.group(1))
+    assert pct, "the chip's strength is not declared as a percentage"
+    strength = int(pct.group(1)) / 100
+
+    for scheme, values in (("light", light), ("dark", dark)):
+        # The pill inverts the page: its background is the text colour and its
+        # own text is the page background.
+        pill, label = values["--text"], values["--bg"]
+        chip = _mix(label, pill, strength)
+        assert _contrast(label, chip) >= 4.5, (
+            f"{scheme}: a name on the chip is {_contrast(label, chip):.2f}:1 "
+            f"({label} on {chip}) at {pct.group(1)}%"
+        )

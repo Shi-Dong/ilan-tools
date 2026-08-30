@@ -118,10 +118,41 @@ function parseDuration(text) {
   return n * mult;
 }
 
+/** Render `backticked` spans as inline code, escaping everything else.
+ *
+ * A toast flashes past, and the thing being looked for in it is usually a task
+ * name — which reads much faster set apart from the sentence around it.
+ *
+ * The escaping order is the whole safety argument. Toast text is not ours: it
+ * carries task names, which are arbitrary, and server messages, which are
+ * arbitrary too. So the message is escaped first and the markers are matched
+ * against the *escaped* text, which means nothing a name or an error string
+ * contains can become markup. A stray unpaired backtick is simply left alone.
+ */
+function toastHtml(message) {
+  return esc(message).replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
+/** Mark every occurrence of *name* in *message* as code.
+ *
+ * For messages the server composes — "Reply sent to my-task. Agent resumed." —
+ * where the wording is the server's but the name is something this app already
+ * knows, so it can point at it without parsing the sentence.
+ *
+ * A name containing a backtick is left alone rather than being wrapped into a
+ * broken marker; nothing rejects such a name today, and quietly mangling the
+ * message would be worse than not styling it.
+ */
+function withCodeName(message, name) {
+  const text = String(message ?? '');
+  if (!name || name.includes('`') || !text.includes(name)) return text;
+  return text.split(name).join(`\`${name}\``);
+}
+
 let toastTimer = null;
 function toast(message, isError) {
   const el = $('#toast');
-  el.textContent = message;
+  el.innerHTML = toastHtml(message);
   el.className = isError ? 'toast toast-err' : 'toast';
   el.hidden = false;
   clearTimeout(toastTimer);
@@ -921,7 +952,7 @@ async function sendReply(name, message, extra = {}) {
     toast(resp.data.error || 'Reply failed', true);
     return false;
   }
-  toast(resp.data.message || 'Reply sent');
+  toast(withCodeName(resp.data.message || 'Reply sent', name));
   return true;
 }
 
@@ -1045,7 +1076,7 @@ async function runAction(choice, task) {
       const body = newName ? { message, new_name: newName } : { message };
       const { ok, data } = await api.post(`/tasks/${t}/branch`, body);
       if (!ok) { toast(data.error || 'Branch failed', true); return; }
-      toast(`Branched to ${data.name || 'new task'}`);
+      toast(data.name ? `Branched to \`${data.name}\`` : 'Branched to a new task');
       if (data.name) location.hash = `#/t/${encodeURIComponent(data.name)}`;
       return;
     }
@@ -1060,7 +1091,7 @@ async function runAction(choice, task) {
         'Delete', true)) return;
       const { ok, data } = await api.del(`/tasks/${t}`);
       if (!ok) { toast(data.error || 'Delete failed', true); return; }
-      toast(`Deleted ${task.name}`);
+      toast(`Deleted \`${task.name}\``);
       location.hash = '#/';
       return;
     }
@@ -1121,7 +1152,7 @@ function renderNew() {
     const { ok, data } = await api.post('/tasks', body);
     $('#create').disabled = false;
     if (!ok) { toast(data.error || 'Could not create task', true); return; }
-    toast(`Created ${data.name || ''}`);
+    toast(data.name ? `Created \`${data.name}\`` : 'Created');
     location.hash = data.name ? `#/t/${encodeURIComponent(data.name)}` : '#/';
   };
 }

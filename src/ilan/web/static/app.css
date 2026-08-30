@@ -896,6 +896,26 @@ textarea.field {
   overflow-wrap: anywhere;
 }
 
+/* The toast is an inverted pill, so .md code's fixed background would be the
+   wrong tone on it. A wash of the toast's own text colour works on every
+   surface it can have — normal or error, light scheme or dark — without a
+   single per-scheme value, because currentColor is already whichever of them
+   applies. 18% keeps the label at 8.85:1 on the light pill and 12.34:1 on the
+   dark one. */
+.toast code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .92em;
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 5px;
+  padding: 1px 5px;
+  /* The toast breaks long words anywhere, so a long task name splits across
+     two lines. Without this the chip is one box torn in half — square where it
+     broke and rounded at the far ends. Each fragment gets its own box instead.
+     Safari still wants the prefix. */
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
 .toast-err { background: var(--danger); color: #fff; }
 
 @media (prefers-reduced-motion: no-preference) {
