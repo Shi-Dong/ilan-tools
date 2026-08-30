@@ -575,6 +575,38 @@ class TestTasksCRUD:
         names = [t["name"] for t in resp["tasks"]]
         assert "see-all" in names
 
+    def test_list_tasks_is_pinned_first_then_oldest_first(
+        self, ilan_server: IlanServer
+    ) -> None:
+        """The response order is a contract, not an implementation detail.
+
+        ``ilan dashboard`` hands this list straight to its table and the web app
+        renders it as-is, so neither re-sorts. A change here silently reorders
+        both front ends at once.
+        """
+        for name in ("first", "second", "third"):
+            _post(ilan_server, "/tasks", {"name": name, "prompt": "P"})
+
+        assert [t["name"] for t in _get(ilan_server, "/tasks")["tasks"]] == [
+            "first", "second", "third",
+        ]
+
+        # Pinning floats a task to the front without disturbing the rest.
+        _post(ilan_server, "/tasks/third/pin")
+        assert [t["name"] for t in _get(ilan_server, "/tasks")["tasks"]] == [
+            "third", "first", "second",
+        ]
+
+    def test_list_tasks_keeps_a_pinned_terminal_task(
+        self, ilan_server: IlanServer
+    ) -> None:
+        """A pin overrides the default filter, so a pinned DONE task stays."""
+        _post(ilan_server, "/tasks", {"name": "pinned-done", "prompt": "P"})
+        _post(ilan_server, "/tasks/pinned-done/pin")
+        _post(ilan_server, "/tasks/pinned-done/done")
+        names = [t["name"] for t in _get(ilan_server, "/tasks")["tasks"]]
+        assert "pinned-done" in names
+
     def test_get_task(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "get-me", "prompt": "Hello"})
         resp = _get(ilan_server, "/tasks/get-me")
