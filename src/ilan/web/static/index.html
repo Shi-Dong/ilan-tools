@@ -12,9 +12,10 @@
 <title>ilan</title>
 <link rel="manifest" href="manifest.webmanifest">
 <!-- iOS ignores an SVG apple-touch-icon and falls back to a page screenshot,
-     so the home-screen icon has to be a PNG. -->
+     so the home-screen icon has to be a PNG. 180x180 is the size iOS asks for
+     at 3x; it downscales that for the tab icon too. -->
 <link rel="apple-touch-icon" href="icon-180.png">
-<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="icon" href="icon-180.png" type="image/png">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
