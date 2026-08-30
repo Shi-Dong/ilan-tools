@@ -21,6 +21,50 @@ from ilan.models import FABLE_MODEL, Task, TaskStatus
 from ilan.server import IlanServer, read_server_info, read_server_owner
 from ilan.store import Store
 
+from tests.helpers import wait_until_serving
+
+
+def test_wait_until_serving_returns_only_after_recovery(
+    tmp_workdir: Path, tmp_config: Path, env_with_mock_claude: None
+) -> None:
+    """``wait_until_serving`` must not return while ``recover()`` is in flight.
+
+    Every server fixture in the suite depends on this ordering. Without it a
+    test seeds its tasks, recovery runs a moment later and reclaims them, and
+    the test fails on state it never asked for — which is how this showed up
+    originally: an intermittent CI-only failure in an unrelated assertion.
+    """
+    import ilan.config as cfg_mod
+
+    cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
+
+    server = IlanServer()
+    recovery_done = threading.Event()
+
+    def _slow_recover() -> list[str]:
+        time.sleep(0.3)
+        recovery_done.set()
+        return []
+
+    server.runner.recover = _slow_recover  # type: ignore[method-assign]
+    server.runner.reap_finished = lambda: None  # type: ignore[method-assign]
+
+    with patch.object(signal, "signal"):
+        t = threading.Thread(
+            target=server.run,
+            kwargs={"host": "127.0.0.1", "port": 0, "poll_interval": 0.01},
+            daemon=True,
+        )
+        t.start()
+        try:
+            wait_until_serving(server)
+            assert recovery_done.is_set(), (
+                "wait_until_serving() returned while recover() was still running"
+            )
+        finally:
+            server.shutdown()
+            t.join(timeout=3)
+
 
 @pytest.fixture()
 def ilan_server(tmp_workdir: Path, tmp_config: Path, env_with_mock_claude: None):
@@ -55,16 +99,7 @@ def ilan_server(tmp_workdir: Path, tmp_config: Path, env_with_mock_claude: None)
         )
         t.start()
 
-        # Wait for server to be ready
-        deadline = time.monotonic() + 5
-        port = None
-        while time.monotonic() < deadline:
-            if server._httpd is not None:
-                port = server._httpd.server_address[1]
-                break
-            time.sleep(0.05)
-
-        assert port is not None, "Server did not start in time"
+        port = wait_until_serving(server)
         server._test_port = port  # type: ignore[attr-defined]
         server._test_url = f"http://127.0.0.1:{port}"  # type: ignore[attr-defined]
 

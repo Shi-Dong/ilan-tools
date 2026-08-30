@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import signal
 import threading
-import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -17,6 +16,8 @@ import pytest
 
 from ilan.cli import _parse_duration
 from ilan.server import IlanServer
+
+from tests.helpers import wait_until_serving
 
 
 # ── _parse_duration unit tests ─────────────────────────────────────────
@@ -76,15 +77,7 @@ def ilan_server(tmp_workdir: Path, tmp_config: Path, env_with_mock_claude: None)
         )
         t.start()
 
-        deadline = time.monotonic() + 5
-        port = None
-        while time.monotonic() < deadline:
-            if server._httpd is not None:
-                port = server._httpd.server_address[1]
-                break
-            time.sleep(0.05)
-
-        assert port is not None, "Server did not start in time"
+        port = wait_until_serving(server)
         server._test_port = port  # type: ignore[attr-defined]
         server._test_url = f"http://127.0.0.1:{port}"  # type: ignore[attr-defined]
 

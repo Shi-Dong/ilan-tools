@@ -6,7 +6,6 @@ import json
 import re
 import signal
 import threading
-import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError
@@ -22,6 +21,8 @@ from ilan.cli import PIN_MARKER, _build_name_cell, main
 from ilan.models import Task, TaskStatus
 from ilan.server import IlanServer
 from ilan.store import Store
+
+from tests.helpers import wait_until_serving
 
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -85,14 +86,7 @@ def ilan_server(tmp_workdir: Path, tmp_config: Path, env_with_mock_claude: None)
         )
         t.start()
 
-        deadline = time.monotonic() + 5
-        port = None
-        while time.monotonic() < deadline:
-            if server._httpd is not None:
-                port = server._httpd.server_address[1]
-                break
-            time.sleep(0.05)
-        assert port is not None
+        port = wait_until_serving(server)
         server._test_url = f"http://127.0.0.1:{port}"  # type: ignore[attr-defined]
 
         yield server
