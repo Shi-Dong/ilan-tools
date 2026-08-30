@@ -748,9 +748,13 @@ async function renderDetail(name) {
   const shownAssistants = entries.filter((e) => e.role === 'assistant').length;
   const hasMore = shownAssistants >= state.detailShown;
 
+  // Deliberately no "from <parent>". Where a task was branched from is a fact
+  // about how it started, not about what it is doing now, and this line is
+  // read to answer the latter. On a phone it is one line competing for the
+  // width, and the parent's name is often longer than everything else on it.
+  // The API still reports parent_name and `ilan ls` still shows the lineage.
   const sub = [
     statusLabel(task), task.engine, task.model,
-    task.parent_name ? `from ${task.parent_name}` : '',
     sleepSuffix(task.sleep_seconds),
     replyEverySuffix(task.reply_every_seconds),
   ].filter(Boolean).join(' · ');
