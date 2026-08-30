@@ -56,6 +56,13 @@
    * the orange is the binding constraint, at 4.60:1. */
   --loop-bg: #f0f0f4;
 
+  /* Sleep suffix, mirroring SLEEP_STYLE (plain "yellow") in cli.py. The
+   * terminal value resolves to #808000, which clears 4.5:1 on neither a white
+   * card (4.20) nor a dark one (4.06) — it is a terminal palette entry, not a
+   * web colour. These are the same hue taken to a legible lightness for each
+   * scheme: 5.94:1 here, 9.05:1 in dark mode below. */
+  --sleep-fg: #7a6100;
+
   --radius: 12px;
   --tap: 44px;
 }
@@ -89,6 +96,7 @@
     /* grey27 verbatim: on a dark card the terminal's own fill works unchanged,
      * and both name colours clear 5:1 on it. */
     --loop-bg: #444444;
+    --sleep-fg: #e0b93c;
   }
 }
 
@@ -262,11 +270,12 @@ textarea.field {
   white-space: nowrap;
   /* Shrink-to-fit rather than flex:1, so the .looping fill hugs the name
    * instead of stretching as a bar to wherever the pin sits. `min-width: 0`
-   * keeps it able to shrink below its content so long names still ellipsise,
-   * and the auto margin absorbs the leftover space to keep the pin hard right. */
+   * keeps it able to shrink below its content so long names still ellipsise.
+   * The free space is absorbed by .pin rather than here, so that anything
+   * sitting between the name and the pin — the sleep suffix — stays beside the
+   * name instead of being pushed to the far right with it. */
   flex: 0 1 auto;
   min-width: 0;
-  margin-right: auto;
 }
 
 .row-sum {
@@ -306,7 +315,21 @@ textarea.field {
   flex: none;
 }
 
-.pin { flex: none; font-size: 13px; }
+/* margin-left:auto absorbs the row's free space here, keeping the pin hard
+ * right whatever sits between it and the task name. */
+.pin { flex: none; font-size: 13px; margin-left: auto; }
+
+/* "(sleeping for 5m)", appended after the name the way _build_name_cell does.
+ * Non-bold and a size down so it reads as an annotation on the name rather
+ * than part of it — which is also what keeps it distinct from the Claude
+ * engine colour, whose hue is only a few degrees away. */
+.sleep {
+  flex: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--sleep-fg);
+  white-space: nowrap;
+}
 
 /* A task on a `reply -t` cycle gets its name filled, the way _build_name_cell
  * paints REPLY_EVERY_BG under the name cell in `ilan ls` / `ilan dashboard`. */
