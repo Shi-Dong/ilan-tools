@@ -32,6 +32,23 @@
   --st-error: #c62828;
   --st-loop: #7048c4;
 
+  /* Task-name colour by backend, mirroring ENGINE_NAME_STYLE in models.py:
+   * orange for Claude, light blue for Codex, so the running backend is legible
+   * at a glance in the list the same way it is in `ilan ls`.
+   *
+   * The terminal values (orange1 #ffaf00, light_sky_blue1 #afd7ff) assume a
+   * dark background and are unreadable on a white card — 1.84:1 and 1.50:1,
+   * against the 4.5:1 that body text needs. Light mode therefore uses
+   * hue-preserving darkenings, at 5.22:1 and 8.77:1.
+   *
+   * Codex keeps the original ~210deg hue rather than being pushed toward cyan:
+   * a cyan-leaning blue lands within a few degrees of --st-working, which sits
+   * directly under the task name in the list and made the two read as one
+   * thing. It is instead separated from --accent, which shares its hue, by
+   * being markedly darker. Dark mode below uses the terminal colours verbatim. */
+  --engine-claude: #a35a00;
+  --engine-codex: #00479e;
+
   --radius: 12px;
   --tap: 44px;
 }
@@ -55,6 +72,12 @@
     --st-discarded: #8e8e93;
     --st-error: #ff6b6b;
     --st-loop: #b79cff;
+
+    /* On a dark card these are the terminal's own colours, unchanged: 9.2:1
+     * and 11.3:1. The web app and `ilan ls` render the same task name in the
+     * same colour. */
+    --engine-claude: #ffaf00;
+    --engine-codex: #afd7ff;
   }
 }
 
@@ -242,6 +265,13 @@ textarea.field {
   color: var(--text-dim);
 }
 
+/* Applied to the task name only — not the alias or the status — matching what
+ * _build_name_cell() colours in the CLI. An unrecognised engine gets no class
+ * and inherits the default text colour, exactly as ENGINE_NAME_STYLE.get()
+ * falls back to no style. */
+.engine-claude { color: var(--engine-claude); }
+.engine-codex { color: var(--engine-codex); }
+
 .alias {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
@@ -324,6 +354,99 @@ textarea.field {
   opacity: .65;
   margin-top: 6px;
 }
+
+/* ── rendered Markdown ──────────────────────────────────────────────── */
+
+.md { font-size: 15px; }
+
+/* Collapse the outer margins so a rendered message occupies the same box a
+ * plain-text one did — otherwise every bubble grows a blank band. */
+.md > *:first-child { margin-top: 0; }
+.md > *:last-child { margin-bottom: 0; }
+
+.md p { margin: 0 0 10px; }
+
+.md h3, .md h4, .md h5, .md h6 {
+  margin: 16px 0 8px;
+  line-height: 1.25;
+}
+
+.md h3 { font-size: 18px; }
+.md h4 { font-size: 16px; }
+.md h5, .md h6 { font-size: 15px; }
+
+.md ul, .md ol { margin: 0 0 10px; padding-left: 22px; }
+.md li { margin: 3px 0; }
+.md li > ul, .md li > ol { margin: 3px 0; }
+
+.md-task { display: flex; gap: 8px; align-items: flex-start; }
+.md-task input { margin: 3px 0 0; flex: none; }
+
+.md code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .88em;
+  background: var(--bg-sunken);
+  border-radius: 5px;
+  padding: 1px 5px;
+  overflow-wrap: anywhere;
+}
+
+.md-pre {
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 0 0 10px;
+  /* Code is the one thing that must NOT wrap — indentation carries meaning.
+   * Scroll it instead, and keep momentum scrolling inside the bubble. */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.md-pre code {
+  background: none;
+  padding: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+.md blockquote {
+  margin: 0 0 10px;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--border);
+  color: var(--text-dim);
+}
+
+.md hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 14px 0;
+}
+
+.md a { color: var(--accent); overflow-wrap: anywhere; }
+
+.md-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 0 10px;
+}
+
+.md table { border-collapse: collapse; font-size: 13.5px; }
+.md th, .md td {
+  border: 1px solid var(--border);
+  padding: 6px 9px;
+  text-align: left;
+  white-space: nowrap;
+}
+.md th { background: var(--bg-sunken); font-weight: 600; }
+
+/* A user bubble is solid accent, so the default link and code colours would
+ * disappear into it. */
+.msg-user .md code,
+.msg-user .md-pre { background: rgba(255, 255, 255, .18); }
+.msg-user .md a { color: inherit; text-decoration: underline; }
 
 /* ── composer ───────────────────────────────────────────────────────── */
 

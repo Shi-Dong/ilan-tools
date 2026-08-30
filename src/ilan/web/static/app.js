@@ -16,15 +16,9 @@
 
 const $ = (sel) => document.querySelector(sel);
 
-function esc(value) {
-  if (value === null || value === undefined) return '';
-  return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
+// Single definition, shared with the Markdown renderer in markdown.js, so the
+// two can never disagree about what escaping means.
+const esc = MD.escapeHtml;
 
 /** Compact age like "4m", "3h", "2d" from an ISO timestamp. */
 function ago(iso) {
@@ -171,6 +165,16 @@ function askChoice(title, options) {
 // agent and no human is actually being waited on.
 const IN_LOOP_STATUSES = new Set(['AGENT_FINISHED', 'NEEDS_ATTENTION']);
 
+// Backends whose task names carry a colour cue, mirroring ENGINE_NAME_STYLE in
+// models.py. A task with no engine recorded predates the field and runs on the
+// default backend, which is Claude; an engine not listed here gets no class and
+// inherits the default text colour, the same fallback the CLI takes.
+const ENGINE_CLASS = { claude: 'engine-claude', codex: 'engine-codex' };
+
+function engineClass(task) {
+  return ENGINE_CLASS[task.engine || 'claude'] || '';
+}
+
 function displayStatus(task) {
   if (task.reply_every_seconds && IN_LOOP_STATUSES.has(task.status)) {
     return 'AGENT_IN_LOOP';
@@ -219,7 +223,8 @@ function taskRow(task) {
       <button class="row" data-name="${esc(task.name)}">
         <span class="row-top">
           ${task.alias ? `<span class="alias">${esc(task.alias)}</span>` : ''}
-          <span class="row-name${task.needs_review ? ' unread' : ''}">${esc(task.name)}</span>
+          <span class="row-name ${engineClass(task)}${
+            task.needs_review ? ' unread' : ''}">${esc(task.name)}</span>
           ${task.pinned ? '<span class="pin">📌</span>' : ''}
         </span>
         ${task.summary_one_liner
@@ -302,10 +307,17 @@ function messageHtml(entry) {
   const foot = [
     entry.model, entry.effort, fmtCost(entry.cost_usd), ago(entry.timestamp),
   ].filter(Boolean).join(' · ');
+  const isUser = entry.role === 'user';
+  // Only agent replies are Markdown, matching `ilan tail --md`. A user message
+  // is text the user typed, so showing it back verbatim is the honest thing —
+  // and it means an asterisk in a reply never silently becomes emphasis.
+  const body = isUser
+    ? `<p class="msg-body">${esc(entry.content)}</p>`
+    : `<div class="msg-body md">${MD.render(entry.content)}</div>`;
   return `
-    <div class="msg msg-${entry.role === 'user' ? 'user' : 'assistant'}">
+    <div class="msg msg-${isUser ? 'user' : 'assistant'}">
       <div class="msg-role">${esc(entry.role)}</div>
-      <p class="msg-body">${esc(entry.content)}</p>
+      ${body}
       ${foot ? `<div class="msg-foot">${esc(foot)}</div>` : ''}
     </div>`;
 }
@@ -351,7 +363,8 @@ async function renderDetail(name) {
       <div class="hdr-row">
         <button class="btn btn-sm btn-ghost" id="back">‹</button>
         <h1 class="hdr-title">
-          ${task.alias ? `<span class="alias">${esc(task.alias)}</span> ` : ''}${esc(task.name)}
+          ${task.alias ? `<span class="alias">${esc(task.alias)}</span> ` : ''}<span
+            class="${engineClass(task)}">${esc(task.name)}</span>
         </h1>
         <button class="btn btn-sm" id="refresh">↻</button>
         <button class="btn btn-sm" id="actions">•••</button>
