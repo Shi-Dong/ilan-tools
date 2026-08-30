@@ -696,14 +696,13 @@ textarea.field {
 
 .ask-bar .btn { flex: 0 0 auto; }
 
-/* Deliberately quiet: it sits beside Send, and a second filled button there
-   would read as a second thing to press rather than a way to undo typing. The
-   tap target is still the full 44px — only the ink is understated. */
-.btn-clear {
-  width: var(--tap);
-  padding: 0;
-  font-size: 17px;
-  color: var(--text-dim);
+/* The box and its clear button share a stacking context so the button can sit
+   over the box's top-right corner rather than beside it. */
+.composer-field {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
 }
 
 .composer textarea {
@@ -711,6 +710,35 @@ textarea.field {
   min-height: var(--tap);
   max-height: 40dvh;
   resize: none;
+  /* Keep the text clear of the button overlapping the corner. */
+  padding-right: calc(var(--tap) + 2px);
+}
+
+/* Pinned to the top-right corner, not centred: the box grows downwards as the
+   draft gets longer, and a centred button would wander down the text with it.
+   Deliberately quiet ink — it undoes typing, it is not a second Send — but the
+   target underneath is still the full 44px. */
+.btn-clear {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: var(--tap);
+  height: var(--tap);
+  min-height: var(--tap);
+  padding: 0;
+  font-size: 17px;
+  line-height: 1;
+  color: var(--text-dim);
+}
+
+/* Out of sight rather than dimmed while there is nothing to clear, which is
+   what a text field's clear control does everywhere else. Only possible now it
+   is positioned: as a sibling in the row this would have shifted the layout
+   every time the box went from empty to non-empty. Kept in the DOM, and still
+   disabled, so nothing has to re-derive whether it is usable. */
+.btn-clear[disabled] {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* Alone in the bar, so it takes the whole width the composer would have used

@@ -771,9 +771,12 @@ async function renderDetail(name) {
       <button class="btn btn-sm btn-primary" id="ask-btn">Ask about this</button>
     </div>
     <div class="composer">
-      <textarea class="field" id="reply" rows="1" placeholder="Reply to ${esc(task.name)}"></textarea>
-      <button class="btn btn-ghost btn-clear" id="clear-reply"
-              aria-label="Clear the message" title="Clear the message" disabled>✕</button>
+      <div class="composer-field">
+        <textarea class="field" id="reply" rows="1"
+                  placeholder="Reply to ${esc(task.name)}"></textarea>
+        <button class="btn btn-ghost btn-clear" id="clear-reply"
+                aria-label="Clear the message" title="Clear the message" disabled>✕</button>
+      </div>
       <button class="btn btn-primary" id="send">Send</button>
     </div>`;
 

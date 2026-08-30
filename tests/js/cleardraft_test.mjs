@@ -38,8 +38,12 @@ check('the composer offers a clear control', app.html().includes('id="clear-repl
 check('it is disabled on an empty box', clear().disabled === true);
 check('it has an accessible name, having no text label',
   app.html().includes('aria-label="Clear the message"'));
-check('it sits between the box and Send',
-  /id="reply"[\s\S]*?id="clear-reply"[\s\S]*?id="send"/.test(app.html()));
+check('it lives inside the field, not beside it',
+  /<div class="composer-field">[\s\S]*?id="reply"[\s\S]*?id="clear-reply"[\s\S]*?<\/div>/
+    .test(app.html()),
+  'the button is no longer wrapped with the box it clears');
+check('Send stays outside the field',
+  app.html().indexOf('id="send"') > app.html().indexOf('id="clear-reply"'));
 
 box().value = 'why did you take the lock out?';
 box().oninput();

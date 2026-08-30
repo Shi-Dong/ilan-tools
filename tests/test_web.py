@@ -352,6 +352,59 @@ def test_a_hidden_ask_bar_is_really_hidden():
     )
 
 
+def test_the_clear_button_sits_inside_the_message_box():
+    """It overlays the box's corner rather than taking a slot in the row.
+
+    Three declarations make that work together, and any one of them alone is
+    the wrong layout: the wrapper establishes the positioning context, the
+    button is taken out of flow, and the box reserves room on its right so the
+    text does not run underneath. There is no layout engine in the Python
+    suite, so the declarations are asserted; a browser checks the geometry.
+    """
+    css = web.read_asset("app.css").decode()
+    js = web.read_asset("app.js").decode()
+
+    assert '<div class="composer-field">' in js, "the box is no longer wrapped"
+
+    field = re.search(r"\.composer-field \{(.*?)\}", css, re.S)
+    assert field, "the field wrapper is not styled"
+    assert "position: relative" in field.group(1), (
+        "without a positioning context the button escapes to the page corner"
+    )
+
+    button = re.search(r"^\.btn-clear \{(.*?)\}", css, re.S | re.M)
+    assert button, "the clear button is not styled"
+    assert "position: absolute" in button.group(1)
+
+    textarea = re.search(r"\.composer textarea \{(.*?)\}", css, re.S)
+    assert textarea, "the message box is not styled"
+    assert "padding-right" in textarea.group(1), (
+        "text would run underneath the clear button"
+    )
+
+
+def test_the_clear_button_is_out_of_sight_while_there_is_nothing_to_clear():
+    """A text field's clear control appears only once there is text.
+
+    It is hidden rather than merely dimmed, which is only affordable because it
+    is positioned: as a sibling in the row this would have shifted the layout
+    on the first keystroke. The rule has to come after the generic disabled
+    rule, since both are one class plus one attribute — equal specificity, so
+    source order decides which opacity wins.
+    """
+    css = web.read_asset("app.css").decode()
+
+    rule = re.search(r"\.btn-clear\[disabled\] \{(.*?)\}", css, re.S)
+    assert rule, "a disabled clear button is not hidden"
+    assert "opacity: 0" in rule.group(1)
+    assert "pointer-events: none" in rule.group(1), (
+        "an invisible button that still takes taps is worse than a visible one"
+    )
+    assert css.index(".btn-clear[disabled]") > css.index(".btn[disabled]"), (
+        "the generic disabled rule wins on source order, so the button stays dimly visible"
+    )
+
+
 def test_the_ask_bar_and_composer_dock_together():
     """They share one sticky container so the bar stacks above the composer.
 
