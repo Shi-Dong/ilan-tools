@@ -176,6 +176,19 @@ def test_engine_colour_classes_are_defined_in_both_schemes():
         assert css.count(f"{var}:") == 2, f"{var} is not defined for both schemes"
 
 
+def test_web_app_does_not_show_task_cost():
+    """Cost is deliberately absent from the web UI.
+
+    The API still returns ``cost_usd`` and ``ilan ls`` still shows it — this is
+    a front-end decision, not a data change. Asserting it here means a future
+    edit that reintroduces a cost field is caught in review rather than
+    quietly appearing on a phone screen.
+    """
+    js = web.read_asset("app.js").decode()
+    for token in ("cost_usd", "fmtCost"):
+        assert token not in js, f"{token} is back in the web app"
+
+
 def test_app_assets_are_revalidated(ilan_server: IlanServer):
     # A cached asset must not outlive an upgrade of the server serving it.
     assert _raw(ilan_server, "/app/app.js").getheader("Cache-Control") == "no-cache"
