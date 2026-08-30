@@ -219,6 +219,16 @@ function isLooping(task) {
   return Boolean(task.reply_every_seconds && task.reply_every_seconds > 0);
 }
 
+// A sleep is only meaningful while the agent is actually WORKING — the value
+// lingers on the task after the agent stops, so showing it on a finished task
+// would claim something is asleep when nothing is running. _build_name_cell
+// guards on TaskStatus.WORKING for exactly that reason, and unlike the
+// reply-every cycle this one is genuinely status-dependent.
+function isSleeping(task) {
+  return task.status === 'WORKING'
+    && Boolean(task.sleep_seconds && task.sleep_seconds > 0);
+}
+
 const TERMINAL_STATUSES = new Set(['DONE', 'DISCARDED']);
 
 /** Whether *task* belongs in the list, mirroring the server's own filter.
@@ -271,6 +281,8 @@ function taskRow(task) {
             isLooping(task)
               ? ` title="${esc(replyEverySuffix(task.reply_every_seconds))}"` : ''
             }>${esc(task.name)}</span>
+          ${isSleeping(task)
+            ? `<span class="sleep">(${esc(sleepSuffix(task.sleep_seconds))})</span>` : ''}
           ${task.pinned ? '<span class="pin">📌</span>' : ''}
         </span>
         ${task.summary_one_liner
