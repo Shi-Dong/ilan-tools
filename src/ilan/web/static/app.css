@@ -71,6 +71,17 @@
   --done: #2c6b30;
   --done-contrast: #ffffff;
 
+  /* Fill for the card's Tap button. Yellow is the awkward one: it is light
+   * enough that a white label reaches only 1.8:1, so the label is near-black
+   * instead, at 9.45:1. For the same reason the fill itself stands only 1.8:1
+   * from a white card, well under the 3:1 a control needs to read as a
+   * control — so unlike the other buttons its border is not the fill colour
+   * but a darker amber, which carries the edge at 3.85:1.
+   * Named --btn-tap rather than --tap-*: --tap is already the 44px target. */
+  --btn-tap: #f2b705;
+  --btn-tap-contrast: #241a00;
+  --btn-tap-edge: #a87a00;
+
   --radius: 12px;
   --tap: 44px;
 }
@@ -112,6 +123,12 @@
      * only 3.3:1, and the fill would barely separate from the card. */
     --done: #43a047;
     --done-contrast: #00220a;
+
+    /* On a dark card the same yellow already stands 9.4:1 clear, so the edge
+     * can be the fill and only the label needs the dark tone. */
+    --btn-tap: #f2b705;
+    --btn-tap-contrast: #241a00;
+    --btn-tap-edge: #f2b705;
   }
 }
 
@@ -220,6 +237,13 @@ button, input, textarea, select {
   background: var(--done);
   border-color: var(--done);
   color: var(--done-contrast);
+  font-weight: 600;
+}
+
+.btn-tap {
+  background: var(--btn-tap);
+  border-color: var(--btn-tap-edge);
+  color: var(--btn-tap-contrast);
   font-weight: 600;
 }
 .btn-ghost { background: transparent; border-color: transparent; }
