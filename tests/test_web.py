@@ -86,6 +86,21 @@ def test_app_serves_script_and_style(ilan_server: IlanServer):
     assert css.getheader("Content-Type") == "text/css; charset=utf-8"
 
 
+def test_app_serves_the_markdown_renderer(ilan_server: IlanServer):
+    # app.js takes its escape helper from markdown.js at load time, so a
+    # missing renderer breaks the whole page rather than just its formatting.
+    js = _raw(ilan_server, "/app/markdown.js")
+    assert js.status == 200
+    assert js.getheader("Content-Type") == "text/javascript; charset=utf-8"
+    assert b"MD" in js.read()
+
+
+def test_index_loads_markdown_before_app(ilan_server: IlanServer):
+    """Order matters: app.js reads MD.escapeHtml while it is being evaluated."""
+    body = _raw(ilan_server, "/app/").read().decode()
+    assert body.index("markdown.js") < body.index("app.js")
+
+
 def test_app_serves_manifest_and_png_icon(ilan_server: IlanServer):
     manifest = _raw(ilan_server, "/app/manifest.webmanifest")
     assert manifest.status == 200
