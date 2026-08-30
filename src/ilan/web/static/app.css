@@ -284,6 +284,11 @@ textarea.field {
 
 .pin { flex: none; font-size: 13px; }
 
+/* Sits beside the pin rather than inside .row-name, which is the flexing,
+ * ellipsising element — a marker in there would be the first thing truncated
+ * on a long task name, which is exactly when you still want to see it. */
+.loop { flex: none; font-size: 13px; }
+
 .status {
   font-size: 11px;
   font-weight: 700;
