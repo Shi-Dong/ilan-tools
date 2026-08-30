@@ -696,6 +696,16 @@ textarea.field {
 
 .ask-bar .btn { flex: 0 0 auto; }
 
+/* Deliberately quiet: it sits beside Send, and a second filled button there
+   would read as a second thing to press rather than a way to undo typing. The
+   tap target is still the full 44px — only the ink is understated. */
+.btn-clear {
+  width: var(--tap);
+  padding: 0;
+  font-size: 17px;
+  color: var(--text-dim);
+}
+
 .composer textarea {
   flex: 1;
   min-height: var(--tap);
