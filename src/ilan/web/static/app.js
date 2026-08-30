@@ -337,8 +337,11 @@ const state = {
   // How many assistant messages the conversation currently reveals, and which
   // task that count belongs to — opening a different task has to start from
   // one again rather than inherit however far the last one was expanded.
+  // How many assistant messages the conversation reveals. Reset by route() on
+  // every navigation into a task, so re-opening one always starts at the tail;
+  // renderDetail leaves it alone, since Show More, the refresh button and a
+  // sent reply all re-render without meaning to collapse the view back.
   detailShown: 1,
-  detailFor: null,
   canned: { tap: '', cancel: '' },
   pollTimer: null,
 };
@@ -552,14 +555,6 @@ function messageHtml(entry) {
 }
 
 async function renderDetail(name) {
-  // Opening a different task starts from the tail again. Without this the
-  // count would carry over, so a task expanded to ten messages would make the
-  // next one you open fetch ten as well.
-  if (state.detailFor !== name) {
-    state.detailFor = name;
-    state.detailShown = 1;
-  }
-
   // ?n= asks the server for the last N assistant messages plus whatever user
   // messages precede each of them — the same slice `ilan tail -n` shows. Show
   // More just increments N, so the reveal rule lives in one place rather than
@@ -611,12 +606,12 @@ async function renderDetail(name) {
         <button class="btn btn-sm" id="actions">•••</button>
       </div>
       <p class="hdr-sub st-${esc(status)}">${esc(sub)}</p>
+      ${hasMore ? `
+      <div class="hdr-row">
+        <button class="btn btn-sm show-more" id="show-more">Show More</button>
+      </div>` : ''}
     </header>
-    <main class="main">
-      ${hasMore
-        ? '<button class="btn btn-sm show-more" id="show-more">Show More</button>' : ''}
-      ${body}
-    </main>
+    <main class="main">${body}</main>
     ${isTerminal ? '' : `
     <div class="composer">
       <textarea class="field" id="reply" rows="1" placeholder="Reply to ${esc(task.name)}"></textarea>
@@ -954,6 +949,10 @@ async function route() {
   const hash = location.hash || '#/';
 
   if (hash.startsWith('#/t/')) {
+    // Entering a conversation always starts at the tail, including when it is
+    // the same task that was just left — going back to the list and in again
+    // is how you ask for a fresh look at it.
+    state.detailShown = 1;
     await renderDetail(decodeURIComponent(hash.slice(4)));
     return;
   }

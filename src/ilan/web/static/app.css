@@ -317,9 +317,11 @@ textarea.field {
 /* Collapsed shows what `ilan ls -c` shows: pin, alias, name, unread marker
  * and status. The summary, the engine, the age and the sleep suffix are the
  * parts that line omits. */
+/* The sleep suffix is deliberately NOT hidden here, unlike in `ls -c`: on a
+ * phone the fact that a task is asleep is worth a line of its own, and a
+ * collapsed card is the only thing most of the list ever shows. */
 .card.collapsed .row-sum,
-.card.collapsed .meta-detail,
-.card.collapsed .sleep {
+.card.collapsed .meta-detail {
   display: none;
 }
 
@@ -353,11 +355,12 @@ textarea.field {
   color: var(--text-dim);
   font-size: 14px;
   margin-top: 3px;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  /* No line clamp. The summary is only rendered on an expanded card, so a
+   * two-line clamp was a *second* truncation applied on top of whatever the
+   * one-liner had already been shortened to, hiding the tail of a sentence
+   * that was meant to be complete. */
+  display: block;
+  overflow-wrap: anywhere;
 }
 
 .row-meta {
@@ -441,12 +444,11 @@ textarea.field {
 
 /* ── conversation ───────────────────────────────────────────────────── */
 
-/* Sits above the conversation because that is where the older messages are:
- * the button reveals what would appear immediately below it. */
+/* Lives in the sticky header, not in the scrolling conversation: with a long
+ * thread the button was only reachable by scrolling all the way back up,
+ * which is the opposite of what it is for. */
 .show-more {
-  display: block;
   width: 100%;
-  margin-bottom: 10px;
 }
 
 .msg {

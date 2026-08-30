@@ -70,7 +70,8 @@ const HARNESS = `
 `;
 
 const TAIL = `;return {
-  state, renderDetail, el: __el, fetches: __fetches, setFetch: __setFetch,
+  state, renderDetail, route, el: __el, location,
+  fetches: __fetches, setFetch: __setFetch,
 };`;
 
 const app = new Function(`${HARNESS}\n${appSource}\n${TAIL}`)();
@@ -144,15 +145,36 @@ await app.el('show-more').onclick();
 check('Show More disappears at the end of the conversation',
   !html().includes('id="show-more"'));
 
-// ── opening another task starts over ───────────────────────────────────
-await app.renderDetail('beta-task');
+// ── navigating into a task resets the reveal ───────────────────────────
+// Navigation is what resets it, so these go through route() rather than
+// calling renderDetail directly — that is the path a tap actually takes.
+app.location.hash = '#/t/beta-task';
+await app.route();
 check('a different task resets the reveal to one', lastN() === 1, `n=${lastN()}`);
 check('and shows a single assistant message', shownAssistants() === 1,
   `shown=${shownAssistants()}`);
 
-// ── returning to the first task also starts from the tail ──────────────
-await app.renderDetail('alpha-task');
-check('returning to a task starts from the tail again', lastN() === 1, `n=${lastN()}`);
+// ── re-entering the SAME task also resets ──────────────────────────────
+// The reported bug: expanding a task, going back, and opening it again used
+// to leave it expanded, because the reset keyed off the task name changing.
+app.location.hash = '#/t/alpha-task';
+await app.route();
+await app.el('show-more').onclick();
+await app.el('show-more').onclick();
+check('the same task can be expanded', lastN() === 3, `n=${lastN()}`);
+
+app.location.hash = '#/';           // back to the list
+app.location.hash = '#/t/alpha-task';
+await app.route();
+check('re-opening the same task starts from the tail again', lastN() === 1,
+  `n=${lastN()}`);
+check('and shows one assistant message again', shownAssistants() === 1,
+  `shown=${shownAssistants()}`);
+
+// ── Show More is reachable without scrolling ───────────────────────────
+check('Show More renders inside the sticky header',
+  /<header class="hdr">[\s\S]*id="show-more"[\s\S]*<\/header>/.test(html()),
+  'it is in the scrolling body, so a long thread hides it');
 
 if (failures.length) {
   console.log(failures.join('\n'));
