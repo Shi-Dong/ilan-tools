@@ -8,6 +8,7 @@ skips rather than fails.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -29,23 +30,48 @@ def test_card_collapses_and_acts() -> None:
     assert result.returncode == 0, f"\n{result.stdout}{result.stderr}"
 
 
-def test_collapsed_view_hides_exactly_what_ls_c_omits() -> None:
+def test_a_collapsed_card_hides_the_summary_and_the_metadata() -> None:
     """The collapsed view is defined by CSS, so assert the rules exist.
 
-    ``ilan ls -c`` prints the pin, alias, name, unread marker and status. The
-    summary, the engine, the age and the sleep suffix are what it leaves out,
-    and those are hidden by class rather than by a second rendering path — so
-    losing one of these selectors would quietly put the detail back.
+    A collapsed card shows the pin, alias, name, unread marker and status. The
+    summary, the engine and the age are what it drops, hidden by class rather
+    than by a second rendering path — so losing one of these selectors would
+    quietly put the detail back.
     """
     css = (STATIC / "app.css").read_text()
 
-    for selector in (".card.collapsed .row-sum",
-                     ".card.collapsed .meta-detail",
-                     ".card.collapsed .sleep"):
+    for selector in (".card.collapsed .row-sum", ".card.collapsed .meta-detail"):
         assert selector in css, f"{selector} is no longer hidden when collapsed"
 
-    # The status must NOT be hidden: it is one of the three things that stay.
+    # The status must NOT be hidden: it is one of the things that stay.
     assert ".card.collapsed .status" not in css
+
+
+def test_a_collapsed_card_still_shows_that_a_task_is_asleep() -> None:
+    """This deliberately departs from `ls -c`, which omits the suffix.
+
+    Most of the list is only ever seen collapsed on a phone, and whether an
+    agent is asleep is worth knowing without expanding the card first.
+    """
+    css = (STATIC / "app.css").read_text()
+    assert ".card.collapsed .sleep" not in css, (
+        "the sleep suffix is hidden again when collapsed"
+    )
+
+
+def test_the_summary_is_not_truncated_on_an_expanded_card() -> None:
+    """The one-liner may already have been shortened upstream.
+
+    Clamping it here truncated a second time, cutting the tail off a sentence
+    that was meant to be complete. The summary only renders on an expanded
+    card, so there is nothing for a clamp to buy.
+    """
+    css = (STATIC / "app.css").read_text()
+    rule = re.search(r"\.row-sum \{(.*?)\}", css, re.S)
+    assert rule, ".row-sum is not styled"
+    body = rule.group(1)
+    assert "line-clamp" not in body, "the summary is clamped again"
+    assert "-webkit-box" not in body, "the summary is clamped again"
 
 
 def test_card_actions_are_hidden_while_collapsed() -> None:
