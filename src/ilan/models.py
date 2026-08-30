@@ -114,6 +114,18 @@ FABLE_MODEL = "claude-fable-5"
 # meaningful progress between messages.
 REPLY_EVERY_MIN_SECONDS = 1200
 
+# Canned replies behind ``ilan tap`` and ``ilan cancel``. They live here rather
+# than in the CLI because the web app sends the same two messages through the
+# same ``/tasks/<name>/reply`` route: a second copy in JavaScript would drift
+# from this one the first time either wording is tuned.
+TAP_MESSAGE = "How are things now? Pause what you are doing and give me a quick summary of the current situation."
+
+CANCEL_MESSAGE = (
+    "My previous message was sent by mistake. You can ignore that message and "
+    "the instructions therein. If you are working on fulfilling a request "
+    "specified in that message, you should stop immediately."
+)
+
 
 def is_fable_model(model: str | None) -> bool:
     return model == FABLE_MODEL
