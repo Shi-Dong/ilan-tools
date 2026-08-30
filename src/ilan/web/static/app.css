@@ -237,9 +237,13 @@ textarea.field {
 
 .card {
   background: var(--bg-elevated);
-  /* Falls back to the neutral border, which is what the Settings card — the
-   * one .card with no status — uses. */
-  border: 1px solid var(--row-status, var(--border));
+  /* 2px, not the 1px hairline this started as: at one pixel the status hue was
+   * there but not readable at arm's length, worst on the muted DONE green and
+   * the DISCARDED grey, whose contrast against the card is the lowest of the
+   * set. 3px was tried too and reads as a frame around the card rather than an
+   * edge of it. Falls back to the neutral border, which is what the Settings
+   * card — the one .card with no status — uses. */
+  border: 2px solid var(--row-status, var(--border));
   border-radius: var(--radius);
   margin-bottom: 8px;
   overflow: hidden;
