@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import struct
 
 from ilan import web
 from ilan.models import CANCEL_MESSAGE, TAP_MESSAGE
@@ -51,8 +52,9 @@ def test_read_asset_returns_none_for_a_directory():
 
 def test_content_type_known_and_unknown():
     assert web.content_type("app.css") == "text/css; charset=utf-8"
-    assert web.content_type("icon-180.png") == web.DEFAULT_CONTENT_TYPE
+    assert web.content_type("icon-180.png") == "image/png"
     assert web.content_type("m.webmanifest") == "application/manifest+json"
+    assert web.content_type("notes.txt") == web.DEFAULT_CONTENT_TYPE
 
 
 # ── routes ──────────────────────────────────────────────────────────────
@@ -107,11 +109,48 @@ def test_app_serves_manifest_and_png_icon(ilan_server: IlanServer):
     assert manifest.getheader("Content-Type") == "application/manifest+json"
     assert json.loads(manifest.read())["short_name"] == "ilan"
 
-    icon = _raw(ilan_server, "/app/icon-180.png")
-    assert icon.status == 200
-    # iOS drops a home-screen icon that is not a real PNG, so assert the magic
-    # bytes rather than just a 200.
-    assert icon.read().startswith(b"\x89PNG\r\n\x1a\n")
+    for name, side in (("icon-180.png", 180), ("icon-512.png", 512)):
+        icon = _raw(ilan_server, f"/app/{name}")
+        assert icon.status == 200, name
+        # An apple-touch-icon served as application/octet-stream is the kind of
+        # thing iOS declines silently, so pin the type as well as the status.
+        assert icon.getheader("Content-Type") == "image/png", name
+        data = icon.read()
+        # iOS drops a home-screen icon that is not a real PNG, so assert the
+        # magic bytes rather than just a 200 — and read the dimensions out of
+        # the IHDR chunk, since a wrongly sized icon still passes every other
+        # check here.
+        assert data.startswith(b"\x89PNG\r\n\x1a\n"), name
+        width, height = struct.unpack(">II", data[16:24])
+        assert (width, height) == (side, side), f"{name} is {width}x{height}"
+
+
+def test_every_manifest_icon_exists_and_matches_its_declared_size():
+    """The manifest is hand-maintained, so it can drift from what ships.
+
+    A missing or mis-declared icon is invisible until a phone quietly falls
+    back to a screenshot of the page, which is not something a status code
+    would ever reveal.
+    """
+    manifest = json.loads(web.read_asset("manifest.webmanifest"))
+    assert manifest["icons"], "manifest declares no icons"
+
+    for entry in manifest["icons"]:
+        data = web.read_asset(entry["src"])
+        assert data is not None, f"{entry['src']} is declared but not shipped"
+        assert data.startswith(b"\x89PNG\r\n\x1a\n"), entry["src"]
+        assert entry["type"] == "image/png", entry["src"]
+        width, height = struct.unpack(">II", data[16:24])
+        assert f"{width}x{height}" == entry["sizes"], (
+            f"{entry['src']} is {width}x{height} but declares {entry['sizes']}"
+        )
+
+
+def test_apple_touch_icon_is_declared_and_shipped():
+    """iOS reads the home-screen icon from this link tag, not the manifest."""
+    index = web.read_asset("index.html").decode()
+    assert 'rel="apple-touch-icon" href="icon-180.png"' in index
+    assert web.read_asset("icon-180.png") is not None
 
 
 def test_app_assets_are_revalidated(ilan_server: IlanServer):
