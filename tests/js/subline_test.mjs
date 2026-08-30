@@ -92,7 +92,9 @@ check('a task with only a status and a backend reads cleanly',
   sparseSub.split('·').map((p) => p.trim()).every(Boolean),
   JSON.stringify(sparseSub));
 check('it says just those two things',
-  sparseSub.trim() === 'AGENT_FINISHED · claude', JSON.stringify(sparseSub));
+  sparseSub.trim() === 'AGENT FINISHED · claude', JSON.stringify(sparseSub));
+check('the header carries no underscored status either',
+  !sparseSub.includes('_'), JSON.stringify(sparseSub));
 
 // ── a task with no parent renders the same way ──────────────────────────
 const plain = openTask({ ...BRANCHED, parent_name: null, name: 'standalone-task' });

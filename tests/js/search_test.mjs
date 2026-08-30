@@ -67,6 +67,37 @@ check('Clear empties the query', state.query === '', `query=${state.query}`);
 check('Clear restores the full list',
   html().includes('alpha-task') && html().includes('beta-task'));
 
+// ── searching by the status as it is written on the card ────────────────
+// The card shows "NEEDS ATTENTION"; the stored value is NEEDS_ATTENTION.
+// Typing what is on the screen has to find it, and so does typing the value.
+state.tasks = [
+  ...state.tasks,
+  { name: 'stuck-task', alias: 'ad', status: 'NEEDS_ATTENTION', engine: 'claude',
+    created_at: '2026-01-03T00:00:00+00:00', status_changed_at: '2026-01-03T00:00:00+00:00' },
+];
+
+const searchFor = (text) => {
+  renderList();
+  el('q').value = text;
+  el('q').oninput();
+  el('do-search').onclick();
+};
+
+searchFor('NEEDS ATTENTION');
+check('searching the status as displayed finds the task',
+  html().includes('stuck-task'), 'the spaced spelling is not searchable');
+check('and does not drag in the others', !html().includes('alpha-task'));
+
+searchFor('NEEDS_ATTENTION');
+check('searching the stored value still finds it too',
+  html().includes('stuck-task'), 'the underscored spelling stopped matching');
+
+searchFor('needs attention');
+check('the match is case-insensitive', html().includes('stuck-task'));
+
+state.query = '';
+state.draft = '';
+
 // ── whitespace-only input is not a filter ───────────────────────────────
 el('q').value = '   ';
 el('q').oninput();

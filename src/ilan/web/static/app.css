@@ -322,6 +322,14 @@ textarea.field {
    * edge of it. Falls back to the neutral border, which is what the Settings
    * card — the one .card with no status — uses. */
   border: 2px solid var(--row-status, var(--border));
+  /* The leading edge is a rail rather than an outline. A 2px border carries
+   * the hue but not the weight: an outline is four thin lines the eye reads as
+   * the shape of the card, not as a colour. Thickening it further only made it
+   * read as a frame. Widening one edge instead turns the same colour into a
+   * solid block that lines up down the list, which is what a column of cards
+   * is actually scanned along. Done with the existing border rather than a
+   * pseudo-element so the corner radius follows it for free. */
+  border-left-width: 10px;
   border-radius: var(--radius);
   margin-bottom: 8px;
   overflow: hidden;
@@ -495,6 +503,34 @@ textarea.field {
   letter-spacing: .03em;
   flex: none;
 }
+
+/* On a card the status is a filled pill, not coloured text: eleven bold
+ * pixels of colour are hard to see at arm's length, where a filled shape is
+ * not. Scoped to the card's meta row, so the same .status span in the
+ * conversation header stays plain text — a pill there would be shouting the
+ * one thing that page is already about.
+ *
+ * Two classes, so this beats the single-class .st-* rule that would otherwise
+ * set the colour on source order.
+ *
+ * The label is the card's own colour by default, which is the right choice
+ * almost everywhere: in light mode that is white and the status fills are
+ * dark, and in dark mode it is near-black and the fills are light. Twelve of
+ * the fourteen fill/scheme pairs clear 4.5:1 that way; the two that do not are
+ * overridden below. */
+.row-meta .status {
+  background: var(--row-status, var(--border));
+  color: var(--row-ink, var(--bg-elevated));
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+
+/* The muted pair, the only two that need saying. On a white card these fills
+ * are pale enough that the default white label reaches just 3.63:1 and 3.26:1.
+ * A near-black label gets 5.21:1 and 5.80:1 — and it also clears on their dark
+ * scheme fills, at 5.27:1 and 5.80:1, so this is one rule for both schemes
+ * rather than an override and a restore. */
+.rs-DONE, .rs-DISCARDED { --row-ink: #0d120e; }
 
 .st-WORKING { color: var(--st-working); }
 .st-NEEDS_ATTENTION { color: var(--st-attention); }
