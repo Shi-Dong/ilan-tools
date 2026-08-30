@@ -1,143 +1,12 @@
-/* Behavioural assertions for the task card: collapsing, and its two actions.
+/* Assertions for the task card: collapsing, and its three actions.
  *
  * Cards are collapsed by default, so what is stored is the set the user has
  * *expanded*; a task absent from it is collapsed.
- *
- * This harness clicks things, so querySelectorAll returns *stable* stub
- * elements parsed out of the HTML renderList produced — the same object each
- * time, so the onclick renderList assigns is still there when the test calls
- * it. The modal and fetch are stubbed richly enough to drive the Tap
- * confirmation all the way to the request it posts.
  */
 
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { bootApp, checker, settle, EXPANDED_KEY as STORAGE_KEY } from './harness.mjs';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const appSource = readFileSync(
-  join(here, '..', '..', 'src', 'ilan', 'web', 'static', 'app.js'), 'utf8',
-);
-
-const HARNESS = `
-  const MD = { escapeHtml: (v) => String(v ?? '')
-    .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
-    .replaceAll('"','&quot;').replaceAll("'",'&#39;') };
-
-  const __store = new Map();
-  const localStorage = {
-    getItem: (k) => (__store.has(k) ? __store.get(k) : null),
-    setItem: (k, v) => { __store.set(k, String(v)); },
-    removeItem: (k) => { __store.delete(k); },
-  };
-
-  // Requests are recorded; the default implementation never settles, which
-  // parks the start() boot sequence instead of letting it run.
-  const __fetches = [];
-  let __fetchImpl = () => new Promise(() => {});
-  const fetch = (path, opts) => { __fetches.push({ path, opts }); return __fetchImpl(path, opts); };
-  function __setFetch(fn) { __fetchImpl = fn; }
-
-  const __els = new Map();
-  function __el(key) {
-    if (!__els.has(key)) {
-      __els.set(key, {
-        id: key, value: '', innerHTML: '', hidden: true, className: '',
-        textContent: '', onclick: null, oninput: null, onkeydown: null,
-        dataset: {}, focus() {}, classList: { add() {} }, style: {},
-      });
-    }
-    return __els.get(key);
-  }
-
-  // Stable per (selector, key) so a handler assigned on one render is still
-  // reachable afterwards.
-  const __lists = new Map();
-  function __listEl(sel, key) {
-    const id = sel + '|' + key;
-    if (!__lists.has(id)) {
-      __lists.set(id, { dataset: {}, onclick: null, classList: { add() {} } });
-    }
-    return __lists.get(id);
-  }
-
-  // The dialogs build detached nodes, so createElement returns something with
-  // enough surface for modal() and its wire() callbacks.
-  const __modalEls = new Map();
-  function __modalEl(sel) {
-    if (!__modalEls.has(sel)) __modalEls.set(sel, { onclick: null, value: '', focus() {} });
-    return __modalEls.get(sel);
-  }
-  let __modalOpen = false;
-  // The dialog's own markup, so a test can read what it actually asked.
-  let __lastModal = null;
-
-  const document = {
-    hidden: false,
-    activeElement: null,
-    querySelector: (sel) => __el(sel.replace('#', '')),
-    querySelectorAll: (sel) => {
-      const html = __el('app').innerHTML;
-      const pick = (re, attr) => [...html.matchAll(re)].map((m) => {
-        const el = __listEl(sel, m[1]);
-        el.dataset[attr] = m[1];
-        return el;
-      });
-      if (sel === '.row') return pick(/class="row" data-toggle="([^"]+)"/g, 'toggle');
-      if (sel === '.act-tap') return pick(/data-tap="([^"]+)"/g, 'tap');
-      if (sel === '.act-details') return pick(/data-details="([^"]+)"/g, 'details');
-      if (sel === '.act-done') return pick(/data-done="([^"]+)"/g, 'done');
-      return [];
-    },
-    addEventListener: () => {},
-    body: { appendChild: () => { __modalOpen = true; } },
-    createElement: () => {
-      __lastModal = {
-        className: '', innerHTML: '',
-        addEventListener: () => {},
-        remove: () => { __modalOpen = false; },
-        querySelector: (s) => __modalEl(s),
-        querySelectorAll: () => [],
-      };
-      return __lastModal;
-    },
-  };
-  const window = { addEventListener: () => {} };
-  const location = { hash: '#/' };
-  const setInterval = () => 0;
-  const clearInterval = () => {};
-  const setTimeout = () => 0;
-  const clearTimeout = () => {};
-`;
-
-const TAIL = `;return {
-  state, renderList, el: __el,
-  row: (name) => __listEl('.row', name),
-  tapBtn: (name) => __listEl('.act-tap', name),
-  detailsBtn: (name) => __listEl('.act-details', name),
-  doneBtn: (name) => __listEl('.act-done', name),
-  modal: (sel) => __modalEl(sel),
-  modalOpen: () => __modalOpen,
-  modalTitle: () => {
-    const m = ((__lastModal && __lastModal.innerHTML) || '')
-      .match(/class="sheet-title">([^<]*)</);
-    return m ? m[1] : '';
-  },
-  storage: __store,
-  fetches: __fetches,
-  setFetch: __setFetch,
-  location,
-};`;
-
-const STORAGE_KEY = 'ilan.expanded';
-
-function bootApp(seed) {
-  const prelude = seed === undefined
-    ? HARNESS
-    : `${HARNESS}\n__store.set('${STORAGE_KEY}', ${JSON.stringify(JSON.stringify(seed))});`;
-  return new Function(`${prelude}\n${appSource}\n${TAIL}`)();
-}
-
+const { check, clickModal, report } = checker();
 const TASKS = [
   { name: 'alpha-task', alias: 'aa', status: 'WORKING', engine: 'claude',
     summary_one_liner: 'alpha summary',
@@ -155,34 +24,14 @@ const TASKS = [
     status_changed_at: '2026-01-03T00:00:00+00:00' },
 ];
 
-const failures = [];
-function check(name, condition, detail = '') {
-  if (!condition) failures.push(`FAIL  ${name}${detail ? `\n        ${detail}` : ''}`);
-}
 const isCardCollapsed = (html, status) =>
   new RegExp(`class="card rs-${status} collapsed"`).test(html);
-const settle = () => new Promise((r) => process.nextTick(r));
-
-/** Click a dialog button, reporting rather than throwing if none is wired.
- *
- * Without this a regression that skips the confirmation entirely dies with a
- * TypeError on a null handler, which says far less than the assertion that
- * was about to run. */
-function clickModal(instance, sel, why) {
-  const el = instance.modal(sel);
-  if (typeof el.onclick !== 'function') {
-    failures.push(`FAIL  ${why}\n        no dialog was open to click ${sel}`);
-    return false;
-  }
-  el.onclick();
-  return true;
-}
 
 // ── collapsed by default, toggled by the card body ──────────────────────
-let app = bootApp();
+const app = bootApp();
 app.state.tasks = structuredClone(TASKS);
 app.renderList();
-const html = () => app.el('app').innerHTML;
+const html = app.html;
 
 check('a card starts collapsed', isCardCollapsed(html(), 'WORKING'));
 check('every card starts collapsed', isCardCollapsed(html(), 'AGENT_FINISHED'));
@@ -332,7 +181,7 @@ check('closing a task with no agent running does not claim to stop one',
   `title=${JSON.stringify(killApp.modalTitle())}`);
 
 // ── persistence still behaves ──────────────────────────────────────────
-const restored = bootApp(['beta-task']);
+const restored = bootApp({ expanded: ['beta-task'] });
 restored.state.tasks = structuredClone(TASKS);
 restored.renderList();
 check('an expansion is restored on a fresh load',
@@ -340,7 +189,7 @@ check('an expansion is restored on a fresh load',
 check('a task absent from storage is still collapsed',
   isCardCollapsed(restored.el('app').innerHTML, 'WORKING'));
 
-const pruned = bootApp(['beta-task', 'task-that-was-deleted']);
+const pruned = bootApp({ expanded: ['beta-task', 'task-that-was-deleted'] });
 pruned.state.tasks = structuredClone(TASKS);
 pruned.renderList();
 pruned.row('alpha-task').onclick();
@@ -351,10 +200,7 @@ check('a live expanded task is kept', saved.includes('beta-task'),
   `saved=${JSON.stringify(saved)}`);
 
 // ── storage denied ─────────────────────────────────────────────────────
-const noStore = new Function(`${HARNESS}
-  localStorage.getItem = () => { throw new Error('denied'); };
-  localStorage.setItem = () => { throw new Error('denied'); };
-  ${appSource}${TAIL}`)();
+const noStore = bootApp({ storage: 'denied' });
 noStore.state.tasks = structuredClone(TASKS);
 noStore.renderList();
 check('cards still start collapsed with storage denied',
@@ -363,9 +209,4 @@ noStore.row('alpha-task').onclick();
 check('expanding still works with storage denied',
   !isCardCollapsed(noStore.el('app').innerHTML, 'WORKING'));
 
-if (failures.length) {
-  console.log(failures.join('\n'));
-  console.log(`\n${failures.length} card assertion(s) FAILED`);
-  process.exit(1);
-}
-console.log('all card assertions passed');
+report('card');

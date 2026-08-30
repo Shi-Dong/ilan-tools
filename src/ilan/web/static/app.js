@@ -20,12 +20,18 @@ const $ = (sel) => document.querySelector(sel);
 // two can never disagree about what escaping means.
 const esc = MD.escapeHtml;
 
+/** Seconds since *iso*, or null if it cannot be read. */
+function secondsSince(iso) {
+  if (!iso) return null;
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return null;
+  return Math.max(0, (Date.now() - then) / 1000);
+}
+
 /** Compact age like "4m", "3h", "2d" from an ISO timestamp. */
 function ago(iso) {
-  if (!iso) return '';
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return '';
-  const secs = Math.max(0, (Date.now() - then) / 1000);
+  const secs = secondsSince(iso);
+  if (secs === null) return '';
   if (secs < 60) return `${Math.floor(secs)}s`;
   if (secs < 3600) return `${Math.floor(secs / 60)}m`;
   if (secs < 86400) return `${Math.floor(secs / 3600)}h`;
@@ -70,14 +76,6 @@ function formatHoursMinutes(seconds) {
   const hours = Math.floor(total / 60);
   const minutes = total % 60;
   return hours ? `${hours}h${minutes}m` : `${minutes}m`;
-}
-
-/** Seconds since *iso*, or null if it cannot be read. */
-function secondsSince(iso) {
-  if (!iso) return null;
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return null;
-  return Math.max(0, (Date.now() - then) / 1000);
 }
 
 /** The status as displayed, with how long a WORKING task has been at it.
@@ -146,6 +144,22 @@ async function act(path, body, okMessage) {
   }
   toast(okMessage || data.message || 'Done');
   return true;
+}
+
+/** POST, and if the server asks before ending a `reply -t` cycle, ask and retry.
+ *
+ * Both replying and sleeping end an active cycle, so the server answers both
+ * with the same 409-and-a-flag rather than acting; the two callers used to
+ * carry their own copy of the ask-and-retry dance. A 409 without the flag is a
+ * plain refusal and is returned as-is.
+ *
+ * Returns the final response, or null if the user declined.
+ */
+async function postConfirmingReplyEvery(path, body, question, okLabel) {
+  const resp = await api.post(path, body);
+  if (resp.status !== 409 || !resp.data.confirm_reply_every) return resp;
+  if (!await askConfirm(question(resp.data.reply_every_seconds), okLabel)) return null;
+  return api.post(path, { ...body, override_reply_every: true });
 }
 
 // ── modal dialogs ────────────────────────────────────────────────────
@@ -264,7 +278,25 @@ function isSleeping(task) {
     && Boolean(task.sleep_seconds && task.sleep_seconds > 0);
 }
 
-const TERMINAL_STATUSES = new Set(['DONE', 'DISCARDED']);
+/** The closed statuses, each with the endpoint that reopens it.
+ *
+ * One table rather than a status list and a separate lookup: they were written
+ * out twice and had to be kept in step by hand. Each closed status is reopened
+ * by its *own* endpoint — ``undone`` only accepts a DONE task and ``undiscard``
+ * only a DISCARDED one — so the label has to name the request it will send
+ * rather than offering a generic "revive" that is refused half the time.
+ */
+const REVIVE_ACTIONS = {
+  DONE: { choice: 'undone', label: 'Undone This Task' },
+  DISCARDED: { choice: 'undiscard', label: 'Undiscard This Task' },
+};
+
+const TERMINAL_STATUSES = new Set(Object.keys(REVIVE_ACTIONS));
+
+/** How to bring *task* back, or null if it is not closed. */
+function reviveAction(task) {
+  return REVIVE_ACTIONS[task.status] || null;
+}
 
 /** Whether *task* belongs in the list, mirroring the server's own filter.
  *
@@ -276,19 +308,6 @@ const TERMINAL_STATUSES = new Set(['DONE', 'DISCARDED']);
  */
 function isVisible(task) {
   return !TERMINAL_STATUSES.has(task.status) || task.pinned;
-}
-
-/** How to bring *task* back from a terminal status, or null if it is live.
- *
- * The two closed statuses are reopened by different endpoints, and the button
- * has to name the one it will call rather than offering a generic "revive":
- * ``undone`` only accepts a DONE task and ``undiscard`` only a DISCARDED one,
- * so a label that blurred the two would sometimes describe the wrong request.
- */
-function reviveAction(task) {
-  if (task.status === 'DONE') return { choice: 'undone', label: 'Undone This Task' };
-  if (task.status === 'DISCARDED') return { choice: 'undiscard', label: 'Undiscard This Task' };
-  return null;
 }
 
 // ── collapsed rows ───────────────────────────────────────────────────
@@ -347,9 +366,6 @@ const state = {
   draft: '',
   query: '',
   expanded: loadExpanded(),
-  // How many assistant messages the conversation currently reveals, and which
-  // task that count belongs to — opening a different task has to start from
-  // one again rather than inherit however far the last one was expanded.
   // How many assistant messages the conversation reveals. Reset by route() on
   // every navigation into a task, so re-opening one always starts at the tail;
   // renderDetail leaves it alone, since Show More, the refresh button and a
@@ -358,6 +374,18 @@ const state = {
   canned: { tap: '', cancel: '' },
   pollTimer: null,
 };
+
+// ── shared chrome ────────────────────────────────────────────────────
+
+// Every view except the list is entered from the list and returns to it, so
+// each carried its own copy of this button and of the handler below.
+const BACK_BUTTON =
+  '<button class="btn btn-ghost btn-back" id="back" aria-label="Back">‹</button>';
+
+/** Point the back button at the list. Call after writing a view's markup. */
+function wireBack() {
+  $('#back').onclick = () => { location.hash = '#/'; };
+}
 
 // ── list view ────────────────────────────────────────────────────────
 
@@ -633,19 +661,16 @@ async function renderDetail(name) {
     replyEverySuffix(task.reply_every_seconds),
   ].filter(Boolean).join(' · ');
 
-  const isTerminal = TERMINAL_STATUSES.has(task.status);
-
   // A closed task has nothing to reply to, so the composer's place along the
   // bottom of the screen goes to the one thing you do want from it: reopening
   // it. Reaching that through the ••• sheet took three taps to run a single
-  // unambiguous action. A terminal status with no revive endpoint — were one
-  // ever added — gets neither control, which is the safe default.
+  // unambiguous action.
   const revive = reviveAction(task);
-  const footer = isTerminal
-    ? (revive ? `
+  const footer = revive
+    ? `
     <div class="composer">
       <button class="btn btn-primary btn-revive" id="revive">${esc(revive.label)}</button>
-    </div>` : '')
+    </div>`
     : `
     <div class="composer">
       <textarea class="field" id="reply" rows="1" placeholder="Reply to ${esc(task.name)}"></textarea>
@@ -655,7 +680,7 @@ async function renderDetail(name) {
   $('#app').innerHTML = `
     <header class="hdr">
       <div class="hdr-row">
-        <button class="btn btn-ghost btn-back" id="back" aria-label="Back">‹</button>
+        ${BACK_BUTTON}
         <h1 class="hdr-title">
           ${task.alias ? `<span class="alias">${esc(task.alias)}</span> ` : ''}<span
             class="${engineClass(task)}${isLooping(task) ? ' looping' : ''}"
@@ -673,7 +698,7 @@ async function renderDetail(name) {
     <main class="main">${body}</main>
     ${footer}`;
 
-  $('#back').onclick = () => { location.hash = '#/'; };
+  wireBack();
   $('#refresh').onclick = () => renderDetail(name);
   $('#actions').onclick = () => showActions(task);
   const more = $('#show-more');
@@ -714,19 +739,14 @@ async function renderDetail(name) {
 
 /** Send a reply, handling the server's reply-every confirmation challenge. */
 async function sendReply(name, message, extra = {}) {
-  const path = `/tasks/${encodeURIComponent(name)}/reply`;
-  let resp = await api.post(path, { message, ...extra });
-
-  // 409 arrives for two different reasons; only one of them is a question.
-  if (resp.status === 409 && resp.data.confirm_reply_every) {
-    const proceed = await askConfirm(
-      `This ends the reply-every cycle (${
-        formatCompactDuration(resp.data.reply_every_seconds)}). Continue?`,
-      'Send anyway',
-    );
-    if (!proceed) return false;
-    resp = await api.post(path, { message, ...extra, override_reply_every: true });
-  }
+  const resp = await postConfirmingReplyEvery(
+    `/tasks/${encodeURIComponent(name)}/reply`,
+    { message, ...extra },
+    (seconds) => `This ends the reply-every cycle (${
+      formatCompactDuration(seconds)}). Continue?`,
+    'Send anyway',
+  );
+  if (resp === null) return false;
   if (!resp.ok) {
     toast(resp.data.error || 'Reply failed', true);
     return false;
@@ -772,17 +792,20 @@ function showActions(task) {
   });
 }
 
+// Actions that are nothing but a POST to the endpoint of the same name. This
+// was a map from each choice to itself, which read as though the two could
+// differ; they never did.
+const BARE_POST_ACTIONS = new Set([
+  'done', 'discard', 'undone', 'undiscard', 'unread',
+  'pin', 'unpin', 'max', 'unmax', 'switch-backend',
+]);
+
 async function runAction(choice, task) {
   const t = encodeURIComponent(task.name);
   const back = () => renderDetail(task.name);
-  const simple = {
-    done: 'done', discard: 'discard', undone: 'undone', undiscard: 'undiscard',
-    unread: 'unread', pin: 'pin', unpin: 'unpin', max: 'max', unmax: 'unmax',
-    'switch-backend': 'switch-backend',
-  };
 
-  if (simple[choice]) {
-    if (await act(`/tasks/${t}/${simple[choice]}`)) back();
+  if (BARE_POST_ACTIONS.has(choice)) {
+    if (await act(`/tasks/${t}/${choice}`)) back();
     return;
   }
 
@@ -803,16 +826,14 @@ async function runAction(choice, task) {
       if (raw === null) return;
       const seconds = parseDuration(raw);
       if (!seconds) { toast('Could not read that duration', true); return; }
-      const resp = await api.post(`/tasks/${t}/sleep`, { seconds });
-      if (resp.status === 409 && resp.data.confirm_reply_every) {
-        if (!await askConfirm('This ends the reply-every cycle. Continue?', 'Sleep anyway')) return;
-        const retry = await api.post(`/tasks/${t}/sleep`,
-          { seconds, override_reply_every: true });
-        if (!retry.ok) { toast(retry.data.error || 'Failed', true); return; }
-      } else if (!resp.ok) {
-        toast(resp.data.error || 'Failed', true);
-        return;
-      }
+      const resp = await postConfirmingReplyEvery(
+        `/tasks/${t}/sleep`,
+        { seconds },
+        () => 'This ends the reply-every cycle. Continue?',
+        'Sleep anyway',
+      );
+      if (resp === null) return;
+      if (!resp.ok) { toast(resp.data.error || 'Failed', true); return; }
       toast(`Sleeping for ${formatCompactDuration(seconds)}`);
       back();
       return;
@@ -889,7 +910,7 @@ function renderNew() {
   $('#app').innerHTML = `
     <header class="hdr">
       <div class="hdr-row">
-        <button class="btn btn-ghost btn-back" id="back" aria-label="Back">‹</button>
+        ${BACK_BUTTON}
         <h1 class="hdr-title">New task</h1>
       </div>
     </header>
@@ -907,15 +928,15 @@ function renderNew() {
           <option value="claude">claude</option>
           <option value="codex">codex</option>
         </select>
-        <label class="kv" style="border:0;padding-left:0">
+        <label class="kv kv-plain">
           <span class="kv-k">Run on the max model</span>
-          <input type="checkbox" id="max" style="width:24px;height:24px">
+          <input class="checkbox" type="checkbox" id="max">
         </label>
         <button class="btn btn-primary" id="create">Create task</button>
       </div>
     </main>`;
 
-  $('#back').onclick = () => { location.hash = '#/'; };
+  wireBack();
   $('#create').onclick = async () => {
     const prompt = $('#prompt').value.trim();
     if (!prompt) { toast('A prompt is required', true); return; }
@@ -954,8 +975,7 @@ async function renderConfig() {
       <span class="kv-v">
         ${esc(shown)}
         ${CONFIG_READONLY.has(key) ? ''
-          : `<button class="btn btn-sm" data-key="${esc(key)}"
-               style="margin-left:8px">Edit</button>`}
+          : `<button class="btn btn-sm kv-edit" data-key="${esc(key)}">Edit</button>`}
       </span>
     </div>`;
   }).join('');
@@ -963,7 +983,7 @@ async function renderConfig() {
   $('#app').innerHTML = `
     <header class="hdr">
       <div class="hdr-row">
-        <button class="btn btn-ghost btn-back" id="back" aria-label="Back">‹</button>
+        ${BACK_BUTTON}
         <h1 class="hdr-title">Settings</h1>
       </div>
       <p class="hdr-sub">ilan ${esc(version.data.version || '?')}
@@ -971,7 +991,7 @@ async function renderConfig() {
     </header>
     <main class="main"><div class="card">${rows}</div></main>`;
 
-  $('#back').onclick = () => { location.hash = '#/'; };
+  wireBack();
   document.querySelectorAll('[data-key]').forEach((btn) => {
     btn.onclick = async () => {
       const key = btn.dataset.key;

@@ -1,52 +1,15 @@
 /* Assertions for the WORKING duration shown beside the status.
  *
- * The clock is read from Date.now(), so each case pins status_changed_at at a
- * known offset from now rather than at a fixed timestamp.
+ * The formatter is checked directly, then the label it feeds, then that the
+ * label survives both card states — a duration that only appeared on an
+ * expanded card would be invisible in normal use, since cards are collapsed by
+ * default.
  */
 
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { bootApp, checker } from './harness.mjs';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const appSource = readFileSync(
-  join(here, '..', '..', 'src', 'ilan', 'web', 'static', 'app.js'), 'utf8',
-);
-
-const HARNESS = `
-  const MD = { escapeHtml: (v) => String(v ?? '')
-    .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'),
-    render: (v) => String(v ?? '') };
-  const localStorage = { getItem: () => null, setItem: () => {} };
-  const fetch = () => new Promise(() => {});
-  const __els = new Map();
-  function __el(k) {
-    if (!__els.has(k)) __els.set(k, { id: k, value: '', innerHTML: '', hidden: true,
-      className: '', textContent: '', onclick: null, oninput: null, onkeydown: null,
-      dataset: {}, focus() {}, classList: { add() {} }, style: {} });
-    return __els.get(k);
-  }
-  const document = {
-    hidden: false, activeElement: null,
-    querySelector: (s) => __el(s.replace('#', '')),
-    querySelectorAll: () => [],
-    addEventListener: () => {},
-    body: { appendChild: () => {} },
-    createElement: () => ({ addEventListener: () => {}, classList: { add() {} },
-      querySelector: () => ({ onclick: null, focus() {} }) }),
-  };
-  const window = { addEventListener: () => {} };
-  const location = { hash: '#/' };
-  const setInterval = () => 0; const clearInterval = () => {};
-  const setTimeout = () => 0; const clearTimeout = () => {};
-`;
-const TAIL = `;return { state, renderList, el: __el,
-  formatHoursMinutes, statusLabel };`;
-
-const app = new Function(`${HARNESS}\n${appSource}\n${TAIL}`)();
-
-const failures = [];
-function check(n, c, d = '') { if (!c) failures.push(`FAIL  ${n}${d ? `\n        ${d}` : ''}`); }
+const { check, report } = checker();
+const app = bootApp();
 
 // ── the formatter ───────────────────────────────────────────────────────
 const f = app.formatHoursMinutes;
@@ -63,51 +26,42 @@ check('never renders seconds', !cases.some(([s]) => /\ds\b/.test(f(s))));
 
 // ── the label ───────────────────────────────────────────────────────────
 const ago = (secs) => new Date(Date.now() - secs * 1000).toISOString();
+const label = (task) => app.statusLabel(task);
 
 check('a WORKING task reports how long it has been working',
-  app.statusLabel({ status: 'WORKING', status_changed_at: ago(12 * 60) })
-    === 'WORKING (for 12m)',
-  app.statusLabel({ status: 'WORKING', status_changed_at: ago(12 * 60) }));
+  label({ status: 'WORKING', status_changed_at: ago(12 * 60) }) === 'WORKING (for 12m)',
+  label({ status: 'WORKING', status_changed_at: ago(12 * 60) }));
 
 check('hours and minutes together',
-  app.statusLabel({ status: 'WORKING', status_changed_at: ago(2 * 3600 + 38 * 60) })
+  label({ status: 'WORKING', status_changed_at: ago(2 * 3600 + 38 * 60) })
     === 'WORKING (for 2h38m)');
 
 check('a finished task gets no duration',
-  app.statusLabel({ status: 'AGENT_FINISHED', status_changed_at: ago(600) })
-    === 'AGENT_FINISHED');
+  label({ status: 'AGENT_FINISHED', status_changed_at: ago(600) }) === 'AGENT_FINISHED');
 
 check('a looping task keeps its own label',
-  app.statusLabel({ status: 'AGENT_FINISHED', reply_every_seconds: 3600,
-                    status_changed_at: ago(600) }) === 'AGENT_IN_LOOP');
+  label({ status: 'AGENT_FINISHED', reply_every_seconds: 3600, status_changed_at: ago(600) })
+    === 'AGENT_IN_LOOP');
 
 check('an unreadable timestamp degrades to the bare status',
-  app.statusLabel({ status: 'WORKING', status_changed_at: 'not-a-date' }) === 'WORKING');
+  label({ status: 'WORKING', status_changed_at: 'not-a-date' }) === 'WORKING');
 check('a missing timestamp degrades to the bare status',
-  app.statusLabel({ status: 'WORKING' }) === 'WORKING');
+  label({ status: 'WORKING' }) === 'WORKING');
 
 // ── visible collapsed and expanded ──────────────────────────────────────
-const TASKS = [{
+app.state.tasks = [{
   name: 'busy-task', alias: 'aa', status: 'WORKING', engine: 'claude',
   summary_one_liner: 'a summary',
   created_at: ago(9 * 3600), status_changed_at: ago(2 * 3600 + 38 * 60),
 }];
 
-app.state.tasks = structuredClone(TASKS);
 app.state.expanded = new Set();
 app.renderList();
-check('shown on a collapsed card',
-  app.el('app').innerHTML.includes('WORKING (for 2h38m)'),
-  app.el('app').innerHTML.slice(0, 400));
+check('shown on a collapsed card', app.html().includes('WORKING (for 2h38m)'),
+  app.html().slice(0, 400));
 
 app.state.expanded = new Set(['busy-task']);
 app.renderList();
-check('shown on an expanded card',
-  app.el('app').innerHTML.includes('WORKING (for 2h38m)'));
+check('shown on an expanded card', app.html().includes('WORKING (for 2h38m)'));
 
-if (failures.length) {
-  console.log(failures.join('\n'));
-  console.log(`\n${failures.length} working-for assertion(s) FAILED`);
-  process.exit(1);
-}
-console.log('all working-for assertions passed');
+report('working-for');

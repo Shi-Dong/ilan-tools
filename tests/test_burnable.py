@@ -35,7 +35,7 @@ from ilan.runner import Runner
 from ilan.server import IlanServer
 from ilan.store import Store
 
-from tests.helpers import wait_until_serving
+from tests.helpers import SERVE_POLL_INTERVAL, wait_until_serving
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 _HASH_NAME_RE = re.compile(rf"^{re.escape(BURNABLE_PREFIX)}[0-9a-f]{{8}}$")
@@ -213,7 +213,7 @@ def ilan_server(tmp_workdir: Path, tmp_config: Path, env_with_mock_claude: None)
     with patch.object(signal, "signal"):
         t = threading.Thread(
             target=server.run,
-            kwargs={"host": "127.0.0.1", "port": 0, "poll_interval": 0.01},
+            kwargs={"host": "127.0.0.1", "port": 0, "poll_interval": SERVE_POLL_INTERVAL},
             daemon=True,
         )
         t.start()

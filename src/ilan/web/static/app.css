@@ -678,12 +678,14 @@ textarea.field {
   justify-content: flex-start;
 }
 
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
-}
+/* A kv row used as a plain form control rather than as a table line: no rule
+   above it and no indent, since it is not part of a list of values. */
+.kv-plain { border: 0; padding-left: 0; }
+
+/* Big enough to hit with a thumb; the browser default is a ~13px square. */
+.checkbox { width: 24px; height: 24px; }
+
+.kv-edit { margin-left: 8px; }
 
 .stack { display: flex; flex-direction: column; gap: 10px; }
 .split { display: flex; gap: 8px; }
@@ -700,18 +702,6 @@ textarea.field {
   text-align: center;
   color: var(--text-dim);
   padding: 48px 16px;
-}
-
-.pre {
-  white-space: pre-wrap;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px;
-  overflow-x: auto;
-  overflow-wrap: anywhere;
 }
 
 .kv {

@@ -1,4 +1,4 @@
-/* Behavioural assertions for the revive control on a closed task.
+/* Assertions for the revive control on a closed task.
  *
  * A DONE or DISCARDED task has no reply composer, so the bottom bar carries a
  * button that reopens it instead. The two statuses are reopened by different
@@ -12,76 +12,10 @@
  * ends up looking at rather than only on the request that was sent.
  */
 
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { bootApp, checker, settle } from './harness.mjs';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const appSource = readFileSync(
-  join(here, '..', '..', 'src', 'ilan', 'web', 'static', 'app.js'), 'utf8',
-);
-
-const HARNESS = `
-  const MD = { escapeHtml: (v) => String(v ?? '')
-    .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
-    .replaceAll('"','&quot;').replaceAll("'",'&#39;'),
-    render: (v) => String(v ?? '') };
-
-  const __store = new Map();
-  const localStorage = {
-    getItem: (k) => (__store.has(k) ? __store.get(k) : null),
-    setItem: (k, v) => { __store.set(k, String(v)); },
-  };
-
-  const __fetches = [];
-  let __fetchImpl = () => new Promise(() => {});
-  const fetch = (path, opts) => { __fetches.push({ path, opts }); return __fetchImpl(path, opts); };
-  function __setFetch(fn) { __fetchImpl = fn; }
-
-  const __els = new Map();
-  function __el(key) {
-    if (!__els.has(key)) {
-      __els.set(key, {
-        id: key, value: '', innerHTML: '', hidden: true, className: '',
-        textContent: '', onclick: null, oninput: null, onkeydown: null,
-        dataset: {}, focus() {}, classList: { add() {} }, style: {},
-      });
-    }
-    return __els.get(key);
-  }
-  // renderDetail only wires up ids that exist in the markup it just wrote, so
-  // an absent control has to read as absent rather than as an empty stub.
-  function __present(id) {
-    return __el('app').innerHTML.includes('id="' + id + '"');
-  }
-
-  const document = {
-    hidden: false, activeElement: null,
-    querySelector: (sel) => {
-      const id = sel.replace('#', '');
-      if (['revive', 'reply', 'send', 'show-more'].includes(id) && !__present(id)) return null;
-      return __el(id);
-    },
-    querySelectorAll: () => [],
-    addEventListener: () => {},
-    body: { appendChild: () => {} },
-    createElement: () => ({ addEventListener: () => {}, classList: { add() {} },
-      querySelector: () => ({ onclick: null, focus() {} }) }),
-  };
-  const window = { addEventListener: () => {} };
-  const location = { hash: '#/' };
-  const setInterval = () => 0;
-  const clearInterval = () => {};
-  const setTimeout = () => 0;
-  const clearTimeout = () => {};
-`;
-
-const TAIL = `;return {
-  state, renderDetail, el: __el, fetches: __fetches, setFetch: __setFetch,
-};`;
-
-const app = new Function(`${HARNESS}\n${appSource}\n${TAIL}`)();
-
+const { check, report } = checker();
+const app = bootApp();
 // ── a stand-in server ───────────────────────────────────────────────────
 
 const TASKS = {
@@ -121,24 +55,12 @@ app.setFetch(async (path, opts) => {
   return json({ task: { ...TASKS[name] } });
 });
 
-const failures = [];
-function check(name, condition, detail = '') {
-  if (!condition) failures.push(`FAIL  ${name}${detail ? `\n        ${detail}` : ''}`);
-}
-const html = () => app.el('app').innerHTML;
+const html = app.html;
 const posts = (suffix) => app.fetches.filter(
   (f) => (f.opts || {}).method === 'POST' && f.path.endsWith(suffix),
 );
 const hasComposerInput = () => html().includes('id="reply"') && html().includes('id="send"');
 
-/** Let the re-render that follows a successful action finish.
- *
- * The action posts and then re-renders without awaiting it, so the click
- * settles before the new markup exists. Yielding to a macrotask drains the
- * whole microtask queue behind it, which is every step of a render whose
- * requests the stub resolves immediately — no guessing at tick counts.
- */
-const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 // ── a DONE task ─────────────────────────────────────────────────────────
 
@@ -204,9 +126,4 @@ check('the refusal is shown to the user',
   app.el('toast').textContent.includes('not DONE'),
   `toast=${app.el('toast').textContent}`);
 
-if (failures.length) {
-  console.log(failures.join('\n'));
-  console.log(`\n${failures.length} revive assertion(s) FAILED`);
-  process.exit(1);
-}
-console.log('all revive assertions passed');
+report('revive');

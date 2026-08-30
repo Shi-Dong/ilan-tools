@@ -1,81 +1,14 @@
-/* Behavioural assertions for the conversation's Show More control.
+/* Assertions for the conversation's Show More control.
  *
  * The reveal itself is the server's `?n=` slice, so what matters here is that
  * the app asks for the right N: one to begin with, one more per click, and
  * back to one when a different task is opened.
  */
 
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { bootApp, checker } from './harness.mjs';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const appSource = readFileSync(
-  join(here, '..', '..', 'src', 'ilan', 'web', 'static', 'app.js'), 'utf8',
-);
-
-const HARNESS = `
-  const MD = { escapeHtml: (v) => String(v ?? '')
-    .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
-    .replaceAll('"','&quot;').replaceAll("'",'&#39;'),
-    render: (v) => String(v ?? '') };
-
-  const __store = new Map();
-  const localStorage = {
-    getItem: (k) => (__store.has(k) ? __store.get(k) : null),
-    setItem: (k, v) => { __store.set(k, String(v)); },
-  };
-
-  const __fetches = [];
-  let __fetchImpl = () => new Promise(() => {});
-  const fetch = (path, opts) => { __fetches.push({ path, opts }); return __fetchImpl(path, opts); };
-  function __setFetch(fn) { __fetchImpl = fn; }
-
-  const __els = new Map();
-  function __el(key) {
-    if (!__els.has(key)) {
-      __els.set(key, {
-        id: key, value: '', innerHTML: '', hidden: true, className: '',
-        textContent: '', onclick: null, oninput: null, onkeydown: null,
-        dataset: {}, focus() {}, classList: { add() {} }, style: {},
-      });
-    }
-    return __els.get(key);
-  }
-  // renderDetail only looks up ids that exist in the markup it just wrote, so
-  // report a missing #show-more as absent rather than handing back a stub.
-  function __present(id) {
-    return __el('app').innerHTML.includes('id="' + id + '"');
-  }
-
-  const document = {
-    hidden: false, activeElement: null,
-    querySelector: (sel) => {
-      const id = sel.replace('#', '');
-      if (['show-more', 'reply', 'send'].includes(id) && !__present(id)) return null;
-      return __el(id);
-    },
-    querySelectorAll: () => [],
-    addEventListener: () => {},
-    body: { appendChild: () => {} },
-    createElement: () => ({ addEventListener: () => {}, classList: { add() {} },
-      querySelector: () => ({ onclick: null, focus() {} }) }),
-  };
-  const window = { addEventListener: () => {} };
-  const location = { hash: '#/' };
-  const setInterval = () => 0;
-  const clearInterval = () => {};
-  const setTimeout = () => 0;
-  const clearTimeout = () => {};
-`;
-
-const TAIL = `;return {
-  state, renderDetail, route, el: __el, location,
-  fetches: __fetches, setFetch: __setFetch,
-};`;
-
-const app = new Function(`${HARNESS}\n${appSource}\n${TAIL}`)();
-
+const { check, report } = checker();
+const app = bootApp();
 /** Build a conversation of `pairs` user/assistant exchanges. */
 function conversation(pairs) {
   const out = [];
@@ -107,11 +40,7 @@ app.setFetch(async (path) => {
   };
 });
 
-const failures = [];
-function check(name, condition, detail = '') {
-  if (!condition) failures.push(`FAIL  ${name}${detail ? `\n        ${detail}` : ''}`);
-}
-const html = () => app.el('app').innerHTML;
+const html = app.html;
 const tailCalls = () => app.fetches.filter((f) => f.path.includes('/tail'));
 const lastN = () => Number(new URL(`http://x${tailCalls().at(-1).path}`).searchParams.get('n'));
 const shownAssistants = () => (html().match(/assistant \d+/g) || []).length;
@@ -176,9 +105,4 @@ check('Show More renders inside the sticky header',
   /<header class="hdr">[\s\S]*id="show-more"[\s\S]*<\/header>/.test(html()),
   'it is in the scrolling body, so a long thread hides it');
 
-if (failures.length) {
-  console.log(failures.join('\n'));
-  console.log(`\n${failures.length} show-more assertion(s) FAILED`);
-  process.exit(1);
-}
-console.log('all show-more assertions passed');
+report('show-more');
