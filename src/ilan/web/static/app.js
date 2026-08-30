@@ -260,10 +260,11 @@ function taskRow(task) {
         <span class="row-top">
           ${task.alias ? `<span class="alias">${esc(task.alias)}</span>` : ''}
           <span class="row-name ${engineClass(task)}${
-            task.needs_review ? ' unread' : ''}">${esc(task.name)}</span>
-          ${isLooping(task)
-            ? `<span class="loop" title="${esc(replyEverySuffix(task.reply_every_seconds))}"
-                 role="img" aria-label="looping">🔁</span>` : ''}
+            isLooping(task) ? ' looping' : ''}${
+            task.needs_review ? ' unread' : ''}"${
+            isLooping(task)
+              ? ` title="${esc(replyEverySuffix(task.reply_every_seconds))}"` : ''
+            }>${esc(task.name)}</span>
           ${task.pinned ? '<span class="pin">📌</span>' : ''}
         </span>
         ${task.summary_one_liner
@@ -403,8 +404,8 @@ async function renderDetail(name) {
         <button class="btn btn-sm btn-ghost" id="back">‹</button>
         <h1 class="hdr-title">
           ${task.alias ? `<span class="alias">${esc(task.alias)}</span> ` : ''}<span
-            class="${engineClass(task)}">${esc(task.name)}</span>${isLooping(task)
-            ? ' <span class="loop" role="img" aria-label="looping">🔁</span>' : ''}
+            class="${engineClass(task)}${isLooping(task) ? ' looping' : ''}"
+            >${esc(task.name)}</span>
         </h1>
         <button class="btn btn-sm" id="refresh">↻</button>
         <button class="btn btn-sm" id="actions">•••</button>
