@@ -32,6 +32,38 @@ function ago(iso) {
   return `${Math.floor(secs / 86400)}d`;
 }
 
+// Mirrors _format_compact_duration in cli.py. Durations render in minutes
+// below this and hours at or above it, so a `reply -t` interval reads the same
+// on a phone as it does in `ilan dashboard`.
+const HOUR_SUFFIX_THRESHOLD_SECONDS = 1800;
+
+/** Render a positive duration compactly: "5m", "30m", "1.5h". */
+function formatCompactDuration(seconds) {
+  const secs = Math.trunc(seconds);
+  const [unit, unitSeconds] = secs >= HOUR_SUFFIX_THRESHOLD_SECONDS
+    ? ['h', 3600]
+    : ['m', 60];
+  // Truncate rather than round, matching the CLI: rounding would show a 1799s
+  // interval as 30m. Clamp to one tenth so a duration under 6s still reads as
+  // nonzero rather than "0m".
+  const tenths = Math.max(1, Math.trunc((secs * 10) / unitSeconds));
+  const whole = Math.trunc(tenths / 10);
+  const remainder = tenths % 10;
+  return `${remainder ? `${whole}.${remainder}` : whole}${unit}`;
+}
+
+/** "responding every 36m" for an active `reply -t` cycle, else ''. */
+function replyEverySuffix(seconds) {
+  if (!seconds || seconds <= 0) return '';
+  return `responding every ${formatCompactDuration(seconds)}`;
+}
+
+/** "sleeping for 5m" for an active sleep, else ''. */
+function sleepSuffix(seconds) {
+  if (!seconds || seconds <= 0) return '';
+  return `sleeping for ${formatCompactDuration(seconds)}`;
+}
+
 /** Parse "45", "30m", "2h", "1d" into seconds. Returns null if unparseable. */
 function parseDuration(text) {
   const m = /^\s*(\d+)\s*([smhd]?)\s*$/i.exec(text || '');
@@ -177,6 +209,16 @@ function displayStatus(task) {
   return task.status;
 }
 
+// Marks a task whose `reply -t` timer is still running. Deliberately keyed on
+// the cycle itself rather than on the AGENT_IN_LOOP display status: that label
+// only replaces AGENT_FINISHED and NEEDS_ATTENTION, while the cycle re-fires
+// from any live status, so a WORKING task can be looping without ever showing
+// the label. _format_reply_every_suffix in the CLI has the same no-status-filter
+// behaviour.
+function isLooping(task) {
+  return Boolean(task.reply_every_seconds && task.reply_every_seconds > 0);
+}
+
 const TERMINAL_STATUSES = new Set(['DONE', 'DISCARDED']);
 
 /** Whether *task* belongs in the list, mirroring the server's own filter.
@@ -218,7 +260,11 @@ function taskRow(task) {
         <span class="row-top">
           ${task.alias ? `<span class="alias">${esc(task.alias)}</span>` : ''}
           <span class="row-name ${engineClass(task)}${
-            task.needs_review ? ' unread' : ''}">${esc(task.name)}</span>
+            isLooping(task) ? ' looping' : ''}${
+            task.needs_review ? ' unread' : ''}"${
+            isLooping(task)
+              ? ` title="${esc(replyEverySuffix(task.reply_every_seconds))}"` : ''
+            }>${esc(task.name)}</span>
           ${task.pinned ? '<span class="pin">📌</span>' : ''}
         </span>
         ${task.summary_one_liner
@@ -346,8 +392,8 @@ async function renderDetail(name) {
   const sub = [
     status, task.engine, task.model,
     task.parent_name ? `from ${task.parent_name}` : '',
-    task.sleep_seconds ? `sleeping ${task.sleep_seconds}s` : '',
-    task.reply_every_seconds ? `every ${task.reply_every_seconds}s` : '',
+    sleepSuffix(task.sleep_seconds),
+    replyEverySuffix(task.reply_every_seconds),
   ].filter(Boolean).join(' · ');
 
   const isTerminal = TERMINAL_STATUSES.has(task.status);
@@ -358,7 +404,8 @@ async function renderDetail(name) {
         <button class="btn btn-sm btn-ghost" id="back">‹</button>
         <h1 class="hdr-title">
           ${task.alias ? `<span class="alias">${esc(task.alias)}</span> ` : ''}<span
-            class="${engineClass(task)}">${esc(task.name)}</span>
+            class="${engineClass(task)}${isLooping(task) ? ' looping' : ''}"
+            >${esc(task.name)}</span>
         </h1>
         <button class="btn btn-sm" id="refresh">↻</button>
         <button class="btn btn-sm" id="actions">•••</button>
@@ -412,7 +459,8 @@ async function sendReply(name, message, extra = {}) {
   // 409 arrives for two different reasons; only one of them is a question.
   if (resp.status === 409 && resp.data.confirm_reply_every) {
     const proceed = await askConfirm(
-      `This ends the reply-every cycle (${resp.data.reply_every_seconds}s). Continue?`,
+      `This ends the reply-every cycle (${
+        formatCompactDuration(resp.data.reply_every_seconds)}). Continue?`,
       'Send anyway',
     );
     if (!proceed) return false;
@@ -504,7 +552,7 @@ async function runAction(choice, task) {
         toast(resp.data.error || 'Failed', true);
         return;
       }
-      toast(`Sleeping ${seconds}s`);
+      toast(`Sleeping for ${formatCompactDuration(seconds)}`);
       back();
       return;
     }

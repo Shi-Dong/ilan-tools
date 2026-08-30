@@ -49,6 +49,13 @@
   --engine-claude: #a35a00;
   --engine-codex: #00479e;
 
+  /* Fill behind a looping task's name, mirroring REPLY_EVERY_BG (grey27) in
+   * cli.py. The terminal value is #444444, which is a fill for a dark
+   * background; on a white card it would bury the name. This is the darkest
+   * light-mode fill that still keeps every name colour at 4.5:1 on top of it —
+   * the orange is the binding constraint, at 4.60:1. */
+  --loop-bg: #f0f0f4;
+
   --radius: 12px;
   --tap: 44px;
 }
@@ -78,6 +85,10 @@
      * same colour. */
     --engine-claude: #ffaf00;
     --engine-codex: #afd7ff;
+
+    /* grey27 verbatim: on a dark card the terminal's own fill works unchanged,
+     * and both name colours clear 5:1 on it. */
+    --loop-bg: #444444;
   }
 }
 
@@ -241,8 +252,13 @@ textarea.field {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
+  /* Shrink-to-fit rather than flex:1, so the .looping fill hugs the name
+   * instead of stretching as a bar to wherever the pin sits. `min-width: 0`
+   * keeps it able to shrink below its content so long names still ellipsise,
+   * and the auto margin absorbs the leftover space to keep the pin hard right. */
+  flex: 0 1 auto;
   min-width: 0;
+  margin-right: auto;
 }
 
 .row-sum {
@@ -283,6 +299,17 @@ textarea.field {
 }
 
 .pin { flex: none; font-size: 13px; }
+
+/* A task on a `reply -t` cycle gets its name filled, the way _build_name_cell
+ * paints REPLY_EVERY_BG under the name cell in `ilan ls` / `ilan dashboard`. */
+.looping {
+  background: var(--loop-bg);
+  border-radius: 5px;
+  padding: 1px 6px;
+  /* Cancel the padding on the leading edge so a filled name still lines up
+   * with the unfilled ones above and below it. */
+  margin-left: -6px;
+}
 
 .status {
   font-size: 11px;
