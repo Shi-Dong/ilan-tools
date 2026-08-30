@@ -271,7 +271,7 @@ function taskRow(task) {
   ].filter(Boolean).join('');
 
   return `
-    <div class="card">
+    <div class="card rs-${esc(status)}">
       <button class="row" data-name="${esc(task.name)}">
         <span class="row-top">
           ${task.alias ? `<span class="alias">${esc(task.alias)}</span>` : ''}
