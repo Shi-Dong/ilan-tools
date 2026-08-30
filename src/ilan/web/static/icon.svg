@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-label="ilan">
-  <rect width="180" height="180" rx="40" fill="#0a63c9"/>
-  <g fill="#ffffff">
-    <rect x="38" y="52" width="104" height="16" rx="8"/>
-    <rect x="38" y="82" width="76" height="16" rx="8"/>
-    <rect x="38" y="112" width="48" height="16" rx="8"/>
-  </g>
-</svg>

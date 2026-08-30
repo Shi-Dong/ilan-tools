@@ -27,6 +27,11 @@ _CONTENT_TYPES: dict[str, str] = {
     ".html": "text/html; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
     ".json": "application/json; charset=utf-8",
+    # Without this the icons fall through to application/octet-stream. Browsers
+    # mostly sniff their way past that, but an apple-touch-icon served as a
+    # generic byte stream is exactly the kind of thing iOS silently declines,
+    # falling back to a screenshot of the page for the home-screen tile.
+    ".png": "image/png",
     ".svg": "image/svg+xml",
     ".webmanifest": "application/manifest+json",
 }
