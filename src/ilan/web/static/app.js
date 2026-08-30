@@ -58,6 +58,41 @@ function replyEverySuffix(seconds) {
   return `responding every ${formatCompactDuration(seconds)}`;
 }
 
+/** Render a duration as hours and minutes only: "12m", "2h38m", "30h5m".
+ *
+ * Deliberately not formatCompactDuration, which renders a tenth of a unit
+ * ("0.6h") — good for a configured interval, useless for a running clock,
+ * where "2h38m" is what you want to read. Seconds are dropped entirely: a
+ * task that has been working for eleven seconds is, for this purpose, new.
+ */
+function formatHoursMinutes(seconds) {
+  const total = Math.max(0, Math.floor(seconds / 60));
+  const hours = Math.floor(total / 60);
+  const minutes = total % 60;
+  return hours ? `${hours}h${minutes}m` : `${minutes}m`;
+}
+
+/** Seconds since *iso*, or null if it cannot be read. */
+function secondsSince(iso) {
+  if (!iso) return null;
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return null;
+  return Math.max(0, (Date.now() - then) / 1000);
+}
+
+/** The status as displayed, with how long a WORKING task has been at it.
+ *
+ * Measured from status_changed_at, which is when the task entered WORKING —
+ * not from created_at, which would count the time it spent waiting for a slot
+ * or sitting in an earlier status.
+ */
+function statusLabel(task) {
+  const status = displayStatus(task);
+  if (status !== 'WORKING') return status;
+  const secs = secondsSince(task.status_changed_at);
+  return secs === null ? status : `${status} (for ${formatHoursMinutes(secs)})`;
+}
+
 /** "sleeping for 5m" for an active sleep, else ''. */
 function sleepSuffix(seconds) {
   if (!seconds || seconds <= 0) return '';
@@ -317,7 +352,7 @@ function taskRow(task) {
   // rather than omitted so collapsing is a class on the card, not a second
   // rendering path that could drift from this one.
   const meta = [
-    `<span class="status st-${esc(status)}">${esc(status)}</span>`,
+    `<span class="status st-${esc(status)}">${esc(statusLabel(task))}</span>`,
     task.engine ? `<span class="meta-detail">${esc(task.engine)}</span>` : '',
     `<span class="meta-detail">${
       esc(ago(task.status_changed_at || task.created_at))} ago</span>`,
@@ -555,7 +590,7 @@ async function renderDetail(name) {
   const hasMore = shownAssistants >= state.detailShown;
 
   const sub = [
-    status, task.engine, task.model,
+    statusLabel(task), task.engine, task.model,
     task.parent_name ? `from ${task.parent_name}` : '',
     sleepSuffix(task.sleep_seconds),
     replyEverySuffix(task.reply_every_seconds),
