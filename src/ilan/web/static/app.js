@@ -771,6 +771,8 @@ async function renderDetail(name) {
     </div>
     <div class="composer">
       <textarea class="field" id="reply" rows="1" placeholder="Reply to ${esc(task.name)}"></textarea>
+      <button class="btn btn-ghost btn-clear" id="clear-reply"
+              aria-label="Clear the message" title="Clear the message" disabled>✕</button>
       <button class="btn btn-primary" id="send">Send</button>
     </div>`;
 
@@ -834,10 +836,30 @@ async function renderDetail(name) {
 
   const replyBox = $('#reply');
   if (replyBox) {
-    replyBox.oninput = () => {
+    const clearBtn = $('#clear-reply');
+    // Height and the clear button both follow the content, so they are kept in
+    // one place: anything that puts text in the box calls this rather than
+    // remembering to do two things.
+    const syncComposer = () => {
       replyBox.style.height = 'auto';
       replyBox.style.height = `${Math.min(replyBox.scrollHeight, 220)}px`;
+      // Disabled on an empty or whitespace-only draft: there is nothing to
+      // clear, and a live button that does nothing is worse than a dim one.
+      if (clearBtn) clearBtn.disabled = !replyBox.value.trim();
     };
+    replyBox.oninput = syncComposer;
+    // Once up front, so the button's state is derived from what is in the box
+    // rather than assuming it starts empty.
+    syncComposer();
+    if (clearBtn) {
+      clearBtn.onclick = () => {
+        replyBox.value = '';
+        // Through the same path as typing, so the box shrinks back and the
+        // button disables itself rather than being left lit over nothing.
+        syncComposer();
+        replyBox.focus();
+      };
+    }
     $('#send').onclick = async () => {
       const text = replyBox.value.trim();
       if (!text) return;

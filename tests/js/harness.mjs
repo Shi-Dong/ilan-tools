@@ -33,7 +33,7 @@ export const EXPANDED_KEY = 'ilan.expanded';
 // it is not on the page has to come back null, not a stub.
 const CONDITIONAL_IDS = [
   'show-more', 'reply', 'send', 'revive', 'clear-search',
-  'ask-bar', 'ask-btn', 'ask-preview',
+  'ask-bar', 'ask-btn', 'ask-preview', 'clear-reply',
 ];
 
 // querySelectorAll targets, and the data- attribute that identifies each match.
@@ -77,7 +77,10 @@ const PRELUDE = `
         id: key, value: '', innerHTML: '', hidden: true, className: '',
         textContent: '', onclick: null, oninput: null, onkeydown: null,
         disabled: false, checked: false, scrollHeight: 0,
-        dataset: {}, focus() {}, classList: { add() {} }, style: {},
+        dataset: {},
+        // Recorded, so a test can assert where focus went.
+        focus() { document.activeElement = this; },
+        classList: { add() {} }, style: {},
         setSelectionRange() {},
       });
     }
@@ -185,6 +188,7 @@ const TAIL = `;return {
   detailsBtn: (name) => __listEl('.act-details', name),
   doneBtn: (name) => __listEl('.act-done', name),
   html: () => __el('app').innerHTML,
+  focused: () => (document.activeElement ? document.activeElement.id : null),
   modal: (sel) => __modalEl(sel),
   modalOpen: () => __modalOpen,
   modalTitle: () => {
