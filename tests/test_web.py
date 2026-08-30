@@ -284,6 +284,31 @@ def test_the_done_button_label_is_legible_in_both_colour_schemes():
         )
 
 
+def test_the_web_app_carries_no_inline_styles():
+    """Styling belongs in the stylesheet, where the schemes can both reach it.
+
+    An inline rule cannot be overridden by the dark-mode block and does not
+    show up in any of the layout assertions here, so it is the one place a
+    sizing mistake can hide.
+    """
+    js = web.read_asset("app.js").decode()
+    assert 'style="' not in js, "a style attribute is back in the markup"
+
+
+def test_the_settings_checkbox_is_big_enough_to_hit():
+    """The browser default is a ~13px square, well under the 44px guidance.
+
+    This used to be an inline style; moving it to the stylesheet is what makes
+    it assertable at all.
+    """
+    css = web.read_asset("app.css").decode()
+    rule = re.search(r"\.checkbox \{(.*?)\}", css, re.S)
+    assert rule, "the checkbox has no sizing rule"
+    sizes = [int(v) for v in re.findall(r"(?:width|height):\s*(\d+)px", rule.group(1))]
+    assert len(sizes) == 2, f"expected a width and a height, got {sizes}"
+    assert all(size >= 24 for size in sizes), f"checkbox is {sizes}px"
+
+
 def test_the_card_actions_row_tightens_its_buttons():
     """Three buttons share one row at phone width, and only just fit.
 
@@ -309,6 +334,150 @@ def test_the_done_button_posts_to_a_route_the_server_serves():
     assert (
         "POST", r"^/tasks/([^/]+)/done$", "handle_task_done",
     ) in ROUTES
+
+
+def test_the_back_control_is_big_enough_to_aim_at():
+    """A single narrow glyph is the one mark that can be too small to hit.
+
+    Its tap target was already the 44px minimum when it was still hard to use —
+    the target was fine, the glyph was not. Nothing behavioural would notice a
+    revert: a smaller chevron still renders and still works.
+    """
+    js = web.read_asset("app.js").decode()
+    css = web.read_asset("app.css").decode()
+
+    backs = re.findall(r'<button class="([^"]*)" id="back"', js)
+    assert backs, "no back button found"
+    for classes in backs:
+        assert "btn-back" in classes, f"a back button is missing btn-back: {classes}"
+        # btn-sm is what made it small in the first place.
+        assert "btn-sm" not in classes, f"a back button is still small: {classes}"
+
+    rule = re.search(r"\.btn-back \{(.*?)\}", css, re.S)
+    assert rule, ".btn-back is not styled"
+    size = re.search(r"font-size:\s*(\d+)px", rule.group(1))
+    assert size and int(size.group(1)) >= 24, (
+        f"back glyph is {size.group(1) if size else 'unset'}px; too small to aim at"
+    )
+    assert "min-height: var(--tap)" in rule.group(1)
+    assert "width: var(--tap)" in rule.group(1)
+
+
+def test_the_conversation_asks_the_server_for_a_bounded_tail():
+    """The reveal rule is the server's, not a second implementation here."""
+    js = web.read_asset("app.js").decode()
+    assert "/tail?n=${state.detailShown}" in js
+
+
+def test_the_working_duration_is_measured_from_when_the_task_started_working():
+    """created_at would count time spent queued or in an earlier status."""
+    js = web.read_asset("app.js").decode()
+    assert "secondsSince(task.status_changed_at)" in js
+
+
+# ── the collapsed card ──────────────────────────────────────────────────
+
+def test_a_collapsed_card_hides_the_summary_and_the_metadata():
+    """The collapsed view is defined by CSS, so assert the rules exist.
+
+    A collapsed card shows the pin, alias, name, unread marker and status. The
+    summary, the engine and the age are what it drops, hidden by class rather
+    than by a second rendering path — so losing one of these selectors would
+    quietly put the detail back.
+    """
+    css = web.read_asset("app.css").decode()
+
+    for selector in (".card.collapsed .row-sum", ".card.collapsed .meta-detail"):
+        assert selector in css, f"{selector} is no longer hidden when collapsed"
+
+    # The status must NOT be hidden: it is one of the things that stay, and it
+    # carries the WORKING duration with it.
+    assert ".card.collapsed .status" not in css
+
+    # Nor the sleep suffix. This departs from `ls -c`, which omits it: most of
+    # the list is only ever seen collapsed on a phone, and whether an agent is
+    # asleep is worth knowing without expanding the card first.
+    assert ".card.collapsed .sleep" not in css, (
+        "the sleep suffix is hidden again when collapsed"
+    )
+
+    # Three buttons on every collapsed card would undo the density that
+    # collapsing by default exists to provide.
+    assert ".card.collapsed .row-actions { display: none; }" in css
+
+
+def test_the_summary_is_not_truncated_on_an_expanded_card():
+    """The one-liner may already have been shortened upstream.
+
+    Clamping it here truncated a second time, cutting the tail off a sentence
+    that was meant to be complete. The summary only renders on an expanded
+    card, so there is nothing for a clamp to buy.
+    """
+    css = web.read_asset("app.css").decode()
+    rule = re.search(r"\.row-sum \{(.*?)\}", css, re.S)
+    assert rule, ".row-sum is not styled"
+    assert "line-clamp" not in rule.group(1), "the summary is clamped again"
+    assert "-webkit-box" not in rule.group(1), "the summary is clamped again"
+
+
+def test_the_card_body_is_the_toggle():
+    """The row itself carries the toggle, rather than a separate chevron."""
+    js = web.read_asset("app.js").decode()
+    assert 'data-toggle="${esc(task.name)}"' in js
+
+
+# ── reopening a closed task ─────────────────────────────────────────────
+
+def _revive_actions() -> dict[str, str]:
+    """The closed status → endpoint pairs the revive button is built from."""
+    js = web.read_asset("app.js").decode()
+    table = re.search(r"const REVIVE_ACTIONS = \{(.*?)\n\};", js, re.S)
+    assert table, "REVIVE_ACTIONS is gone; the revive button has no source"
+    return dict(re.findall(r"([A-Z_]+): \{ choice: '([a-z]+)'", table.group(1)))
+
+
+def test_each_closed_status_is_reopened_by_its_own_endpoint():
+    """The server refuses a mismatch, so one generic button would not do.
+
+    ``undone`` only accepts a DONE task and ``undiscard`` only a DISCARDED one,
+    so a single endpoint would work for half the closed tasks and 409 for the
+    rest. Deriving the expected set from ``TaskStatus`` means adding a closed
+    status to the enum without giving the web app a way back fails here.
+    """
+    closed = {TaskStatus.DONE.value, TaskStatus.DISCARDED.value}
+    assert _revive_actions() == {"DONE": "undone", "DISCARDED": "undiscard"}
+    assert set(_revive_actions()) == closed
+
+
+def test_the_revive_buttons_post_to_routes_the_server_actually_serves():
+    """A renamed route would leave the button posting into a 404.
+
+    Nothing else would notice: the button still renders, the tap still fires,
+    and the failure only shows up as a toast on a phone.
+    """
+    served = {pattern for method, pattern, _ in ROUTES if method == "POST"}
+    for status, choice in _revive_actions().items():
+        assert rf"^/tasks/([^/]+)/{choice}$" in served, (
+            f"the web app posts /{choice} for a {status} task, "
+            "which the server does not route"
+        )
+
+
+def test_the_statuses_treated_as_closed_are_the_ones_with_a_way_back():
+    """One table feeds both, so the page cannot hide the composer from a task
+    it then offers no button to."""
+    js = web.read_asset("app.js").decode()
+    assert "new Set(Object.keys(REVIVE_ACTIONS))" in js, (
+        "TERMINAL_STATUSES is no longer derived from REVIVE_ACTIONS"
+    )
+
+
+def test_the_revive_button_fills_the_bar_it_sits_in():
+    """It is alone in a flex row, so without this it shrinks to its label."""
+    css = web.read_asset("app.css").decode()
+    rule = re.search(r"\.composer \.btn-revive \{(.*?)\}", css, re.S)
+    assert rule, "the revive button has no layout rule in the composer bar"
+    assert "flex: 1" in rule.group(1)
 
 
 def test_web_app_does_not_show_task_cost():

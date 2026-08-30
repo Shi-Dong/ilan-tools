@@ -1,60 +1,15 @@
-/* Behavioural assertions for deferred search in the web app.
+/* Assertions for the deferred search: typing records a draft, and nothing is
+ * filtered until Search (or the keyboard's Enter) is pressed.
  *
- * app.js is a browser script, so it is evaluated here against a DOM stub small
- * enough to be obvious and large enough to run renderList: element lookups
- * return persistent stubs whose handlers the test can call, and #app records
- * the HTML that was assigned to it.
- *
- * The point is to exercise the real handlers rather than grep the source, so a
- * regression back to search-as-you-type actually fails this.
+ * Search-as-you-type re-rendered the header on every keystroke, which dropped
+ * the caret to the end of the field. These assertions are what stop that
+ * coming back.
  */
 
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { bootApp, checker } from './harness.mjs';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const source = readFileSync(
-  join(here, '..', '..', 'src', 'ilan', 'web', 'static', 'app.js'), 'utf8',
-);
-
-const HARNESS = `
-  const MD = { escapeHtml: (v) => String(v ?? '')
-    .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
-    .replaceAll('"','&quot;').replaceAll("'",'&#39;') };
-  const __els = new Map();
-  function __el(key) {
-    if (!__els.has(key)) {
-      __els.set(key, {
-        id: key, value: '', innerHTML: '', hidden: true, className: '',
-        onclick: null, oninput: null, onkeydown: null,
-        focus() {}, classList: { add() {} }, style: {},
-      });
-    }
-    return __els.get(key);
-  }
-  const document = {
-    hidden: false,
-    activeElement: null,
-    querySelector: (sel) => __el(sel.replace('#', '')),
-    querySelectorAll: () => [],
-    addEventListener: () => {},
-    body: { appendChild: () => {} },
-    createElement: () => ({ addEventListener: () => {}, classList: { add() {} } }),
-  };
-  const window = { addEventListener: () => {} };
-  const location = { hash: '#/' };
-  const fetch = () => new Promise(() => {});
-  const setInterval = () => 0;
-  const clearInterval = () => {};
-  const setTimeout = () => 0;
-  const clearTimeout = () => {};
-`;
-
-const app = new Function(
-  `${HARNESS}\n${source}\n;return { state, renderList, applySearch, el: __el, document };`,
-)();
-
+const { check, report } = checker();
+const app = bootApp();
 const { state, renderList, el } = app;
 
 state.tasks = [
@@ -64,12 +19,7 @@ state.tasks = [
     created_at: '2026-01-02T00:00:00+00:00', status_changed_at: '2026-01-02T00:00:00+00:00' },
 ];
 
-const failures = [];
-function check(name, condition, detail = '') {
-  if (!condition) failures.push(`FAIL  ${name}${detail ? `\n        ${detail}` : ''}`);
-}
-
-const html = () => el('app').innerHTML;
+const html = app.html;
 
 // ── initial render ──────────────────────────────────────────────────────
 renderList();
@@ -124,9 +74,4 @@ el('do-search').onclick();
 check('whitespace-only search is treated as empty', state.query === '',
   `query=${JSON.stringify(state.query)}`);
 
-if (failures.length) {
-  console.log(failures.join('\n'));
-  console.log(`\n${failures.length} search assertion(s) FAILED`);
-  process.exit(1);
-}
-console.log('all search assertions passed');
+report('search');

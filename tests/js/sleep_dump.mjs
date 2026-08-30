@@ -2,55 +2,13 @@
  * each one produced, as JSON, for cross-checking against the CLI's
  * _format_sleep_suffix and its WORKING-only rule.
  *
- * Same DOM stub approach as search_test.mjs: small enough to be obvious, big
- * enough to run renderList, and #app records the HTML it was handed.
+ * Reads its cases from argv so the Python side owns the list, and can build
+ * the expectations from the CLI's own helper rather than from a literal.
  */
 
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { bootApp } from './harness.mjs';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const source = readFileSync(
-  join(here, '..', '..', 'src', 'ilan', 'web', 'static', 'app.js'), 'utf8',
-);
-
-const HARNESS = `
-  const MD = { escapeHtml: (v) => String(v ?? '')
-    .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
-    .replaceAll('"','&quot;').replaceAll("'",'&#39;') };
-  const __els = new Map();
-  function __el(key) {
-    if (!__els.has(key)) {
-      __els.set(key, {
-        id: key, value: '', innerHTML: '', hidden: true, className: '',
-        onclick: null, oninput: null, onkeydown: null,
-        focus() {}, classList: { add() {} }, style: {},
-      });
-    }
-    return __els.get(key);
-  }
-  const document = {
-    hidden: false,
-    activeElement: null,
-    querySelector: (sel) => __el(sel.replace('#', '')),
-    querySelectorAll: () => [],
-    addEventListener: () => {},
-    body: { appendChild: () => {} },
-    createElement: () => ({ addEventListener: () => {}, classList: { add() {} } }),
-  };
-  const window = { addEventListener: () => {} };
-  const location = { hash: '#/' };
-  const fetch = () => new Promise(() => {});
-  const setInterval = () => 0;
-  const clearInterval = () => {};
-  const setTimeout = () => 0;
-  const clearTimeout = () => {};
-`;
-
-const app = new Function(
-  `${HARNESS}\n${source}\n;return { state, renderList, el: __el };`,
-)();
+const app = bootApp();
 
 // [label, status, sleep_seconds]
 const CASES = JSON.parse(process.argv[2]);
@@ -66,12 +24,12 @@ for (const [label, status, sleepSeconds] of CASES) {
     created_at: '2026-01-01T00:00:00+00:00',
     status_changed_at: '2026-01-01T00:00:00+00:00',
   }];
-  app.state.query = '';
-  app.state.draft = '';
-  app.state.showAll = true;
+  // A closed task is filtered out of the default listing, and searching is
+  // what reaches one — the same route the phone takes.
+  app.state.query = status === 'DONE' || status === 'DISCARDED' ? 'demo-task' : '';
+  app.state.draft = app.state.query;
   app.renderList();
-  const html = app.el('app').innerHTML;
-  const match = /<span class="sleep">([^<]*)<\/span>/.exec(html);
+  const match = /<span class="sleep">([^<]*)<\/span>/.exec(app.html());
   out[label] = match ? match[1] : null;
 }
 console.log(JSON.stringify(out));
