@@ -429,9 +429,9 @@ function taskRow(task) {
         <span class="row-meta">${meta}</span>
       </button>
       <div class="row-actions">
+        ${TERMINAL_STATUSES.has(task.status) ? '' : `
         <button class="btn btn-sm btn-tap act-tap"
                 data-tap="${esc(task.name)}">Tap</button>
-        ${TERMINAL_STATUSES.has(task.status) ? '' : `
         <button class="btn btn-sm btn-done act-done"
                 data-done="${esc(task.name)}">Done</button>`}
         <button class="btn btn-sm btn-primary act-details"

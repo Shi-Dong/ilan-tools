@@ -310,6 +310,33 @@ def test_the_card_buttons_run_tap_done_details():
     assert order == ["tap", "done", "details"], order
 
 
+def test_a_closed_card_offers_only_show_details():
+    """Neither Tap nor Done means anything once a task is closed.
+
+    There is no agent left to tap — the message would go to a task whose agent
+    has stopped — and closing something already DONE is not an action worth
+    offering. The actions sheet has always applied that rule to both, so the
+    card does too, through a single condition rather than one per button: two
+    conditions is how they drift apart, which is exactly what happened when
+    Done was gated and Tap was not.
+    """
+    js = web.read_asset("app.js").decode()
+    row = re.search(r'<div class="row-actions">(.*?)</div>', js, re.S)
+    assert row, "the card no longer has an actions row"
+
+    gated = re.search(
+        r"\$\{TERMINAL_STATUSES\.has\(task\.status\) \? '' : `(.*?)`\}",
+        row.group(1), re.S,
+    )
+    assert gated, "the card's actions are no longer gated on the task being open"
+
+    assert "data-tap=" in gated.group(1), "Tap is offered on a closed task"
+    assert "data-done=" in gated.group(1), "Done is offered on a closed task"
+    assert "data-details=" not in gated.group(1), (
+        "Show Details is gated too, leaving a closed card with no actions at all"
+    )
+
+
 def test_the_done_button_label_is_legible_in_both_colour_schemes():
     """A filled button carries a label, so the pair has to clear 4.5:1.
 
