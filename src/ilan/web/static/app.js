@@ -238,6 +238,12 @@ function isVisible(task) {
 const state = {
   tasks: [],
   showAll: false,
+  // `draft` is what is typed in the box; `query` is what the list is actually
+  // filtered by. They are separate because searching only happens on Search,
+  // so the two disagree the whole time the user is still typing. `draft` also
+  // has to outlive a re-render: the list refreshes on a timer, which rebuilds
+  // the header, and a draft kept only in the DOM would be wiped mid-sentence.
+  draft: '',
   query: '',
   detailView: 'tail', // 'tail' | 'logs' | 'prompt'
   canned: { tap: '', cancel: '' },
@@ -283,6 +289,12 @@ function matchesQuery(task, query) {
   return hay.includes(query.toLowerCase());
 }
 
+/** Apply the typed text as the active filter. Nothing filters until this runs. */
+function applySearch() {
+  state.query = state.draft.trim();
+  renderList();
+}
+
 function renderList() {
   // `search` in the CLI always searches closed tasks too, so a query implies
   // -a; without one, honour the toggle.
@@ -311,14 +323,32 @@ function renderList() {
       </div>
       <div class="hdr-row">
         <input class="field" id="q" type="search" placeholder="Search name, alias, status"
-               value="${esc(state.query)}" autocapitalize="off" autocorrect="off"
-               spellcheck="false">
+               value="${esc(state.draft)}" autocapitalize="off" autocorrect="off"
+               spellcheck="false" enterkeyhint="search">
+        <button class="btn btn-sm btn-primary" id="do-search">Search</button>
+        ${state.query
+          ? '<button class="btn btn-sm" id="clear-search">Clear</button>' : ''}
       </div>
     </header>
     <main class="main">${body}</main>`;
 
   const q = $('#q');
-  q.oninput = () => { state.query = q.value; renderList(); q.focus(); };
+  // Typing only updates the draft. No filtering, and deliberately no re-render:
+  // rebuilding the header mid-keystroke would drop the caret to the end of the
+  // field, which is what the previous search-as-you-type version did.
+  q.oninput = () => { state.draft = q.value; };
+  // iOS labels the keyboard's action key "search" via enterkeyhint above, so
+  // pressing it has to do the same thing the button does.
+  q.onkeydown = (ev) => { if (ev.key === 'Enter') applySearch(); };
+  $('#do-search').onclick = applySearch;
+  const clearBtn = $('#clear-search');
+  if (clearBtn) {
+    clearBtn.onclick = () => {
+      state.draft = '';
+      state.query = '';
+      renderList();
+    };
+  }
   $('#toggle-all').onclick = () => { state.showAll = !state.showAll; renderList(); };
   $('#go-config').onclick = () => { location.hash = '#/config'; };
   $('#go-new').onclick = () => { location.hash = '#/new'; };
@@ -728,6 +758,24 @@ function stopPolling() {
   state.pollTimer = null;
 }
 
+/** True while the search box has focus, i.e. the user is mid-query.
+ *
+ * A refresh re-renders the whole header, which would take focus and the caret
+ * away from someone in the middle of typing. The task list is not so
+ * time-critical that it cannot wait until they are done.
+ */
+function isTypingSearch() {
+  const box = $('#q');
+  return Boolean(box && document.activeElement === box);
+}
+
+/** Whether a background refresh should run right now. */
+function canAutoRefresh() {
+  return !document.hidden
+    && (location.hash || '#/') === '#/'
+    && !isTypingSearch();
+}
+
 async function route() {
   stopPolling();
   const hash = location.hash || '#/';
@@ -744,13 +792,13 @@ async function route() {
   // finishing. Paused while the tab is hidden so it costs no battery in the
   // background.
   state.pollTimer = setInterval(() => {
-    if (!document.hidden && (location.hash || '#/') === '#/') loadList(false);
+    if (canAutoRefresh()) loadList(false);
   }, 15000);
 }
 
 window.addEventListener('hashchange', route);
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && (location.hash || '#/') === '#/') loadList(false);
+  if (canAutoRefresh()) loadList(false);
 });
 
 (async function start() {

@@ -149,6 +149,14 @@ button, input, textarea, select {
   white-space: nowrap;
 }
 
+/* The search row is a field plus its Search (and sometimes Clear) button.
+ * .field is width:100% for the stacked forms elsewhere, so it has to be told
+ * to share this row instead of pushing the buttons off the edge. */
+.hdr-row .field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .hdr-sub {
   font-size: 13px;
   color: var(--text-dim);
