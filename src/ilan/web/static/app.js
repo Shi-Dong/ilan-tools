@@ -16,15 +16,9 @@
 
 const $ = (sel) => document.querySelector(sel);
 
-function esc(value) {
-  if (value === null || value === undefined) return '';
-  return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
+// Single definition, shared with the Markdown renderer in markdown.js, so the
+// two can never disagree about what escaping means.
+const esc = MD.escapeHtml;
 
 /** Compact age like "4m", "3h", "2d" from an ISO timestamp. */
 function ago(iso) {
@@ -307,10 +301,17 @@ function messageHtml(entry) {
   const foot = [
     entry.model, entry.effort, fmtCost(entry.cost_usd), ago(entry.timestamp),
   ].filter(Boolean).join(' · ');
+  const isUser = entry.role === 'user';
+  // Only agent replies are Markdown, matching `ilan tail --md`. A user message
+  // is text the user typed, so showing it back verbatim is the honest thing —
+  // and it means an asterisk in a reply never silently becomes emphasis.
+  const body = isUser
+    ? `<p class="msg-body">${esc(entry.content)}</p>`
+    : `<div class="msg-body md">${MD.render(entry.content)}</div>`;
   return `
-    <div class="msg msg-${entry.role === 'user' ? 'user' : 'assistant'}">
+    <div class="msg msg-${isUser ? 'user' : 'assistant'}">
       <div class="msg-role">${esc(entry.role)}</div>
-      <p class="msg-body">${esc(entry.content)}</p>
+      ${body}
       ${foot ? `<div class="msg-foot">${esc(foot)}</div>` : ''}
     </div>`;
 }
