@@ -243,6 +243,46 @@ function isVisible(task) {
   return state.showAll || !TERMINAL_STATUSES.has(task.status) || task.pinned;
 }
 
+// ── collapsed rows ───────────────────────────────────────────────────
+
+const COLLAPSED_KEY = 'ilan.collapsed';
+
+/** Names of the tasks the user has collapsed, restored from a previous visit.
+ *
+ * Persisted rather than kept in memory because iOS evicts a backgrounded PWA
+ * freely: a collapse that only survived until the next launch would be undone
+ * constantly. Any storage failure — Private Browsing, a full quota — degrades
+ * to collapsing that still works for this session.
+ */
+function loadCollapsed() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY)) || []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveCollapsed() {
+  // Drop names that no longer exist so the entry cannot grow without bound as
+  // tasks come and go. Guarded on a non-empty list: pruning against a list
+  // that has not loaded yet would throw the whole thing away.
+  if (state.tasks.length) {
+    const live = new Set(state.tasks.map((t) => t.name));
+    for (const name of state.collapsed) {
+      if (!live.has(name)) state.collapsed.delete(name);
+    }
+  }
+  try {
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...state.collapsed]));
+  } catch {
+    /* see loadCollapsed: storage is a nicety, not a requirement */
+  }
+}
+
+function isCollapsed(task) {
+  return state.collapsed.has(task.name);
+}
+
 // ── state ────────────────────────────────────────────────────────────
 
 const state = {
@@ -255,6 +295,7 @@ const state = {
   // the header, and a draft kept only in the DOM would be wiped mid-sentence.
   draft: '',
   query: '',
+  collapsed: loadCollapsed(),
   detailView: 'tail', // 'tail' | 'logs' | 'prompt'
   canned: { tap: '', cancel: '' },
   pollTimer: null,
@@ -264,14 +305,21 @@ const state = {
 
 function taskRow(task) {
   const status = displayStatus(task);
+  // `ls -c` shows only the pin, alias, name, unread marker and status, so the
+  // engine and the age are the parts a collapsed row drops. They are tagged
+  // rather than omitted so collapsing is a class on the card, not a second
+  // rendering path that could drift from this one.
   const meta = [
     `<span class="status st-${esc(status)}">${esc(status)}</span>`,
-    task.engine ? `<span>${esc(task.engine)}</span>` : '',
-    `<span>${esc(ago(task.status_changed_at || task.created_at))} ago</span>`,
+    task.engine ? `<span class="meta-detail">${esc(task.engine)}</span>` : '',
+    `<span class="meta-detail">${
+      esc(ago(task.status_changed_at || task.created_at))} ago</span>`,
   ].filter(Boolean).join('');
 
+  const collapsed = isCollapsed(task);
+
   return `
-    <div class="card rs-${esc(status)}">
+    <div class="card rs-${esc(status)}${collapsed ? ' collapsed' : ''}">
       <button class="row" data-name="${esc(task.name)}">
         <span class="row-top">
           ${task.alias ? `<span class="alias">${esc(task.alias)}</span>` : ''}
@@ -289,6 +337,10 @@ function taskRow(task) {
           ? `<span class="row-sum">${esc(task.summary_one_liner)}</span>` : ''}
         <span class="row-meta">${meta}</span>
       </button>
+      <button class="disclose" data-toggle="${esc(task.name)}"
+              aria-expanded="${collapsed ? 'false' : 'true'}"
+              title="${collapsed ? 'Expand' : 'Collapse'} ${esc(task.name)}"
+        >${collapsed ? '▸' : '▾'}</button>
     </div>`;
 }
 
@@ -367,6 +419,20 @@ function renderList() {
   document.querySelectorAll('.row').forEach((row) => {
     row.onclick = () => { location.hash = `#/t/${encodeURIComponent(row.dataset.name)}`; };
   });
+  document.querySelectorAll('.disclose').forEach((btn) => {
+    btn.onclick = () => toggleCollapsed(btn.dataset.toggle);
+  });
+}
+
+/** Collapse or expand one task's card, and remember which. */
+function toggleCollapsed(name) {
+  if (state.collapsed.has(name)) {
+    state.collapsed.delete(name);
+  } else {
+    state.collapsed.add(name);
+  }
+  saveCollapsed();
+  renderList();
 }
 
 async function loadList(showSpinner = true) {
