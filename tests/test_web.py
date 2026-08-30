@@ -284,6 +284,49 @@ def test_the_done_button_label_is_legible_in_both_colour_schemes():
         )
 
 
+def test_a_hidden_ask_bar_is_really_hidden():
+    """``.ask-bar`` is display:flex, which beats the ``hidden`` attribute.
+
+    Without an explicit rule the bar would be permanently on screen offering to
+    quote nothing. Nothing in the Python suite renders CSS, so assert the rule
+    itself; the browser check that catches it for real needs a browser.
+    """
+    css = web.read_asset("app.css").decode()
+    assert re.search(r"\.ask-bar\[hidden\]\s*\{\s*display:\s*none", css), (
+        "a hidden ask bar would still be laid out"
+    )
+
+
+def test_the_ask_bar_and_composer_dock_together():
+    """They share one sticky container so the bar stacks above the composer.
+
+    Sticky on each separately would let the bar slide underneath when it
+    appears, which puts it behind the thing it is supposed to sit above.
+    """
+    css = web.read_asset("app.css").decode()
+    js = web.read_asset("app.js").decode()
+
+    dock = re.search(r"\.dock \{(.*?)\}", css, re.S)
+    assert dock, "the composer no longer has a docking container"
+    assert "position: sticky" in dock.group(1)
+    assert "bottom: 0" in dock.group(1)
+
+    composer = re.search(r"^\.composer \{(.*?)\}", css, re.S | re.M)
+    assert composer, ".composer is not styled"
+    assert "position: sticky" not in composer.group(1), (
+        "the composer sticks on its own again, which lets the ask bar slide under it"
+    )
+    assert '<div class="dock">' in js
+
+
+def test_the_ask_bar_only_quotes_from_message_bodies():
+    """Both ends of the selection are checked, not just where it started."""
+    js = web.read_asset("app.js").decode()
+    assert "inMessage(sel.anchorNode) && inMessage(sel.focusNode)" in js, (
+        "a selection running out of a message would be quoted anyway"
+    )
+
+
 def test_the_web_app_carries_no_inline_styles():
     """Styling belongs in the stylesheet, where the schemes can both reach it.
 
