@@ -18,7 +18,7 @@ from ilan.runner import Runner
 from ilan.server import IlanServer
 from ilan.store import Store
 
-from tests.helpers import wait_until_serving
+from tests.helpers import SERVE_POLL_INTERVAL, wait_until_serving
 
 
 # ── Store.branch_task ───────────────────────────────────────────────────
@@ -300,11 +300,9 @@ def ilan_server(tmp_workdir: Path, tmp_config: Path, env_with_mock_claude: None)
     server.runner.reap_finished = lambda: None  # type: ignore[method-assign]
 
     with patch.object(signal, "signal"):
-        # Small poll_interval: shutdown() blocks for up to one serve-loop
-        # tick, and this function-scoped fixture tears a server down per test.
         t = threading.Thread(
             target=server.run,
-            kwargs={"host": "127.0.0.1", "port": 0, "poll_interval": 0.01},
+            kwargs={"host": "127.0.0.1", "port": 0, "poll_interval": SERVE_POLL_INTERVAL},
             daemon=True,
         )
         t.start()
