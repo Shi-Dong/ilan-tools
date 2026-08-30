@@ -243,6 +243,19 @@ function isVisible(task) {
   return !TERMINAL_STATUSES.has(task.status) || task.pinned;
 }
 
+/** How to bring *task* back from a terminal status, or null if it is live.
+ *
+ * The two closed statuses are reopened by different endpoints, and the button
+ * has to name the one it will call rather than offering a generic "revive":
+ * ``undone`` only accepts a DONE task and ``undiscard`` only a DISCARDED one,
+ * so a label that blurred the two would sometimes describe the wrong request.
+ */
+function reviveAction(task) {
+  if (task.status === 'DONE') return { choice: 'undone', label: 'Undone This Task' };
+  if (task.status === 'DISCARDED') return { choice: 'undiscard', label: 'Undiscard This Task' };
+  return null;
+}
+
 // ── collapsed rows ───────────────────────────────────────────────────
 
 // Cards are collapsed by default, so what is stored is the set the user has
@@ -563,6 +576,23 @@ async function renderDetail(name) {
 
   const isTerminal = TERMINAL_STATUSES.has(task.status);
 
+  // A closed task has nothing to reply to, so the composer's place along the
+  // bottom of the screen goes to the one thing you do want from it: reopening
+  // it. Reaching that through the ••• sheet took three taps to run a single
+  // unambiguous action. A terminal status with no revive endpoint — were one
+  // ever added — gets neither control, which is the safe default.
+  const revive = reviveAction(task);
+  const footer = isTerminal
+    ? (revive ? `
+    <div class="composer">
+      <button class="btn btn-primary btn-revive" id="revive">${esc(revive.label)}</button>
+    </div>` : '')
+    : `
+    <div class="composer">
+      <textarea class="field" id="reply" rows="1" placeholder="Reply to ${esc(task.name)}"></textarea>
+      <button class="btn btn-primary" id="send">Send</button>
+    </div>`;
+
   $('#app').innerHTML = `
     <header class="hdr">
       <div class="hdr-row">
@@ -582,11 +612,7 @@ async function renderDetail(name) {
         ? '<button class="btn btn-sm show-more" id="show-more">Show More</button>' : ''}
       ${body}
     </main>
-    ${isTerminal ? '' : `
-    <div class="composer">
-      <textarea class="field" id="reply" rows="1" placeholder="Reply to ${esc(task.name)}"></textarea>
-      <button class="btn btn-primary" id="send">Send</button>
-    </div>`}`;
+    ${footer}`;
 
   $('#back').onclick = () => { location.hash = '#/'; };
   $('#refresh').onclick = () => renderDetail(name);
@@ -600,6 +626,14 @@ async function renderDetail(name) {
       state.detailShown += 1;
       return renderDetail(name);
     };
+  }
+
+  const reviveBtn = $('#revive');
+  if (reviveBtn) {
+    // runAction posts to the endpoint, reports a refusal, and re-renders on
+    // success — which is what puts the reopened status and the reply box on
+    // screen. Returning the promise is for the tests, as with Show More.
+    reviveBtn.onclick = () => runAction(revive.choice, task);
   }
 
   const replyBox = $('#reply');
