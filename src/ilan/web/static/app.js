@@ -32,11 +32,6 @@ function ago(iso) {
   return `${Math.floor(secs / 86400)}d`;
 }
 
-function fmtCost(usd) {
-  if (typeof usd !== 'number' || usd <= 0) return '';
-  return usd >= 1 ? `$${usd.toFixed(2)}` : `$${usd.toFixed(3)}`;
-}
-
 /** Parse "45", "30m", "2h", "1d" into seconds. Returns null if unparseable. */
 function parseDuration(text) {
   const m = /^\s*(\d+)\s*([smhd]?)\s*$/i.exec(text || '');
@@ -214,7 +209,6 @@ function taskRow(task) {
   const meta = [
     `<span class="status st-${esc(status)}">${esc(status)}</span>`,
     task.engine ? `<span>${esc(task.engine)}</span>` : '',
-    fmtCost(task.cost_usd) ? `<span>${esc(fmtCost(task.cost_usd))}</span>` : '',
     `<span>${esc(ago(task.status_changed_at || task.created_at))} ago</span>`,
   ].filter(Boolean).join('');
 
@@ -305,7 +299,7 @@ async function loadList(showSpinner = true) {
 
 function messageHtml(entry) {
   const foot = [
-    entry.model, entry.effort, fmtCost(entry.cost_usd), ago(entry.timestamp),
+    entry.model, entry.effort, ago(entry.timestamp),
   ].filter(Boolean).join(' · ');
   const isUser = entry.role === 'user';
   // Only agent replies are Markdown, matching `ilan tail --md`. A user message
@@ -350,7 +344,7 @@ async function renderDetail(name) {
   }
 
   const sub = [
-    status, task.engine, task.model, fmtCost(task.cost_usd),
+    status, task.engine, task.model,
     task.parent_name ? `from ${task.parent_name}` : '',
     task.sleep_seconds ? `sleeping ${task.sleep_seconds}s` : '',
     task.reply_every_seconds ? `every ${task.reply_every_seconds}s` : '',
