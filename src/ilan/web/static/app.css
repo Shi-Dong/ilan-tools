@@ -263,19 +263,18 @@ textarea.field {
 .rs-DISCARDED       { --row-status: var(--st-discarded); }
 .rs-ERROR           { --row-status: var(--st-error); }
 
-/* The card holds two sibling buttons — the row itself and its disclosure
- * control — because the row is a <button> and a button cannot be nested
- * inside another one. Laying the card out as a flex row keeps both real
- * buttons, each with its own tap target and accessible role. */
+/* The card stacks its body over its actions. The body is a <button> and the
+ * actions are buttons too; a button cannot be nested inside another one, so
+ * they are siblings — which is also what keeps a tap on an action from
+ * toggling the card. */
 .card {
   display: flex;
-  align-items: stretch;
+  flex-direction: column;
 }
 
 .row {
   display: block;
-  flex: 1 1 auto;
-  min-width: 0;
+  width: 100%;
   text-align: left;
   padding: 12px 14px;
   min-height: var(--tap);
@@ -286,22 +285,18 @@ textarea.field {
 
 .row:active { background: var(--bg-sunken); }
 
-.disclose {
-  flex: none;
-  width: var(--tap);
-  padding: 0;
-  background: none;
-  /* No divider: a full-height rule bisected the card and read as a second
-   * panel rather than a control. The 44px width still gives it its own tap
-   * target, and :active makes the boundary obvious on touch. */
-  border: 0;
-  color: var(--text-dim);
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
+/* Actions belong to the expanded card only. Showing them on a collapsed one
+ * would add two rows of chrome to every task and undo the density that
+ * collapsing by default exists to provide. */
+.row-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 14px 12px;
 }
 
-.disclose:active { background: var(--bg-sunken); }
+.card.collapsed .row-actions { display: none; }
+
+.row-actions .btn { flex: 1 1 0; }
 
 /* Collapsed shows what `ilan ls -c` shows: pin, alias, name, unread marker
  * and status. The summary, the engine, the age and the sleep suffix are the
