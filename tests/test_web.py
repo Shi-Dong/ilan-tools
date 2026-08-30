@@ -209,6 +209,102 @@ def test_every_task_status_has_a_border_colour():
         )
 
 
+def _scheme_values(css: str) -> tuple[dict[str, str], dict[str, str]]:
+    """The custom properties as light mode sets them, and as dark mode does.
+
+    Dark mode only overrides some of them, so its map starts from light's and
+    is updated — which is what the cascade does.
+    """
+    root = re.search(r":root \{(.*?)\n\}", css, re.S)
+    dark = re.search(r"@media \(prefers-color-scheme: dark\) \{(.*?)\n  \}", css, re.S)
+    assert root and dark, "the colour schemes are no longer both declared"
+
+    read = lambda block: dict(re.findall(r"(--[a-z-]+):\s*(#[0-9a-f]{3,8});", block))  # noqa: E731
+    light = read(root.group(1))
+    return light, {**light, **read(dark.group(1))}
+
+
+def _status_fills(css: str) -> dict[str, str]:
+    """Status name → the ``--st-*`` variable its cue is painted with."""
+    return dict(re.findall(
+        r"\.rs-([A-Z_]+)\s*\{\s*--row-status:\s*var\((--st-[a-z-]+)\)", css,
+    ))
+
+
+def test_the_status_rail_reads_as_a_shape_in_both_schemes():
+    """The leading edge is a block of colour, so it needs 3:1 against the card.
+
+    It is not text, so 3:1 is the bar rather than 4.5:1 — but every status has
+    to clear it, including the muted pair the old thin border served worst.
+    Computed from the palette, so a new status or a retuned colour is checked
+    rather than assumed.
+    """
+    css = web.read_asset("app.css").decode()
+    light, dark = _scheme_values(css)
+
+    for scheme, values in (("light", light), ("dark", dark)):
+        card = values["--bg-elevated"]
+        for status, var in _status_fills(css).items():
+            fill = values[var]
+            assert _contrast(fill, card) >= 3.0, (
+                f"{scheme}: the {status} rail is {fill} at "
+                f"{_contrast(fill, card):.2f}:1 on {card}"
+            )
+
+
+def test_every_status_pill_can_be_read_in_both_schemes():
+    """The pill is a filled shape carrying a label, so the label needs 4.5:1.
+
+    The ink defaults to the card's own colour, which is right almost
+    everywhere: light mode's card is white and its status fills are dark, dark
+    mode's is near-black and its fills are light. The exceptions are declared
+    as ``--row-ink`` overrides, and this resolves whichever applies rather than
+    trusting that the defaults happen to work — the status palette was tuned
+    for *text on a card*, which is exactly the luminance range where neither a
+    white nor a black label is safe.
+    """
+    css = web.read_asset("app.css").decode()
+    light, dark = _scheme_values(css)
+
+    overridden = {}
+    for selectors, ink in re.findall(
+        r"^((?:\.rs-[A-Z_]+,?\s*)+)\{\s*--row-ink:\s*(#[0-9a-f]{6});", css, re.M,
+    ):
+        for status in re.findall(r"\.rs-([A-Z_]+)", selectors):
+            overridden[status] = ink
+
+    for scheme, values in (("light", light), ("dark", dark)):
+        for status, var in _status_fills(css).items():
+            fill = values[var]
+            ink = overridden.get(status, values["--bg-elevated"])
+            assert _contrast(fill, ink) >= 4.5, (
+                f"{scheme}: the {status} pill is {ink} on {fill}, "
+                f"only {_contrast(fill, ink):.2f}:1"
+            )
+
+
+def test_the_status_pill_is_only_on_the_card():
+    """The conversation header shows the same status as plain text.
+
+    A pill there would be shouting the one thing that page is already about,
+    and the rule has to out-specify the ``.st-*`` colour it replaces, which a
+    single class would not.
+    """
+    css = web.read_asset("app.css").decode()
+
+    rule = re.search(r"\.row-meta \.status \{(.*?)\}", css, re.S)
+    assert rule, "the status pill is not scoped to the card's meta row"
+    assert "background: var(--row-status" in rule.group(1)
+    assert "border-radius: 999px" in rule.group(1)
+
+    # A bare `.status { background: ... }` would pill the header too.
+    bare = re.search(r"^\.status \{(.*?)\}", css, re.S | re.M)
+    assert bare, ".status is not styled at all"
+    assert "background:" not in bare.group(1), (
+        "the header's status became a pill as well"
+    )
+
+
 def test_the_card_border_is_thick_enough_to_read_its_colour():
     """A hairline border carries the hue but not legibly.
 
@@ -224,6 +320,16 @@ def test_the_card_border_is_thick_enough_to_read_its_colour():
     assert int(match.group(1)) >= 2, (
         f"card border is {match.group(1)}px; 1px is not legible enough to "
         "distinguish the status colours"
+    )
+
+    # The leading edge is widened into a rail. An outline of any thickness is
+    # four thin lines the eye reads as the shape of the card; one wide edge is
+    # a block of colour that lines up down the list.
+    rail = re.search(r"\.card \{[^}]*?border-left-width:\s*(\d+)px", css, re.S)
+    assert rail, "the card's leading edge is no longer widened into a rail"
+    assert int(rail.group(1)) >= int(match.group(1)) * 4, (
+        f"the rail is {rail.group(1)}px against a {match.group(1)}px outline, "
+        "which is not enough to read as a different thing"
     )
 
 
