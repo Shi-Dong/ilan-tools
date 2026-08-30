@@ -58,6 +58,41 @@ function replyEverySuffix(seconds) {
   return `responding every ${formatCompactDuration(seconds)}`;
 }
 
+/** Render a duration as hours and minutes only: "12m", "2h38m", "30h5m".
+ *
+ * Deliberately not formatCompactDuration, which renders a tenth of a unit
+ * ("0.6h") — good for a configured interval, useless for a running clock,
+ * where "2h38m" is what you want to read. Seconds are dropped entirely: a
+ * task that has been working for eleven seconds is, for this purpose, new.
+ */
+function formatHoursMinutes(seconds) {
+  const total = Math.max(0, Math.floor(seconds / 60));
+  const hours = Math.floor(total / 60);
+  const minutes = total % 60;
+  return hours ? `${hours}h${minutes}m` : `${minutes}m`;
+}
+
+/** Seconds since *iso*, or null if it cannot be read. */
+function secondsSince(iso) {
+  if (!iso) return null;
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return null;
+  return Math.max(0, (Date.now() - then) / 1000);
+}
+
+/** The status as displayed, with how long a WORKING task has been at it.
+ *
+ * Measured from status_changed_at, which is when the task entered WORKING —
+ * not from created_at, which would count the time it spent waiting for a slot
+ * or sitting in an earlier status.
+ */
+function statusLabel(task) {
+  const status = displayStatus(task);
+  if (status !== 'WORKING') return status;
+  const secs = secondsSince(task.status_changed_at);
+  return secs === null ? status : `${status} (for ${formatHoursMinutes(secs)})`;
+}
+
 /** "sleeping for 5m" for an active sleep, else ''. */
 function sleepSuffix(seconds) {
   if (!seconds || seconds <= 0) return '';
@@ -315,8 +350,11 @@ const state = {
   // How many assistant messages the conversation currently reveals, and which
   // task that count belongs to — opening a different task has to start from
   // one again rather than inherit however far the last one was expanded.
+  // How many assistant messages the conversation reveals. Reset by route() on
+  // every navigation into a task, so re-opening one always starts at the tail;
+  // renderDetail leaves it alone, since Show More, the refresh button and a
+  // sent reply all re-render without meaning to collapse the view back.
   detailShown: 1,
-  detailFor: null,
   canned: { tap: '', cancel: '' },
   pollTimer: null,
 };
@@ -330,7 +368,7 @@ function taskRow(task) {
   // rather than omitted so collapsing is a class on the card, not a second
   // rendering path that could drift from this one.
   const meta = [
-    `<span class="status st-${esc(status)}">${esc(status)}</span>`,
+    `<span class="status st-${esc(status)}">${esc(statusLabel(task))}</span>`,
     task.engine ? `<span class="meta-detail">${esc(task.engine)}</span>` : '',
     `<span class="meta-detail">${
       esc(ago(task.status_changed_at || task.created_at))} ago</span>`,
@@ -530,14 +568,6 @@ function messageHtml(entry) {
 }
 
 async function renderDetail(name) {
-  // Opening a different task starts from the tail again. Without this the
-  // count would carry over, so a task expanded to ten messages would make the
-  // next one you open fetch ten as well.
-  if (state.detailFor !== name) {
-    state.detailFor = name;
-    state.detailShown = 1;
-  }
-
   // ?n= asks the server for the last N assistant messages plus whatever user
   // messages precede each of them — the same slice `ilan tail -n` shows. Show
   // More just increments N, so the reveal rule lives in one place rather than
@@ -568,7 +598,7 @@ async function renderDetail(name) {
   const hasMore = shownAssistants >= state.detailShown;
 
   const sub = [
-    status, task.engine, task.model,
+    statusLabel(task), task.engine, task.model,
     task.parent_name ? `from ${task.parent_name}` : '',
     sleepSuffix(task.sleep_seconds),
     replyEverySuffix(task.reply_every_seconds),
@@ -606,12 +636,12 @@ async function renderDetail(name) {
         <button class="btn btn-sm" id="actions">•••</button>
       </div>
       <p class="hdr-sub st-${esc(status)}">${esc(sub)}</p>
+      ${hasMore ? `
+      <div class="hdr-row">
+        <button class="btn btn-sm show-more" id="show-more">Show More</button>
+      </div>` : ''}
     </header>
-    <main class="main">
-      ${hasMore
-        ? '<button class="btn btn-sm show-more" id="show-more">Show More</button>' : ''}
-      ${body}
-    </main>
+    <main class="main">${body}</main>
     ${footer}`;
 
   $('#back').onclick = () => { location.hash = '#/'; };
@@ -953,6 +983,10 @@ async function route() {
   const hash = location.hash || '#/';
 
   if (hash.startsWith('#/t/')) {
+    // Entering a conversation always starts at the tail, including when it is
+    // the same task that was just left — going back to the list and in again
+    // is how you ask for a fresh look at it.
+    state.detailShown = 1;
     await renderDetail(decodeURIComponent(hash.slice(4)));
     return;
   }
