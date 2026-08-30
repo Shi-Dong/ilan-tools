@@ -324,7 +324,9 @@ function taskRow(task) {
 
   return `
     <div class="card rs-${esc(status)}${collapsed ? ' collapsed' : ''}">
-      <button class="row" data-name="${esc(task.name)}">
+      <button class="row" data-toggle="${esc(task.name)}"
+              aria-expanded="${collapsed ? 'false' : 'true'}"
+              title="${collapsed ? 'Expand' : 'Collapse'} ${esc(task.name)}">
         <span class="row-top">
           ${task.alias ? `<span class="alias">${esc(task.alias)}</span>` : ''}
           <span class="row-name ${engineClass(task)}${
@@ -341,10 +343,11 @@ function taskRow(task) {
           ? `<span class="row-sum">${esc(task.summary_one_liner)}</span>` : ''}
         <span class="row-meta">${meta}</span>
       </button>
-      <button class="disclose" data-toggle="${esc(task.name)}"
-              aria-expanded="${collapsed ? 'false' : 'true'}"
-              title="${collapsed ? 'Expand' : 'Collapse'} ${esc(task.name)}"
-        >${collapsed ? '▸' : '▾'}</button>
+      <div class="row-actions">
+        <button class="btn btn-sm act-tap" data-tap="${esc(task.name)}">Tap</button>
+        <button class="btn btn-sm act-details"
+                data-details="${esc(task.name)}">Show Details</button>
+      </div>
     </div>`;
 }
 
@@ -420,12 +423,35 @@ function renderList() {
   $('#toggle-all').onclick = () => { state.showAll = !state.showAll; renderList(); };
   $('#go-config').onclick = () => { location.hash = '#/config'; };
   $('#go-new').onclick = () => { location.hash = '#/new'; };
+  // The row itself is the disclosure control: tapping anywhere on the card
+  // body toggles it, which is a far bigger target than a chevron and is what
+  // a card that summarises something is expected to do. The action buttons sit
+  // outside this button rather than inside it — a button cannot be nested in
+  // another one, and keeping them siblings is also what stops a tap on them
+  // from toggling the card.
   document.querySelectorAll('.row').forEach((row) => {
-    row.onclick = () => { location.hash = `#/t/${encodeURIComponent(row.dataset.name)}`; };
+    row.onclick = () => toggleCollapsed(row.dataset.toggle);
   });
-  document.querySelectorAll('.disclose').forEach((btn) => {
-    btn.onclick = () => toggleCollapsed(btn.dataset.toggle);
+  document.querySelectorAll('.act-tap').forEach((btn) => {
+    btn.onclick = () => tapFromCard(btn.dataset.tap);
   });
+  document.querySelectorAll('.act-details').forEach((btn) => {
+    btn.onclick = () => {
+      location.hash = `#/t/${encodeURIComponent(btn.dataset.details)}`;
+    };
+  });
+}
+
+/** Ask a task for a status update, after confirming.
+ *
+ * The confirmation is not ceremony: a tap posts a real message that interrupts
+ * the agent, and the button now sits on every expanded card rather than behind
+ * the actions sheet, so it is far easier to hit by accident.
+ */
+async function tapFromCard(name) {
+  const ok = await askConfirm(`Ask ${name} for a status update?`, 'Tap');
+  if (!ok) return;
+  await sendReply(name, state.canned.tap);
 }
 
 /** Expand or collapse one task's card, and remember which.
