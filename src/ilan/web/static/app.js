@@ -240,7 +240,7 @@ const TERMINAL_STATUSES = new Set(['DONE', 'DISCARDED']);
  * request, so it has to reproduce that rule rather than inherit it.
  */
 function isVisible(task) {
-  return state.showAll || !TERMINAL_STATUSES.has(task.status) || task.pinned;
+  return !TERMINAL_STATUSES.has(task.status) || task.pinned;
 }
 
 // ── collapsed rows ───────────────────────────────────────────────────
@@ -291,7 +291,6 @@ function isCollapsed(task) {
 
 const state = {
   tasks: [],
-  showAll: false,
   // `draft` is what is typed in the box; `query` is what the list is actually
   // filtered by. They are separate because searching only happens on Search,
   // so the two disagree the whole time the user is still typing. `draft` also
@@ -392,7 +391,7 @@ function renderList() {
     <header class="hdr">
       <div class="hdr-row">
         <h1 class="hdr-title">ilan</h1>
-        <button class="btn btn-sm" id="toggle-all">${state.showAll ? 'Open' : 'All'}</button>
+        <button class="btn btn-sm" id="do-refresh">Refresh</button>
         <button class="btn btn-sm" id="go-config">⚙</button>
         <button class="btn btn-sm btn-primary" id="go-new">+</button>
       </div>
@@ -424,7 +423,8 @@ function renderList() {
       renderList();
     };
   }
-  $('#toggle-all').onclick = () => { state.showAll = !state.showAll; renderList(); };
+  // Returns the load so a caller can await it; the browser ignores the value.
+  $('#do-refresh').onclick = () => refreshList();
   $('#go-config').onclick = () => { location.hash = '#/config'; };
   $('#go-new').onclick = () => { location.hash = '#/new'; };
   // The row itself is the disclosure control: tapping anywhere on the card
@@ -469,6 +469,16 @@ function toggleCollapsed(name) {
   }
   saveExpanded();
   renderList();
+}
+
+/** Fetch the list now, on demand.
+ *
+ * Confirms with a toast because the result is often visually identical — if
+ * nothing has changed since the last poll, a silent button looks broken.
+ */
+async function refreshList() {
+  await loadList(false);
+  toast('Refreshed');
 }
 
 async function loadList(showSpinner = true) {
