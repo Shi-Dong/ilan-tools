@@ -255,6 +255,61 @@ def test_the_done_button_is_filled_with_its_own_green():
     assert "color: var(--done-contrast)" in rule.group(1)
 
 
+def test_the_tap_button_label_is_legible_on_its_yellow():
+    """Yellow is the one fill where a white label cannot work.
+
+    It is light enough that white on it reaches under 2:1, so the label has to
+    be near-black. Computed rather than asserted as a literal, so a later tweak
+    to the yellow is checked rather than merely allowed.
+    """
+    css = web.read_asset("app.css").decode()
+    pairs = re.findall(
+        r"--btn-tap:\s*(#[0-9a-f]{6});\s*\n\s*--btn-tap-contrast:\s*(#[0-9a-f]{6});", css,
+    )
+    assert len(pairs) == 2, f"expected the pair in both schemes, found {len(pairs)}"
+    for fill, label in pairs:
+        assert _contrast(fill, label) >= 4.5, (
+            f"the Tap label is {_contrast(fill, label):.2f}:1 on {fill}"
+        )
+
+
+def test_every_filled_card_button_carries_its_own_edge():
+    """Each fill must delineate itself against the card it sits on.
+
+    A filled control needs 3:1 against its background to read as a control at
+    all. The buttons take their border from their own fill, so the fill is the
+    edge — which is only sound while every fill clears that bar. A bright
+    yellow does not (1.8:1 on a white card), which is what pins the Tap fill to
+    a darker tone; assert the property rather than that one colour, so the same
+    check covers the green and anything added later.
+    """
+    css = web.read_asset("app.css").decode()
+
+    for selector, var in ((".btn-tap", "--btn-tap"), (".btn-done", "--done")):
+        rule = re.search(rf"\{selector} \{{(.*?)\}}", css, re.S)
+        assert rule, f"no rule for {selector}"
+        assert f"border-color: var({var})" in rule.group(1), (
+            f"{var}'s button no longer takes its border from its own fill"
+        )
+
+        fills = re.findall(rf"{var}:\s*(#[0-9a-f]{{6}});", css)
+        assert len(fills) == 2, f"expected {var} in both schemes, found {len(fills)}"
+        for fill, card in zip(fills, ("#ffffff", "#1c1c1e")):
+            assert _contrast(fill, card) >= 3.0, (
+                f"{var} is {fill} at {_contrast(fill, card):.2f}:1 on {card}, "
+                "so the button has no discernible edge"
+            )
+
+
+def test_the_card_buttons_run_tap_done_details():
+    """The two that act on the task sit together; the one that leaves is last."""
+    js = web.read_asset("app.js").decode()
+    row = re.search(r'<div class="row-actions">(.*?)</div>', js, re.S)
+    assert row, "the card no longer has an actions row"
+    order = re.findall(r"data-(tap|done|details)=", row.group(1))
+    assert order == ["tap", "done", "details"], order
+
+
 def test_the_done_button_label_is_legible_in_both_colour_schemes():
     """A filled button carries a label, so the pair has to clear 4.5:1.
 

@@ -71,6 +71,24 @@
   --done: #2c6b30;
   --done-contrast: #ffffff;
 
+  /* Fill for the card's Tap button, dark enough to carry its own edge. A
+   * bright yellow stands only 1.8:1 from a white card, under the 3:1 a control
+   * needs to read as a control, which would force a separate border colour;
+   * this one manages 3.23:1 on its own, so like every other filled button its
+   * border is simply its fill.
+   *
+   * Darkening is bounded on both sides. Above 0.30 luminance the fill stops
+   * clearing the card, below 0.175 a near-black label stops clearing the fill,
+   * and this sits inside that window with the most chroma available there —
+   * the darkest it can be is also the most yellow it can be.
+   *
+   * The label is near-black rather than white: white on this reaches 3.23:1,
+   * where near-black gets 5.32:1. Yellow simply does not carry white text.
+   *
+   * Named --btn-tap rather than --tap-*: --tap is already the 44px target. */
+  --btn-tap: #b88700;
+  --btn-tap-contrast: #241a00;
+
   --radius: 12px;
   --tap: 44px;
 }
@@ -112,6 +130,12 @@
      * only 3.3:1, and the fill would barely separate from the card. */
     --done: #43a047;
     --done-contrast: #00220a;
+
+    /* No darkening needed here: against a dark card a bright yellow already
+     * stands 9.4:1 clear, so this keeps the brighter tone and, like the light
+     * scheme, takes its border from its own fill. */
+    --btn-tap: #f2b705;
+    --btn-tap-contrast: #241a00;
   }
 }
 
@@ -220,6 +244,13 @@ button, input, textarea, select {
   background: var(--done);
   border-color: var(--done);
   color: var(--done-contrast);
+  font-weight: 600;
+}
+
+.btn-tap {
+  background: var(--btn-tap);
+  border-color: var(--btn-tap);
+  color: var(--btn-tap-contrast);
   font-weight: 600;
 }
 .btn-ghost { background: transparent; border-color: transparent; }
