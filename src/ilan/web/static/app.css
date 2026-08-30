@@ -441,12 +441,11 @@ textarea.field {
 
 /* ── conversation ───────────────────────────────────────────────────── */
 
-/* Sits above the conversation because that is where the older messages are:
- * the button reveals what would appear immediately below it. */
+/* Lives in the sticky header, not in the scrolling conversation: with a long
+ * thread the button was only reachable by scrolling all the way back up,
+ * which is the opposite of what it is for. */
 .show-more {
-  display: block;
   width: 100%;
-  margin-bottom: 10px;
 }
 
 .msg {
