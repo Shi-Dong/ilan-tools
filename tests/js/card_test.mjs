@@ -70,14 +70,15 @@ check('Done carries the green fill class', html().includes('btn-done act-done'))
 check('Show Details carries the blue fill class',
   html().includes('btn-primary act-details'));
 
-// A closed task cannot be closed again — the server answers the request, but
-// re-closing something that is already DONE is not an action worth offering.
+// A closed task gets only Show Details. Neither of the other two means
+// anything once a task is closed: there is no agent left to tap, and closing
+// something already DONE is not an action worth offering. The actions sheet
+// has always applied the same rule to both.
 check('a closed task is not offered Done', !html().includes('data-done="gamma-task"'));
-check('a closed task still offers the other two',
-  html().includes('data-details="gamma-task"')
-  && html().includes('data-tap="gamma-task"'));
-check('and they keep their order with Done missing',
-  /data-tap="gamma-task"[\s\S]*?data-details="gamma-task"/.test(html()));
+check('a closed task is not offered Tap', !html().includes('data-tap="gamma-task"'),
+  'tapping a closed task would message an agent that is no longer running');
+check('a closed task still offers Show Details',
+  html().includes('data-details="gamma-task"'));
 
 // ── Show Details opens the conversation ────────────────────────────────
 app.detailsBtn('beta-task').onclick();
