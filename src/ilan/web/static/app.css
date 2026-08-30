@@ -204,6 +204,18 @@ button, input, textarea, select {
 .btn-ghost { background: transparent; border-color: transparent; }
 .btn-sm { min-height: 36px; padding: 0 10px; font-size: 14px; }
 
+/* Back is a single narrow glyph, so at the shared small-button size it reads
+ * as tiny even though its tap target was already the 44px minimum — the
+ * target was fine, the mark was not. Full-size target, and a glyph big
+ * enough to aim at without hunting for it. */
+.btn-back {
+  min-height: var(--tap);
+  width: var(--tap);
+  padding: 0;
+  font-size: 28px;
+  line-height: 1;
+}
+
 /* ── search / inputs ────────────────────────────────────────────────── */
 
 .field {
