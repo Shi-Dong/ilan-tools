@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import signal
 import threading
-import time
 import uuid
 from pathlib import Path
 from unittest.mock import patch
@@ -18,6 +17,8 @@ from ilan.models import ALIAS_POOL, ENGINE_CLAUDE, ENGINE_CODEX, Task, TaskStatu
 from ilan.runner import Runner
 from ilan.server import IlanServer
 from ilan.store import Store
+
+from tests.helpers import wait_until_serving
 
 
 # ── Store.branch_task ───────────────────────────────────────────────────
@@ -308,14 +309,7 @@ def ilan_server(tmp_workdir: Path, tmp_config: Path, env_with_mock_claude: None)
         )
         t.start()
 
-        deadline = time.monotonic() + 5
-        port = None
-        while time.monotonic() < deadline:
-            if server._httpd is not None:
-                port = server._httpd.server_address[1]
-                break
-            time.sleep(0.05)
-        assert port is not None
+        port = wait_until_serving(server)
         server._test_port = port  # type: ignore[attr-defined]
         server._test_url = f"http://127.0.0.1:{port}"  # type: ignore[attr-defined]
 
