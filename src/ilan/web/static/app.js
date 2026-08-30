@@ -178,12 +178,19 @@ function displayStatus(task) {
   return task.status;
 }
 
-// Order tasks the way attention should flow on a phone: things waiting on you
-// first, terminal states last.
-const GROUP_ORDER = [
-  'NEEDS_ATTENTION', 'ERROR', 'AGENT_FINISHED', 'AGENT_IN_LOOP',
-  'WORKING', 'DONE', 'DISCARDED',
-];
+const TERMINAL_STATUSES = new Set(['DONE', 'DISCARDED']);
+
+/** Whether *task* belongs in the list, mirroring the server's own filter.
+ *
+ * ``handle_list_tasks`` drops a terminal task from a non-``-a`` listing unless
+ * it is pinned — a pin deliberately overrides the filter, so a pinned DONE task
+ * stays visible until it is unpinned. The web app filters client-side because
+ * it fetches once with ``all=true`` and searches closed tasks without a second
+ * request, so it has to reproduce that rule rather than inherit it.
+ */
+function isVisible(task) {
+  return state.showAll || !TERMINAL_STATUSES.has(task.status) || task.pinned;
+}
 
 // ── state ────────────────────────────────────────────────────────────
 
@@ -236,30 +243,18 @@ function renderList() {
   // -a; without one, honour the toggle.
   const searching = Boolean(state.query);
   const visible = state.tasks
-    .filter((t) => searching || state.showAll
-      || !['DONE', 'DISCARDED'].includes(t.status))
+    .filter((t) => searching || isVisible(t))
     .filter((t) => matchesQuery(t, state.query));
 
-  const groups = new Map();
-  for (const task of visible) {
-    const key = displayStatus(task);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(task);
-  }
-
-  let body = '';
-  for (const key of GROUP_ORDER) {
-    const rows = groups.get(key);
-    if (!rows || !rows.length) continue;
-    rows.sort((a, b) => (b.pinned === true) - (a.pinned === true)
-      || String(b.status_changed_at).localeCompare(String(a.status_changed_at)));
-    body += `<div class="group-label">${esc(key)} · ${rows.length}</div>`;
-    body += rows.map(taskRow).join('');
-  }
-  if (!body) {
-    body = `<div class="empty">${state.tasks.length
-      ? 'No tasks match.' : 'No tasks yet.'}</div>`;
-  }
+  // Rendered flat, in the order /tasks returned: pinned first, then oldest
+  // first. `ilan dashboard` passes the same response straight to its table
+  // without re-sorting, so leaving the order alone here is what makes the two
+  // agree — an earlier version grouped by status and re-sorted each group by
+  // status_changed_at descending, which disagreed on both axes at once.
+  const body = visible.length
+    ? visible.map(taskRow).join('')
+    : `<div class="empty">${state.tasks.length
+        ? 'No tasks match.' : 'No tasks yet.'}</div>`;
 
   $('#app').innerHTML = `
     <header class="hdr">
@@ -349,7 +344,7 @@ async function renderDetail(name) {
     task.reply_every_seconds ? `every ${task.reply_every_seconds}s` : '',
   ].filter(Boolean).join(' · ');
 
-  const isTerminal = ['DONE', 'DISCARDED'].includes(task.status);
+  const isTerminal = TERMINAL_STATUSES.has(task.status);
 
   $('#app').innerHTML = `
     <header class="hdr">
@@ -427,7 +422,7 @@ async function sendReply(name, message, extra = {}) {
 // ── task actions ─────────────────────────────────────────────────────
 
 function showActions(task) {
-  const terminal = ['DONE', 'DISCARDED'].includes(task.status);
+  const terminal = TERMINAL_STATUSES.has(task.status);
 
   const options = [];
   if (!terminal) {

@@ -185,15 +185,6 @@ textarea.field {
   padding: 12px 12px calc(env(safe-area-inset-bottom) + 24px);
 }
 
-.group-label {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-  margin: 18px 4px 8px;
-}
-
 .card {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
