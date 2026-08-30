@@ -209,6 +209,24 @@ def test_every_task_status_has_a_border_colour():
         )
 
 
+def test_the_card_border_is_thick_enough_to_read_its_colour():
+    """A hairline border carries the hue but not legibly.
+
+    At 1px the status colour was present and still hard to tell apart at arm's
+    length, worst on the muted DONE and DISCARDED tones. Nothing else would
+    catch a revert to 1px: the colour would still be correct, just unreadable.
+    """
+    css = web.read_asset("app.css").decode()
+    match = re.search(
+        r"\.card \{[^}]*?border:\s*(\d+)px solid var\(--row-status", css, re.S,
+    )
+    assert match, "the card no longer takes its border colour from --row-status"
+    assert int(match.group(1)) >= 2, (
+        f"card border is {match.group(1)}px; 1px is not legible enough to "
+        "distinguish the status colours"
+    )
+
+
 def test_web_app_does_not_show_task_cost():
     """Cost is deliberately absent from the web UI.
 
