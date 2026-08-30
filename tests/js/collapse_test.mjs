@@ -1,5 +1,8 @@
 /* Behavioural assertions for collapsible task cards.
  *
+ * Cards are collapsed by default, so what is stored is the set the user has
+ * *expanded*; a task absent from it is collapsed.
+ *
  * Unlike the other harnesses this one has to click things, so querySelectorAll
  * returns *stable* stub elements parsed out of the HTML renderList produced —
  * the same object each time, so the onclick renderList assigns is still there
@@ -91,11 +94,13 @@ const TAIL = `;return {
   storage: __store,
 };`;
 
-/** A fresh app instance, optionally with localStorage pre-seeded. */
+const STORAGE_KEY = 'ilan.expanded';
+
+/** A fresh app instance, optionally with the expanded set pre-seeded. */
 function bootApp(seed) {
   const prelude = seed === undefined
     ? HARNESS
-    : `${HARNESS}\n__store.set('ilan.collapsed', ${JSON.stringify(JSON.stringify(seed))});`;
+    : `${HARNESS}\n__store.set('${STORAGE_KEY}', ${JSON.stringify(JSON.stringify(seed))});`;
   return new Function(`${prelude}\n${appSource}\n${TAIL}`)();
 }
 
@@ -115,68 +120,79 @@ function check(name, condition, detail = '') {
   if (!condition) failures.push(`FAIL  ${name}${detail ? `\n        ${detail}` : ''}`);
 }
 
-// ── default is expanded ─────────────────────────────────────────────────
+const isCardCollapsed = (html, status) =>
+  new RegExp(`class="card rs-${status} collapsed"`).test(html);
+
+// ── collapsed is the default ────────────────────────────────────────────
 let app = bootApp();
 app.state.tasks = structuredClone(TASKS);
 app.renderList();
-let html = () => app.el('app').innerHTML;
+const html = () => app.el('app').innerHTML;
 
-check('cards start expanded', !html().includes('card rs-WORKING collapsed'));
-check('summary shown when expanded', html().includes('alpha summary'));
+check('a card starts collapsed', isCardCollapsed(html(), 'WORKING'));
+check('every card starts collapsed, not just the first',
+  isCardCollapsed(html(), 'AGENT_FINISHED'));
+check('nothing is stored until the user acts',
+  app.storage.get(STORAGE_KEY) === undefined,
+  `stored=${app.storage.get(STORAGE_KEY)}`);
 check('a disclosure control is rendered', html().includes('data-toggle="alpha-task"'));
-check('expanded control reports aria-expanded=true',
-  /data-toggle="alpha-task"[^>]*aria-expanded="true"/s.test(html()));
-
-// ── collapsing one card ─────────────────────────────────────────────────
-app.disclose('alpha-task').onclick();
-check('collapsing marks that card', html().includes('card rs-WORKING collapsed'));
-check('collapsed control reports aria-expanded=false',
+check('a collapsed control reports aria-expanded=false',
   /data-toggle="alpha-task"[^>]*aria-expanded="false"/s.test(html()));
-check('collapsing does not touch the other card',
-  !html().includes('card rs-AGENT_FINISHED collapsed'));
-check('the other summary is still rendered', html().includes('beta summary'));
-// The summary stays in the DOM and is hidden by CSS, so assert the class the
-// stylesheet keys on rather than the text disappearing.
-check('collapsed card carries the class the stylesheet hides content with',
-  /class="card rs-WORKING collapsed"/.test(html()));
+// The hidden parts stay in the DOM and are hidden by CSS, so assert the class
+// the stylesheet keys on rather than the text disappearing.
+check('the summary is still in the DOM, hidden by the class',
+  html().includes('alpha summary'));
 
-// ── expanding again ─────────────────────────────────────────────────────
+// ── expanding one card ──────────────────────────────────────────────────
 app.disclose('alpha-task').onclick();
-check('expanding clears the class', !html().includes('collapsed'));
+check('expanding clears the class on that card', !isCardCollapsed(html(), 'WORKING'));
+check('an expanded control reports aria-expanded=true',
+  /data-toggle="alpha-task"[^>]*aria-expanded="true"/s.test(html()));
+check('expanding one card leaves the other collapsed',
+  isCardCollapsed(html(), 'AGENT_FINISHED'));
+
+// ── collapsing it again ─────────────────────────────────────────────────
+app.disclose('alpha-task').onclick();
+check('collapsing restores the class', isCardCollapsed(html(), 'WORKING'));
 
 // ── persistence ─────────────────────────────────────────────────────────
 app.disclose('beta-task').onclick();
-check('collapse is written to storage',
-  app.storage.get('ilan.collapsed') === '["beta-task"]',
-  `stored=${app.storage.get('ilan.collapsed')}`);
+check('the expanded set is what gets stored',
+  app.storage.get(STORAGE_KEY) === '["beta-task"]',
+  `stored=${app.storage.get(STORAGE_KEY)}`);
 
 const restored = bootApp(['beta-task']);
 restored.state.tasks = structuredClone(TASKS);
 restored.renderList();
-check('collapse is restored on a fresh load',
-  restored.el('app').innerHTML.includes('card rs-AGENT_FINISHED collapsed'));
+const restoredHtml = restored.el('app').innerHTML;
+check('an expansion is restored on a fresh load',
+  !isCardCollapsed(restoredHtml, 'AGENT_FINISHED'));
+check('a task absent from storage is still collapsed on a fresh load',
+  isCardCollapsed(restoredHtml, 'WORKING'));
 
 // ── stale names are pruned ──────────────────────────────────────────────
 const pruned = bootApp(['beta-task', 'task-that-was-deleted']);
 pruned.state.tasks = structuredClone(TASKS);
 pruned.renderList();
 pruned.disclose('alpha-task').onclick();   // any toggle triggers a save
-const saved = JSON.parse(pruned.storage.get('ilan.collapsed'));
+const saved = JSON.parse(pruned.storage.get(STORAGE_KEY));
 check('a deleted task is dropped from storage',
   !saved.includes('task-that-was-deleted'), `saved=${JSON.stringify(saved)}`);
-check('a live collapsed task is kept', saved.includes('beta-task'),
+check('a live expanded task is kept', saved.includes('beta-task'),
   `saved=${JSON.stringify(saved)}`);
 
-// ── storage being unavailable must not break collapsing ─────────────────
+// ── storage being unavailable must not break the control ────────────────
 const noStore = new Function(`${HARNESS}
   localStorage.getItem = () => { throw new Error('denied'); };
   localStorage.setItem = () => { throw new Error('denied'); };
   ${appSource}${TAIL}`)();
 noStore.state.tasks = structuredClone(TASKS);
 noStore.renderList();
+check('cards still start collapsed with storage denied',
+  isCardCollapsed(noStore.el('app').innerHTML, 'WORKING'));
 noStore.disclose('alpha-task').onclick();
-check('collapsing still works with storage denied',
-  noStore.el('app').innerHTML.includes('card rs-WORKING collapsed'));
+check('expanding still works with storage denied',
+  !isCardCollapsed(noStore.el('app').innerHTML, 'WORKING'));
 
 if (failures.length) {
   console.log(failures.join('\n'));

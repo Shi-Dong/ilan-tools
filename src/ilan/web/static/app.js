@@ -245,42 +245,46 @@ function isVisible(task) {
 
 // ── collapsed rows ───────────────────────────────────────────────────
 
-const COLLAPSED_KEY = 'ilan.collapsed';
+// Cards are collapsed by default, so what is stored is the set the user has
+// *opened* — a task absent from it is collapsed. The key names that explicitly
+// rather than reusing an older one that held the opposite set, so a leftover
+// entry can never be read as meaning the inverse of what it recorded.
+const EXPANDED_KEY = 'ilan.expanded';
 
-/** Names of the tasks the user has collapsed, restored from a previous visit.
+/** Names of the tasks the user has expanded, restored from a previous visit.
  *
  * Persisted rather than kept in memory because iOS evicts a backgrounded PWA
- * freely: a collapse that only survived until the next launch would be undone
+ * freely: an expansion that only survived until the next launch would be undone
  * constantly. Any storage failure — Private Browsing, a full quota — degrades
- * to collapsing that still works for this session.
+ * to expanding that still works for this session.
  */
-function loadCollapsed() {
+function loadExpanded() {
   try {
-    return new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY)) || []);
+    return new Set(JSON.parse(localStorage.getItem(EXPANDED_KEY)) || []);
   } catch {
     return new Set();
   }
 }
 
-function saveCollapsed() {
+function saveExpanded() {
   // Drop names that no longer exist so the entry cannot grow without bound as
   // tasks come and go. Guarded on a non-empty list: pruning against a list
   // that has not loaded yet would throw the whole thing away.
   if (state.tasks.length) {
     const live = new Set(state.tasks.map((t) => t.name));
-    for (const name of state.collapsed) {
-      if (!live.has(name)) state.collapsed.delete(name);
+    for (const name of state.expanded) {
+      if (!live.has(name)) state.expanded.delete(name);
     }
   }
   try {
-    localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...state.collapsed]));
+    localStorage.setItem(EXPANDED_KEY, JSON.stringify([...state.expanded]));
   } catch {
-    /* see loadCollapsed: storage is a nicety, not a requirement */
+    /* see loadExpanded: storage is a nicety, not a requirement */
   }
 }
 
 function isCollapsed(task) {
-  return state.collapsed.has(task.name);
+  return !state.expanded.has(task.name);
 }
 
 // ── state ────────────────────────────────────────────────────────────
@@ -295,7 +299,7 @@ const state = {
   // the header, and a draft kept only in the DOM would be wiped mid-sentence.
   draft: '',
   query: '',
-  collapsed: loadCollapsed(),
+  expanded: loadExpanded(),
   detailView: 'tail', // 'tail' | 'logs' | 'prompt'
   canned: { tap: '', cancel: '' },
   pollTimer: null,
@@ -424,14 +428,16 @@ function renderList() {
   });
 }
 
-/** Collapse or expand one task's card, and remember which. */
+/** Expand or collapse one task's card, and remember which.
+ *
+ * Membership means expanded, since collapsed is the default state. */
 function toggleCollapsed(name) {
-  if (state.collapsed.has(name)) {
-    state.collapsed.delete(name);
+  if (state.expanded.has(name)) {
+    state.expanded.delete(name);
   } else {
-    state.collapsed.add(name);
+    state.expanded.add(name);
   }
-  saveCollapsed();
+  saveExpanded();
   renderList();
 }
 
