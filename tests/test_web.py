@@ -352,6 +352,123 @@ def test_a_hidden_ask_bar_is_really_hidden():
     )
 
 
+def test_the_clear_button_sits_inside_the_message_box():
+    """It overlays the box's corner rather than taking a slot in the row.
+
+    Three declarations make that work together, and any one of them alone is
+    the wrong layout: the wrapper establishes the positioning context, the
+    button is taken out of flow, and the box reserves room on its right so the
+    text does not run underneath. There is no layout engine in the Python
+    suite, so the declarations are asserted; a browser checks the geometry.
+    """
+    css = web.read_asset("app.css").decode()
+    js = web.read_asset("app.js").decode()
+
+    assert '<div class="composer-field">' in js, "the box is no longer wrapped"
+
+    field = re.search(r"\.composer-field \{(.*?)\}", css, re.S)
+    assert field, "the field wrapper is not styled"
+    assert "position: relative" in field.group(1), (
+        "without a positioning context the button escapes to the page corner"
+    )
+
+    button = re.search(r"^\.btn-clear \{(.*?)\}", css, re.S | re.M)
+    assert button, "the clear button is not styled"
+    assert "position: absolute" in button.group(1)
+
+    textarea = re.search(r"\.composer textarea \{(.*?)\}", css, re.S)
+    assert textarea, "the message box is not styled"
+    assert "padding-right" in textarea.group(1), (
+        "text would run underneath the clear button"
+    )
+
+
+def test_a_disabled_primary_button_goes_grey_rather_than_faint():
+    """Fading the accent leaves a pale blue, which still reads as the blue button.
+
+    The generic disabled rule only drops opacity; over the composer's backdrop
+    that renders the accent as roughly #8ab2e2 — recognisably "the blue button,
+    badly printed" — which invites the tap it is about to refuse. A neutral fill
+    says unavailable. The rule has to come after the generic one: both are a
+    class plus an attribute, so source order alone decides which wins.
+    """
+    css = web.read_asset("app.css").decode()
+
+    rule = re.search(r"\.btn-primary\[disabled\] \{(.*?)\}", css, re.S)
+    assert rule, "a disabled primary button is still only faded"
+    body = rule.group(1)
+    assert "background: var(--bg-sunken)" in body
+    assert "color: var(--text-dim)" in body
+    assert "opacity: 1" in body, (
+        "without this the neutral fill is faded on top of being neutral"
+    )
+    assert css.index(".btn-primary[disabled]") > css.index(".btn[disabled]"), (
+        "the generic faded rule wins on source order, so the button stays blue"
+    )
+
+
+def test_the_composer_ships_both_buttons_already_disabled():
+    """The markup's own default has to be the safe one.
+
+    A freshly rendered composer is always empty, so neither button should be
+    live in the HTML that produces it. ``syncComposer`` sets them a moment
+    later either way, which is exactly why this is worth pinning: nothing about
+    the rendered result would change if the attributes were dropped, right up
+    until that call moves behind an await or throws, and then the first frame
+    offers a blue Send over an empty box.
+    """
+    js = web.read_asset("app.js").decode()
+
+    for control in ('id="send"', 'id="clear-reply"'):
+        tag = re.search(rf"<button[^>]*{re.escape(control)}[^>]*>", js)
+        assert tag, f"{control} is no longer rendered"
+        assert "disabled" in tag.group(0), (
+            f"{control} ships enabled over an empty box"
+        )
+
+
+def test_the_composer_buttons_share_one_test_for_an_empty_draft():
+    """Send and clear must agree on what counts as nothing.
+
+    Whitespace is not a message and is not worth clearing, so both turn on the
+    trimmed value. Two separate conditions would be free to drift — which is
+    exactly how Tap and Done came apart on the card.
+    """
+    js = web.read_asset("app.js").decode()
+
+    sync = re.search(r"const syncComposer = \(\) => \{(.*?)\n    \};", js, re.S)
+    assert sync, "the composer no longer derives its state in one place"
+    body = sync.group(1)
+
+    assert body.count("replyBox.value.trim()") == 1, (
+        "the emptiness test is computed more than once, so the buttons can disagree"
+    )
+    assert "clearBtn.disabled = !hasDraft" in body
+    assert "sendBtn.disabled = !hasDraft" in body
+
+
+def test_the_clear_button_is_out_of_sight_while_there_is_nothing_to_clear():
+    """A text field's clear control appears only once there is text.
+
+    It is hidden rather than merely dimmed, which is only affordable because it
+    is positioned: as a sibling in the row this would have shifted the layout
+    on the first keystroke. The rule has to come after the generic disabled
+    rule, since both are one class plus one attribute — equal specificity, so
+    source order decides which opacity wins.
+    """
+    css = web.read_asset("app.css").decode()
+
+    rule = re.search(r"\.btn-clear\[disabled\] \{(.*?)\}", css, re.S)
+    assert rule, "a disabled clear button is not hidden"
+    assert "opacity: 0" in rule.group(1)
+    assert "pointer-events: none" in rule.group(1), (
+        "an invisible button that still takes taps is worse than a visible one"
+    )
+    assert css.index(".btn-clear[disabled]") > css.index(".btn[disabled]"), (
+        "the generic disabled rule wins on source order, so the button stays dimly visible"
+    )
+
+
 def test_the_ask_bar_and_composer_dock_together():
     """They share one sticky container so the bar stacks above the composer.
 

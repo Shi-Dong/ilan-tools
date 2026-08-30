@@ -32,23 +32,37 @@ await settle();
 
 const box = () => app.el('reply');
 const clear = () => app.el('clear-reply');
+const send = () => app.el('send');
 
 // ── it is there, and inert until there is something to clear ────────────
 check('the composer offers a clear control', app.html().includes('id="clear-reply"'));
 check('it is disabled on an empty box', clear().disabled === true);
 check('it has an accessible name, having no text label',
   app.html().includes('aria-label="Clear the message"'));
-check('it sits between the box and Send',
-  /id="reply"[\s\S]*?id="clear-reply"[\s\S]*?id="send"/.test(app.html()));
+check('it lives inside the field, not beside it',
+  /<div class="composer-field">[\s\S]*?id="reply"[\s\S]*?id="clear-reply"[\s\S]*?<\/div>/
+    .test(app.html()),
+  'the button is no longer wrapped with the box it clears');
+check('Send stays outside the field',
+  app.html().indexOf('id="send"') > app.html().indexOf('id="clear-reply"'));
+
+check('Send starts disabled, with nothing to send', send().disabled === true);
 
 box().value = 'why did you take the lock out?';
 box().oninput();
 check('typing enables it', clear().disabled === false);
+check('typing enables Send too', send().disabled === false);
 
-box().value = '    ';
-box().oninput();
-check('whitespace alone does not enable it', clear().disabled === true,
-  'there is nothing worth clearing');
+// Whitespace is not a message. Both buttons turn on the same trimmed test, so
+// neither offers to act on a box holding only spaces and newlines.
+for (const blank of ['    ', '\n\n', ' \n \t ']) {
+  box().value = blank;
+  box().oninput();
+  check(`whitespace ${JSON.stringify(blank)} does not enable clearing`,
+    clear().disabled === true);
+  check(`whitespace ${JSON.stringify(blank)} does not enable Send`,
+    send().disabled === true);
+}
 
 // ── clearing ────────────────────────────────────────────────────────────
 box().value = 'a long draft that would be tedious to select and delete by hand';
@@ -57,6 +71,8 @@ clear().onclick();
 
 check('the draft is gone', box().value === '', JSON.stringify(box().value));
 check('it disables itself again', clear().disabled === true);
+check('and Send goes back to disabled with it', send().disabled === true,
+  'clearing left a live Send over an empty box');
 // The box also has to shrink back to one row. There is no layout engine here
 // to measure that, so it is checked in a browser instead.
 check('focus returns to the box to type the next thing',
@@ -75,6 +91,7 @@ app.syncAskBar();
 app.el('ask-btn').onclick();
 check('a quoted passage enables the clear control', clear().disabled === false,
   'text arrived without a keystroke and the button stayed dim');
+check('and enables Send', send().disabled === false);
 clear().onclick();
 check('and clearing removes the quote', box().value === '');
 
