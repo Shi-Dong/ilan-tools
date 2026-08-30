@@ -71,16 +71,23 @@
   --done: #2c6b30;
   --done-contrast: #ffffff;
 
-  /* Fill for the card's Tap button. Yellow is the awkward one: it is light
-   * enough that a white label reaches only 1.8:1, so the label is near-black
-   * instead, at 9.45:1. For the same reason the fill itself stands only 1.8:1
-   * from a white card, well under the 3:1 a control needs to read as a
-   * control — so unlike the other buttons its border is not the fill colour
-   * but a darker amber, which carries the edge at 3.85:1.
+  /* Fill for the card's Tap button, dark enough to carry its own edge. A
+   * bright yellow stands only 1.8:1 from a white card, under the 3:1 a control
+   * needs to read as a control, which would force a separate border colour;
+   * this one manages 3.23:1 on its own, so like every other filled button its
+   * border is simply its fill.
+   *
+   * Darkening is bounded on both sides. Above 0.30 luminance the fill stops
+   * clearing the card, below 0.175 a near-black label stops clearing the fill,
+   * and this sits inside that window with the most chroma available there —
+   * the darkest it can be is also the most yellow it can be.
+   *
+   * The label is near-black rather than white: white on this reaches 3.23:1,
+   * where near-black gets 5.32:1. Yellow simply does not carry white text.
+   *
    * Named --btn-tap rather than --tap-*: --tap is already the 44px target. */
-  --btn-tap: #f2b705;
+  --btn-tap: #b88700;
   --btn-tap-contrast: #241a00;
-  --btn-tap-edge: #a87a00;
 
   --radius: 12px;
   --tap: 44px;
@@ -124,11 +131,11 @@
     --done: #43a047;
     --done-contrast: #00220a;
 
-    /* On a dark card the same yellow already stands 9.4:1 clear, so the edge
-     * can be the fill and only the label needs the dark tone. */
+    /* No darkening needed here: against a dark card a bright yellow already
+     * stands 9.4:1 clear, so this keeps the brighter tone and, like the light
+     * scheme, takes its border from its own fill. */
     --btn-tap: #f2b705;
     --btn-tap-contrast: #241a00;
-    --btn-tap-edge: #f2b705;
   }
 }
 
@@ -242,7 +249,7 @@ button, input, textarea, select {
 
 .btn-tap {
   background: var(--btn-tap);
-  border-color: var(--btn-tap-edge);
+  border-color: var(--btn-tap);
   color: var(--btn-tap-contrast);
   font-weight: 600;
 }

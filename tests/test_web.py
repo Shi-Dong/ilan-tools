@@ -273,27 +273,32 @@ def test_the_tap_button_label_is_legible_on_its_yellow():
         )
 
 
-def test_the_tap_button_has_an_edge_that_reads_against_the_card():
-    """A yellow fill is too close to a white card to delineate itself.
+def test_every_filled_card_button_carries_its_own_edge():
+    """Each fill must delineate itself against the card it sits on.
 
-    The other filled buttons take their border from their own fill, which works
-    because those fills are dark. This one cannot: at 1.8:1 against a white
-    card the button would have no discernible edge, so it carries a darker
-    border instead. Each scheme's edge is checked against that scheme's card.
+    A filled control needs 3:1 against its background to read as a control at
+    all. The buttons take their border from their own fill, so the fill is the
+    edge — which is only sound while every fill clears that bar. A bright
+    yellow does not (1.8:1 on a white card), which is what pins the Tap fill to
+    a darker tone; assert the property rather than that one colour, so the same
+    check covers the green and anything added later.
     """
     css = web.read_asset("app.css").decode()
-    rule = re.search(r"\.btn-tap \{(.*?)\}", css, re.S)
-    assert rule, "the Tap button has no fill rule"
-    assert "border-color: var(--btn-tap-edge)" in rule.group(1), (
-        "the Tap button takes its border from its fill, which does not read on a card"
-    )
 
-    edges = re.findall(r"--btn-tap-edge:\s*(#[0-9a-f]{6});", css)
-    assert len(edges) == 2, f"expected an edge in both schemes, found {len(edges)}"
-    for edge, card in zip(edges, ("#ffffff", "#1c1c1e")):
-        assert _contrast(edge, card) >= 3.0, (
-            f"the Tap button edge {edge} is {_contrast(edge, card):.2f}:1 on {card}"
+    for selector, var in ((".btn-tap", "--btn-tap"), (".btn-done", "--done")):
+        rule = re.search(rf"\{selector} \{{(.*?)\}}", css, re.S)
+        assert rule, f"no rule for {selector}"
+        assert f"border-color: var({var})" in rule.group(1), (
+            f"{var}'s button no longer takes its border from its own fill"
         )
+
+        fills = re.findall(rf"{var}:\s*(#[0-9a-f]{{6}});", css)
+        assert len(fills) == 2, f"expected {var} in both schemes, found {len(fills)}"
+        for fill, card in zip(fills, ("#ffffff", "#1c1c1e")):
+            assert _contrast(fill, card) >= 3.0, (
+                f"{var} is {fill} at {_contrast(fill, card):.2f}:1 on {card}, "
+                "so the button has no discernible edge"
+            )
 
 
 def test_the_card_buttons_run_tap_done_details():
