@@ -78,6 +78,17 @@ function formatHoursMinutes(seconds) {
   return hours ? `${hours}h${minutes}m` : `${minutes}m`;
 }
 
+/** A status with its underscores taken out, for reading rather than matching.
+ *
+ * Only the label loses them. The value keeps them everywhere else: it is an
+ * enum member, it names the `.st-*` and `.rs-*` classes that colour the row,
+ * and it is what the server and the CLI both speak. Humanising it any earlier
+ * than the moment it is written into the page would quietly break the colour.
+ */
+function humanStatus(status) {
+  return String(status ?? '').replaceAll('_', ' ');
+}
+
 /** The status as displayed, with how long a WORKING task has been at it.
  *
  * Measured from status_changed_at, which is when the task entered WORKING —
@@ -86,9 +97,10 @@ function formatHoursMinutes(seconds) {
  */
 function statusLabel(task) {
   const status = displayStatus(task);
-  if (status !== 'WORKING') return status;
+  const label = humanStatus(status);
+  if (status !== 'WORKING') return label;
   const secs = secondsSince(task.status_changed_at);
-  return secs === null ? status : `${status} (for ${formatHoursMinutes(secs)})`;
+  return secs === null ? label : `${label} (for ${formatHoursMinutes(secs)})`;
 }
 
 /** "sleeping for 5m" for an active sleep, else ''. */
@@ -445,6 +457,10 @@ function matchesQuery(task, query) {
   const hay = [
     task.name, task.alias, task.status, task.engine, task.summary_one_liner,
     task.number,
+    // Both spellings: the stored value is what `ilan ls` and the CLI show, and
+    // the spaced one is what this app puts on the card. Typing what is on the
+    // screen has to find it.
+    humanStatus(task.status),
   ].filter(Boolean).join(' ').toLowerCase();
   return hay.includes(query.toLowerCase());
 }

@@ -65,6 +65,19 @@ check('the buttons are labelled', html().includes('>Tap</button>')
 check('the buttons run Tap, Done, Show Details',
   /data-tap="alpha-task"[\s\S]*?data-done="alpha-task"[\s\S]*?data-details="alpha-task"/
     .test(html()));
+// The status is humanised for reading only. The class it colours the card
+// with still carries the underscored value — humanise a step too early and the
+// class becomes `rs-AGENT FINISHED`, which matches nothing, and the card
+// silently loses its colour while still looking perfectly fine.
+check('the card is classed with the underscored status',
+  html().includes('class="card rs-AGENT_FINISHED'), 'the status class was humanised too');
+check('the status span is classed with it too',
+  html().includes('class="status st-AGENT_FINISHED"'));
+check('but the text a reader sees has no underscore',
+  html().includes('>AGENT FINISHED<'), 'the label still shows an underscore');
+check('no class name picked up a space',
+  !/class="[^"]*rs-[A-Z]+ [A-Z]/.test(html()));
+
 check('Tap carries the yellow fill class', html().includes('btn-tap act-tap'));
 check('Done carries the green fill class', html().includes('btn-done act-done'));
 check('Show Details carries the blue fill class',

@@ -37,11 +37,25 @@ check('hours and minutes together',
     === 'WORKING (for 2h38m)');
 
 check('a finished task gets no duration',
-  label({ status: 'AGENT_FINISHED', status_changed_at: ago(600) }) === 'AGENT_FINISHED');
+  label({ status: 'AGENT_FINISHED', status_changed_at: ago(600) }) === 'AGENT FINISHED',
+  label({ status: 'AGENT_FINISHED', status_changed_at: ago(600) }));
 
 check('a looping task keeps its own label',
   label({ status: 'AGENT_FINISHED', reply_every_seconds: 3600, status_changed_at: ago(600) })
-    === 'AGENT_IN_LOOP');
+    === 'AGENT IN LOOP');
+
+// ── the label loses its underscores, the value keeps them ───────────────
+// Only what is written into the page is humanised. The value still names the
+// .st-* and .rs-* classes that colour the row, so humanising it any earlier
+// would take the colour with it.
+check('underscores are gone from the label',
+  !label({ status: 'NEEDS_ATTENTION', status_changed_at: ago(60) }).includes('_'),
+  label({ status: 'NEEDS_ATTENTION', status_changed_at: ago(60) }));
+check('a single-word status is unchanged',
+  label({ status: 'ERROR', status_changed_at: ago(60) }) === 'ERROR');
+check('a WORKING task keeps its duration alongside the spaced label',
+  label({ status: 'WORKING', status_changed_at: ago(90 * 60) }) === 'WORKING (for 1h30m)',
+  label({ status: 'WORKING', status_changed_at: ago(90 * 60) }));
 
 check('an unreadable timestamp degrades to the bare status',
   label({ status: 'WORKING', status_changed_at: 'not-a-date' }) === 'WORKING');
