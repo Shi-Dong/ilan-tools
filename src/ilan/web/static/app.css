@@ -237,11 +237,31 @@ textarea.field {
 
 .card {
   background: var(--bg-elevated);
-  border: 1px solid var(--border);
+  /* Falls back to the neutral border, which is what the Settings card — the
+   * one .card with no status — uses. */
+  border: 1px solid var(--row-status, var(--border));
   border-radius: var(--radius);
   margin-bottom: 8px;
   overflow: hidden;
 }
+
+/* A task's row carries its status as a variable rather than as a colour, so
+ * the card can tint its border without also recolouring the text inside it —
+ * .st-* sets `color`, and putting one of those on the card would cascade into
+ * every child that does not set its own.
+ *
+ * The status is the displayed one, so a task cycling on `reply -t` gets the
+ * AGENT_IN_LOOP purple its label already shows rather than the status
+ * underneath. Every one of these clears 3:1 against the card in both schemes
+ * (the least is DISCARDED at 3.26), so the border is perceivable as the
+ * non-text UI element it is — the neutral border it replaces was 1.42. */
+.rs-WORKING         { --row-status: var(--st-working); }
+.rs-NEEDS_ATTENTION { --row-status: var(--st-attention); }
+.rs-AGENT_FINISHED  { --row-status: var(--st-finished); }
+.rs-AGENT_IN_LOOP   { --row-status: var(--st-loop); }
+.rs-DONE            { --row-status: var(--st-done); }
+.rs-DISCARDED       { --row-status: var(--st-discarded); }
+.rs-ERROR           { --row-status: var(--st-error); }
 
 .row {
   display: block;

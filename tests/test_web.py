@@ -8,7 +8,12 @@ import re
 import struct
 
 from ilan import web
-from ilan.models import CANCEL_MESSAGE, TAP_MESSAGE
+from ilan.models import (
+    AGENT_IN_LOOP_LABEL,
+    CANCEL_MESSAGE,
+    TAP_MESSAGE,
+    TaskStatus,
+)
 from ilan.server import IlanServer
 
 # The web routes need a live server, and test_server.py already owns the
@@ -174,6 +179,34 @@ def test_engine_colour_classes_are_defined_in_both_schemes():
     # Once in :root (light) and once in the prefers-color-scheme: dark block.
     for var in ("--engine-claude", "--engine-codex"):
         assert css.count(f"{var}:") == 2, f"{var} is not defined for both schemes"
+
+
+def test_every_task_status_has_a_border_colour():
+    """A status with no ``.rs-*`` rule silently falls back to a neutral border.
+
+    Nothing else would notice: the card still renders, just without the cue.
+    Deriving the expected set from ``TaskStatus`` rather than listing it here
+    means adding a status to the enum without giving the web app a colour for
+    it fails this test.
+    """
+    css = web.read_asset("app.css").decode()
+
+    # The statuses the list can actually display: the stored ones, plus the
+    # AGENT_IN_LOOP label that display_status() substitutes for two of them.
+    displayed = {s.value for s in TaskStatus} | {AGENT_IN_LOOP_LABEL}
+
+    mapping = dict(re.findall(
+        r"\.rs-([A-Z_]+)\s*\{\s*--row-status:\s*var\((--st-[a-z-]+)\)", css,
+    ))
+    assert set(mapping) == displayed, (
+        f"missing: {displayed - set(mapping)}; extra: {set(mapping) - displayed}"
+    )
+
+    # Each border colour must exist in both schemes, or one mode loses the cue.
+    for status, var in mapping.items():
+        assert css.count(f"{var}:") == 2, (
+            f"{status} uses {var}, which is not defined for both colour schemes"
+        )
 
 
 def test_web_app_does_not_show_task_cost():
