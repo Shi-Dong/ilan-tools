@@ -566,7 +566,7 @@ async function renderDetail(name) {
   $('#app').innerHTML = `
     <header class="hdr">
       <div class="hdr-row">
-        <button class="btn btn-sm btn-ghost" id="back">‹</button>
+        <button class="btn btn-ghost btn-back" id="back" aria-label="Back">‹</button>
         <h1 class="hdr-title">
           ${task.alias ? `<span class="alias">${esc(task.alias)}</span> ` : ''}<span
             class="${engineClass(task)}${isLooping(task) ? ' looping' : ''}"
@@ -796,7 +796,7 @@ function renderNew() {
   $('#app').innerHTML = `
     <header class="hdr">
       <div class="hdr-row">
-        <button class="btn btn-sm btn-ghost" id="back">‹</button>
+        <button class="btn btn-ghost btn-back" id="back" aria-label="Back">‹</button>
         <h1 class="hdr-title">New task</h1>
       </div>
     </header>
@@ -870,7 +870,7 @@ async function renderConfig() {
   $('#app').innerHTML = `
     <header class="hdr">
       <div class="hdr-row">
-        <button class="btn btn-sm btn-ghost" id="back">‹</button>
+        <button class="btn btn-ghost btn-back" id="back" aria-label="Back">‹</button>
         <h1 class="hdr-title">Settings</h1>
       </div>
       <p class="hdr-sub">ilan ${esc(version.data.version || '?')}
