@@ -429,6 +429,14 @@ textarea.field {
 
 /* ── conversation ───────────────────────────────────────────────────── */
 
+/* Sits above the conversation because that is where the older messages are:
+ * the button reveals what would appear immediately below it. */
+.show-more {
+  display: block;
+  width: 100%;
+  margin-bottom: 10px;
+}
+
 .msg {
   border-radius: var(--radius);
   padding: 10px 12px;

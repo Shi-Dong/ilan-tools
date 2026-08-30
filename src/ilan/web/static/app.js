@@ -300,7 +300,11 @@ const state = {
   draft: '',
   query: '',
   expanded: loadExpanded(),
-  detailView: 'tail', // 'tail' | 'logs' | 'prompt'
+  // How many assistant messages the conversation currently reveals, and which
+  // task that count belongs to — opening a different task has to start from
+  // one again rather than inherit however far the last one was expanded.
+  detailShown: 1,
+  detailFor: null,
   canned: { tap: '', cancel: '' },
   pollTimer: null,
 };
@@ -503,11 +507,21 @@ function messageHtml(entry) {
 }
 
 async function renderDetail(name) {
+  // Opening a different task starts from the tail again. Without this the
+  // count would carry over, so a task expanded to ten messages would make the
+  // next one you open fetch ten as well.
+  if (state.detailFor !== name) {
+    state.detailFor = name;
+    state.detailShown = 1;
+  }
+
+  // ?n= asks the server for the last N assistant messages plus whatever user
+  // messages precede each of them — the same slice `ilan tail -n` shows. Show
+  // More just increments N, so the reveal rule lives in one place rather than
+  // being re-derived here.
   const [taskResp, bodyResp] = await Promise.all([
     api.get(`/tasks/${encodeURIComponent(name)}`),
-    state.detailView === 'logs'
-      ? api.get(`/tasks/${encodeURIComponent(name)}/logs`)
-      : api.get(`/tasks/${encodeURIComponent(name)}/tail`),
+    api.get(`/tasks/${encodeURIComponent(name)}/tail?n=${state.detailShown}`),
   ]);
 
   if (!taskResp.ok) {
@@ -519,15 +533,16 @@ async function renderDetail(name) {
   const task = taskResp.data.task;
   const status = displayStatus(task);
 
-  let body;
-  if (state.detailView === 'prompt') {
-    body = `<div class="pre">${esc(task.prompt || '(no prompt)')}</div>`;
-  } else {
-    const entries = bodyResp.data.entries || bodyResp.data.logs || [];
-    body = entries.length
-      ? entries.map(messageHtml).join('')
-      : `<div class="empty">${esc(bodyResp.data.warning || 'No messages yet.')}</div>`;
-  }
+  const entries = bodyResp.data.entries || [];
+  const body = entries.length
+    ? entries.map(messageHtml).join('')
+    : `<div class="empty">${esc(bodyResp.data.warning || 'No messages yet.')}</div>`;
+
+  // The server returns every entry once N passes the number of assistant
+  // messages there are, so fewer than N of them coming back means this is the
+  // whole conversation and there is nothing left to reveal.
+  const shownAssistants = entries.filter((e) => e.role === 'assistant').length;
+  const hasMore = shownAssistants >= state.detailShown;
 
   const sub = [
     status, task.engine, task.model,
@@ -551,15 +566,12 @@ async function renderDetail(name) {
         <button class="btn btn-sm" id="actions">•••</button>
       </div>
       <p class="hdr-sub st-${esc(status)}">${esc(sub)}</p>
-      <div class="hdr-row">
-        <div class="chips" style="margin:4px 0 0">
-          <button class="btn btn-sm" data-view="tail">Tail</button>
-          <button class="btn btn-sm" data-view="logs">Full log</button>
-          <button class="btn btn-sm" data-view="prompt">Prompt</button>
-        </div>
-      </div>
     </header>
-    <main class="main">${body}</main>
+    <main class="main">
+      ${hasMore
+        ? '<button class="btn btn-sm show-more" id="show-more">Show More</button>' : ''}
+      ${body}
+    </main>
     ${isTerminal ? '' : `
     <div class="composer">
       <textarea class="field" id="reply" rows="1" placeholder="Reply to ${esc(task.name)}"></textarea>
@@ -569,10 +581,16 @@ async function renderDetail(name) {
   $('#back').onclick = () => { location.hash = '#/'; };
   $('#refresh').onclick = () => renderDetail(name);
   $('#actions').onclick = () => showActions(task);
-  document.querySelectorAll('[data-view]').forEach((btn) => {
-    if (btn.dataset.view === state.detailView) btn.classList.add('btn-primary');
-    btn.onclick = () => { state.detailView = btn.dataset.view; renderDetail(name); };
-  });
+  const more = $('#show-more');
+  if (more) {
+    // Returns the render so a caller can await it. The browser ignores the
+    // value; it is what lets the tests assert on the result of a click rather
+    // than on whatever happens to have settled by then.
+    more.onclick = () => {
+      state.detailShown += 1;
+      return renderDetail(name);
+    };
+  }
 
   const replyBox = $('#reply');
   if (replyBox) {
