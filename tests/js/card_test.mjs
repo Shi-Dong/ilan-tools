@@ -60,16 +60,24 @@ check('a Show Details button is rendered', html().includes('data-details="alpha-
 check('a Done button is rendered', html().includes('data-done="alpha-task"'));
 check('the buttons are labelled', html().includes('>Tap</button>')
   && html().includes('>Show Details</button>') && html().includes('>Done</button>'));
-check('Done is the third button, after Show Details',
-  /data-tap="alpha-task"[\s\S]*?data-details="alpha-task"[\s\S]*?data-done="alpha-task"/
+// Tap, then Done, then Show Details: the two that act on the task sit
+// together, and the one that navigates away is last.
+check('the buttons run Tap, Done, Show Details',
+  /data-tap="alpha-task"[\s\S]*?data-done="alpha-task"[\s\S]*?data-details="alpha-task"/
     .test(html()));
+check('Tap carries the yellow fill class', html().includes('btn-tap act-tap'));
 check('Done carries the green fill class', html().includes('btn-done act-done'));
+check('Show Details carries the blue fill class',
+  html().includes('btn-primary act-details'));
 
 // A closed task cannot be closed again — the server answers the request, but
 // re-closing something that is already DONE is not an action worth offering.
 check('a closed task is not offered Done', !html().includes('data-done="gamma-task"'));
 check('a closed task still offers the other two',
-  html().includes('data-details="gamma-task"'));
+  html().includes('data-details="gamma-task"')
+  && html().includes('data-tap="gamma-task"'));
+check('and they keep their order with Done missing',
+  /data-tap="gamma-task"[\s\S]*?data-details="gamma-task"/.test(html()));
 
 // ── Show Details opens the conversation ────────────────────────────────
 app.detailsBtn('beta-task').onclick();
