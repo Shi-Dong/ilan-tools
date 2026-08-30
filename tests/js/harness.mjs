@@ -70,19 +70,42 @@ const PRELUDE = `
 
   // Elements are stable per id, so a handler assigned on one render is still
   // reachable from the test afterwards.
+  // Markup written into an element is readable back as text, the way a browser
+  // reflects innerHTML into textContent. Without this a view that switches from
+  // one to the other leaves every assertion on the other reading '' — passing
+  // for tests that check absence, and silently checking nothing for the rest.
+  function __asText(html) {
+    return String(html)
+      .replace(/<[^>]*>/g, '')
+      .replaceAll('&lt;', '<').replaceAll('&gt;', '>')
+      .replaceAll('&quot;', '"').replaceAll('&#39;', "'")
+      .replaceAll('&amp;', '&');
+  }
+
   const __els = new Map();
   function __el(key) {
     if (!__els.has(key)) {
-      __els.set(key, {
-        id: key, value: '', innerHTML: '', hidden: true, className: '',
-        textContent: '', onclick: null, oninput: null, onkeydown: null,
+      const node = {
+        id: key, value: '', hidden: true, className: '',
+        onclick: null, oninput: null, onkeydown: null,
         disabled: false, checked: false, scrollHeight: 0,
         dataset: {},
         // Recorded, so a test can assert where focus went.
         focus() { document.activeElement = this; },
         classList: { add() {} }, style: {},
         setSelectionRange() {},
+      };
+      let __html = '';
+      let __text = '';
+      Object.defineProperty(node, 'innerHTML', {
+        get: () => __html,
+        set: (v) => { __html = String(v); __text = __asText(__html); },
       });
+      Object.defineProperty(node, 'textContent', {
+        get: () => __text,
+        set: (v) => { __text = String(v); __html = String(v); },
+      });
+      __els.set(key, node);
     }
     return __els.get(key);
   }
@@ -181,6 +204,7 @@ const TAIL = `;return {
   replyEverySuffix, parseDuration, displayStatus, reviveAction, isVisible,
   isLooping, isSleeping,
   sendReply, runAction, postConfirmingReplyEvery,
+  toast, toastHtml, withCodeName,
   elide, quoteForReply, selectedMessageText, syncAskBar, askAboutSelection,
   el: __el,
   row: (name) => __listEl('.row', name),
