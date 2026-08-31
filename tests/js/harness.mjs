@@ -151,6 +151,8 @@ const PRELUDE = `
     }
     return __modalEls.get(sel);
   }
+  // Every addEventListener the app makes while booting.
+  const __listeners = [];
   let __modalOpen = false;
   let __lastModal = null;
 
@@ -175,7 +177,7 @@ const PRELUDE = `
         return el;
       });
     },
-    addEventListener: () => {},
+    addEventListener: (type, fn) => { __listeners.push({ on: 'document', type, fn }); },
     body: { appendChild: () => { __modalOpen = true; } },
     createElement: () => {
       __lastModal = {
@@ -188,7 +190,10 @@ const PRELUDE = `
       return __lastModal;
     },
   };
-  const window = { addEventListener: () => {}, open: () => {} };
+  const window = {
+    addEventListener: (type, fn) => { __listeners.push({ on: 'window', type, fn }); },
+    open: () => {},
+  };
   const location = { hash: '#/' };
   const setInterval = () => 0;
   const clearInterval = () => {};
@@ -224,6 +229,8 @@ const TAIL = `;return {
    *  the selection landed inside a message body. */
   selectText: (text, anchorInside = true, focusInside = anchorInside) =>
     __setSelection(text, anchorInside, focusInside),
+  /** The events the app subscribed to, as {on, type, fn}. */
+  listeners: () => __listeners.slice(),
   storage: __store,
   fetches: __fetches,
   setFetch: __setFetch,

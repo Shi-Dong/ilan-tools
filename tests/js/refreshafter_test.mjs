@@ -120,10 +120,50 @@ back.setFetch(async (path) => {
   return json({ task: TASKS[0] });
 });
 back.location.hash = '#/';
+// Seeded on purpose. Returning to the list always has tasks in memory from
+// the last visit, and the failure being guarded against is a router that
+// re-renders those instead of refetching — which an empty starting state
+// cannot tell apart from a correct one.
+back.state.tasks = structuredClone(TASKS);
 const backBefore = listReads(back);
 await back.route();
 await settle();
-check('routing to the list fetches it', listReads(back) === backBefore + 1,
+check('routing to the list fetches it even with tasks already in memory',
+  listReads(back) === backBefore + 1,
   `list reads went ${backBefore} -> ${listReads(back)}`);
+
+// ── returning from a task reloads the list ──────────────────────────────
+// Three separate things have to hold, and each is checked on its own: the
+// back control points at the list, the router is subscribed to the event that
+// firing it produces, and routing to the list fetches it. The middle one is
+// the join, and it is the one nothing was checking — a test can press back and
+// a test can call route(), and both pass while the two are not connected.
+
+const nav = bootApp();
+nav.setFetch(async (path) => {
+  const json = (d) => ({ ok: true, status: 200, json: async () => d });
+  if (path.startsWith('/tasks?')) return json({ tasks: TASKS });
+  if (path.includes('/tail')) return json({ entries: [] });
+  return json({ task: TASKS[0] });
+});
+
+await nav.renderDetail('alpha-task');
+await settle();
+nav.location.hash = '#/t/alpha-task';
+nav.el('back').onclick();
+check('the conversation back button points at the list',
+  nav.location.hash === '#/', `hash=${nav.location.hash}`);
+
+const wired = nav.listeners().filter((l) => l.on === 'window' && l.type === 'hashchange');
+check('the router is subscribed to hashchange', wired.length === 1,
+  `${wired.length} hashchange listeners`);
+check('and what it subscribed is the router itself',
+  wired.length === 1 && wired[0].fn === nav.route,
+  'something other than route() handles navigation');
+
+// The same wiring serves the browser's own Back, which produces the same
+// event — there is no separate path for it to miss.
+const others = nav.listeners().filter((l) => l.type === 'popstate');
+check('nothing depends on a second navigation event', others.length === 0);
 
 report('refresh-after-change');
