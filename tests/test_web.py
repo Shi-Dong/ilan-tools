@@ -1142,6 +1142,43 @@ def test_the_header_logo_holds_its_shape():
     )
 
 
+def test_only_the_wordmark_is_dropped_on_a_very_narrow_phone():
+    """The list header holds four controls now, and 320px cannot fit them all.
+
+    The title is ``flex: 1``, so it is what absorbs a shortfall — it ellipsises
+    and then collapses to nothing, which reads as a rendering fault. The word is
+    dropped deliberately instead, since the icon beside it already says it.
+
+    The scoping is the part worth guarding. ``.hdr-title`` also carries the task
+    name in a conversation header and the page name everywhere else; hiding
+    *that* on a narrow phone would leave a task's page with no title at all,
+    and nothing else in the suite looks at a 320px viewport.
+    """
+    css = web.read_asset("app.css").decode()
+    js = web.read_asset("app.js").decode()
+
+    query = re.search(
+        r"@media \(max-width:\s*(\d+)px\) \{(.*?)\n\}", css, re.S,
+    )
+    assert query, "nothing adapts the header to a narrow phone"
+    assert ".hdr-wordmark" in query.group(2), (
+        f"the narrow-phone rule targets something else: {query.group(2).strip()}"
+    )
+    assert not re.search(r"\.hdr-title\s*[,{]", query.group(2)), (
+        "the rule hides every header title, not just the list's wordmark"
+    )
+
+    # Only the list's own title carries the class, so only it can be dropped.
+    holders = re.findall(r'class="hdr-title([^"]*)"', js)
+    assert holders, "no header titles found"
+    assert sum("hdr-wordmark" in h for h in holders) == 1, (
+        f"expected exactly one wordmark among the header titles, got {holders}"
+    )
+    assert re.search(r'class="hdr-title hdr-wordmark">ilan<', js), (
+        "the wordmark class is not on the word it is meant to drop"
+    )
+
+
 def test_the_tap_action_is_still_the_warm_one():
     """Tap has been the yellow one across several rounds of this, so the hue is
     held even though the treatment that carried it is gone.

@@ -551,6 +551,15 @@ function renderList() {
     : `<div class="empty">${state.tasks.length
         ? 'No tasks match.' : 'No tasks yet.'}</div>`;
 
+  // Collapse All is offered only when a card on screen is actually open, so it
+  // is never a tap that appears to do nothing. Judged on what is *visible*
+  // rather than on the stored set: a search can hide an expanded task, and
+  // enabling the button for a card the user cannot see would leave them
+  // tapping at a list that does not change. What the tap then clears is the
+  // whole set rather than the visible part of it, which is what the word "All"
+  // says and what leaves the list in one state instead of half of one.
+  const anyOpen = visible.some((t) => !isCollapsed(t));
+
   $('#app').innerHTML = `
     <header class="hdr">
       <div class="hdr-row">
@@ -560,10 +569,21 @@ function renderList() {
              have a screen reader announce the name twice. Relative, like every
              other asset the page loads, so nothing assumes a mount path. -->
         <img class="hdr-logo" src="icon-180.png" alt="" width="26" height="26">
-        <h1 class="hdr-title">ilan</h1>
-        <button class="btn btn-sm" id="do-refresh">Refresh</button>
-        <button class="btn btn-sm" id="go-config">⚙</button>
-        <button class="btn btn-sm btn-primary" id="go-new">+</button>
+        <h1 class="hdr-title hdr-wordmark">ilan</h1>
+        <!-- Glyph rather than the word "Refresh", which is what makes room for
+             Collapse All beside it, and matches the same control in a
+             conversation header. Every glyph-only button in this row carries an
+             aria-label and a title: the mark is the whole label now, so
+             without one a screen reader announces the character or nothing,
+             and a title is what gives a pointer user the same name on hover. -->
+        <button class="btn btn-sm" id="do-refresh"
+                aria-label="Refresh the list" title="Refresh the list">↻</button>
+        <button class="btn btn-sm" id="collapse-all"
+                ${anyOpen ? '' : 'disabled'}>Collapse All</button>
+        <button class="btn btn-sm" id="go-config"
+                aria-label="Settings" title="Settings">⚙</button>
+        <button class="btn btn-sm btn-primary" id="go-new"
+                aria-label="New task" title="New task">+</button>
       </div>
       <div class="hdr-row">
         <input class="field" id="q" type="search" placeholder="Search task names"
@@ -595,6 +615,7 @@ function renderList() {
   }
   // Returns the load so a caller can await it; the browser ignores the value.
   $('#do-refresh').onclick = () => refreshList();
+  $('#collapse-all').onclick = () => collapseAll();
   $('#go-config').onclick = () => { location.hash = '#/config'; };
   $('#go-new').onclick = () => { location.hash = '#/new'; };
   // The row itself is the disclosure control: tapping anywhere on the card
@@ -682,6 +703,19 @@ function toggleCollapsed(name) {
   } else {
     state.expanded.add(name);
   }
+  saveExpanded();
+  renderList();
+}
+
+/** Close every card, including any the current search is hiding.
+ *
+ * Written through the same save-and-render pair as toggling one card, so the
+ * stored set and the screen cannot disagree — clearing the set without saving
+ * would leave the list collapsed until the next reload and then expanded
+ * again, which reads as the button having been forgotten.
+ */
+function collapseAll() {
+  state.expanded.clear();
   saveExpanded();
   renderList();
 }
@@ -902,8 +936,13 @@ async function renderDetail(name) {
             class="${engineClass(task)}${isLooping(task) ? ' looping' : ''}"
             >${esc(task.name)}</span>
         </h1>
-        <button class="btn btn-sm" id="refresh">↻</button>
-        <button class="btn btn-sm" id="actions">•••</button>
+        <!-- Named for the same reason as the list's glyph buttons: the mark is
+             the whole label, so without one there is nothing to announce. -->
+        <button class="btn btn-sm" id="refresh"
+                aria-label="Refresh this conversation"
+                title="Refresh this conversation">↻</button>
+        <button class="btn btn-sm" id="actions"
+                aria-label="More actions" title="More actions">•••</button>
       </div>
       <!-- row-meta as well as hdr-sub, and deliberately: it is the same
            component as the card's meta line, so it reuses the card's class
