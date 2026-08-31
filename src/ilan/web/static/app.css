@@ -210,6 +210,24 @@ button, input, textarea, select {
   white-space: nowrap;
 }
 
+/* The conversation's sub-line is a .row-meta as well, so that the status pill
+ * is styled by the card's own rule rather than by a copy of it. Two things
+ * come with that class which belong to the card rather than to the pill, and
+ * are put back here: the 6px gap, which is the card's spacing under a summary
+ * line, and wrapping, which would let a long model name push a sticky header
+ * to two lines. The header keeps its own spacing and its own ellipsis. */
+.hdr-sub.row-meta {
+  margin-top: 2px;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.hdr-sub.row-meta .meta-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
 /* ── buttons ────────────────────────────────────────────────────────── */
 
 .btn {
@@ -560,16 +578,21 @@ textarea.field {
   flex: none;
 }
 
-/* On a card the status is a filled pill, not coloured text: eleven bold
- * pixels of colour are hard to see at arm's length, where a filled shape is
- * not. Scoped to the card's meta row, so the same .status span in the
- * conversation header stays plain text — a pill there would be shouting the
- * one thing that page is already about.
+/* The status is a filled pill, not coloured text: eleven bold pixels of colour
+ * are hard to see at arm's length, where a filled shape is not.
  *
- * Two classes, so this beats the single-class .st-* rule that would otherwise
- * set the colour on source order.
+ * This was once scoped here on the argument that a pill in the conversation
+ * header would be shouting the one thing that page is already about. That was
+ * wrong in practice for a plainer reason than it was right in principle: the
+ * two pages showed the same fact in two different shapes, so the eye had to
+ * re-learn where to find it on arriving.
  *
- * The label is the card's own colour by default, which is the right choice
+ * The scope stays as it is anyway, because the conversation header now uses
+ * .row-meta itself rather than a second selector being added here. Same
+ * container, same rule, nothing to keep in step. Two classes is also what
+ * beats the single-class .st-* rule that would otherwise win on source order.
+ *
+ * The label is the surface's own colour by default, which is the right choice
  * almost everywhere: in light mode that is white and the status fills are
  * dark, and in dark mode it is near-black and the fills are light. Twelve of
  * the fourteen fill/scheme pairs clear 4.5:1 that way; the two that do not are
