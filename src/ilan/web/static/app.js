@@ -483,17 +483,18 @@ function taskRow(task) {
     </div>`;
 }
 
+/** Whether *task* matches *query*, which is matched against its name alone.
+ *
+ * The alias, the status, the backend, the one-line summary and the task number
+ * were all searchable, and between them they made short queries useless: two
+ * characters is an alias, so typing the start of a name would pull in whatever
+ * task happened to be aliased that way, and any word of a status matched every
+ * task sharing it. A search box beside a list of names is read as searching
+ * the names.
+ */
 function matchesQuery(task, query) {
   if (!query) return true;
-  const hay = [
-    task.name, task.alias, task.status, task.engine, task.summary_one_liner,
-    task.number,
-    // Both spellings: the stored value is what `ilan ls` and the CLI show, and
-    // the spaced one is what this app puts on the card. Typing what is on the
-    // screen has to find it.
-    humanStatus(task.status),
-  ].filter(Boolean).join(' ').toLowerCase();
-  return hay.includes(query.toLowerCase());
+  return String(task.name ?? '').toLowerCase().includes(query.toLowerCase());
 }
 
 /** Apply the typed text as the active filter. Nothing filters until this runs. */
@@ -535,7 +536,7 @@ function renderList() {
         <button class="btn btn-sm btn-primary" id="go-new">+</button>
       </div>
       <div class="hdr-row">
-        <input class="field" id="q" type="search" placeholder="Search name, alias, status"
+        <input class="field" id="q" type="search" placeholder="Search task names"
                value="${esc(state.draft)}" autocapitalize="off" autocorrect="off"
                spellcheck="false" enterkeyhint="search">
         <button class="btn btn-sm btn-primary" id="do-search">Search</button>
