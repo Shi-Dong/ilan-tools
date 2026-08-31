@@ -186,6 +186,16 @@ button, input, textarea, select {
   min-height: var(--tap);
 }
 
+/* Sits against the wordmark rather than a flex-gap away from it: the two read
+   as one lockup, and the row's 8px gap is meant for separating controls. */
+.hdr-logo {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  flex: none;
+  margin-right: -2px;
+}
+
 .hdr-title {
   font-size: 20px;
   font-weight: 700;

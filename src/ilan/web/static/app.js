@@ -523,6 +523,12 @@ function renderList() {
   $('#app').innerHTML = `
     <header class="hdr">
       <div class="hdr-row">
+        <!-- The same icon the home screen uses, so the page a phone opens
+             looks like the thing that was tapped to open it. Decorative: the
+             word beside it already says what this is, and alt text here would
+             have a screen reader announce the name twice. Relative, like every
+             other asset the page loads, so nothing assumes a mount path. -->
+        <img class="hdr-logo" src="icon-180.png" alt="" width="26" height="26">
         <h1 class="hdr-title">ilan</h1>
         <button class="btn btn-sm" id="do-refresh">Refresh</button>
         <button class="btn btn-sm" id="go-config">⚙</button>

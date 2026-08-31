@@ -930,3 +930,54 @@ def test_the_toast_chip_does_not_swallow_its_own_label():
             f"{scheme}: a name on the chip is {_contrast(label, chip):.2f}:1 "
             f"({label} on {chip}) at {pct.group(1)}%"
         )
+
+
+def test_the_list_header_shows_the_app_icon():
+    """The page a phone opens should look like the thing that was tapped.
+
+    The src is checked against what actually ships: a renamed or dropped icon
+    does not throw, it renders a broken-image glyph, which no behavioural test
+    would notice. It is also checked to be relative — an absolute path would
+    bake in the mount point, which is the one thing the whole front end avoids
+    so that it works unchanged behind any prefix.
+    """
+    js = web.read_asset("app.js").decode()
+
+    tag = re.search(r"<img class=\"hdr-logo\"[^>]*>", js)
+    assert tag, "the list header no longer shows the app icon"
+
+    src = re.search(r'src="([^"]+)"', tag.group(0))
+    assert src, "the header logo has no source"
+    assert not src.group(1).startswith(("/", "http")), (
+        f"{src.group(1)} is absolute, which assumes where the app is mounted"
+    )
+    assert web.read_asset(src.group(1)) is not None, (
+        f"the header points at {src.group(1)}, which is not shipped"
+    )
+
+    assert 'alt=""' in tag.group(0), (
+        "the icon needs empty alt text: the word beside it already names the app, "
+        "so anything else has a screen reader announce it twice"
+    )
+
+
+def test_the_header_logo_holds_its_shape():
+    """It shares a flex row with the title and three controls.
+
+    Without flex:none it is the one item in that row that will happily squash
+    when a long header runs out of width, and a squashed portrait looks like a
+    rendering fault rather than a smaller logo.
+    """
+    css = web.read_asset("app.css").decode()
+
+    rule = re.search(r"\.hdr-logo \{(.*?)\}", css, re.S)
+    assert rule, "the header logo is not styled"
+    body = rule.group(1)
+    assert "flex: none" in body
+
+    width = re.search(r"width:\s*(\d+)px", body)
+    height = re.search(r"height:\s*(\d+)px", body)
+    assert width and height, "the logo has no explicit size"
+    assert width.group(1) == height.group(1), (
+        f"the logo is {width.group(1)}x{height.group(1)}, but the icon is square"
+    )
