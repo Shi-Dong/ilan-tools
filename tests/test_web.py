@@ -347,70 +347,171 @@ def _contrast(a: str, b: str) -> float:
     return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
 
 
-def test_the_done_button_is_filled_with_its_own_green():
-    """The card's Done button takes its colour from --done, not from a status.
+def test_each_quiet_action_takes_its_ink_from_its_own_variable():
+    """Tap and Done colour themselves, not from a status.
 
-    Reusing --st-finished would tie a control's fill to a status colour, so a
-    later tweak to how AGENT_FINISHED reads on a card would silently restyle a
-    button in the same edit.
+    Reusing a status colour would tie a control to one, so a later tweak to how
+    AGENT_FINISHED reads on a card would silently restyle a button in the same
+    edit. --act-done is deliberately not --st-done, which is the DONE *status*
+    and an unrelated colour.
     """
     css = web.read_asset("app.css").decode()
-    rule = re.search(r"\.btn-done \{(.*?)\}", css, re.S)
-    assert rule, "the Done button has no fill rule"
-    assert "background: var(--done)" in rule.group(1)
-    assert "color: var(--done-contrast)" in rule.group(1)
-
-
-def test_every_card_button_label_is_legible_on_its_fill():
-    """A filled button carries a label, so the pair has to clear 4.5:1.
-
-    Resolved per scheme rather than counted: a colour that works in both is
-    declared once and inherited by the dark block, which is a better answer
-    than repeating it, and an earlier version of this test rejected exactly
-    that by demanding two literal declarations.
-
-    The Tap fill is the one this constrains hardest. Its label is white, which
-    caps the fill at 0.183 luminance — a brighter yellow reaches only 1.8:1
-    against white and cannot carry the label at all.
-    """
-    css = web.read_asset("app.css").decode()
-    light, dark = _scheme_values(css)
-
-    for fill_var, ink_var in (("--btn-tap", "--btn-tap-contrast"), ("--done", "--done-contrast")):
-        for scheme, values in (("light", light), ("dark", dark)):
-            fill, ink = values[fill_var], values[ink_var]
-            assert _contrast(fill, ink) >= 4.5, (
-                f"{scheme}: the {fill_var} label is {ink} on {fill}, "
-                f"only {_contrast(fill, ink):.2f}:1"
-            )
-
-
-def test_every_filled_card_button_carries_its_own_edge():
-    """Each fill must delineate itself against the card it sits on.
-
-    A filled control needs 3:1 against its background to read as a control at
-    all. The buttons take their border from their own fill, so the fill is the
-    edge — which is only sound while every fill clears that bar. A bright
-    yellow does not (1.8:1 on a white card), which is what pins the Tap fill to
-    a darker tone; assert the property rather than that one colour, so the same
-    check covers the green and anything added later.
-    """
-    css = web.read_asset("app.css").decode()
-    light, dark = _scheme_values(css)
-
-    for selector, var in ((".btn-tap", "--btn-tap"), (".btn-done", "--done")):
+    for selector, var in ((".act-tap", "--act-tap"), (".act-done", "--act-done")):
         rule = re.search(rf"\{selector} \{{(.*?)\}}", css, re.S)
         assert rule, f"no rule for {selector}"
-        assert f"border-color: var({var})" in rule.group(1), (
-            f"{var}'s button no longer takes its border from its own fill"
+        assert f"color: var({var})" in rule.group(1), (
+            f"{selector} no longer takes its ink from {var}"
         )
 
+
+def test_every_quiet_action_is_legible_on_the_card():
+    """These colours are ink now, which is a stricter test than being a fill.
+
+    As fills they only had to carry their own label. As text on the card they
+    need 4.5:1 against the card itself, in both schemes — and the amber that
+    served as a fill does not: #a56800 was chosen to sit *under* white text and
+    manages 3.71:1 as text on a dark card.
+
+    Resolved per scheme rather than counted, so a colour that works in both can
+    be declared once and inherited by the dark block.
+    """
+    css = web.read_asset("app.css").decode()
+    light, dark = _scheme_values(css)
+
+    for var in ("--act-tap", "--act-done"):
         for scheme, values in (("light", light), ("dark", dark)):
-            fill, card = values[var], values["--bg-elevated"]
-            assert _contrast(fill, card) >= 3.0, (
-                f"{scheme}: {var} is {fill} at {_contrast(fill, card):.2f}:1 "
-                f"on {card}, so the button has no discernible edge"
+            ink, card = values[var], values["--bg-elevated"]
+            assert _contrast(ink, card) >= 4.5, (
+                f"{scheme}: {var} is {ink} on {card}, "
+                f"only {_contrast(ink, card):.2f}:1"
             )
+
+
+def test_exactly_one_card_action_is_filled():
+    """The hierarchy is the point of the design, so it is asserted directly.
+
+    Three filled buttons is what this replaced: with everything shouting, the
+    card's own status colour — the only one of them carrying information — lost
+    to its own buttons. Colour is spent once, on the way into the task.
+
+    Counted rather than named, so filling a second one fails here even if the
+    one that is meant to lead still leads.
+    """
+    css = web.read_asset("app.css").decode()
+
+    filled = []
+    for selector in (".act-tap", ".act-done", ".act-details"):
+        rule = re.search(rf"\{selector} \{{(.*?)\}}", css, re.S)
+        assert rule, f"no rule for {selector}"
+        background = re.search(r"background:\s*([^;]+);", rule.group(1))
+        if background and background.group(1).strip() not in ("none", "transparent"):
+            filled.append(selector)
+
+    assert filled == [".act-details"], (
+        f"expected only the way into the task to be filled, found {filled}"
+    )
+
+
+def test_the_leading_action_reads_as_a_control():
+    """The filled one is identified by its fill, so the fill has to carry it.
+
+    Two separate bars: 3:1 against the card for the fill to register as a
+    control at all, and 4.5:1 for the label sitting on it.
+    """
+    css = web.read_asset("app.css").decode()
+    light, dark = _scheme_values(css)
+
+    rule = re.search(r"\.act-details \{(.*?)\}", css, re.S)
+    assert rule, "the leading action has no rule"
+    assert "background: var(--accent)" in rule.group(1)
+
+    for scheme, values in (("light", light), ("dark", dark)):
+        fill, card, label = (
+            values["--accent"], values["--bg-elevated"], values["--accent-contrast"],
+        )
+        assert _contrast(fill, card) >= 3.0, (
+            f"{scheme}: the fill is {_contrast(fill, card):.2f}:1 on the card"
+        )
+        assert _contrast(fill, label) >= 4.5, (
+            f"{scheme}: its label is {_contrast(fill, label):.2f}:1 on it"
+        )
+
+
+def test_the_quiet_actions_are_bounded_as_visibly_as_anything_else_in_the_app():
+    """Their hairline is tinted and low-contrast, which is deliberate.
+
+    It is not what identifies them — the text label and the glyph do that, both
+    at 4.5:1 — so this is not held to the 3:1 that an edge carrying meaning on
+    its own would need. What it is held to is the app's own standard: the same
+    hairline every field, card and button already draws. Measured against
+    --border rather than against an absolute, so the comparison is with a bar
+    the app has already accepted everywhere else.
+    """
+    css = web.read_asset("app.css").decode()
+    light, dark = _scheme_values(css)
+
+    for selector, var in ((".act-tap", "--act-tap"), (".act-done", "--act-done")):
+        rule = re.search(rf"\{selector} \{{(.*?)\}}", css, re.S)
+        assert rule, f"no rule for {selector}"
+        mix = re.search(
+            rf"border-color:\s*color-mix\(in srgb, var\({var}\) (\d+)%, transparent\)",
+            rule.group(1),
+        )
+        assert mix, f"{selector} no longer draws a hairline tinted with {var}"
+
+        pct = int(mix.group(1)) / 100
+        for scheme, values in (("light", light), ("dark", dark)):
+            card = values["--bg-elevated"]
+            edge = _mix(values[var], card, pct)
+            plain = _contrast(values["--border"], card)
+            assert _contrast(edge, card) >= plain, (
+                f"{scheme}: {selector}'s edge is {_contrast(edge, card):.2f}:1 on "
+                f"the card, fainter than the app's own border at {plain:.2f}:1"
+            )
+
+
+def test_every_card_action_is_a_full_size_tap_target():
+    """These were 36px, under the 44px minimum the rest of the app keeps.
+
+    Small buttons in a row are the ones a thumb misses, and this row is the
+    only place in the app that had any.
+    """
+    css = web.read_asset("app.css").decode()
+    rule = re.search(r"\n\.act \{(.*?)\}", css, re.S)
+    assert rule, "the card actions have no sizing rule"
+    assert "min-height: var(--tap)" in rule.group(1), (
+        "the card actions no longer claim the shared 44px minimum"
+    )
+
+
+def test_every_glyph_resolves_to_a_symbol_in_the_sprite():
+    """A <use> pointing at nothing renders nothing, and throws nothing.
+
+    The button would still be there, still be tappable, and simply have lost
+    its icon — so nothing else in the suite would notice. Both directions are
+    checked: every reference resolves, and no symbol is left unused.
+    """
+    js = web.read_asset("app.js").decode()
+    html = web.read_asset("index.html").decode()
+
+    defined = set(re.findall(r'<symbol id="([^"]+)"', html))
+    assert defined, "the icon sprite defines no symbols"
+
+    keys = re.search(r"const ICONS = \{(.*?)\};", js, re.S)
+    assert keys, "app.js no longer names its glyphs"
+    referenced = set(re.findall(r"'([^']+)'", keys.group(1)))
+    assert referenced, "the glyph table is empty"
+
+    assert referenced <= defined, (
+        f"these glyphs are used but not defined: {sorted(referenced - defined)}"
+    )
+    assert defined <= referenced, (
+        f"these symbols are defined but never used: {sorted(defined - referenced)}"
+    )
+
+    assert '<use href="#${ICONS[name]}">' in js, (
+        "the glyphs are no longer pulled from the sprite by id"
+    )
 
 
 def test_the_card_buttons_run_tap_done_details():
@@ -449,32 +550,20 @@ def test_a_closed_card_offers_only_show_details():
     )
 
 
-def test_the_done_button_label_is_legible_in_both_colour_schemes():
-    """A filled button carries a label, so the pair has to clear 4.5:1.
+def test_the_amber_stays_off_the_backend_colour_it_sits_beside():
+    """Tap's amber and the Claude task-name amber appear in the same card.
 
-    The green it echoes, --st-finished, only ever colours text sitting on a
-    card and is too light to carry white text at this size. Nothing else would
-    catch the difference: the button would still render, still be green, and
-    simply be hard to read — worst in whichever scheme was not being looked at
-    when the colour was chosen.
+    The dark-mode value had to move — the fill it inherited reads 3.71:1 as
+    text — and the obvious lighter amber to reach for is --engine-claude, which
+    already colours task names two lines above the button. Landing on it would
+    make the button read as another Claude-coloured word.
     """
     css = web.read_asset("app.css").decode()
-    pairs = re.findall(
-        r"--done:\s*(#[0-9a-f]{6});\s*\n\s*--done-contrast:\s*(#[0-9a-f]{6});", css,
-    )
-    assert len(pairs) == 2, (
-        f"expected --done/--done-contrast in both schemes, found {len(pairs)}"
-    )
-    for fill, label in pairs:
-        assert _contrast(fill, label) >= 4.5, (
-            f"the Done label is {_contrast(fill, label):.2f}:1 on {fill}"
-        )
+    light, dark = _scheme_values(css)
 
-    # It also has to separate from the card it sits on, in both schemes; a
-    # filled control needs 3:1 against its background to read as a control.
-    for fill, card in zip([p[0] for p in pairs], ("#ffffff", "#1c1c1e")):
-        assert _contrast(fill, card) >= 3.0, (
-            f"the Done fill {fill} is {_contrast(fill, card):.2f}:1 on {card}"
+    for scheme, values in (("light", light), ("dark", dark)):
+        assert values["--act-tap"] != values["--engine-claude"], (
+            f"{scheme}: Tap's ink is the backend colour, {values['--act-tap']}"
         )
 
 
@@ -666,18 +755,19 @@ def test_the_settings_checkbox_is_big_enough_to_hit():
 def test_the_card_actions_row_tightens_its_buttons():
     """Three buttons share one row at phone width, and only just fit.
 
-    At the shared 14px of button padding, "Show Details" wraps onto a second
-    line and the whole row goes ragged. This is a stand-in for a measurement
-    the test suite cannot take — there is no layout engine here — so it guards
-    the override rather than the wrapping itself.
+    Each now carries a glyph as well as a label, so the row is tighter than it
+    was even with the shorter middle label. This is a stand-in for a
+    measurement the test suite cannot take — there is no layout engine here —
+    so it guards the padding rather than the wrapping itself. The real
+    measurement is taken in a browser, against main, in the PR.
     """
     css = web.read_asset("app.css").decode()
-    rule = re.search(r"\.row-actions \.btn \{(.*?)\}", css, re.S)
+    rule = re.search(r"\n\.act \{(.*?)\}", css, re.S)
     assert rule, "the card action buttons no longer have a sizing rule"
     padding = re.search(r"padding:\s*0\s+(\d+)px", rule.group(1))
-    assert padding, "the row no longer overrides the default button padding"
+    assert padding, "the row no longer sets its button padding"
     assert int(padding.group(1)) <= 8, (
-        f"{padding.group(1)}px of padding wraps the middle label at 390px"
+        f"{padding.group(1)}px of padding wraps a label at 390px"
     )
 
 
@@ -989,35 +1079,42 @@ def test_the_header_logo_holds_its_shape():
     )
 
 
-def test_the_tap_label_is_white():
-    """Asked for explicitly, and legibility alone would not hold it.
+def test_the_tap_action_is_still_the_warm_one():
+    """Tap has been the yellow one across several rounds of this, so the hue is
+    held even though the treatment that carried it is gone.
 
-    A near-black label on a brighter yellow also clears 4.5:1 — that is what
-    this replaced — so the contrast test would happily accept going back.
+    Asserted as a property rather than against a literal, since the exact value
+    differs per scheme and has moved more than once: warm means the red channel
+    leads and the blue trails. Nothing else would catch a drift — a cool grey
+    of the same lightness passes every contrast check in this file.
     """
     css = web.read_asset("app.css").decode()
     light, dark = _scheme_values(css)
+
     for scheme, values in (("light", light), ("dark", dark)):
-        assert values["--btn-tap-contrast"].lower() == "#ffffff", (
-            f"{scheme}: the Tap label is {values['--btn-tap-contrast']}, not white"
+        ink = values["--act-tap"]
+        r, g, b = (int(ink[i:i + 2], 16) for i in (1, 3, 5))
+        assert r > g > b, (
+            f"{scheme}: --act-tap is {ink}, which is not a warm colour any more"
         )
 
 
-def test_the_done_button_is_not_green():
+def test_the_close_action_is_not_green():
     """Asked for explicitly, so it is worth being unable to drift back.
 
     Checked as a property of the colour rather than against the old literal:
     green is where the green channel leads, and any of the greens this used to
-    be would trip it. The hue was constrained too — the status palette already
-    spends cyan, coral, green, grey and lavender, and the buttons either side
-    are a blue and a bronze — but "not green" is the part that was asked for.
+    be would trip it. The hue is constrained anyway — the status palette
+    already spends cyan, coral, green, sage, grey and lavender — but "not
+    green" is the part that was asked for.
     """
     css = web.read_asset("app.css").decode()
     light, dark = _scheme_values(css)
 
     for scheme, values in (("light", light), ("dark", dark)):
-        fill = values["--done"]
-        r, g, b = (int(fill[i:i + 2], 16) for i in (1, 3, 5))
+        ink = values["--act-done"]
+        r, g, b = (int(ink[i:i + 2], 16) for i in (1, 3, 5))
         assert not (g > r and g > b), (
-            f"{scheme}: --done is {fill}, whose green channel leads — it is a green again"
+            f"{scheme}: --act-done is {ink}, whose green channel leads — "
+            "it is a green again"
         )

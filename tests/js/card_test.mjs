@@ -56,13 +56,16 @@ check('the expanded set is stored',
 
 // ── the actions are rendered on every card ─────────────────────────────
 check('a Tap button is rendered', html().includes('data-tap="alpha-task"'));
-check('a Show Details button is rendered', html().includes('data-details="alpha-task"'));
+check('a Details button is rendered', html().includes('data-details="alpha-task"'));
 check('a Done button is rendered', html().includes('data-done="alpha-task"'));
-check('the buttons are labelled', html().includes('>Tap</button>')
-  && html().includes('>Show Details</button>') && html().includes('>Done</button>'));
-// Tap, then Done, then Show Details: the two that act on the task sit
-// together, and the one that navigates away is last.
-check('the buttons run Tap, Done, Show Details',
+// Each label sits in its own <span> beside a glyph, so the closing tag is no
+// longer the button's. Matching the span keeps this about the words a reader
+// sees rather than about where the markup happens to end.
+check('the buttons are labelled', html().includes('<span>Tap</span>')
+  && html().includes('<span>Details</span>') && html().includes('<span>Done</span>'));
+// Tap, then Done, then Details: the two that act on the task sit together, and
+// the one that navigates away is last.
+check('the buttons run Tap, Done, Details',
   /data-tap="alpha-task"[\s\S]*?data-done="alpha-task"[\s\S]*?data-details="alpha-task"/
     .test(html()));
 // The status is humanised for reading only. The class it colours the card
@@ -78,26 +81,40 @@ check('but the text a reader sees has no underscore',
 check('no class name picked up a space',
   !/class="[^"]*rs-[A-Z]+ [A-Z]/.test(html()));
 
-check('Tap carries the yellow fill class', html().includes('btn-tap act-tap'));
-check('Done carries the green fill class', html().includes('btn-done act-done'));
-check('Show Details carries the blue fill class',
-  html().includes('btn-primary act-details'));
+// Each action is styled by its own class, and only the way into the task is
+// filled. The three no longer share the generic button classes: they are a
+// distinct control, 44px tall with a glyph, rather than a small .btn.
+check('Tap is styled as a quiet action', html().includes('class="act act-tap"'));
+check('Done is styled as a quiet action', html().includes('class="act act-done"'));
+check('Details is the one that leads', html().includes('class="act act-details"'));
+check('none of them are small generic buttons', !html().includes('btn-sm act-'),
+  'a card action is still carrying the 36px button class');
 
-// A closed task gets only Show Details. Neither of the other two means
-// anything once a task is closed: there is no agent left to tap, and closing
-// something already DONE is not an action worth offering. The actions sheet
-// has always applied the same rule to both.
+// Each carries a glyph, pulled from the sprite rather than inlined per card.
+check('Tap carries the send glyph', html().includes('<use href="#i-send">'));
+check('Done carries the check glyph', html().includes('<use href="#i-check">'));
+check('Details carries the chevron', html().includes('<use href="#i-chevron">'));
+// A glyph beside a real label is decoration; announcing it would repeat the
+// word the label already says.
+check('the glyphs are hidden from a screen reader',
+  (html().match(/<svg class="ico"/g) || []).length
+    === (html().match(/<svg class="ico" aria-hidden="true">/g) || []).length);
+
+// A closed task gets only Details. Neither of the other two means anything
+// once a task is closed: there is no agent left to tap, and closing something
+// already DONE is not an action worth offering. The actions sheet has always
+// applied the same rule to both.
 check('a closed task is not offered Done', !html().includes('data-done="gamma-task"'));
 check('a closed task is not offered Tap', !html().includes('data-tap="gamma-task"'),
   'tapping a closed task would message an agent that is no longer running');
-check('a closed task still offers Show Details',
+check('a closed task still offers Details',
   html().includes('data-details="gamma-task"'));
 
-// ── Show Details opens the conversation ────────────────────────────────
+// ── Details opens the conversation ─────────────────────────────────────
 app.detailsBtn('beta-task').onclick();
-check('Show Details navigates to that task',
+check('Details navigates to that task',
   app.location.hash === '#/t/beta-task', `hash=${app.location.hash}`);
-check('Show Details does not toggle the card',
+check('Details does not toggle the card',
   isCardCollapsed(html(), 'AGENT_FINISHED'));
 
 // ── Tap asks first ─────────────────────────────────────────────────────
