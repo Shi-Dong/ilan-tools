@@ -193,6 +193,24 @@ button, input, textarea, select {
   white-space: nowrap;
 }
 
+/* Four controls plus a wordmark is more than a very narrow phone can hold.
+ * Measured rather than guessed: the row fits from 360px up, leaving 40px of
+ * slack for the word at the tightest of those, and at 320px it runs 35px short.
+ *
+ * The title is flex:1, so it is what absorbs a shortfall — it ellipsises and
+ * then collapses to nothing, which looks like a rendering fault rather than a
+ * choice. Since the word is the one thing in this row that the icon beside it
+ * already says, it is what goes, deliberately. Scoped to the list's own
+ * wordmark: .hdr-title also carries the task name in a conversation, which is
+ * not redundant with anything and must never be dropped.
+ *
+ * With the word gone the controls sit against the icon rather than the right
+ * edge. They come to 290px of the 296px available, so there is no meaningful
+ * space left for the difference to show in. */
+@media (max-width: 340px) {
+  .hdr-wordmark { display: none; }
+}
+
 /* The search row is a field plus its Search (and sometimes Clear) button.
  * .field is width:100% for the stacked forms elsewhere, so it has to be told
  * to share this row instead of pushing the buttons off the edge. */

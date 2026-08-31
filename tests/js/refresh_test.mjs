@@ -24,7 +24,16 @@ app.state.tasks = structuredClone(TASKS);
 app.renderList();
 
 check('a Refresh button is rendered', html().includes('id="do-refresh"'));
-check('it is labelled Refresh', html().includes('>Refresh</button>'));
+// The word is gone, which is what makes room for Collapse All beside it. The
+// mark is the whole label now, so the accessible name has to come from an
+// attribute: a glyph-only button without one is announced as the character, or
+// as nothing at all.
+check('it is a refresh glyph rather than the word', html().includes('>↻</button>'),
+  'the button still spells out its label');
+check('and it still has a name for a screen reader',
+  /id="do-refresh"[^>]*aria-label="[^"]+"/.test(html()));
+check('and a title, so a pointer gets the same name on hover',
+  /id="do-refresh"[^>]*title="[^"]+"/.test(html()));
 check('live tasks are listed', html().includes('live-task'));
 check('closed tasks are hidden by default', !html().includes('>closed-task<'));
 check('a pinned closed task is still shown', html().includes('pinned-closed'));
