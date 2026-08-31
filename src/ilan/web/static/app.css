@@ -77,12 +77,16 @@
    * reading as a control on the dark card needs 3:1, flooring it at 0.135.
    * That band is narrow and it is why this is a bronze rather than a yellow —
    * a brighter yellow cannot carry white text at all, reaching only 1.8:1.
-   * This is the most chroma available inside the band: as yellow as a white
-   * label allows. 4.69:1 for the label, 4.69:1 on a white card and 3.63:1 on a
-   * dark one, so like every other filled button its border is just its fill.
+   *
+   * This is as far up the band as it goes: brightening further drops the label
+   * under 4.5:1, and there is very little room in any case. The whole band is
+   * worth about one point of CIELAB L*, which is at the edge of visible, so
+   * the headroom is spent on chroma as much as on lightness — a more saturated
+   * gold reads warmer where a fractionally lighter one would not read at all.
+   * 4.59:1 for the label, and 3.71:1 on a dark card.
    *
    * Named --btn-tap rather than --tap-*: --tap is already the 44px target. */
-  --btn-tap: #9e6900;
+  --btn-tap: #a56800;
   --btn-tap-contrast: #ffffff;
 
   --radius: 12px;
