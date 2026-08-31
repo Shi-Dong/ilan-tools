@@ -361,22 +361,28 @@ def test_the_done_button_is_filled_with_its_own_green():
     assert "color: var(--done-contrast)" in rule.group(1)
 
 
-def test_the_tap_button_label_is_legible_on_its_yellow():
-    """Yellow is the one fill where a white label cannot work.
+def test_every_card_button_label_is_legible_on_its_fill():
+    """A filled button carries a label, so the pair has to clear 4.5:1.
 
-    It is light enough that white on it reaches under 2:1, so the label has to
-    be near-black. Computed rather than asserted as a literal, so a later tweak
-    to the yellow is checked rather than merely allowed.
+    Resolved per scheme rather than counted: a colour that works in both is
+    declared once and inherited by the dark block, which is a better answer
+    than repeating it, and an earlier version of this test rejected exactly
+    that by demanding two literal declarations.
+
+    The Tap fill is the one this constrains hardest. Its label is white, which
+    caps the fill at 0.183 luminance — a brighter yellow reaches only 1.8:1
+    against white and cannot carry the label at all.
     """
     css = web.read_asset("app.css").decode()
-    pairs = re.findall(
-        r"--btn-tap:\s*(#[0-9a-f]{6});\s*\n\s*--btn-tap-contrast:\s*(#[0-9a-f]{6});", css,
-    )
-    assert len(pairs) == 2, f"expected the pair in both schemes, found {len(pairs)}"
-    for fill, label in pairs:
-        assert _contrast(fill, label) >= 4.5, (
-            f"the Tap label is {_contrast(fill, label):.2f}:1 on {fill}"
-        )
+    light, dark = _scheme_values(css)
+
+    for fill_var, ink_var in (("--btn-tap", "--btn-tap-contrast"), ("--done", "--done-contrast")):
+        for scheme, values in (("light", light), ("dark", dark)):
+            fill, ink = values[fill_var], values[ink_var]
+            assert _contrast(fill, ink) >= 4.5, (
+                f"{scheme}: the {fill_var} label is {ink} on {fill}, "
+                f"only {_contrast(fill, ink):.2f}:1"
+            )
 
 
 def test_every_filled_card_button_carries_its_own_edge():
@@ -390,6 +396,7 @@ def test_every_filled_card_button_carries_its_own_edge():
     check covers the green and anything added later.
     """
     css = web.read_asset("app.css").decode()
+    light, dark = _scheme_values(css)
 
     for selector, var in ((".btn-tap", "--btn-tap"), (".btn-done", "--done")):
         rule = re.search(rf"\{selector} \{{(.*?)\}}", css, re.S)
@@ -398,12 +405,11 @@ def test_every_filled_card_button_carries_its_own_edge():
             f"{var}'s button no longer takes its border from its own fill"
         )
 
-        fills = re.findall(rf"{var}:\s*(#[0-9a-f]{{6}});", css)
-        assert len(fills) == 2, f"expected {var} in both schemes, found {len(fills)}"
-        for fill, card in zip(fills, ("#ffffff", "#1c1c1e")):
+        for scheme, values in (("light", light), ("dark", dark)):
+            fill, card = values[var], values["--bg-elevated"]
             assert _contrast(fill, card) >= 3.0, (
-                f"{var} is {fill} at {_contrast(fill, card):.2f}:1 on {card}, "
-                "so the button has no discernible edge"
+                f"{scheme}: {var} is {fill} at {_contrast(fill, card):.2f}:1 "
+                f"on {card}, so the button has no discernible edge"
             )
 
 
@@ -981,3 +987,37 @@ def test_the_header_logo_holds_its_shape():
     assert width.group(1) == height.group(1), (
         f"the logo is {width.group(1)}x{height.group(1)}, but the icon is square"
     )
+
+
+def test_the_tap_label_is_white():
+    """Asked for explicitly, and legibility alone would not hold it.
+
+    A near-black label on a brighter yellow also clears 4.5:1 — that is what
+    this replaced — so the contrast test would happily accept going back.
+    """
+    css = web.read_asset("app.css").decode()
+    light, dark = _scheme_values(css)
+    for scheme, values in (("light", light), ("dark", dark)):
+        assert values["--btn-tap-contrast"].lower() == "#ffffff", (
+            f"{scheme}: the Tap label is {values['--btn-tap-contrast']}, not white"
+        )
+
+
+def test_the_done_button_is_not_green():
+    """Asked for explicitly, so it is worth being unable to drift back.
+
+    Checked as a property of the colour rather than against the old literal:
+    green is where the green channel leads, and any of the greens this used to
+    be would trip it. The hue was constrained too — the status palette already
+    spends cyan, coral, green, grey and lavender, and the buttons either side
+    are a blue and a bronze — but "not green" is the part that was asked for.
+    """
+    css = web.read_asset("app.css").decode()
+    light, dark = _scheme_values(css)
+
+    for scheme, values in (("light", light), ("dark", dark)):
+        fill = values["--done"]
+        r, g, b = (int(fill[i:i + 2], 16) for i in (1, 3, 5))
+        assert not (g > r and g > b), (
+            f"{scheme}: --done is {fill}, whose green channel leads — it is a green again"
+        )
