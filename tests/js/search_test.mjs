@@ -26,6 +26,8 @@ renderList();
 check('both tasks listed before searching',
   html().includes('alpha-task') && html().includes('beta-task'));
 check('a Search button is rendered', html().includes('id="do-search"'));
+check('the box does not promise fields it no longer searches',
+  !html().includes('alias, status'), 'the placeholder still advertises them');
 check('no Clear button until a search is applied', !html().includes('id="clear-search"'));
 
 // ── typing must NOT filter ──────────────────────────────────────────────
@@ -67,12 +69,14 @@ check('Clear empties the query', state.query === '', `query=${state.query}`);
 check('Clear restores the full list',
   html().includes('alpha-task') && html().includes('beta-task'));
 
-// ── searching by the status as it is written on the card ────────────────
-// The card shows "NEEDS ATTENTION"; the stored value is NEEDS_ATTENTION.
-// Typing what is on the screen has to find it, and so does typing the value.
+// ── the name, and nothing but the name ──────────────────────────────────
+// The alias, status, backend, summary and number were all searchable once.
+// Between them they made short queries useless — two characters is an alias,
+// and any word of a status matched every task sharing it.
 state.tasks = [
   ...state.tasks,
   { name: 'stuck-task', alias: 'ad', status: 'NEEDS_ATTENTION', engine: 'claude',
+    summary_one_liner: 'the loader keeps timing out', number: 12,
     created_at: '2026-01-03T00:00:00+00:00', status_changed_at: '2026-01-03T00:00:00+00:00' },
 ];
 
@@ -83,17 +87,27 @@ const searchFor = (text) => {
   el('do-search').onclick();
 };
 
-searchFor('NEEDS ATTENTION');
-check('searching the status as displayed finds the task',
-  html().includes('stuck-task'), 'the spaced spelling is not searchable');
-check('and does not drag in the others', !html().includes('alpha-task'));
+searchFor('stuck');
+check('a name still matches', html().includes('stuck-task'));
+check('and only that task', !html().includes('alpha-task'));
 
-searchFor('NEEDS_ATTENTION');
-check('searching the stored value still finds it too',
-  html().includes('stuck-task'), 'the underscored spelling stopped matching');
+searchFor('STUCK');
+check('the name match is case-insensitive', html().includes('stuck-task'));
 
-searchFor('needs attention');
-check('the match is case-insensitive', html().includes('stuck-task'));
+for (const [what, query] of [
+  ['its alias', 'ad'],
+  ['its stored status', 'NEEDS_ATTENTION'],
+  ['its status as displayed', 'NEEDS ATTENTION'],
+  ['its backend', 'claude'],
+  ['its summary', 'timing out'],
+  ['its number', '12'],
+]) {
+  searchFor(query);
+  check(`searching ${what} no longer finds it`, !html().includes('stuck-task'),
+    `"${query}" still matched`);
+  check(`searching ${what} says so rather than listing everything`,
+    html().includes('No tasks match.'), `"${query}" left the list unfiltered`);
+}
 
 state.query = '';
 state.draft = '';
