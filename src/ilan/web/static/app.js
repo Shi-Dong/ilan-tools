@@ -595,10 +595,29 @@ function renderList() {
  * the agent, and the button now sits on every expanded card rather than behind
  * the actions sheet, so it is far easier to hit by accident.
  */
+/** Reload the list once something has changed a task.
+ *
+ * Deliberately without a delay. The server persists the new state before it
+ * answers — a reply ends in runner.start(), which sets WORKING and writes the
+ * task inside the request — so a list fetched the moment the response lands
+ * already shows the change. Waiting would only make the card update later than
+ * it needs to.
+ *
+ * Only the list is reloaded, and only while it is the view on screen. Every
+ * other view re-renders itself after acting, and route() reloads the list on
+ * the way back to it, so a task changed from the conversation is already
+ * fresh by the time the list is looked at again.
+ */
+function refreshListAfterChange() {
+  if ((location.hash || '#/') !== '#/') return undefined;
+  return loadList(false);
+}
+
 async function tapFromCard(name) {
   const ok = await askConfirm(`Ask ${name} for a status update?`, 'Tap');
   if (!ok) return;
-  await sendReply(name, state.canned.tap);
+  // Only on success: a refused reply changed nothing to show.
+  if (await sendReply(name, state.canned.tap)) await refreshListAfterChange();
 }
 
 /** Close a task from its card, after confirming.
@@ -621,7 +640,7 @@ async function doneFromCard(name) {
     'Mark done',
   );
   if (!ok) return;
-  if (await act(`/tasks/${encodeURIComponent(name)}/done`)) await loadList(false);
+  if (await act(`/tasks/${encodeURIComponent(name)}/done`)) await refreshListAfterChange();
 }
 
 /** Expand or collapse one task's card, and remember which.

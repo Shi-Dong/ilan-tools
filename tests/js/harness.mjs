@@ -203,7 +203,7 @@ const TAIL = `;return {
   ago, formatCompactDuration, formatHoursMinutes, statusLabel, sleepSuffix,
   replyEverySuffix, parseDuration, displayStatus, reviveAction, isVisible,
   isLooping, isSleeping,
-  sendReply, runAction, postConfirmingReplyEvery,
+  sendReply, runAction, postConfirmingReplyEvery, refreshListAfterChange,
   toast, toastHtml, withCodeName,
   elide, quoteForReply, selectedMessageText, syncAskBar, askAboutSelection,
   el: __el,
