@@ -105,7 +105,14 @@ const tapApp = bootApp();
 tapApp.state.tasks = structuredClone(TASKS);
 tapApp.state.canned = { tap: 'CANNED TAP TEXT', cancel: 'CANNED CANCEL' };
 tapApp.renderList();
-tapApp.setFetch(async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) }));
+// A tap now reloads the list, so the list request has to be answered with the
+// tasks. Returning a bodyless ok would empty the list and take the cards this
+// section is asserting about with it.
+tapApp.setFetch(async (path) => ({
+  ok: true,
+  status: 200,
+  json: async () => (path.startsWith('/tasks?') ? { tasks: TASKS } : { ok: true }),
+}));
 
 const postsTo = (name) => tapApp.fetches.filter(
   (f) => f.path === `/tasks/${name}/reply`);
