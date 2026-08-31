@@ -451,6 +451,20 @@ function icon(name) {
   return `<svg class="ico" aria-hidden="true"><use href="#${ICONS[name]}"></use></svg>`;
 }
 
+/** The status, as the filled pill both the list and the conversation show.
+ *
+ * One function rather than the same span written out in two places, because
+ * "the same as the list" is the whole requirement here and two copies is how
+ * that stops being true. The colour arrives through --row-status, which the
+ * rs-* class on the container sets, so a caller has to carry that class as
+ * well — without it the pill falls back to the plain border grey rather than
+ * failing, which is why there is a browser check on the resolved colour.
+ */
+function statusPill(task) {
+  const status = displayStatus(task);
+  return `<span class="status st-${esc(status)}">${esc(statusLabel(task))}</span>`;
+}
+
 function taskRow(task) {
   const status = displayStatus(task);
   // `ls -c` shows only the pin, alias, name, unread marker and status, so the
@@ -458,7 +472,7 @@ function taskRow(task) {
   // rather than omitted so collapsing is a class on the card, not a second
   // rendering path that could drift from this one.
   const meta = [
-    `<span class="status st-${esc(status)}">${esc(statusLabel(task))}</span>`,
+    statusPill(task),
     task.engine ? `<span class="meta-detail">${esc(task.engine)}</span>` : '',
     `<span class="meta-detail">${
       esc(ago(task.status_changed_at || task.created_at))} ago</span>`,
@@ -842,8 +856,14 @@ async function renderDetail(name) {
   // read to answer the latter. On a phone it is one line competing for the
   // width, and the parent's name is often longer than everything else on it.
   // The API still reports parent_name and `ilan ls` still shows the lineage.
+  //
+  // The backend is gone from here too, and it is not lost with it: the task
+  // name in the title above is already coloured by backend, the same as in the
+  // list, so the line was spending width to repeat in a word what the colour
+  // was saying anyway. The ••• sheet still names it, on the one entry that
+  // changes it.
   const sub = [
-    statusLabel(task), task.engine, task.model,
+    task.model,
     sleepSuffix(task.sleep_seconds),
     replyEverySuffix(task.reply_every_seconds),
   ].filter(Boolean).join(' · ');
@@ -885,7 +905,14 @@ async function renderDetail(name) {
         <button class="btn btn-sm" id="refresh">↻</button>
         <button class="btn btn-sm" id="actions">•••</button>
       </div>
-      <p class="hdr-sub st-${esc(status)}">${esc(sub)}</p>
+      <!-- row-meta as well as hdr-sub, and deliberately: it is the same
+           component as the card's meta line, so it reuses the card's class
+           rather than a header-only copy of it. That is what makes the pill
+           identical on both pages instead of merely similar — one rule styles
+           both, so there is nothing to keep in step. rs-* is what feeds the
+           pill its colour. -->
+      <p class="hdr-sub row-meta rs-${esc(status)}">${statusPill(task)}${
+        sub ? `<span class="meta-detail">${esc(sub)}</span>` : ''}</p>
       ${hasMore ? `
       <div class="hdr-row">
         <button class="btn btn-sm show-more" id="show-more">Show More</button>

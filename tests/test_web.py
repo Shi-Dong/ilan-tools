@@ -283,25 +283,88 @@ def test_every_status_pill_can_be_read_in_both_schemes():
             )
 
 
-def test_the_status_pill_is_only_on_the_card():
-    """The conversation header shows the same status as plain text.
+def test_the_status_pill_is_one_rule_serving_both_surfaces():
+    """The list and the conversation show the status as the same pill.
 
-    A pill there would be shouting the one thing that page is already about,
-    and the rule has to out-specify the ``.st-*`` colour it replaces, which a
-    single class would not.
+    They used to differ — a pill on a card, plain coloured text in the header —
+    which meant the same fact had two shapes and the eye had to find it twice.
+    Sameness here is structural rather than copied: the header reuses the
+    card's own ``.row-meta`` container, so a single rule styles both and there
+    is no second selector to keep in step.
+
+    The rule still has to out-specify the ``.st-*`` colour it replaces, which a
+    single class would not, so a bare ``.status`` must stay unfilled.
     """
     css = web.read_asset("app.css").decode()
+    js = web.read_asset("app.js").decode()
 
     rule = re.search(r"\.row-meta \.status \{(.*?)\}", css, re.S)
-    assert rule, "the status pill is not scoped to the card's meta row"
+    assert rule, "the status pill rule is gone"
     assert "background: var(--row-status" in rule.group(1)
     assert "border-radius: 999px" in rule.group(1)
 
-    # A bare `.status { background: ... }` would pill the header too.
     bare = re.search(r"^\.status \{(.*?)\}", css, re.S | re.M)
     assert bare, ".status is not styled at all"
     assert "background:" not in bare.group(1), (
-        "the header's status became a pill as well"
+        "a bare .status fill would beat --row-status on source order in one of "
+        "the two places, and only in one of them"
+    )
+
+    # Built in one place, so the two surfaces cannot drift into near-identical.
+    assert js.count('<span class="status') == 1, (
+        "the status span is constructed in more than one place"
+    )
+    calls = js.count("statusPill(task)") - js.count("function statusPill(task)")
+    assert calls == 2, (
+        f"the shared status pill has {calls} callers, not the list and the "
+        "conversation"
+    )
+
+
+def test_both_surfaces_carry_what_the_pill_needs_to_be_coloured():
+    """--row-status comes from an rs-* class, and the pill is silent without it.
+
+    Missing it renders a pill in the plain border grey rather than throwing, so
+    every container holding a pill has to set it. Both are checked here because
+    the failure looks like a styling choice rather than a bug.
+    """
+    js = web.read_asset("app.js").decode()
+
+    holders = re.findall(r'class="([^"]*\brow-meta\b[^"]*)"', js)
+    assert len(holders) == 2, f"expected two .row-meta containers, found {holders}"
+
+    # The card sets rs-* on the card itself rather than on its meta row, so the
+    # class is looked for on the element or on a container in the same template.
+    assert re.search(r'<div class="card rs-\$\{esc\(status\)\}', js), (
+        "the card no longer sets the status class the pill reads"
+    )
+    assert re.search(r'class="hdr-sub row-meta rs-\$\{esc\(status\)\}', js), (
+        "the conversation header no longer sets the status class the pill reads"
+    )
+
+
+def test_the_conversation_header_does_not_name_the_backend():
+    """Asked for, and the information is not lost with the word.
+
+    The task name in the title above is already coloured by backend, the same
+    as in the list, so the line was spending width to repeat in a word what the
+    colour was saying. The ••• sheet still names it, on the entry that changes
+    it — which is why this checks the sub-line rather than the file.
+    """
+    js = web.read_asset("app.js").decode()
+
+    sub = re.search(r"const sub = \[(.*?)\]", js, re.S)
+    assert sub, "the conversation sub-line is gone"
+    assert "task.engine" not in sub.group(1), (
+        f"the backend is still on the sub-line: {sub.group(1).strip()}"
+    )
+    assert "task.model" in sub.group(1), (
+        "the model went with it — the line should keep everything else"
+    )
+
+    # The compensating signal, and the reason removing the word is not a loss.
+    assert "engineClass(task)" in js, (
+        "nothing colours the task name by backend any more"
     )
 
 
