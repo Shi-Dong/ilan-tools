@@ -49,6 +49,19 @@
   --engine-claude: #a35a00;
   --engine-codex: #00479e;
 
+  /* Ink for the card's two quiet actions. These colour a glyph and a label on
+   * the card itself, so each needs 4.5:1 against it — a stricter test than the
+   * fills they replace, which only had to carry their own label.
+   *
+   * Named --act-* rather than --done/--btn-tap, which is what they were while
+   * they were fills. --done in particular sat one character away from
+   * --st-done, the DONE *status* colour, and the two mean unrelated things.
+   *
+   * Rose for closing, because the status palette already spends cyan, coral,
+   * green, sage, grey and lavender, and the accent beside it is a blue. */
+  --act-tap: #a56800;
+  --act-done: #8f3a5f;
+
   /* Fill behind a looping task's name, mirroring REPLY_EVERY_BG (grey27) in
    * cli.py. The terminal value is #444444, which is a fill for a dark
    * background; on a white card it would bury the name. This is the darkest
@@ -62,32 +75,6 @@
    * web colour. These are the same hue taken to a legible lightness for each
    * scheme: 5.94:1 here, 9.05:1 in dark mode below. */
   --sleep-fg: #7a6100;
-
-  /* Fill for the card's Done button. Not green any more, and the hue was not
-   * a free choice: the status palette already spends cyan, coral, green, grey
-   * and lavender, and the two buttons beside this one are a blue and a bronze.
-   * Rose is what is left that cannot be mistaken for a status pill or for the
-   * neutral a disabled control uses. Teal and plum were both tried and both
-   * sat too close to a status — teal on WORKING, plum on AGENT IN LOOP. */
-  --done: #8f3a5f;
-  --done-contrast: #ffffff;
-
-  /* Fill for the card's Tap button. The label is white, which is what sets
-   * this colour: white needs 4.5:1, capping the fill at 0.183 luminance, while
-   * reading as a control on the dark card needs 3:1, flooring it at 0.135.
-   * That band is narrow and it is why this is a bronze rather than a yellow —
-   * a brighter yellow cannot carry white text at all, reaching only 1.8:1.
-   *
-   * This is as far up the band as it goes: brightening further drops the label
-   * under 4.5:1, and there is very little room in any case. The whole band is
-   * worth about one point of CIELAB L*, which is at the edge of visible, so
-   * the headroom is spent on chroma as much as on lightness — a more saturated
-   * gold reads warmer where a fractionally lighter one would not read at all.
-   * 4.59:1 for the label, and 3.71:1 on a dark card.
-   *
-   * Named --btn-tap rather than --tap-*: --tap is already the 44px target. */
-  --btn-tap: #a56800;
-  --btn-tap-contrast: #ffffff;
 
   --radius: 12px;
   --tap: 44px;
@@ -124,13 +111,18 @@
     --loop-bg: #444444;
     --sleep-fg: #e0b93c;
 
-    /* The pair inverts here, as --accent does: a fill light enough to read
-     * against a dark card, with a near-black label on it. Keeping the light
-     * scheme's deep rose and putting white on it would leave the fill barely
-     * separated from the card. */
-    --done: #e0a3c0;
-    --done-contrast: #10120f;
-
+    /* Both action inks lighten here, as --accent does. The rose was already a
+     * light tint and carries straight over at 8.24:1.
+     *
+     * The amber has to change, and this is the one value the redesign forces:
+     * #a56800 was picked to sit *under* white text and reads 3.71:1 as text
+     * itself on a dark card, which is below the 4.5:1 the rest of the app
+     * holds. #e0aa3c is the same hue taken to a legible lightness, at 8.09:1.
+     * It stays off --engine-claude (#ffaf00), which colours task names in this
+     * same list: less saturated and a little deeper, so the button does not
+     * read as another Claude-coloured word. */
+    --act-tap: #e0aa3c;
+    --act-done: #e0a3c0;
   }
 }
 
@@ -259,19 +251,6 @@ button, input, textarea, select {
 }
 
 .btn-danger { color: var(--danger); }
-.btn-done {
-  background: var(--done);
-  border-color: var(--done);
-  color: var(--done-contrast);
-  font-weight: 600;
-}
-
-.btn-tap {
-  background: var(--btn-tap);
-  border-color: var(--btn-tap);
-  color: var(--btn-tap-contrast);
-  font-weight: 600;
-}
 .btn-ghost { background: transparent; border-color: transparent; }
 .btn-sm { min-height: 36px; padding: 0 10px; font-size: 14px; }
 
@@ -306,6 +285,7 @@ textarea.field {
 }
 
 .field:focus-visible,
+.act:focus-visible,
 .btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
@@ -391,14 +371,85 @@ textarea.field {
 
 .card.collapsed .row-actions { display: none; }
 
-/* Three buttons share this row at phone width, where the shared 14px of
- * horizontal padding is enough to wrap "Show Details" onto a second line and
- * make the whole row ragged. The buttons are stretched to equal widths anyway,
- * so the padding is not what is holding them apart. */
-.row-actions .btn {
+/* One filled button, two quiet ones.
+ *
+ * All three used to be saturated fills — a bronze, a rose and a blue — which
+ * put three competing colours on a card that already carries a coloured edge
+ * and a coloured status pill. Five saturated things at once is why nothing on
+ * the card led the eye, and the status, which is the only one of them carrying
+ * information, lost to the buttons rather than winning against them.
+ *
+ * So colour is spent once, on the way into the task: the safest of the three
+ * and the one reached for most. The other two keep their hues as ink and a
+ * hairline, which is enough to tell them apart at a glance without either of
+ * them shouting. Closing a task is the destructive one here, and a quiet
+ * treatment suits it — a filled rose button was the loudest thing on the card
+ * and pulled the thumb toward the one action that ends something. */
+.act {
   flex: 1 1 0;
+  min-height: var(--tap);
   padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: none;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
+
+.act-tap {
+  color: var(--act-tap);
+  border-color: color-mix(in srgb, var(--act-tap) 42%, transparent);
+}
+
+.act-done {
+  color: var(--act-done);
+  border-color: color-mix(in srgb, var(--act-done) 42%, transparent);
+}
+
+/* Wider than the other two, so which one leads survives being read at arm's
+ * length: the fill says it on colour, the width says it again on shape. */
+.act-details {
+  flex: 1.2 1 0;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+/* Pressed feedback. The quiet pair washes with its own ink, so each button
+ * confirms in its own colour; the filled one has no room to lighten and goes
+ * the other way instead. */
+.act-tap:active,
+.act-done:active {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.act-details:active {
+  background: color-mix(in srgb, var(--accent) 84%, #000000);
+}
+
+/* The glyphs. Sized in the button rather than on the sprite so one number
+ * moves them all, and stroked in currentColor so each follows the ink of the
+ * button it sits in — including the pressed and focused states, which would
+ * otherwise need a second declaration each. */
+.ico {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The sprite itself is never drawn: <symbol> is a definition, and <use> pulls
+ * from it. Hidden so it cannot occupy a line box at the top of the page. */
+.sprite { display: none; }
 
 /* Collapsed shows what `ilan ls -c` shows: pin, alias, name, unread marker
  * and status. The summary, the engine, the age and the sleep suffix are the

@@ -435,6 +435,22 @@ function wireBack() {
 
 // ── list view ────────────────────────────────────────────────────────
 
+/** One of the glyphs defined by the sprite in index.html.
+ *
+ * The names are fixed by that sprite, so this takes a key rather than a path:
+ * a caller cannot pass an id that does not exist without changing this list
+ * too, and a mistyped id is invisible — <use> pointing at nothing renders no
+ * glyph and throws nothing.
+ *
+ * aria-hidden throughout: every one of these sits beside a real text label, so
+ * announcing it would repeat the label as a shape.
+ */
+const ICONS = { send: 'i-send', check: 'i-check', chevron: 'i-chevron' };
+
+function icon(name) {
+  return `<svg class="ico" aria-hidden="true"><use href="#${ICONS[name]}"></use></svg>`;
+}
+
 function taskRow(task) {
   const status = displayStatus(task);
   // `ls -c` shows only the pin, alias, name, unread marker and status, so the
@@ -473,12 +489,12 @@ function taskRow(task) {
       </button>
       <div class="row-actions">
         ${TERMINAL_STATUSES.has(task.status) ? '' : `
-        <button class="btn btn-sm btn-tap act-tap"
-                data-tap="${esc(task.name)}">Tap</button>
-        <button class="btn btn-sm btn-done act-done"
-                data-done="${esc(task.name)}">Done</button>`}
-        <button class="btn btn-sm btn-primary act-details"
-                data-details="${esc(task.name)}">Show Details</button>
+        <button class="act act-tap" data-tap="${esc(task.name)}">
+          ${icon('send')}<span>Tap</span></button>
+        <button class="act act-done" data-done="${esc(task.name)}">
+          ${icon('check')}<span>Done</span></button>`}
+        <button class="act act-details" data-details="${esc(task.name)}">
+          <span>Details</span>${icon('chevron')}</button>
       </div>
     </div>`;
 }
