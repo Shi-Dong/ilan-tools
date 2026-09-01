@@ -165,7 +165,7 @@ class TestAttachCodex:
                 "status": "NEEDS_ATTENTION",
                 "session_id": "thread-456",
                 "engine": "codex",
-                "model": "claude-fable-5",
+                "model": "claude-fable-5-1",
             }
         })
         with (
@@ -179,7 +179,7 @@ class TestAttachCodex:
         assert result.exit_code == 0
         argv = mock_execvp.call_args[0][1]
         model = argv[argv.index("--model") + 1]
-        assert model != "claude-fable-5"
+        assert model != "claude-fable-5-1"
 
     def test_codex_missing_log_reports_not_found(self, runner: CliRunner, tmp_config) -> None:
         client = _make_client({
@@ -304,7 +304,7 @@ class TestAttachSuccess:
                 "name": "pinned-task",
                 "status": "NEEDS_ATTENTION",
                 "session_id": "sess-pin",
-                "model": "claude-fable-5",
+                "model": "claude-fable-5-1",
             }
         })
         with (
@@ -317,7 +317,7 @@ class TestAttachSuccess:
 
         assert result.exit_code == 0
         argv = mock_execvp.call_args[0][1]
-        assert argv[argv.index("--model") + 1] == "claude-fable-5"
+        assert argv[argv.index("--model") + 1] == "claude-fable-5-1"
 
     def test_shorthand_attach(self, runner: CliRunner, tmp_config) -> None:
         client = _make_client({

@@ -197,10 +197,10 @@ class TestLoad:
     def test_load_keeps_exact_model_ids(self, tmp_config: Path) -> None:
         tmp_config.parent.mkdir(parents=True, exist_ok=True)
         with open(tmp_config, "w") as f:
-            json.dump({"model-claude": "claude-fable-5",
+            json.dump({"model-claude": "claude-fable-5-1",
                        "model-codex": "gpt-5.1-codex-max"}, f)
         conf = cfg.load()
-        assert conf["model-claude"] == "claude-fable-5"
+        assert conf["model-claude"] == "claude-fable-5-1"
         assert conf["model-codex"] == "gpt-5.1-codex-max"
 
 
@@ -255,7 +255,7 @@ class TestModelIdValidation:
         "claude-opus-4-7",
         "claude-sonnet-4-6",
         "claude-haiku-4-5-20251001",
-        "claude-fable-5",
+        "claude-fable-5-1",
     ])
     def test_accepts_exact_claude_ids(self, value: str) -> None:
         assert cfg.is_valid_model_id("model-claude", value)

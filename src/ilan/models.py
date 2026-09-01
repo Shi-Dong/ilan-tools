@@ -105,9 +105,16 @@ class TaskStatus(str, Enum):
         return self in (TaskStatus.DONE, TaskStatus.DISCARDED)
 
 
-# Anthropic's Mythos-class "Fable" model. Tasks "maxed" via ``ilan max`` run
-# on this model instead of the configured default; ``ilan unmax`` clears it.
-FABLE_MODEL = "claude-fable-5"
+# Anthropic's "Fable" model. Tasks "maxed" via ``ilan max`` run on this model
+# instead of the configured default; ``ilan unmax`` clears it.
+FABLE_MODEL = "claude-fable-5-1"
+
+# Fable ids this repo pinned before ``FABLE_MODEL`` was bumped. A task keeps
+# whichever id it was maxed on, so those older ids still have to read as Fable:
+# the ``FABLE`` tag stays on the task, and the codex backend keeps dropping the
+# Claude-only override instead of handing it to ``codex exec --model``. Maxing
+# a task again rewrites it to ``FABLE_MODEL``.
+LEGACY_FABLE_MODELS: tuple[str, ...] = ("claude-fable-5",)
 
 # Shortest allowed ``reply -t`` interval (CLI and server both enforce it):
 # more frequent re-sends would interrupt the agent faster than it can make
@@ -128,7 +135,8 @@ CANCEL_MESSAGE = (
 
 
 def is_fable_model(model: str | None) -> bool:
-    return model == FABLE_MODEL
+    """Whether *model* is Fable — the current id or one it superseded."""
+    return model == FABLE_MODEL or model in LEGACY_FABLE_MODELS
 
 
 # ── Agent backends (engines) ─────────────────────────────────────────────

@@ -411,7 +411,7 @@ class TestConfig:
         self, ilan_server: IlanServer
     ) -> None:
         for key, value in (
-            ("model-claude", "claude-fable-5"),
+            ("model-claude", "claude-fable-5-1"),
             ("model-codex", "gpt-5.1-codex-max"),
         ):
             resp = _post(ilan_server, "/config/set", {"key": key, "value": value})
@@ -2004,10 +2004,10 @@ class TestMaxUnmax:
         _post(ilan_server, "/tasks", {"name": "max-test", "prompt": "P"})
         resp = _post(ilan_server, "/tasks/max-test/max")
         assert resp.get("ok") is True
-        assert resp["model"] == "claude-fable-5"
+        assert resp["model"] == "claude-fable-5-1"
 
         task = _get(ilan_server, "/tasks/max-test")["task"]
-        assert task["model"] == "claude-fable-5"
+        assert task["model"] == "claude-fable-5-1"
 
     def test_unmax_clears_model(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "unmax-test", "prompt": "P"})
@@ -2029,7 +2029,7 @@ class TestMaxUnmax:
         _post(ilan_server, "/tasks/model-list/max")
         resp = _get(ilan_server, "/tasks")
         row = next(t for t in resp["tasks"] if t["name"] == "model-list")
-        assert row["model"] == "claude-fable-5"
+        assert row["model"] == "claude-fable-5-1"
 
     def test_max_accepts_alias(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "max-alias", "prompt": "P"})

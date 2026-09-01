@@ -32,8 +32,8 @@ class TestBuildCommand:
         assert "--resume" not in cmd
 
     def test_model_override_wins(self, backend: ClaudeBackend, tmp_config: Path) -> None:
-        cmd, _ = backend.build_command("claude-fable-5", resume=False, session_id=None)
-        assert cmd[cmd.index("--model") + 1] == "claude-fable-5"
+        cmd, _ = backend.build_command("claude-fable-5-1", resume=False, session_id=None)
+        assert cmd[cmd.index("--model") + 1] == "claude-fable-5-1"
 
     def test_falls_back_to_config_model(
         self, backend: ClaudeBackend, tmp_config: Path

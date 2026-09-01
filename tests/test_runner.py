@@ -468,7 +468,7 @@ class TestTryReap:
         no model — it must not inherit the task's cached previous-turn model
         (which, after a backend switch, could be the other engine's)."""
         t = Task(name="t-stale", prompt="p", status=TaskStatus.WORKING, pid=99999)
-        t.last_assistant_model = "claude-fable-5"  # stale prior-turn cache
+        t.last_assistant_model = "claude-fable-5-1"  # stale prior-turn cache
         store.put_task(t)
         out = {"session_id": "sid-stale", "result": "ok\n[STATUS: DONE]", "is_error": False}
         store.output_path("t-stale").write_text(json.dumps(out))
@@ -1069,7 +1069,7 @@ class TestSpawn:
                       "model-claude": "claude-opus-4-7"})
 
         runner = Runner(store)
-        t = Task(name="model-override", prompt="do work", model="claude-fable-5")
+        t = Task(name="model-override", prompt="do work", model="claude-fable-5-1")
         store.put_task(t)
 
         with patch("subprocess.Popen") as mock_popen:
@@ -1078,7 +1078,7 @@ class TestSpawn:
             runner._spawn(t, "do work", resume=False)
             cmd = mock_popen.call_args[0][0]
             assert "--model" in cmd
-            assert cmd[cmd.index("--model") + 1] == "claude-fable-5"
+            assert cmd[cmd.index("--model") + 1] == "claude-fable-5-1"
 
     def test_spawn_falls_back_to_config_model(
         self, store: Store, tmp_workdir: Path, tmp_config: Path,

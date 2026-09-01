@@ -231,7 +231,7 @@ class TestLsNoArgs:
                     "engine": ENGINE_CLAUDE,
                     "pinned": True,
                     "needs_review": True,
-                    "model": "claude-fable-5",
+                    "model": "claude-fable-5-1",
                     "created_at": "2026-04-13T00:00:00+00:00",
                     "status_changed_at": "2026-04-13T01:00:00+00:00",
                     "gist_url": "https://example.com/history",
@@ -1268,7 +1268,7 @@ class TestUnreadShorthand:
 class TestMaxShorthand:
     def test_max_success(self, runner: CliRunner, tmp_config) -> None:
         client = _make_client()
-        client.max_task.return_value = {"name": "my-task", "model": "claude-fable-5"}
+        client.max_task.return_value = {"name": "my-task", "model": "claude-fable-5-1"}
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["max", "my-task"])
         assert result.exit_code == 0
@@ -1277,7 +1277,7 @@ class TestMaxShorthand:
 
     def test_task_max_success(self, runner: CliRunner, tmp_config) -> None:
         client = _make_client()
-        client.max_task.return_value = {"name": "my-task", "model": "claude-fable-5"}
+        client.max_task.return_value = {"name": "my-task", "model": "claude-fable-5-1"}
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["task", "max", "my-task"])
         assert result.exit_code == 0
@@ -1404,7 +1404,7 @@ class TestReplyMaxFlags:
             "name": "my-task",
             "message": "Reply sent to my-task. Agent resumed.",
         }
-        client.max_task.return_value = {"name": "my-task", "model": "claude-fable-5"}
+        client.max_task.return_value = {"name": "my-task", "model": "claude-fable-5-1"}
         client.unmax_task.return_value = {"name": "my-task", "model": None}
         return client
 
@@ -1452,7 +1452,7 @@ class TestReplyMaxFlags:
             "model": None,
             "warning": (
                 "Task my-task runs on the codex backend; Fable "
-                "(claude-fable-5) is a Claude-only model, so max did nothing."
+                "(claude-fable-5-1) is a Claude-only model, so max did nothing."
             ),
         }
         with patch("ilan.cli._client", return_value=client):
@@ -1468,7 +1468,7 @@ class TestReplyMaxFlags:
     def test_reply_unmax_resets_then_replies(
         self, runner: CliRunner, tmp_config
     ) -> None:
-        client = self._client_for_reply(model="claude-fable-5")
+        client = self._client_for_reply(model="claude-fable-5-1")
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["reply", "my-task", "go on", "--unmax"])
         assert result.exit_code == 0
@@ -1483,7 +1483,7 @@ class TestReplyMaxFlags:
     ) -> None:
         """A task already on Fable is left alone: no switch call, no output
         beyond the reply confirmation."""
-        client = self._client_for_reply(model="claude-fable-5")
+        client = self._client_for_reply(model="claude-fable-5-1")
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["reply", "my-task", "go on", "--max"])
         assert result.exit_code == 0
@@ -1492,6 +1492,20 @@ class TestReplyMaxFlags:
         out = _strip_ansi(result.output)
         assert "FABLE" not in out
         assert "Reply sent to my-task." in out
+
+    def test_max_on_legacy_fable_task_switches(
+        self, runner: CliRunner, tmp_config
+    ) -> None:
+        """A task pinned to an older Fable id is not in the requested state:
+        --max moves it up to the current one before posting the reply."""
+        client = self._client_for_reply(model="claude-fable-5")
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["reply", "my-task", "go on", "--max"])
+        assert result.exit_code == 0
+        client.max_task.assert_called_once_with("my-task")
+        client.reply.assert_called_once_with("my-task", "go on")
+        names = [c[0] for c in client.method_calls]
+        assert names.index("max_task") < names.index("reply")
 
     def test_unmax_on_default_model_is_silent_noop(
         self, runner: CliRunner, tmp_config
@@ -1578,7 +1592,7 @@ class TestFableRendering:
                     "created_at": "2026-04-13T00:00:00+00:00",
                     "status_changed_at": "2026-04-13T01:00:00+00:00",
                     "needs_review": False,
-                    "model": "claude-fable-5",
+                    "model": "claude-fable-5-1",
                 },
             ],
         }
@@ -1614,7 +1628,7 @@ class TestFableRendering:
             "alias": "aa",
             "status": "WORKING",
             "needs_review": False,
-            "model": "claude-fable-5",
+            "model": "claude-fable-5-1",
         }
         name_cell = _build_name_cell(row)
         assert "FABLE" in name_cell.plain
@@ -1630,7 +1644,7 @@ class TestFableRendering:
     def test_name_cell_fable_shown_on_claude_engine(self) -> None:
         """A Fable task still driven by Claude keeps the FABLE note."""
         row = {"name": "maxed-task", "alias": "", "status": "WORKING",
-               "needs_review": False, "model": "claude-fable-5",
+               "needs_review": False, "model": "claude-fable-5-1",
                "engine": "claude"}
         name_cell = _build_name_cell(row)
         assert "FABLE" in name_cell.plain
@@ -1639,16 +1653,25 @@ class TestFableRendering:
         """Fable is Claude-only: once the task is switched to Codex the note is
         dropped even though the stored model is still Fable."""
         row = {"name": "maxed-task", "alias": "", "status": "WORKING",
-               "needs_review": False, "model": "claude-fable-5",
+               "needs_review": False, "model": "claude-fable-5-1",
                "engine": "codex"}
         name_cell = _build_name_cell(row)
         assert "FABLE" not in name_cell.plain
+
+    def test_name_cell_fable_shown_for_legacy_model(self) -> None:
+        """A task maxed before the model bump still holds the older Fable id,
+        and is still running Fable — so it keeps the tag."""
+        row = {"name": "maxed-task", "alias": "", "status": "WORKING",
+               "needs_review": False, "model": "claude-fable-5",
+               "engine": "claude"}
+        name_cell = _build_name_cell(row)
+        assert "FABLE" in name_cell.plain
 
     def test_name_cell_fable_shown_for_unknown_engine(self) -> None:
         """An unrecognized engine runs on the Claude backend (Runner._backend_for
         falls back to it), which honors the Fable override — so the tag shows."""
         row = {"name": "maxed-task", "alias": "", "status": "WORKING",
-               "needs_review": False, "model": "claude-fable-5",
+               "needs_review": False, "model": "claude-fable-5-1",
                "engine": "some-future-engine"}
         name_cell = _build_name_cell(row)
         assert "FABLE" in name_cell.plain
