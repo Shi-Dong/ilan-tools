@@ -190,7 +190,7 @@ Notes:
 | `ilan task unread NAME [NAME...]` | Restore the unread marker on task(s) |
 | `ilan task pin NAME` | Pin a task to the top of `ilan ls` / `ilan dashboard`; the row is marked with a `→` before its `(Alias) Name`. A pinned `DONE` / `DISCARDED` task stays visible without `-a` |
 | `ilan task unpin NAME` | Remove the pin, returning the task to its place in creation order (and hiding it again if it is `DONE` / `DISCARDED`) |
-| `ilan task max NAME` | Run this task on the Fable model (`claude-fable-5`) instead of the default; a red `FABLE` tag shows beneath the task name in `ilan ls` / `ilan dashboard`. Takes effect on the task's next agent spawn. Fable is Claude-only, so this is a no-op (with a warning) on a `codex` task — switch it to `claude` first. The tag is hidden while the task is on `codex` (Fable is inactive there) and reappears when it is switched back to `claude`. |
+| `ilan task max NAME` | Run this task on the Fable model (`claude-fable-5-1`) instead of the default; a red `FABLE` tag shows beneath the task name in `ilan ls` / `ilan dashboard`. Takes effect on the task's next agent spawn. Fable is Claude-only, so this is a no-op (with a warning) on a `codex` task — switch it to `claude` first. The tag is hidden while the task is on `codex` (Fable is inactive there) and reappears when it is switched back to `claude`. |
 | `ilan task unmax NAME` | Reset the task's model back to the `model-claude` config default |
 | `ilan task switch-backend NAME` | Toggle the task's agent backend (`claude` ↔ `codex`). Lazy: takes effect on the task's next spawn, and the new backend catches up on its next turn. Not allowed on a `WORKING` task (warns and does nothing) — wait for the agent to finish or kill it first. See [Agent backends](#agent-backends) |
 | `ilan task rm NAME [NAME...]` | Delete task(s) and all their data; surviving descendants remain and are re-parented |
@@ -483,15 +483,15 @@ remote `ilan` server (set it on the machine you're running the CLI on).
 ### Fable model (`ilan max` / `ilan unmax`)
 
 ```bash
-ilan max my-task      # run my-task on claude-fable-5
+ilan max my-task      # run my-task on claude-fable-5-1
 ilan unmax my-task    # back to the default model
 ilan add -n my-task -d "…" --max   # create a task already on Fable
 ilan reply my-task "…" --max       # switch to Fable, then post the reply
 ilan reply my-task "…" --unmax     # back to the default model, then reply
 ```
 
-`ilan max` pins a single task to Anthropic's Mythos-class **Fable** model
-(`claude-fable-5`), leaving every other task on the configured `model-claude`
+`ilan max` pins a single task to Anthropic's **Fable** model
+(`claude-fable-5-1`), leaving every other task on the configured `model-claude`
 default. While a task is maxed, a red `FABLE` tag is rendered on its own
 line beneath the task name in `ilan ls` and `ilan dashboard` (hidden while
 the task is on the `codex` backend, since Fable is Claude-only and inactive
@@ -504,11 +504,13 @@ next agent spawn (the next reply), not on an already-running agent.
 `--unmax` to combine the two steps: the model is switched first, then the
 reply is posted, so the reply's own turn already runs on the new model and
 the switch persists for every message after it. If the model is already in
-the requested state (`--max` on a task already running Fable, `--unmax` on
-a task already on the default model), the switch is silently skipped and
-the reply is posted as usual. `--max` on a `codex` task prints the same
-warning as `ilan max` and posts the reply with the model untouched. Both
-flags require a reply message and are mutually exclusive.
+the requested state (`--max` on a task already on `claude-fable-5-1`,
+`--unmax` on a task already on the default model), the switch is silently
+skipped and the reply is posted as usual. A task still pinned to an older
+Fable id is not "already maxed": `--max` moves it up to `claude-fable-5-1`.
+`--max` on a `codex` task prints the same warning as `ilan max` and posts
+the reply with the model untouched. Both flags require a reply message and
+are mutually exclusive.
 
 ## Web app
 

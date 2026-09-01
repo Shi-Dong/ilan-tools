@@ -16,6 +16,7 @@ from ilan.models import (
     ENGINE_CODEX,
     ENGINE_NAME_STYLE,
     FABLE_MODEL,
+    LEGACY_FABLE_MODELS,
     STYLE_FOR_STATUS,
     VALID_ENGINES,
     LogEntry,
@@ -513,7 +514,7 @@ class TestTask:
 
 class TestFableModel:
     def test_fable_model_value(self) -> None:
-        assert FABLE_MODEL == "claude-fable-5"
+        assert FABLE_MODEL == "claude-fable-5-1"
 
     def test_is_fable_model_true(self) -> None:
         assert is_fable_model(FABLE_MODEL)
@@ -524,6 +525,17 @@ class TestFableModel:
 
     def test_is_fable_model_none(self) -> None:
         assert not is_fable_model(None)
+
+    def test_legacy_fable_ids_still_read_as_fable(self) -> None:
+        """Tasks maxed before the model bump keep the id they were pinned to.
+        They must still count as Fable, or the codex backend would hand a
+        Claude-only model to ``codex exec --model``."""
+        assert LEGACY_FABLE_MODELS  # a bump without an entry here is a bug
+        for model in LEGACY_FABLE_MODELS:
+            assert is_fable_model(model)
+
+    def test_current_fable_id_is_not_listed_as_legacy(self) -> None:
+        assert FABLE_MODEL not in LEGACY_FABLE_MODELS
 
 
 # ── generate_task_hash ─────────────────────────────────────────────────

@@ -90,8 +90,9 @@ class CodexBackend(Backend):
         # A task's ``model`` override only makes sense for the engine that set
         # it. ``ilan max`` pins a task to Fable (a Claude-only model); if such a
         # task is later switched to codex the stale override would spawn
-        # ``codex exec --model claude-fable-5``, which codex can't load. Ignore
-        # any Claude-only override here and fall back to the codex default.
+        # ``codex exec --model claude-fable-5-1``, which codex can't load.
+        # Ignore any Claude-only override here (including a Fable id from
+        # before the model bump) and fall back to the codex default.
         model = None if is_fable_model(model_override) else model_override
         cmd += ["--model", model or str(conf["model-codex"])]
         # `-` makes codex read the prompt from stdin.

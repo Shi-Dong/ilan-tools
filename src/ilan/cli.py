@@ -1355,12 +1355,17 @@ def task_tail(name: str, num: int | None, markdown: bool, line_number: bool | No
 # ── task reply ───────────────────────────────────────────────────────
 
 def _model_switch_needed(name: str, max_: bool) -> bool:
-    """Return False when the task's model is already in the requested state."""
+    """Return False when the task's model is already in the requested state.
+
+    ``--max`` compares against ``FABLE_MODEL`` rather than asking
+    ``is_fable_model``: a task pinned to a superseded Fable id is still Fable,
+    but it is not on the id ``--max`` means, so it needs the switch to move up.
+    """
     resp = _client().get_task(name)
     if _check_error(resp):
         raise SystemExit(1)
     model = resp.get("task", {}).get("model")
-    return not is_fable_model(model) if max_ else model is not None
+    return model != FABLE_MODEL if max_ else model is not None
 
 
 def _print_reply_confirmation(message: str, task_name: str | None) -> None:
@@ -2205,7 +2210,7 @@ def _do_unmax(name: str) -> None:
 @task_group.command("max")
 @click.argument("name", shell_complete=_complete_task_names)
 def task_max(name: str) -> None:
-    """Run a task on the Fable model (claude-fable-5)."""
+    """Run a task on the Fable model (claude-fable-5-1)."""
     _do_max(name)
 
 
