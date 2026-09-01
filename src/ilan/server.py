@@ -27,6 +27,7 @@ from ilan.models import (
     DEFAULT_ENGINE,
     ENGINE_CLAUDE,
     FABLE_MODEL,
+    runs_on_fable,
     REPLY_EVERY_MIN_SECONDS,
     TAP_MESSAGE,
     VALID_ENGINES,
@@ -499,6 +500,13 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     "model": t.model,
                     "gist_url": t.gist_url,
                     "engine": t.engine,
+                    # Computed here rather than in the web app: the answer
+                    # depends on FABLE_MODEL, LEGACY_FABLE_MODELS and which
+                    # backends honour the pin, and a copy of any of that in
+                    # JavaScript would drift the first time one of them moved.
+                    # The list is the only view that shows the tag, so this is
+                    # the only payload that carries it.
+                    "fable": runs_on_fable(t.engine, t.model),
                 })
             self._json({"tasks": rows})
 

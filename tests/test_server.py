@@ -559,6 +559,42 @@ class TestTasksCRUD:
         row = next(t for t in resp["tasks"] if t["name"] == "engine-list")
         assert row["engine"] == "codex"
 
+    # The web app reads `fable` off the list row rather than matching model ids
+    # itself, so the row has to say the right thing in each of the states the
+    # CLI's FABLE note distinguishes.
+    def test_list_row_flags_a_maxed_task_as_fable(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "fable-row", "prompt": "P", "max": True})
+        row = next(t for t in _get(ilan_server, "/tasks")["tasks"] if t["name"] == "fable-row")
+        assert row["fable"] is True
+        assert row["model"] == FABLE_MODEL
+
+    def test_list_row_does_not_flag_a_plain_task(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "plain-row", "prompt": "P"})
+        row = next(t for t in _get(ilan_server, "/tasks")["tasks"] if t["name"] == "plain-row")
+        assert row["fable"] is False
+
+    def test_list_row_drops_the_flag_on_codex_but_keeps_the_pin(
+        self, ilan_server: IlanServer,
+    ) -> None:
+        """Fable is Claude-only, so a maxed task moved to codex is not on it.
+
+        The stored model must survive the switch, so that switching back puts
+        the task on Fable again — the flag tracks where the task *runs*, the
+        model tracks what it is *pinned* to, and only the first is shown.
+        """
+        _post(ilan_server, "/tasks", {"name": "fable-codex", "prompt": "P", "max": True})
+        _park(ilan_server, "fable-codex")
+        _post(ilan_server, "/tasks/fable-codex/switch-backend")  # → codex
+
+        row = next(t for t in _get(ilan_server, "/tasks")["tasks"] if t["name"] == "fable-codex")
+        assert row["engine"] == "codex"
+        assert row["fable"] is False, "the tag is shown for a backend that will not run Fable"
+        assert row["model"] == FABLE_MODEL, "the pin was cleared rather than merely not shown"
+
+        _post(ilan_server, "/tasks/fable-codex/switch-backend")  # → claude again
+        row = next(t for t in _get(ilan_server, "/tasks")["tasks"] if t["name"] == "fable-codex")
+        assert row["fable"] is True, "switching back to Claude did not restore the tag"
+
     def test_list_tasks_hides_terminal(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "will-done", "prompt": "P"})
         _post(ilan_server, "/tasks/will-done/done")

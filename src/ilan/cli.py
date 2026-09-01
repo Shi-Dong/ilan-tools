@@ -48,7 +48,7 @@ from ilan.models import (
     display_status,
     format_cost_usd,
     is_burnable_name,
-    is_fable_model,
+    runs_on_fable,
 )
 from ilan.server import read_server_info
 from ilan.store import Store
@@ -665,7 +665,7 @@ def _build_name_cell(row: dict) -> Text:
         # Extend the background under the pin/alias/name so the whole label is
         # highlighted; the FABLE line is appended later and stays unfilled.
         cell.stylize(f"on {REPLY_EVERY_BG}")
-    if engine != ENGINE_CODEX and is_fable_model(row.get("model")):
+    if runs_on_fable(engine, row.get("model")):
         cell.append("\nFABLE", style="bold red")
     return cell
 

@@ -26,6 +26,7 @@ from ilan.models import (
     format_cost_usd,
     generate_task_hash,
     is_fable_model,
+    runs_on_fable,
     other_engine,
     parse_task_number,
     validate_task_name,
@@ -525,6 +526,36 @@ class TestFableModel:
 
     def test_is_fable_model_none(self) -> None:
         assert not is_fable_model(None)
+
+    # runs_on_fable is the predicate behind the red FABLE tag in `ls`, the
+    # dashboard and the web app. It is one function so the three cannot
+    # disagree; these pin the two halves of what it asks.
+    def test_runs_on_fable_needs_the_pin(self) -> None:
+        assert runs_on_fable(ENGINE_CLAUDE, FABLE_MODEL)
+        assert not runs_on_fable(ENGINE_CLAUDE, None)
+        assert not runs_on_fable(ENGINE_CLAUDE, "claude-opus-4-7")
+
+    def test_runs_on_fable_keeps_a_legacy_pin(self) -> None:
+        """A task maxed before the bump stays tagged, exactly as `ls` does."""
+        for legacy in LEGACY_FABLE_MODELS:
+            assert runs_on_fable(ENGINE_CLAUDE, legacy)
+
+    def test_runs_on_fable_is_false_on_codex(self) -> None:
+        """Fable is Claude-only: codex drops the pin, so the task is not on it.
+
+        The pin itself is untouched, which is why this takes the model as an
+        argument rather than clearing it — switching back to Claude has to put
+        the tag back.
+        """
+        assert not runs_on_fable(ENGINE_CODEX, FABLE_MODEL)
+        for legacy in LEGACY_FABLE_MODELS:
+            assert not runs_on_fable(ENGINE_CODEX, legacy)
+
+    def test_runs_on_fable_treats_no_engine_as_the_default(self) -> None:
+        """A task that predates the engine field runs on the default backend,
+        which is Claude — the same fallback `_build_name_cell` takes."""
+        assert runs_on_fable(None, FABLE_MODEL)
+        assert not runs_on_fable(None, None)
 
     def test_legacy_fable_ids_still_read_as_fable(self) -> None:
         """Tasks maxed before the model bump keep the id they were pinned to.
