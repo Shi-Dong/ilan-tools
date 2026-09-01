@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.client
 import json
 import re
+from pathlib import Path
 import struct
 
 from ilan import web
@@ -882,15 +883,104 @@ def test_the_working_duration_is_measured_from_when_the_task_started_working():
     assert "secondsSince(task.status_changed_at)" in js
 
 
+# ── the FABLE tag ───────────────────────────────────────────────────────
+
+def test_the_fable_tag_is_the_apps_red_and_legible_in_both_schemes():
+    """Bold red text beside the status pill, as `ilan ls` prints it.
+
+    Held to --danger rather than to a literal so it lightens in dark mode with
+    every other red: a dark red kept dark sits at 3.0:1 on a dark card, under
+    the 4.5:1 that eleven-pixel text needs. The contrast is asserted directly
+    in both schemes rather than trusted to the variable, since --danger was
+    tuned for larger text and could move.
+    """
+    css = web.read_asset("app.css").decode()
+    light, dark = _scheme_values(css)
+
+    rule = re.search(r"\n\.fable \{(.*?)\}", css, re.S)
+    assert rule, "the FABLE tag has no rule"
+    assert "color: var(--danger)" in rule.group(1), "the tag is not the app's red"
+    assert "background" not in rule.group(1), (
+        "a filled red tag beside a filled status pill reads as a second status"
+    )
+
+    for scheme, values in (("light", light), ("dark", dark)):
+        ink, card = values["--danger"], values["--bg-elevated"]
+        assert _contrast(ink, card) >= 4.5, (
+            f"{scheme}: FABLE is {ink} on {card}, only {_contrast(ink, card):.2f}:1"
+        )
+        r, g, b = (int(ink[i:i + 2], 16) for i in (1, 3, 5))
+        assert r > g and r > b, f"{scheme}: --danger is {ink}, which is not a red"
+
+
+def test_the_fable_tag_survives_collapsing():
+    """Which tasks are burning the expensive model is worth knowing from the
+    list, and most of the list is only ever seen collapsed.
+
+    So the tag is not a .meta-detail — that class is exactly the set of things
+    a collapsed card hides — and no rule hides it by name either.
+    """
+    css = web.read_asset("app.css").decode()
+    js = web.read_asset("app.js").decode()
+
+    assert ".card.collapsed .fable" not in css, "the tag is hidden when collapsed"
+    tag = re.search(r"task\.fable \? '(<span[^>]*>)FABLE</span>'", js)
+    assert tag, "the card no longer renders a FABLE tag from the server's flag"
+    assert "meta-detail" not in tag.group(1), (
+        "the tag carries the class that collapsing hides"
+    )
+    assert 'class="fable"' in tag.group(1)
+
+
+def test_the_web_app_is_told_which_tasks_are_fable_rather_than_working_it_out():
+    """The answer depends on FABLE_MODEL, LEGACY_FABLE_MODELS and which backends
+    honour the pin. Every copy of that outside models.py is a future bug — the
+    model bump already has to remember LEGACY_FABLE_MODELS — so the web app
+    reads a flag the server computes with the same predicate `ls` uses.
+    """
+    js = web.read_asset("app.js").decode()
+    server = (Path(web.__file__).parent.parent / "server.py").read_text()
+    cli = (Path(web.__file__).parent.parent / "cli.py").read_text()
+
+    assert "task.fable" in js, "the card does not read the server's flag"
+    assert "fable-5" not in js, "a Fable model id is spelled out in the web app"
+    assert "task.model" not in js.split("function taskRow")[1].split("\n}\n")[0], (
+        "the card inspects the model itself instead of trusting the flag"
+    )
+
+    assert '"fable": runs_on_fable(t.engine, t.model)' in server, (
+        "the list row no longer carries the flag, or computes it differently"
+    )
+    assert "runs_on_fable(engine, row.get(\"model\"))" in cli, (
+        "the CLI's FABLE note no longer uses the shared predicate"
+    )
+    assert "is_fable_model(row.get" not in cli, (
+        "the CLI still spells the rule out beside the shared predicate"
+    )
+
+
+def test_the_card_no_longer_names_the_backend():
+    """The task name is coloured by backend, so the word repeated the colour.
+
+    Checked on the meta row rather than the file: the engine class on the name
+    is the reason removing the word is safe, and it must stay.
+    """
+    js = web.read_asset("app.js").decode()
+    row = js.split("function taskRow")[1].split("\n}\n")[0]
+
+    assert "task.engine" not in row, "the card still spells out the backend"
+    assert "engineClass(task)" in row, "the name is no longer coloured by backend"
+
+
 # ── the collapsed card ──────────────────────────────────────────────────
 
 def test_a_collapsed_card_hides_the_summary_and_the_metadata():
     """The collapsed view is defined by CSS, so assert the rules exist.
 
-    A collapsed card shows the pin, alias, name, unread marker and status. The
-    summary, the engine and the age are what it drops, hidden by class rather
-    than by a second rendering path — so losing one of these selectors would
-    quietly put the detail back.
+    A collapsed card shows the pin, alias, name, unread marker, status and the
+    FABLE tag. The summary and the age are what it drops, hidden by class
+    rather than by a second rendering path — so losing one of these selectors
+    would quietly put the detail back.
     """
     css = web.read_asset("app.css").decode()
 

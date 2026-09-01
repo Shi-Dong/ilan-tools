@@ -139,6 +139,26 @@ def is_fable_model(model: str | None) -> bool:
     return model == FABLE_MODEL or model in LEGACY_FABLE_MODELS
 
 
+def runs_on_fable(engine: str | None, model: str | None) -> bool:
+    """Whether a task is actually running on Fable.
+
+    Two things have to hold: the task is pinned to a Fable id, and it is on a
+    backend that honours the pin. Fable is Claude-only. Every engine except
+    codex runs on the Claude backend (see ``Runner._backend_for``), which
+    applies the override; codex drops it rather than handing a Claude-only id
+    to ``codex exec --model``. So a codex task pinned to Fable is *not* on
+    Fable, and a tag saying it was would be wrong. The stored model is left
+    alone, so switching the task back to Claude puts it on Fable again.
+
+    An absent engine predates the field and runs on the default backend.
+
+    This is the predicate behind the red ``FABLE`` tag wherever it appears —
+    ``ilan ls``, ``ilan dashboard`` and the web app — so that the three cannot
+    disagree about which tasks carry it.
+    """
+    return (engine or DEFAULT_ENGINE) != ENGINE_CODEX and is_fable_model(model)
+
+
 # ── Agent backends (engines) ─────────────────────────────────────────────
 # A task's ``engine`` names which agent CLI drives it. It defaults to Claude
 # Code for backward compatibility; ``ilan switch-backend`` toggles it. Each

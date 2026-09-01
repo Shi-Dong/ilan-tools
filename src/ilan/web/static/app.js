@@ -468,12 +468,21 @@ function statusPill(task) {
 function taskRow(task) {
   const status = displayStatus(task);
   // `ls -c` shows only the pin, alias, name, unread marker and status, so the
-  // engine and the age are the parts a collapsed row drops. They are tagged
-  // rather than omitted so collapsing is a class on the card, not a second
-  // rendering path that could drift from this one.
+  // age is the part a collapsed row drops. It is tagged rather than omitted so
+  // collapsing is a class on the card, not a second rendering path that could
+  // drift from this one.
+  //
+  // No backend name: the task name above is already coloured by backend, the
+  // same as in `ilan ls`, so the word repeated what the colour was saying.
+  //
+  // The FABLE tag is deliberately *not* a .meta-detail — it has to survive
+  // collapsing, since which tasks are burning the expensive model is worth
+  // knowing from the list most of it is only ever seen as. Whether a task
+  // carries it is the server's call (see handle_list_tasks): the model ids and
+  // the backend rule live in models.py, and this only reads the answer.
   const meta = [
     statusPill(task),
-    task.engine ? `<span class="meta-detail">${esc(task.engine)}</span>` : '',
+    task.fable ? '<span class="fable">FABLE</span>' : '',
     `<span class="meta-detail">${
       esc(ago(task.status_changed_at || task.created_at))} ago</span>`,
   ].filter(Boolean).join('');
