@@ -43,6 +43,7 @@ const LIST_SELECTORS = {
   '.act-tap': 'tap',
   '.act-details': 'details',
   '.act-done': 'done',
+  '.act-revive': 'revive',
 };
 
 const PRELUDE = `
@@ -216,6 +217,7 @@ const TAIL = `;return {
   tapBtn: (name) => __listEl('.act-tap', name),
   detailsBtn: (name) => __listEl('.act-details', name),
   doneBtn: (name) => __listEl('.act-done', name),
+  reviveBtn: (name) => __listEl('.act-revive', name),
   html: () => __el('app').innerHTML,
   focused: () => (document.activeElement ? document.activeElement.id : null),
   modal: (sel) => __modalEl(sel),

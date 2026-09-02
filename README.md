@@ -529,7 +529,7 @@ requests relative URLs, so no server address is configured anywhere. On iOS,
 
 | Screen | Commands it covers |
 |---|---|
-| List | `ls`, `ls -a`, `search` |
+| List | `ls`, `ls -a`, `search`; each card also offers `tap`, `done`, and — on a closed task — `undone` / `undiscard` |
 | Task | `tail`, `logs`, `show` |
 | Composer | `reply`, `re` |
 | Actions | `tap`, `cancel`, `sleep`, `reply -t`, `done`, `discard`, `undone`, `undiscard`, `unread`, `pin`, `unpin`, `max`, `unmax`, `switch-backend`, `rename`, `alias`, `branch`, `kill`, `rm` |

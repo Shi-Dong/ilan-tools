@@ -447,6 +447,15 @@ textarea.field {
   border-color: color-mix(in srgb, var(--act-done) 42%, transparent);
 }
 
+/* Reopening a closed task, in Tap and Done's place. Accent ink rather than a
+ * fifth colour: it is the way back *in*, the same direction Details points,
+ * and the quiet treatment is what keeps Details the one filled button on the
+ * card. Rose would say "close", which is the opposite of what it does. */
+.act-revive {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+}
+
 /* Wider than the other two, so which one leads survives being read at arm's
  * length: the fill says it on colour, the width says it again on shape. */
 .act-details {
@@ -460,7 +469,8 @@ textarea.field {
  * confirms in its own colour; the filled one has no room to lighten and goes
  * the other way instead. */
 .act-tap:active,
-.act-done:active {
+.act-done:active,
+.act-revive:active {
   background: color-mix(in srgb, currentColor 14%, transparent);
 }
 

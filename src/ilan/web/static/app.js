@@ -330,8 +330,11 @@ function isSleeping(task) {
  * rather than offering a generic "revive" that is refused half the time.
  */
 const REVIVE_ACTIONS = {
-  DONE: { choice: 'undone', label: 'Undone This Task' },
-  DISCARDED: { choice: 'undiscard', label: 'Undiscard This Task' },
+  // `label` is the conversation's bottom bar, which has the width for a
+  // sentence; `short` is the card, where the same button shares a row with
+  // Details and the sentence wrapped.
+  DONE: { choice: 'undone', label: 'Undone This Task', short: 'Undone' },
+  DISCARDED: { choice: 'undiscard', label: 'Undiscard This Task', short: 'Undiscard' },
 };
 
 const TERMINAL_STATUSES = new Set(Object.keys(REVIVE_ACTIONS));
@@ -445,7 +448,7 @@ function wireBack() {
  * aria-hidden throughout: every one of these sits beside a real text label, so
  * announcing it would repeat the label as a shape.
  */
-const ICONS = { send: 'i-send', check: 'i-check', chevron: 'i-chevron' };
+const ICONS = { send: 'i-send', check: 'i-check', chevron: 'i-chevron', undo: 'i-undo' };
 
 function icon(name) {
   return `<svg class="ico" aria-hidden="true"><use href="#${ICONS[name]}"></use></svg>`;
@@ -511,7 +514,9 @@ function taskRow(task) {
         <span class="row-meta">${meta}</span>
       </button>
       <div class="row-actions">
-        ${TERMINAL_STATUSES.has(task.status) ? '' : `
+        ${TERMINAL_STATUSES.has(task.status) ? `
+        <button class="act act-revive" data-revive="${esc(task.name)}">
+          ${icon('undo')}<span>${esc(reviveAction(task).short)}</span></button>` : `
         <button class="act act-tap" data-tap="${esc(task.name)}">
           ${icon('send')}<span>Tap</span></button>
         <button class="act act-done" data-done="${esc(task.name)}">
@@ -647,6 +652,9 @@ function renderList() {
   document.querySelectorAll('.act-done').forEach((btn) => {
     btn.onclick = () => doneFromCard(btn.dataset.done);
   });
+  document.querySelectorAll('.act-revive').forEach((btn) => {
+    btn.onclick = () => reviveFromCard(btn.dataset.revive);
+  });
 }
 
 /** Ask a task for a status update, after confirming.
@@ -691,6 +699,23 @@ async function tapFromCard(name) {
  * default listing entirely, so the row has to go, and the server is the thing
  * that decides that.
  */
+/** Reopen a closed task from its card.
+ *
+ * No confirmation, matching the same button in the conversation's bottom bar:
+ * reopening is not destructive and is undone by marking the task done again.
+ * The endpoint comes from REVIVE_ACTIONS, since undone and undiscard are each
+ * refused for the other's status — one generic "revive" would 409 half the
+ * time. The server's reply carries no message, so the toast is written here,
+ * with the name as code the way every other card toast reads.
+ */
+async function reviveFromCard(name) {
+  const task = state.tasks.find((t) => t.name === name);
+  const revive = task ? reviveAction(task) : null;
+  if (!revive) return;
+  const path = `/tasks/${encodeURIComponent(name)}/${revive.choice}`;
+  if (await act(path, undefined, `Reopened \`${name}\``)) await refreshListAfterChange();
+}
+
 async function doneFromCard(name) {
   const task = state.tasks.find((t) => t.name === name);
   const ok = await askConfirm(
