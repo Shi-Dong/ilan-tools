@@ -464,7 +464,7 @@ def test_exactly_one_card_action_is_filled():
     css = web.read_asset("app.css").decode()
 
     filled = []
-    for selector in (".act-tap", ".act-done", ".act-details"):
+    for selector in (".act-tap", ".act-done", ".act-revive", ".act-details"):
         rule = re.search(rf"\{selector} \{{(.*?)\}}", css, re.S)
         assert rule, f"no rule for {selector}"
         background = re.search(r"background:\s*([^;]+);", rule.group(1))
@@ -579,38 +579,55 @@ def test_every_glyph_resolves_to_a_symbol_in_the_sprite():
 
 
 def test_the_card_buttons_run_tap_done_details():
-    """The two that act on the task sit together; the one that leaves is last."""
+    """The ones that act on the task sit together; the one that leaves is last.
+
+    A closed card shows its way back in the same position, so in source order
+    the revive button comes first — it and Tap/Done are the two arms of one
+    condition — and Details, outside the condition, is last for every card.
+    """
     js = web.read_asset("app.js").decode()
     row = re.search(r'<div class="row-actions">(.*?)</div>', js, re.S)
     assert row, "the card no longer has an actions row"
-    order = re.findall(r"data-(tap|done|details)=", row.group(1))
-    assert order == ["tap", "done", "details"], order
+    order = re.findall(r"data-(revive|tap|done|details)=", row.group(1))
+    assert order == ["revive", "tap", "done", "details"], order
 
 
-def test_a_closed_card_offers_only_show_details():
-    """Neither Tap nor Done means anything once a task is closed.
+def test_a_closed_card_offers_its_way_back_where_tap_and_done_would_be():
+    """Neither Tap nor Done means anything once a task is closed, but reopening
+    it does — and it used to take opening the conversation to reach.
 
-    There is no agent left to tap — the message would go to a task whose agent
-    has stopped — and closing something already DONE is not an action worth
-    offering. The actions sheet has always applied that rule to both, so the
-    card does too, through a single condition rather than one per button: two
-    conditions is how they drift apart, which is exactly what happened when
-    Done was gated and Tap was not.
+    There is no agent left to tap and closing something already DONE is not an
+    action worth offering, so the closed card swaps that pair for the one
+    button that applies. One condition decides both sides: two conditions is
+    how they drift apart, which is exactly what happened once before when Done
+    was gated and Tap was not. Details sits outside the condition, so every
+    card keeps its way in.
     """
     js = web.read_asset("app.js").decode()
     row = re.search(r'<div class="row-actions">(.*?)</div>', js, re.S)
     assert row, "the card no longer has an actions row"
 
     gated = re.search(
-        r"\$\{TERMINAL_STATUSES\.has\(task\.status\) \? '' : `(.*?)`\}",
+        r"\$\{TERMINAL_STATUSES\.has\(task\.status\) \? `(.*?)` : `(.*?)`\}",
         row.group(1), re.S,
     )
-    assert gated, "the card's actions are no longer gated on the task being open"
+    assert gated, "the card's actions are no longer one condition on the task being closed"
+    closed, open_ = gated.group(1), gated.group(2)
 
-    assert "data-tap=" in gated.group(1), "Tap is offered on a closed task"
-    assert "data-done=" in gated.group(1), "Done is offered on a closed task"
-    assert "data-details=" not in gated.group(1), (
-        "Show Details is gated too, leaving a closed card with no actions at all"
+    assert "data-revive=" in closed, "a closed card is not offered a way back"
+    assert "data-tap=" not in closed and "data-done=" not in closed, (
+        "Tap or Done is offered on a closed task"
+    )
+    assert "reviveAction(task).short" in closed, (
+        "the card's label no longer comes from the one table the endpoint does"
+    )
+
+    assert "data-tap=" in open_ and "data-done=" in open_, "an open card lost Tap or Done"
+    assert "data-revive=" not in open_, "an open card is offered a way back it does not need"
+
+    outside = row.group(1).replace(gated.group(0), "")
+    assert "data-details=" in outside, (
+        "Details is inside the condition, leaving one kind of card without it"
     )
 
 
@@ -1044,6 +1061,47 @@ def test_each_closed_status_is_reopened_by_its_own_endpoint():
     closed = {TaskStatus.DONE.value, TaskStatus.DISCARDED.value}
     assert _revive_actions() == {"DONE": "undone", "DISCARDED": "undiscard"}
     assert set(_revive_actions()) == closed
+
+
+def test_every_way_back_has_a_label_the_card_has_room_for():
+    """The card shares its row with Details, and the sentence the conversation
+    uses wrapped there. Each entry carries a short form, and the card posts to
+    the same choice the long form does — one table, two widths."""
+    js = web.read_asset("app.js").decode()
+    table = re.search(r"const REVIVE_ACTIONS = \{(.*?)\n\};", js, re.S).group(1)
+    entries = re.findall(r"([A-Z_]+): \{ choice: '([a-z]+)', label: '([^']+)', short: '([^']+)' \}", table)
+    assert {e[0] for e in entries} == set(_revive_actions()), (
+        "an entry is missing its short label, or the fields are out of order"
+    )
+    for status, choice, label, short in entries:
+        assert label.startswith(short), f"{status}: '{short}' is not the start of '{label}'"
+        assert " " not in short, f"{status}: the card label '{short}' is more than one word"
+
+    handler = re.search(r"async function reviveFromCard\(name\) \{(.*?)\n\}", js, re.S)
+    assert handler, "the card has no revive handler"
+    assert "/${revive.choice}`" in handler.group(1), (
+        "the card posts somewhere other than the choice the table names"
+    )
+    assert "refreshListAfterChange()" in handler.group(1), (
+        "a reopened task would keep showing as closed until the next poll"
+    )
+    assert "askConfirm" not in handler.group(1), (
+        "reopening now asks first, unlike the same button in the conversation"
+    )
+
+
+def test_the_way_back_is_quiet_and_legible():
+    """Accent ink, not a fill: Details stays the one filled button, and a
+    reopen points the same way Details does — back in."""
+    css = web.read_asset("app.css").decode()
+    light, dark = _scheme_values(css)
+    rule = re.search(r"\n\.act-revive \{(.*?)\}", css, re.S)
+    assert rule, "no rule for the card's revive button"
+    assert "color: var(--accent)" in rule.group(1)
+    assert "background" not in rule.group(1)
+    for scheme, values in (("light", light), ("dark", dark)):
+        ink, card = values["--accent"], values["--bg-elevated"]
+        assert _contrast(ink, card) >= 4.5, f"{scheme}: {_contrast(ink, card):.2f}:1"
 
 
 def test_the_revive_buttons_post_to_routes_the_server_actually_serves():
