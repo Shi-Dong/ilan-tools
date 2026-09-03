@@ -53,7 +53,7 @@ for (const [view, render] of [
 // to the unknown-action branch, which only says so in a toast.
 
 const BARE = [
-  'done', 'discard', 'undone', 'undiscard',
+  'done', 'undone', 'undiscard',
   'pin', 'unpin', 'max', 'unmax', 'switch-backend',
 ];
 

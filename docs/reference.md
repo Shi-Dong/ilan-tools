@@ -476,13 +476,13 @@ requests relative URLs, so no server address is configured anywhere. On iOS,
 | List | `ls`, `ls -a`, `search`; each card also offers `tap`, `done`, and — on a closed task — `undone` / `undiscard` |
 | Task | `tail`, `logs`, `show` |
 | Composer | `reply`, `re` |
-| Actions | `tap`, `cancel`, `sleep` (a fixed choice of 15m, 30m, 1h, 2h, 4h or 8h), `done`, `discard`, `undone`, `undiscard`, `pin`, `unpin`, `max`, `unmax`, `switch-backend`, `rename`, `branch`, `kill`, `rm` |
+| Actions | `tap`, `cancel`, `sleep` (a fixed choice of 15m, 30m, 1h, 2h, 4h or 8h), `done`, `undone`, `undiscard`, `pin`, `unpin`, `max`, `unmax`, `switch-backend`, `rename`, `branch`, `kill`, `rm` |
 | New task | `add` |
 | Settings | `config get`, `config set`, `server status` |
 
 Commands that act on the host running the server stay CLI-only: `attach`, `open`, `log`,
 `dashboard`, `update`, `clean`, `clear-everything`, `check-model`, and `ping`. So do
-`reply -t`, `unread` and `alias`, to keep the actions sheet short. `workdir` and the
+`reply -t`, `unread`, `alias` and `discard`, to keep the actions sheet short. `workdir` and the
 credential keys are shown but not editable in Settings.
 
 The list refreshes every 15 seconds while it is the frontmost tab and pauses when it is

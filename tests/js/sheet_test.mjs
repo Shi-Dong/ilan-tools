@@ -27,12 +27,12 @@ await settle();
 check('the sheet opens', a.modalOpen());
 check('an open task is offered exactly these, in this order',
   JSON.stringify(values(a)) === JSON.stringify(
-    ['tap', 'cancel', 'sleep', 'done', 'discard', 'pin', 'max', 'switch-backend', 'rename', 'branch', 'delete']),
+    ['tap', 'cancel', 'sleep', 'done', 'pin', 'max', 'switch-backend', 'rename', 'branch', 'delete']),
   JSON.stringify(values(a)));
-for (const gone of ['replyEvery', 'unread', 'alias']) {
+for (const gone of ['replyEvery', 'unread', 'alias', 'discard']) {
   check(`${gone} is no longer offered`, !values(a).includes(gone));
 }
-for (const gone of ['Reply every…', 'Mark unread', 'Set alias…']) {
+for (const gone of ['Reply every…', 'Mark unread', 'Set alias…', 'Discard']) {
   check(`"${gone}" is no longer on the sheet`, !labels(a).includes(gone));
 }
 check('only Delete is marked dangerous on a task that is not running',
@@ -50,10 +50,10 @@ const c = bootApp();
 c.showActions({ ...OPEN, status: 'DISCARDED' });
 await settle();
 check('a closed task is offered its way back and none of the live-only entries',
-  values(c)[0] === 'undiscard' && !values(c).some((v) => ['tap', 'cancel', 'sleep', 'done', 'discard'].includes(v)),
+  values(c)[0] === 'undiscard' && !values(c).some((v) => ['tap', 'cancel', 'sleep', 'done'].includes(v)),
   JSON.stringify(values(c)));
 check('and none of the three removed entries either',
-  !values(c).some((v) => ['replyEvery', 'unread', 'alias'].includes(v)));
+  !values(c).some((v) => ['replyEvery', 'unread', 'alias', 'discard'].includes(v)));
 
 // ── Sleep opens a fixed choice ──────────────────────────────────────────
 const s = bootApp();

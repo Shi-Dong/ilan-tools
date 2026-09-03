@@ -1112,7 +1112,6 @@ function showActions(task) {
     options.push({ value: 'cancel', label: 'Cancel — retract my last message' });
     options.push({ value: 'sleep', label: 'Sleep…' });
     options.push({ value: 'done', label: 'Mark done' });
-    options.push({ value: 'discard', label: 'Discard' });
   } else {
     options.push({
       value: task.status === 'DONE' ? 'undone' : 'undiscard',
@@ -1139,7 +1138,7 @@ function showActions(task) {
 // was a map from each choice to itself, which read as though the two could
 // differ; they never did.
 const BARE_POST_ACTIONS = new Set([
-  'done', 'discard', 'undone', 'undiscard',
+  'done', 'undone', 'undiscard',
   'pin', 'unpin', 'max', 'unmax', 'switch-backend',
 ]);
 

@@ -1371,8 +1371,8 @@ def test_the_close_action_is_not_green():
 # ── the ••• sheet ───────────────────────────────────────────────────────
 
 def test_the_actions_sheet_no_longer_offers_the_three_trimmed_entries():
-    """Too many entries to choose from, so three went: the reply-every cycle,
-    marking unread, and setting an alias. They remain CLI commands.
+    """Too many entries to choose from, so four went: the reply-every cycle,
+    marking unread, setting an alias, and discarding. They remain CLI commands.
 
     Asserted on the menu builder rather than on the rendered sheet, which the
     JS harness covers; this is the place a future entry would be added back.
@@ -1380,9 +1380,9 @@ def test_the_actions_sheet_no_longer_offers_the_three_trimmed_entries():
     js = web.read_asset("app.js").decode()
     sheet = re.search(r"function showActions\(task\) \{(.*?)\n\}", js, re.S)
     assert sheet, "the actions sheet builder is gone"
-    for value in ("replyEvery", "unread", "alias"):
+    for value in ("replyEvery", "unread", "alias", "discard"):
         assert f"value: '{value}'" not in sheet.group(1), f"{value} is back on the sheet"
-    for label in ("Reply every…", "Mark unread", "Set alias…"):
+    for label in ("Reply every…", "Mark unread", "Set alias…", "Discard"):
         assert label not in sheet.group(1), f"'{label}' is back on the sheet"
 
 
@@ -1394,6 +1394,9 @@ def test_the_actions_the_trimmed_entries_reached_are_gone_with_them():
     assert "case 'alias':" not in js, "the alias handler outlived its menu entry"
     bare = re.search(r"const BARE_POST_ACTIONS = new Set\(\[(.*?)\]\);", js, re.S)
     assert bare and "'unread'" not in bare.group(1), "unread is still a postable action"
+    assert "'discard'" not in bare.group(1), "discard is still a postable action"
+    # Undiscard stays: the CLI still discards, and a discarded task still needs its way back.
+    assert "'undiscard'" in bare.group(1), "undiscard went with discard, stranding DISCARDED tasks"
     assert "function parseDuration" not in js, (
         "the duration parser has nothing left to parse; sleep is a fixed choice now"
     )
@@ -1424,6 +1427,6 @@ def test_sleep_is_a_fixed_choice_of_six_durations():
 def test_the_docs_no_longer_list_the_trimmed_entries_under_the_web_app():
     ref = (Path(web.__file__).parent.parent.parent.parent / "docs" / "reference.md").read_text()
     row = next(line for line in ref.splitlines() if line.startswith("| Actions |"))
-    for cmd in ("`reply -t`", "`unread`", "`alias`"):
+    for cmd in ("`reply -t`", "`unread`", "`alias`", "`discard`"):
         assert cmd not in row, f"{cmd} is still listed as covered by the web app's sheet"
     assert "15m, 30m, 1h, 2h, 4h or 8h" in row, "the fixed sleep choices are not documented"
