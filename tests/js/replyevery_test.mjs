@@ -90,9 +90,8 @@ check("the server's reason is what the user is shown",
 const sleeping = serverThatAnswers(CHALLENGE);
 sleeping.runAction('sleep', { name: 'busy-task', status: 'WORKING' });
 await settle();
-// The duration prompt comes first; answer it, then the challenge appears.
-sleeping.modal('#mv').value = '30m';
-clickModal(sleeping, '#mo', 'sleep must ask for a duration');
+// The duration sheet comes first; pick one, then the challenge appears.
+clickModal(sleeping, '[data-value="1800"]', 'sleep must offer 30m');
 await settle();
 check('a challenged sleep asks too', sleeping.modalOpen());
 clickModal(sleeping, '#mo', 'the sleep challenge must be acceptable');
