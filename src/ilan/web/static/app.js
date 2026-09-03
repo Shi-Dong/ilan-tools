@@ -109,14 +109,17 @@ function sleepSuffix(seconds) {
   return `sleeping for ${formatCompactDuration(seconds)}`;
 }
 
-/** Parse "45", "30m", "2h", "1d" into seconds. Returns null if unparseable. */
-function parseDuration(text) {
-  const m = /^\s*(\d+)\s*([smhd]?)\s*$/i.exec(text || '');
-  if (!m) return null;
-  const n = parseInt(m[1], 10);
-  const mult = { '': 1, s: 1, m: 60, h: 3600, d: 86400 }[m[2].toLowerCase()];
-  return n * mult;
-}
+/** What the Sleep sheet offers, as [label, seconds], in the order shown.
+ *
+ * The labels are the CLI's own duration spellings, so what the sheet says is
+ * what `ilan sleep` would be told. Only these are offered — a free-text
+ * duration was replaced by this list, and the parser that read it went with
+ * it — so adding an option here is the whole change.
+ */
+const SLEEP_CHOICES = [
+  ['15m', 15 * 60], ['30m', 30 * 60], ['1h', 3600],
+  ['2h', 2 * 3600], ['4h', 4 * 3600], ['8h', 8 * 3600],
+];
 
 /** Render `backticked` spans as inline code, escaping everything else.
  *
@@ -1108,9 +1111,7 @@ function showActions(task) {
     options.push({ value: 'tap', label: 'Tap — ask for a status update' });
     options.push({ value: 'cancel', label: 'Cancel — retract my last message' });
     options.push({ value: 'sleep', label: 'Sleep…' });
-    options.push({ value: 'replyEvery', label: 'Reply every…' });
     options.push({ value: 'done', label: 'Mark done' });
-    options.push({ value: 'discard', label: 'Discard' });
   } else {
     options.push({
       value: task.status === 'DONE' ? 'undone' : 'undiscard',
@@ -1118,11 +1119,9 @@ function showActions(task) {
     });
   }
   options.push({ value: task.pinned ? 'unpin' : 'pin', label: task.pinned ? 'Unpin' : 'Pin' });
-  options.push({ value: 'unread', label: 'Mark unread' });
   options.push({ value: task.model ? 'unmax' : 'max', label: task.model ? 'Unmax' : 'Max' });
   options.push({ value: 'switch-backend', label: `Switch backend (now ${task.engine || '?'})` });
   options.push({ value: 'rename', label: 'Rename…' });
-  options.push({ value: 'alias', label: 'Set alias…' });
   options.push({ value: 'branch', label: 'Branch…' });
   if (task.gist_url) options.push({ value: 'gist', label: 'Open conversation Gist' });
   if (task.status === 'WORKING') {
@@ -1139,7 +1138,7 @@ function showActions(task) {
 // was a map from each choice to itself, which read as though the two could
 // differ; they never did.
 const BARE_POST_ACTIONS = new Set([
-  'done', 'discard', 'undone', 'undiscard', 'unread',
+  'done', 'undone', 'undiscard',
   'pin', 'unpin', 'max', 'unmax', 'switch-backend',
 ]);
 
@@ -1165,10 +1164,14 @@ async function runAction(choice, task) {
     }
 
     case 'sleep': {
-      const raw = await askText('Sleep for how long?', { placeholder: '30m, 2h, 1d' });
-      if (raw === null) return;
-      const seconds = parseDuration(raw);
-      if (!seconds) { toast('Could not read that duration', true); return; }
+      // A fixed set rather than a typed duration: on a phone, six taps to
+      // choose from beats a keyboard and a format to remember, and every
+      // value offered is one the server accepts, so there is no "could not
+      // read that" path left to fall into.
+      const chosen = await askChoice('Sleep for…',
+        SLEEP_CHOICES.map(([label, seconds]) => ({ value: String(seconds), label })));
+      if (chosen === null) return;
+      const seconds = Number(chosen);
       const resp = await postConfirmingReplyEvery(
         `/tasks/${t}/sleep`,
         { seconds },
@@ -1182,31 +1185,12 @@ async function runAction(choice, task) {
       return;
     }
 
-    case 'replyEvery': {
-      const raw = await askText('Re-send a message every…',
-        { placeholder: '20m minimum, e.g. 1h' });
-      if (raw === null) return;
-      const seconds = parseDuration(raw);
-      if (!seconds) { toast('Could not read that duration', true); return; }
-      const message = await askText('Message to re-send', { multiline: true });
-      if (!message) return;
-      if (await sendReply(task.name, message, { every_seconds: seconds })) back();
-      return;
-    }
-
     case 'rename': {
       const next = await askText('New name', { value: task.name });
       if (!next || next === task.name) return;
       if (await act(`/tasks/${t}/rename`, { new_name: next })) {
         location.hash = `#/t/${encodeURIComponent(next)}`;
       }
-      return;
-    }
-
-    case 'alias': {
-      const next = await askText('New alias', { value: task.alias || '' });
-      if (next === null) return;
-      if (await act(`/tasks/${t}/alias`, { alias: next })) back();
       return;
     }
 

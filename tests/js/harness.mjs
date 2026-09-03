@@ -147,10 +147,24 @@ const PRELUDE = `
   // enough surface for modal() and its wire() callbacks.
   const __modalEls = new Map();
   function __modalEl(sel) {
+    // A sheet option, addressed the way askChoice wires it. Routed to the same
+    // element querySelectorAll hands back, so clicking one through
+    // clickModal(app, '[data-value="x"]') hits the handler askChoice attached.
+    if (sel.startsWith('[data-value="') && sel.endsWith('"]')) {
+      return __modalOpt(sel.slice('[data-value="'.length, -'"]'.length));
+    }
     if (!__modalEls.has(sel)) {
       __modalEls.set(sel, { onclick: null, onkeydown: null, value: '', focus() {} });
     }
     return __modalEls.get(sel);
+  }
+  // Stable per value, for the same reason __el is.
+  const __modalOpts = new Map();
+  function __modalOpt(value) {
+    if (!__modalOpts.has(value)) {
+      __modalOpts.set(value, { dataset: { value }, onclick: null, classList: { add() {} } });
+    }
+    return __modalOpts.get(value);
   }
   // Every addEventListener the app makes while booting.
   const __listeners = [];
@@ -186,7 +200,14 @@ const PRELUDE = `
         addEventListener: () => {},
         remove: () => { __modalOpen = false; },
         querySelector: (s) => __modalEl(s),
-        querySelectorAll: () => [],
+        // askChoice wires its buttons through this. Resolving them from the
+        // markup the dialog set is what makes a sheet's options reachable
+        // from a test at all; every other selector still finds nothing.
+        querySelectorAll: (s) => {
+          if (s !== '[data-value]') return [];
+          const html = __lastModal ? __lastModal.innerHTML : '';
+          return [...html.matchAll(/data-value="([^"]*)"/g)].map((m) => __modalOpt(m[1]));
+        },
       };
       return __lastModal;
     },
@@ -207,9 +228,9 @@ const TAIL = `;return {
   // The pure helpers, so a test can exercise a formatter directly instead of
   // reading it back out of rendered markup.
   ago, formatCompactDuration, formatHoursMinutes, statusLabel, sleepSuffix,
-  replyEverySuffix, parseDuration, displayStatus, reviveAction, isVisible,
+  replyEverySuffix, displayStatus, reviveAction, isVisible,
   isLooping, isSleeping,
-  sendReply, runAction, postConfirmingReplyEvery, refreshListAfterChange,
+  sendReply, runAction, showActions, postConfirmingReplyEvery, refreshListAfterChange,
   toast, toastHtml, withCodeName,
   elide, quoteForReply, selectedMessageText, syncAskBar, askAboutSelection,
   el: __el,
@@ -222,6 +243,15 @@ const TAIL = `;return {
   focused: () => (document.activeElement ? document.activeElement.id : null),
   modal: (sel) => __modalEl(sel),
   modalOpen: () => __modalOpen,
+  /** The options the open sheet offers, in order, as {value, label, danger}. */
+  modalOptions: () => {
+    const html = (__lastModal && __lastModal.innerHTML) || '';
+    return [...html.matchAll(/<button class="btn ?([^"]*)"[^>]*data-value="([^"]*)">([^<]*)<[/]button>/g)]
+      .filter((m) => m[2] !== '')
+      .map((m) => ({ value: m[2], label: m[3], danger: m[1].includes('btn-danger') }));
+  },
+  /** Whether the open sheet carries a text field. */
+  modalHasField: () => ((__lastModal && __lastModal.innerHTML) || '').includes('id="mv"'),
   modalTitle: () => {
     const m = ((__lastModal && __lastModal.innerHTML) || '')
       .match(/class="sheet-title">([^<]*)</);
