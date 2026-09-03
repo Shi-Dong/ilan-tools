@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="src/ilan/web/static/icon-180.png" width="96" alt="Ilan">
-</p>
-
 <h1 align="center">Ilan CLI</h1>
 
 <p align="center">
