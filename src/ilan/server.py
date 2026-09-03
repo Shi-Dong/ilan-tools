@@ -12,6 +12,7 @@ import json
 import os
 import re
 import signal
+import subprocess
 import sys
 import threading
 from datetime import datetime, timedelta, timezone
@@ -140,6 +141,7 @@ ROUTES: list[tuple[str, str, str]] = [
     ("GET",    r"^/tasks/([^/]+)/history-url$", "handle_task_history_url"),
     ("POST",   r"^/clear-everything$",         "handle_clear_everything"),
     ("POST",   r"^/stop$",                     "handle_stop"),
+    ("POST",   r"^/restart$",                  "handle_restart"),
 ]
 
 
@@ -234,6 +236,41 @@ class IlanServer:
         self.gist.stop()
         if self._httpd:
             threading.Thread(target=self._httpd.shutdown, daemon=True).start()
+
+    # The exact command a person would type. It runs the CLI's own restart —
+    # stop this server over HTTP, wait for the port, start a fresh one and
+    # wait for it — so there is one restart sequence, not a second copy of it
+    # here. Invoked through -c because ilan.cli has no __main__ guard.
+    RESTART_ARGV: tuple[str, ...] = (
+        sys.executable, "-c", "from ilan.cli import main; main()", "server", "restart",
+    )
+
+    def restart(self) -> None:
+        """Hand the restart to a detached child and return.
+
+        The server cannot restart itself in-process: the new server needs the
+        port this one is holding, and nothing that this process spawns can
+        outlive it unless it is detached. So a child in its own session runs
+        ``ilan server restart`` against us. Its ``/stop`` arrives after the
+        HTTP response that triggered this has already been written, which is
+        why the handler responds first — and why a failure to *spawn* the
+        child (the only failure this method can see) is raised back to the
+        handler while this server is still up to report it.
+
+        Running agents are untouched: shutdown never signals them, their
+        output goes to files rather than pipes, and the new server recovers
+        them from disk.
+        """
+        workdir = cfg.get_workdir()
+        workdir.mkdir(parents=True, exist_ok=True)
+        with open(workdir / "server.log", "a") as log_f:
+            subprocess.Popen(
+                list(self.RESTART_ARGV),
+                stdin=subprocess.DEVNULL,
+                stdout=log_f,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
 
     # ── reaper ───────────────────────────────────────────────────
 
@@ -415,7 +452,11 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             self._json({"tap": TAP_MESSAGE, "cancel": CANCEL_MESSAGE})
 
         def handle_version(self):
-            self._json({"version": __version__, "commit": get_git_commit()})
+            # The pid is what lets a client tell a restarted server from the
+            # one it asked to restart: version and commit are usually the same
+            # on both sides of a restart, and a live answer alone would be
+            # ambiguous while the old process is still shutting down.
+            self._json({"version": __version__, "commit": get_git_commit(), "pid": os.getpid()})
 
         def handle_get_config(self):
             self._json({"config": cfg.load()})
@@ -1253,6 +1294,21 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
         def handle_stop(self):
             self._json({"ok": True})
             self._ilan.shutdown()
+
+        def handle_restart(self):
+            """Restart the server, as ``ilan server restart`` would.
+
+            Spawn first, respond second: spawning is the only step that can
+            fail here, and it fails synchronously, so a refusal can still be
+            reported by a server that is still running. The child's stop
+            request lands well after this response is on the wire.
+            """
+            try:
+                self._ilan.restart()
+            except OSError as exc:
+                self._json({"error": f"Could not start the restart: {exc}"}, 500)
+                return
+            self._json({"ok": True, "pid": os.getpid()})
 
     return Handler
 

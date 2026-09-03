@@ -478,7 +478,7 @@ requests relative URLs, so no server address is configured anywhere. On iOS,
 | Composer | `reply`, `re` |
 | Actions | `tap`, `cancel`, `sleep` (a fixed choice of 15m, 30m, 1h, 2h, 4h or 8h), `done`, `undone`, `undiscard`, `pin`, `unpin`, `max`, `unmax`, `switch-backend`, `rename`, `branch`, `kill`, `rm` |
 | New task | `add` |
-| Settings | `config get`, `config set`, `server status` |
+| Settings | `config get`, `config set`, `server status`, `server restart` |
 
 Commands that act on the host running the server stay CLI-only: `attach`, `open`, `log`,
 `dashboard`, `update`, `clean`, `clear-everything`, `check-model`, and `ping`. So do

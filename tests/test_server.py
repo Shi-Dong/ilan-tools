@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 import json
 import signal
 import threading
@@ -2221,3 +2224,69 @@ class TestNotFound:
         except HTTPError as exc:
             data = json.loads(exc.read())
         assert "error" in data
+
+
+# ── Restart ──────────────────────────────────────────────────────────────
+
+class TestRestart:
+    """The web app's restart hands off to the CLI's, in a detached child.
+
+    The server cannot restart itself in-process — the new one needs the port
+    this one holds — so the test is about the hand-off: what is spawned, how it
+    is detached, and that this server is still up to report on it afterwards.
+    The child is never really run here; it would stop the test server.
+    """
+
+    def _record_spawn(self, monkeypatch: pytest.MonkeyPatch) -> list[tuple]:
+        calls: list[tuple] = []
+
+        def fake_popen(argv, **kwargs):
+            calls.append((argv, kwargs))
+            return object()
+
+        monkeypatch.setattr("ilan.server.subprocess.Popen", fake_popen)
+        return calls
+
+    def test_version_reports_the_pid(self, ilan_server: IlanServer) -> None:
+        """A restarted server usually has the same version and commit, so the pid
+        is the one field a client can use to tell the new process from the old."""
+        assert _get(ilan_server, "/version")["pid"] == os.getpid()
+
+    def test_restart_spawns_the_cli_restart_detached(
+        self, ilan_server: IlanServer, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        calls = self._record_spawn(monkeypatch)
+        resp = _post(ilan_server, "/restart")
+        assert resp == {"ok": True, "pid": os.getpid()}
+
+        assert len(calls) == 1, "expected exactly one child to be spawned"
+        argv, kwargs = calls[0]
+        assert argv == [sys.executable, "-c", "from ilan.cli import main; main()",
+                        "server", "restart"], argv
+        assert kwargs["start_new_session"] is True, "the child would die with this server"
+        assert kwargs["stdin"] is subprocess.DEVNULL
+        assert kwargs["stderr"] is subprocess.STDOUT
+
+    def test_restart_does_not_stop_this_server_itself(
+        self, ilan_server: IlanServer, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Stopping is the child's job, over HTTP, after the response is out.
+
+        If the handler stopped the server itself, a child that failed to start
+        would leave nothing running — and the response could race the
+        shutdown. With the spawn stubbed out, the server must still be here.
+        """
+        self._record_spawn(monkeypatch)
+        _post(ilan_server, "/restart")
+        assert _get(ilan_server, "/health") == {"status": "ok"}
+
+    def test_a_spawn_failure_is_reported_by_a_server_that_is_still_up(
+        self, ilan_server: IlanServer, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        def broken_popen(argv, **kwargs):
+            raise OSError("no such interpreter")
+
+        monkeypatch.setattr("ilan.server.subprocess.Popen", broken_popen)
+        resp = _post(ilan_server, "/restart")
+        assert "error" in resp and "no such interpreter" in resp["error"]
+        assert _get(ilan_server, "/health") == {"status": "ok"}

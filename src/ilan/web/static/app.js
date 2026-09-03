@@ -1290,6 +1290,61 @@ function renderNew() {
 // still sets them.
 const CONFIG_READONLY = new Set(['workdir', 'github-token', 'api-key-claude', 'api-key-codex']);
 
+// How long the app waits for a restarted server to come back: forty looks,
+// half a second apart. A restart takes a second or two; twenty seconds is
+// long enough that a timeout means something is wrong on the host.
+const RESTART_WAIT_MS = 500;
+const RESTART_ATTEMPTS = 40;
+
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Poll /version until a *different* process answers. Returns its pid, or
+ *  null once the attempts are spent.
+ *
+ * A different pid is the test, not a live answer: the old server keeps
+ * answering for a moment after it has been told to stop, and the new one
+ * usually reports the same version and commit. Fetch failures are expected in
+ * the gap between the two and are swallowed rather than surfaced — that gap
+ * is what this is waiting through.
+ *
+ * *wait* is injectable so a test can run the loop without real time passing.
+ */
+async function waitForRestart(oldPid, wait = pause) {
+  for (let attempt = 0; attempt < RESTART_ATTEMPTS; attempt += 1) {
+    await wait(RESTART_WAIT_MS);
+    try {
+      const { ok, data } = await api.get('/version');
+      if (ok && data.pid && data.pid !== oldPid) return data.pid;
+    } catch {
+      /* the old server is gone and the new one is not listening yet */
+    }
+  }
+  return null;
+}
+
+/** Restart the server from Settings, then wait for it to come back.
+ *
+ * Asks first: nothing is lost by a restart — agents keep running — but the
+ * app goes dark for a second or two, which is worth a deliberate tap.
+ */
+async function restartServer(oldPid, wait = pause) {
+  const ok = await askConfirm(
+    'Restart the server? Running agents keep running; the app will reconnect.',
+    'Restart',
+  );
+  if (!ok) return;
+  const resp = await api.post('/restart');
+  if (!resp.ok) { toast(resp.data.error || 'Restart failed', true); return; }
+  toast('Restarting…');
+  const pid = await waitForRestart(resp.data.pid ?? oldPid, wait);
+  if (pid === null) {
+    toast('The server has not come back yet — check it on the host', true);
+    return;
+  }
+  toast(`Server restarted (pid ${pid})`);
+  renderConfig();
+}
+
 async function renderConfig() {
   const [cfg, version] = await Promise.all([api.get('/config'), api.get('/version')]);
   const conf = cfg.data.config || {};
@@ -1307,6 +1362,7 @@ async function renderConfig() {
     </div>`;
   }).join('');
 
+  const pid = version.data.pid;
   $('#app').innerHTML = `
     <header class="hdr">
       <div class="hdr-row">
@@ -1316,9 +1372,25 @@ async function renderConfig() {
       <p class="hdr-sub">ilan ${esc(version.data.version || '?')}
         · ${esc(version.data.commit || '')}</p>
     </header>
-    <main class="main"><div class="card">${rows}</div></main>`;
+    <main class="main">
+      <div class="card">${rows}</div>
+      <!-- The server itself, below its settings. The pid is shown because it
+           is what changes on a restart, so it is the one thing on this page
+           that confirms the restart actually happened. -->
+      <div class="card server-card">
+        <div class="kv">
+          <span class="kv-k">server</span>
+          <span class="kv-v">${pid ? `pid ${esc(String(pid))}` : 'running'}</span>
+        </div>
+        <div class="kv">
+          <span class="kv-note">Agents keep running; the app reconnects.</span>
+          <button class="btn btn-sm" id="restart-server">Restart server</button>
+        </div>
+      </div>
+    </main>`;
 
   wireBack();
+  $('#restart-server').onclick = () => restartServer(pid);
   document.querySelectorAll('[data-key]').forEach((btn) => {
     btn.onclick = async () => {
       const key = btn.dataset.key;
