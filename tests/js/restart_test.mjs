@@ -48,6 +48,13 @@ check('Settings shows the server pid', page.html().includes('pid 111'), page.htm
 check('and a Restart server button', page.html().includes('id="restart-server"')
   && page.html().includes('>Restart server</button>'));
 check('the button is wired', typeof page.el('restart-server').onclick === 'function');
+// It has to stand out from the row of quiet Edit buttons above it: filled, and
+// at the full tap height rather than the small size those use.
+check('it is the filled primary style', /id="restart-server"/.test(page.html())
+  && /class="btn btn-primary" id="restart-server"/.test(page.html()),
+  page.html().match(/<button[^>]*id="restart-server"/)?.[0]);
+check('and not the small quiet size the Edit buttons use',
+  !/class="[^"]*btn-sm[^"]*" id="restart-server"/.test(page.html()));
 check('it says agents keep running', page.html().includes('Agents keep running'),
   'the one fact that makes the tap safe to take is not stated');
 

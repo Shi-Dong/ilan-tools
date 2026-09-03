@@ -1384,7 +1384,11 @@ async function renderConfig() {
         </div>
         <div class="kv">
           <span class="kv-note">Agents keep running; the app reconnects.</span>
-          <button class="btn btn-sm" id="restart-server">Restart server</button>
+          <!-- Filled and full height, unlike the quiet Edit buttons above it:
+               this is the one control on the page that does something to the
+               server rather than to a setting, and it should read as such
+               before the label is. -->
+          <button class="btn btn-primary" id="restart-server">Restart server</button>
         </div>
       </div>
     </main>`;

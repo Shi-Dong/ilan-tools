@@ -1439,6 +1439,9 @@ def test_settings_offers_a_server_restart_that_asks_first():
     page = re.search(r"async function renderConfig\(\) \{(.*?)\n\}", js, re.S)
     assert page, "the Settings page is gone"
     assert 'id="restart-server"' in page.group(1), "Settings has no restart button"
+    assert 'class="btn btn-primary" id="restart-server"' in page.group(1), (
+        "the restart button no longer stands out from the Edit buttons beside it"
+    )
     assert "restartServer(pid)" in page.group(1), "the button is not wired to the restart"
 
     fn = re.search(r"async function restartServer\(oldPid, wait = pause\) \{(.*?)\n\}", js, re.S)
