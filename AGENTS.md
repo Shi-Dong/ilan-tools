@@ -10,7 +10,8 @@ background HTTP server (`localhost:4526`) that spawns agent processes the
 moment a task is created or replied to, reaps them when they finish, and
 persists state to `~/.ilan/`. Each task runs on a pluggable
 **backend** — Claude Code (`claude -p`) or Codex (`codex exec`). See `README.md`
-for the user-facing docs.
+for the user-facing overview and `docs/reference.md` for the full behavioural
+reference.
 
 ## Layout
 
@@ -22,6 +23,8 @@ for the user-facing docs.
 - `src/ilan/models.py` — `Task`, `TaskStatus`, engine constants.
 - `src/ilan/store.py` — JSON task store + per-task JSONL logs.
 - `tests/` — pytest suite (`pyproject.toml` sets `pythonpath=["src"]`).
+- `docs/reference.md` — every command, flag, and config key in full; `README.md`
+  is the short overview.
 
 ## Working here
 
@@ -39,6 +42,7 @@ for the user-facing docs.
 
 ## Changes
 
-- Small, single-purpose commits with a clear "why". Update `README.md` when
-  behavior changes.
+- Small, single-purpose commits with a clear "why". When behavior changes,
+  update `docs/reference.md` (always) and `README.md` (only if the overview,
+  a command table row, or a config key is affected).
 - Don't add parallel shorthand commands for a canonical one.
