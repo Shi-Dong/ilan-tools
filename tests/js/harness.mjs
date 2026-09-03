@@ -231,6 +231,7 @@ const TAIL = `;return {
   replyEverySuffix, displayStatus, reviveAction, isVisible,
   isLooping, isSleeping,
   sendReply, runAction, showActions, postConfirmingReplyEvery, refreshListAfterChange,
+  restartServer, waitForRestart,
   toast, toastHtml, withCodeName,
   elide, quoteForReply, selectedMessageText, syncAskBar, askAboutSelection,
   el: __el,
