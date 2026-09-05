@@ -1020,11 +1020,8 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task = self._get_task_or_404(name)
                 if task is None:
                     return
-                # Each backend has its own max model, so this pins whichever
-                # one the task's engine runs. Switching backends afterwards
-                # leaves the pin alone and the incoming backend ignores it
-                # (see ``foreign_max_model``), so maxing again is what moves a
-                # switched task onto the new backend's max model.
+                # Pin this backend's max model; switching backends later
+                # translates the pin to the incoming backend's max model.
                 task.model = max_model_for(task.engine)
                 self._ilan.store.put_task(task)
             self._json({"ok": True, "name": task.name, "model": task.model})

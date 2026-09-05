@@ -20,10 +20,9 @@ def _effective_model(model_override: str | None = None) -> str:
     *model_override* (a task's ``model``, set via ``ilan max``) takes
     precedence over the configured default; ``None`` falls back to config.
 
-    The mirror of the codex backend's guard: a max pin belonging to the other
-    backend is dropped rather than passed on. A task maxed on codex and later
-    switched to claude still carries ``gpt-6-astra``, which ``claude --model``
-    cannot load. The pin stays on the task, so switching back runs it there.
+    Older saved tasks may carry an Astra pin from before backend switches
+    translated max models. Ignore it here because ``claude --model`` cannot
+    load a Codex model.
     """
     conf = cfg.load()
     if foreign_max_model(ENGINE_CLAUDE, model_override):

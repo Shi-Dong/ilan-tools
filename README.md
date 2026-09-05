@@ -125,7 +125,7 @@ Every task command has a top-level shorthand, so `ilan task reply` is just `ilan
 | Command | What it does |
 |---|---|
 | `ilan max NAME` / `ilan unmax NAME` | Run the task on its backend's max model — Fable (`claude-fable-5-1`) on `claude`, Astra (`gpt-6-astra`) on `codex` — or return to the configured default. Takes effect on the next reply. |
-| `ilan switch-backend NAME` | Move an idle task between Claude Code and Codex. The new backend catches up on its first turn. |
+| `ilan switch-backend NAME` | Move an idle task between Claude Code and Codex. Maxed tasks stay maxed (FABLE ↔ ASTRA). The new backend catches up on its first turn. |
 | `ilan task kill NAME` | Stop a `WORKING` agent. The task moves to `ERROR` until you reply. |
 
 ### Close and clean up

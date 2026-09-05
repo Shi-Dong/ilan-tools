@@ -12,7 +12,15 @@ from pathlib import Path
 from ilan import budget
 from ilan import config as cfg
 from ilan.backends import Backend, ClaudeBackend, CodexBackend
-from ilan.models import DEFAULT_ENGINE, ENGINE_CLAUDE, ENGINE_CODEX, Task, TaskStatus
+from ilan.models import (
+    DEFAULT_ENGINE,
+    ENGINE_CLAUDE,
+    ENGINE_CODEX,
+    Task,
+    TaskStatus,
+    max_model_for,
+    tag_for_max_model,
+)
 from ilan.oneliner import generate_one_liner
 from ilan.store import Store
 
@@ -310,6 +318,9 @@ class Runner:
         injects the turns it missed (Option A: native resume + catch-up, or a
         fresh session seeded with the transcript when it has never run).
 
+        A maxed task stays maxed: translate its pin (including older max
+        model ids) to the incoming backend's current max model.
+
         The caller is responsible for ensuring the task is not mid-flight:
         the server rejects switching a WORKING task, so its in-flight output
         is always parsed by the engine that produced it.
@@ -318,6 +329,8 @@ class Runner:
             return
         if task.session_id:
             task.set_session_for(task.engine, task.session_id)
+        if tag_for_max_model(task.model) is not None:
+            task.model = max_model_for(target_engine)
         task.engine = target_engine
         task.session_id = task.sessions.get(target_engine)
         task.session_log_path = None

@@ -11,7 +11,17 @@ import pytest
 import ilan.config as cfg
 from ilan import budget
 from ilan.backends import ClaudeBackend, CodexBackend
-from ilan.models import ENGINE_CLAUDE, ENGINE_CODEX, LogEntry, Task, TaskStatus
+from ilan.models import (
+    ASTRA_MODEL,
+    ENGINE_CLAUDE,
+    ENGINE_CODEX,
+    FABLE_MODEL,
+    LEGACY_ASTRA_MODELS,
+    LEGACY_FABLE_MODELS,
+    LogEntry,
+    Task,
+    TaskStatus,
+)
 from ilan.runner import (
     Runner,
     STATUS_SUFFIX,
@@ -1606,6 +1616,71 @@ class TestReapCursor:
 
 
 class TestSwitchEngine:
+    @pytest.mark.parametrize(
+        ("source_engine", "source_model", "target_engine", "expected_model"),
+        [
+            (ENGINE_CLAUDE, model, ENGINE_CODEX, ASTRA_MODEL)
+            for model in (FABLE_MODEL, *LEGACY_FABLE_MODELS)
+        ] + [
+            (ENGINE_CODEX, model, ENGINE_CLAUDE, FABLE_MODEL)
+            for model in (ASTRA_MODEL, *LEGACY_ASTRA_MODELS)
+        ] + [
+            # Old switches could leave a Fable pin on a Codex task.
+            (ENGINE_CODEX, "claude-fable-5", ENGINE_CLAUDE, FABLE_MODEL),
+        ],
+    )
+    @pytest.mark.parametrize("resume", [False, True])
+    def test_max_model_reaches_spawn_after_switch(
+        self, store: Store, runner: Runner, tmp_config: Path, tmp_workdir: Path,
+        source_engine: str, source_model: str, target_engine: str,
+        expected_model: str, resume: bool,
+    ) -> None:
+        """Persist the translated pin and pass it to the real backend builder."""
+        cfg.save({**cfg.DEFAULTS, "workdir": str(tmp_workdir)})
+        task = Task(
+            name="switch-max", prompt="p", engine=source_engine,
+            model=source_model, status=TaskStatus.AGENT_FINISHED,
+            session_id="source-session",
+            sessions={target_engine: "target-session"} if resume else {},
+        )
+        store.put_task(task)
+
+        runner.switch_engine(task, target_engine)
+
+        stored = store.get_task(task.name)
+        assert stored is not None
+        assert stored.engine == target_engine
+        assert stored.model == expected_model
+        assert stored.sessions[source_engine] == "source-session"
+        assert stored.session_id == ("target-session" if resume else None)
+        with (
+            patch("ilan.runner.subprocess.Popen") as popen,
+            patch("ilan.runner.budget.detect", return_value=None),
+        ):
+            popen.return_value.pid = 12345
+            assert runner._spawn(stored, "continue", resume=resume)
+        cmd = popen.call_args.args[0]
+        assert cmd[0] == target_engine
+        assert cmd[cmd.index("--model") + 1] == expected_model
+        assert ("target-session" in cmd) is resume
+
+    @pytest.mark.parametrize(
+        ("source_engine", "target_engine"),
+        [(ENGINE_CLAUDE, ENGINE_CODEX), (ENGINE_CODEX, ENGINE_CLAUDE)],
+    )
+    @pytest.mark.parametrize("model", [None, "custom-model"])
+    def test_switch_preserves_non_max_model(
+        self, store: Store, runner: Runner, source_engine: str,
+        target_engine: str, model: str | None,
+    ) -> None:
+        task = Task(name="switch-plain", prompt="p", engine=source_engine, model=model)
+        store.put_task(task)
+        runner.switch_engine(task, target_engine)
+        stored = store.get_task(task.name)
+        assert stored is not None
+        assert stored.engine == target_engine
+        assert stored.model == model
+
     def test_noop_when_same_engine(self, store: Store, runner: Runner) -> None:
         t = Task(name="s1", prompt="p", engine=ENGINE_CLAUDE, session_id="a")
         store.put_task(t)

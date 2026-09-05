@@ -606,44 +606,35 @@ class TestTasksCRUD:
         _post(ilan_server, "/tasks", {"name": "plain-row", "prompt": "P"})
         assert self._row(ilan_server, "plain-row")["max_tag"] is None
 
-    def test_list_row_drops_the_tag_on_the_other_backend_but_keeps_the_pin(
-        self, ilan_server: IlanServer,
+    @pytest.mark.parametrize(
+        ("engine", "model", "tag", "target", "target_model", "target_tag"),
+        [
+            ("claude", FABLE_MODEL, "FABLE", "codex", ASTRA_MODEL, "ASTRA"),
+            ("codex", ASTRA_MODEL, "ASTRA", "claude", FABLE_MODEL, "FABLE"),
+        ],
+    )
+    def test_list_row_translates_max_model_and_tag_on_switch(
+        self, ilan_server: IlanServer, engine: str, model: str, tag: str,
+        target: str, target_model: str, target_tag: str,
     ) -> None:
-        """A max model is one backend's, so a task maxed on claude and moved to
-        codex is not on it.
-
-        The stored model must survive the switch, so that switching back puts
-        the task on Fable again — the tag tracks where the task *runs*, the
-        model tracks what it is *pinned* to, and only the first is shown.
-        """
-        _post(ilan_server, "/tasks", {"name": "fable-codex", "prompt": "P", "max": True})
-        _park(ilan_server, "fable-codex")
-        _post(ilan_server, "/tasks/fable-codex/switch-backend")  # → codex
-
-        row = self._row(ilan_server, "fable-codex")
-        assert row["engine"] == "codex"
-        assert row["max_tag"] is None, "a tag is shown for a backend that will not run Fable"
-        assert row["model"] == FABLE_MODEL, "the pin was cleared rather than merely not shown"
-
-        _post(ilan_server, "/tasks/fable-codex/switch-backend")  # → claude again
-        row = self._row(ilan_server, "fable-codex")
-        assert row["max_tag"] == "FABLE", "switching back to Claude did not restore the tag"
-
-    def test_list_row_drops_an_astra_pin_on_claude(self, ilan_server: IlanServer) -> None:
-        """The mirror of the case above, in the direction max could not go
-        before: Astra is OpenAI's, so a claude task pinned to it is not on it.
-        """
+        """The CLI and web app see the destination's max model after each switch."""
         _post(
             ilan_server, "/tasks",
-            {"name": "astra-claude", "prompt": "P", "agent": "codex", "max": True},
+            {"name": "switch-max", "prompt": "P", "agent": engine, "max": True},
         )
-        _park(ilan_server, "astra-claude")
-        _post(ilan_server, "/tasks/astra-claude/switch-backend")  # → claude
+        _park(ilan_server, "switch-max")
+        assert _post(ilan_server, "/tasks/switch-max/switch-backend")["ok"]
 
-        row = self._row(ilan_server, "astra-claude")
-        assert row["engine"] == "claude"
-        assert row["max_tag"] is None
-        assert row["model"] == ASTRA_MODEL
+        row = self._row(ilan_server, "switch-max")
+        assert row["engine"] == target
+        assert row["model"] == target_model
+        assert row["max_tag"] == target_tag
+
+        assert _post(ilan_server, "/tasks/switch-max/switch-backend")["ok"]
+        row = self._row(ilan_server, "switch-max")
+        assert row["engine"] == engine
+        assert row["model"] == model
+        assert row["max_tag"] == tag
 
     def test_list_tasks_hides_terminal(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "will-done", "prompt": "P"})
@@ -2138,19 +2129,30 @@ class TestMaxUnmax:
         assert task["model"] == ASTRA_MODEL
         assert task["engine"] == "codex"
 
-    def test_max_after_switch_to_codex_moves_the_pin(self, ilan_server: IlanServer) -> None:
-        """A claude task maxed to Fable and then switched to codex keeps the
-        Fable pin, which codex ignores at spawn time (see test_backends_codex).
-        Maxing it again on codex is what moves it onto Astra."""
+    def test_max_after_switch_to_codex_is_idempotent(self, ilan_server: IlanServer) -> None:
+        """Switching to Codex already translates Fable to Astra."""
         _post(ilan_server, "/tasks", {"name": "max-then-switch", "prompt": "P"})
         _post(ilan_server, "/tasks/max-then-switch/max")  # claude → Fable
         _park(ilan_server, "max-then-switch")
         _post(ilan_server, "/tasks/max-then-switch/switch-backend")  # → codex
-        assert _get(ilan_server, "/tasks/max-then-switch")["task"]["model"] == FABLE_MODEL
+        assert _get(ilan_server, "/tasks/max-then-switch")["task"]["model"] == ASTRA_MODEL
 
         resp = _post(ilan_server, "/tasks/max-then-switch/max")
         assert resp.get("ok") is True
         assert resp["model"] == ASTRA_MODEL
+
+    def test_unmax_after_switch_stays_unmaxed_on_switch_back(
+        self, ilan_server: IlanServer,
+    ) -> None:
+        _post(ilan_server, "/tasks", {"name": "switch-unmax", "prompt": "P", "max": True})
+        _park(ilan_server, "switch-unmax")
+        _post(ilan_server, "/tasks/switch-unmax/switch-backend")
+        _post(ilan_server, "/tasks/switch-unmax/unmax")
+        _post(ilan_server, "/tasks/switch-unmax/switch-backend")
+        row = next(t for t in _get(ilan_server, "/tasks")["tasks"] if t["name"] == "switch-unmax")
+        assert row["engine"] == "claude"
+        assert row["model"] is None
+        assert row["max_tag"] is None
 
     def test_unmax_clears_an_astra_pin_too(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "unmax-codex", "prompt": "P", "agent": "codex"})

@@ -561,13 +561,8 @@ class TestMaxModels:
                 assert max_tag(engine, legacy) == entry.tag
 
     def test_max_tag_needs_the_owning_backend(self) -> None:
-        """Each max model is one backend's: the other drops the pin at spawn
-        time, so a task sitting there is not on it.
-
-        The pin itself is untouched, which is why this takes the model as an
-        argument rather than clearing it — switching back has to put the tag
-        back.
-        """
+        """Older saved tasks may carry a foreign pin that the backend ignores,
+        so displaying that model's tag would be misleading."""
         assert max_tag(ENGINE_CODEX, FABLE_MODEL) is None
         assert max_tag(ENGINE_CLAUDE, ASTRA_MODEL) is None
         for legacy in LEGACY_FABLE_MODELS:
