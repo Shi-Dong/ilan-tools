@@ -105,17 +105,6 @@ class TaskStatus(str, Enum):
         return self in (TaskStatus.DONE, TaskStatus.DISCARDED)
 
 
-# Anthropic's "Fable" model. Tasks "maxed" via ``ilan max`` run on this model
-# instead of the configured default; ``ilan unmax`` clears it.
-FABLE_MODEL = "claude-fable-5-1"
-
-# Fable ids this repo pinned before ``FABLE_MODEL`` was bumped. A task keeps
-# whichever id it was maxed on, so those older ids still have to read as Fable:
-# the ``FABLE`` tag stays on the task, and the codex backend keeps dropping the
-# Claude-only override instead of handing it to ``codex exec --model``. Maxing
-# a task again rewrites it to ``FABLE_MODEL``.
-LEGACY_FABLE_MODELS: tuple[str, ...] = ("claude-fable-5",)
-
 # Shortest allowed ``reply -t`` interval (CLI and server both enforce it):
 # more frequent re-sends would interrupt the agent faster than it can make
 # meaningful progress between messages.
@@ -132,31 +121,6 @@ CANCEL_MESSAGE = (
     "the instructions therein. If you are working on fulfilling a request "
     "specified in that message, you should stop immediately."
 )
-
-
-def is_fable_model(model: str | None) -> bool:
-    """Whether *model* is Fable — the current id or one it superseded."""
-    return model == FABLE_MODEL or model in LEGACY_FABLE_MODELS
-
-
-def runs_on_fable(engine: str | None, model: str | None) -> bool:
-    """Whether a task is actually running on Fable.
-
-    Two things have to hold: the task is pinned to a Fable id, and it is on a
-    backend that honours the pin. Fable is Claude-only. Every engine except
-    codex runs on the Claude backend (see ``Runner._backend_for``), which
-    applies the override; codex drops it rather than handing a Claude-only id
-    to ``codex exec --model``. So a codex task pinned to Fable is *not* on
-    Fable, and a tag saying it was would be wrong. The stored model is left
-    alone, so switching the task back to Claude puts it on Fable again.
-
-    An absent engine predates the field and runs on the default backend.
-
-    This is the predicate behind the red ``FABLE`` tag wherever it appears —
-    ``ilan ls``, ``ilan dashboard`` and the web app — so that the three cannot
-    disagree about which tasks carry it.
-    """
-    return (engine or DEFAULT_ENGINE) != ENGINE_CODEX and is_fable_model(model)
 
 
 # ── Agent backends (engines) ─────────────────────────────────────────────
@@ -182,6 +146,102 @@ ENGINE_NAME_STYLE: dict[str, str] = {
     ENGINE_CLAUDE: "orange1",
     ENGINE_CODEX: "light_sky_blue1",
 }
+
+
+# ── Max models (``ilan max``) ────────────────────────────────────────────
+# Every backend has one model that ``ilan max`` pins a task to: the strongest
+# thing that backend can run, worth its price on a hard turn. ``ilan unmax``
+# drops the pin and puts the task back on the configured default.
+FABLE_MODEL = "claude-fable-5-1"  # Anthropic's Fable, for the Claude backend
+ASTRA_MODEL = "gpt-6-astra"  # OpenAI's GPT-6 Astra, for the Codex backend
+
+# Ids this repo pinned before the two above were bumped. A task keeps whichever
+# id it was maxed on, so a superseded one still has to read as maxed: the task
+# keeps its tag, and the *other* backend keeps dropping the id rather than
+# handing its own CLI a model that CLI cannot load. Maxing a task again
+# rewrites it to the current id. Bumping a model above without listing its
+# predecessor here is a bug.
+LEGACY_FABLE_MODELS: tuple[str, ...] = ("claude-fable-5",)
+LEGACY_ASTRA_MODELS: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class MaxModel:
+    """What ``ilan max`` means on one backend: what to pin, what to call it."""
+
+    model: str
+    legacy: tuple[str, ...]
+    # The tag shown beside a maxed task in ``ilan ls``, ``ilan dashboard`` and
+    # the web app. It names the model rather than reading "MAX" so that a
+    # glance at the list says *which* expensive model the task is burning.
+    tag: str
+
+    def matches(self, model: str | None) -> bool:
+        """Whether *model* is this one: the current id, or one it superseded."""
+        return model == self.model or model in self.legacy
+
+
+MAX_MODELS: dict[str, MaxModel] = {
+    ENGINE_CLAUDE: MaxModel(FABLE_MODEL, LEGACY_FABLE_MODELS, "FABLE"),
+    ENGINE_CODEX: MaxModel(ASTRA_MODEL, LEGACY_ASTRA_MODELS, "ASTRA"),
+}
+
+
+def _max_model(engine: str | None) -> MaxModel:
+    """The max model of *engine*, resolving it the way a spawn would.
+
+    An absent engine predates the field, and an unrecognised one is driven by
+    the Claude backend (see ``Runner._backend_for``), so both answer Claude's.
+    """
+    return MAX_MODELS.get(engine or DEFAULT_ENGINE, MAX_MODELS[DEFAULT_ENGINE])
+
+
+def max_model_for(engine: str | None) -> str:
+    """The model id ``ilan max`` pins a task running on *engine* to."""
+    return _max_model(engine).model
+
+
+def max_tag(engine: str | None, model: str | None) -> str | None:
+    """The tag for a task on *engine* pinned to *model*, or ``None`` for none.
+
+    Two things have to hold: the task is pinned to a max id, and it sits on the
+    backend that owns that id. Each max model belongs to exactly one backend —
+    Fable is Anthropic's, Astra is OpenAI's — and switching backends leaves the
+    pin alone on purpose, so a codex task can be carrying a Fable pin that
+    nothing will run. Such a task is not on Fable, and a tag saying it was
+    would be wrong. The pin itself is untouched, so switching back puts the
+    task on that model again.
+
+    This is the predicate behind the tag wherever it appears — ``ilan ls``,
+    ``ilan dashboard`` and the web app — so the three cannot disagree about
+    which tasks carry one, or about what it says.
+    """
+    entry = _max_model(engine)
+    return entry.tag if entry.matches(model) else None
+
+
+def tag_for_max_model(model: str | None) -> str | None:
+    """The tag of whichever backend's max model *model* is, if it is one.
+
+    ``max_tag`` answers for a whole task; this answers for a bare id, which is
+    what a command reporting the pin it has just set has to go on.
+    """
+    for entry in MAX_MODELS.values():
+        if entry.matches(model):
+            return entry.tag
+    return None
+
+
+def foreign_max_model(engine: str | None, model: str | None) -> bool:
+    """Whether *model* is a max pin owned by some backend other than *engine*.
+
+    Backends ask this to drop such a pin before it reaches their CLI: a task
+    maxed on claude and later switched to codex still carries
+    ``claude-fable-5-1``, and ``codex exec --model claude-fable-5-1`` cannot
+    load it. Only the spawn ignores the pin — it stays on the task, so
+    switching back restores it.
+    """
+    return tag_for_max_model(model) is not None and not _max_model(engine).matches(model)
 
 
 STYLE_FOR_STATUS: dict[TaskStatus, str] = {

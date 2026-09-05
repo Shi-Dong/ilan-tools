@@ -1392,19 +1392,24 @@ class TestReplyConfirmation:
 
 
 class TestReplyMaxFlags:
-    """``ilan reply --max`` switches the task to Fable, then posts the reply;
-    ``--unmax`` resets the model first. The switch persists (it is the same
-    server-side pin as ``ilan max`` / ``ilan unmax``). When the model is
-    already in the requested state the switch is a silent no-op."""
+    """``ilan reply --max`` switches the task to its backend's max model, then
+    posts the reply; ``--unmax`` resets the model first. The switch persists
+    (it is the same server-side pin as ``ilan max`` / ``ilan unmax``). When the
+    model is already in the requested state the switch is a silent no-op."""
 
-    def _client_for_reply(self, model: str | None = None) -> MagicMock:
+    def _client_for_reply(
+        self, model: str | None = None, engine: str = "claude",
+        maxed_to: str = "claude-fable-5-1",
+    ) -> MagicMock:
         client = _make_client()
-        client.get_task.return_value = {"task": {"name": "my-task", "model": model}}
+        client.get_task.return_value = {
+            "task": {"name": "my-task", "model": model, "engine": engine}
+        }
         client.reply.return_value = {
             "name": "my-task",
             "message": "Reply sent to my-task. Agent resumed.",
         }
-        client.max_task.return_value = {"name": "my-task", "model": "claude-fable-5-1"}
+        client.max_task.return_value = {"name": "my-task", "model": maxed_to}
         client.unmax_task.return_value = {"name": "my-task", "model": None}
         return client
 
@@ -1440,30 +1445,48 @@ class TestReplyMaxFlags:
         client.max_task.assert_called_once_with("my-task")
         client.reply.assert_called_once_with("my-task", "go on")
 
-    def test_reply_max_on_codex_warns_and_still_replies(
+    def test_reply_max_on_codex_switches_to_astra(
         self, runner: CliRunner, tmp_config
     ) -> None:
-        """On a codex task the server warns and leaves the model untouched;
-        the reply must still be posted normally."""
-        client = self._client_for_reply()
-        client.max_task.return_value = {
-            "ok": True,
-            "name": "my-task",
-            "model": None,
-            "warning": (
-                "Task my-task runs on the codex backend; Fable "
-                "(claude-fable-5-1) is a Claude-only model, so max did nothing."
-            ),
-        }
+        """A codex task maxes to its own model, not Claude's: the reply used to
+        come back with a warning and the model untouched."""
+        client = self._client_for_reply(engine="codex", maxed_to="gpt-6-astra")
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["reply", "my-task", "go on", "--max"])
         assert result.exit_code == 0
-        # Collapse whitespace: rich wraps long warning lines at terminal width.
-        out = re.sub(r"\s+", " ", _strip_ansi(result.output))
-        assert "Claude-only model, so max did nothing" in out
-        assert "FABLE" not in out  # no "set to FABLE" success line
+        out = _strip_ansi(result.output)
+        assert "ASTRA" in out
+        assert "gpt-6-astra" in out
+        assert "FABLE" not in out
         assert "Reply sent to my-task." in out
+        client.max_task.assert_called_once_with("my-task")
         client.reply.assert_called_once_with("my-task", "go on")
+
+    def test_max_on_an_astra_codex_task_is_a_silent_noop(
+        self, runner: CliRunner, tmp_config
+    ) -> None:
+        """Already-maxed is per backend: a codex task on Astra needs no switch,
+        even though it is not on the id --max means for claude."""
+        client = self._client_for_reply(model="gpt-6-astra", engine="codex")
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["reply", "my-task", "go on", "--max"])
+        assert result.exit_code == 0
+        client.max_task.assert_not_called()
+        client.reply.assert_called_once_with("my-task", "go on")
+
+    def test_max_on_a_codex_task_still_pinned_to_fable_switches(
+        self, runner: CliRunner, tmp_config
+    ) -> None:
+        """A task maxed on claude and then switched to codex keeps the Fable
+        pin, which codex will not run: --max moves it onto Astra."""
+        client = self._client_for_reply(
+            model="claude-fable-5-1", engine="codex", maxed_to="gpt-6-astra",
+        )
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["reply", "my-task", "go on", "--max"])
+        assert result.exit_code == 0
+        client.max_task.assert_called_once_with("my-task")
+        assert "ASTRA" in _strip_ansi(result.output)
 
     def test_reply_unmax_resets_then_replies(
         self, runner: CliRunner, tmp_config
@@ -1794,33 +1817,60 @@ class TestAddAgent:
             "plain-task", "do it", None, max_model=False
         )
 
-    def test_max_flag_implies_claude_and_passes_through(
+    def test_max_flag_leaves_the_backend_to_the_server(
         self, runner: CliRunner, tmp_config
     ) -> None:
+        """Every backend has a max model, so --max no longer picks one: the
+        task lands on the `default-backend` the server resolves."""
         client = _make_client()
-        client.add_task.return_value = {"ok": True}
+        client.add_task.return_value = {"ok": True, "model": "claude-fable-5-1"}
         with patch("ilan.cli._client", return_value=client), \
              patch("ilan.cli.shutil.which", return_value="/usr/bin/tmux"):
             result = runner.invoke(
-                main, ["add", "-n", "fable-task", "-d", "do it", "--max"]
+                main, ["add", "-n", "maxed-task", "-d", "do it", "--max"]
             )
         assert result.exit_code == 0
         client.add_task.assert_called_once_with(
-            "fable-task", "do it", "claude", max_model=True
+            "maxed-task", "do it", None, max_model=True
         )
+        assert "added on FABLE" in _strip_ansi(result.output)
 
-    def test_max_with_codex_is_rejected(
+    def test_max_combines_with_codex(
         self, runner: CliRunner, tmp_config
     ) -> None:
+        """The pairing used to be rejected as contradictory; codex has its own
+        max model now, and the tag reported names it."""
+        client = _make_client()
+        client.add_task.return_value = {"ok": True, "model": "gpt-6-astra"}
+        with patch("ilan.cli._client", return_value=client), \
+             patch("ilan.cli.shutil.which", return_value="/usr/bin/tmux"):
+            result = runner.invoke(
+                main, ["add", "-n", "maxed-codex", "-d", "do it", "--codex", "--max"]
+            )
+        assert result.exit_code == 0
+        client.add_task.assert_called_once_with(
+            "maxed-codex", "do it", "codex", max_model=True
+        )
+        out = _strip_ansi(result.output)
+        assert "added on ASTRA" in out
+        assert "gpt-6-astra" in out
+
+    def test_max_reports_plainly_when_the_server_names_no_model(
+        self, runner: CliRunner, tmp_config
+    ) -> None:
+        """A server too old to report the model it pinned still gets a clean
+        confirmation, not a tag guessed from the client's own end."""
         client = _make_client()
         client.add_task.return_value = {"ok": True}
         with patch("ilan.cli._client", return_value=client), \
              patch("ilan.cli.shutil.which", return_value="/usr/bin/tmux"):
             result = runner.invoke(
-                main, ["add", "-n", "bad", "-d", "do it", "--codex", "--max"]
+                main, ["add", "-n", "old-server", "-d", "do it", "--max"]
             )
-        assert result.exit_code == 1
-        client.add_task.assert_not_called()
+        assert result.exit_code == 0
+        out = _strip_ansi(result.output)
+        assert "Task old-server added." in _unwrap(out)
+        assert "FABLE" not in out
 
 
 # ── engine colour in the name cell ──────────────────────────────────

@@ -21,7 +21,7 @@ Ilan turns a to-do list into a fleet of autonomous coding agents. Describe a tas
 - **Branch instead of repeating yourself.** Fork a task into a child that inherits the whole conversation, try two approaches in parallel, and draw the family tree with `ilan tree`.
 - **Everything at a glance.** `ilan ls` and a live `ilan dashboard` show each task's status, an unread marker, and a one-line AI summary of the agent's latest reply.
 - **Wherever you are.** A phone-first web app ships with the server, and every conversation can be mirrored to a secret GitHub Gist for a clean, shareable read.
-- **More brain when it matters.** Pin a hard task to Claude's Fable model with `ilan max`, and drop back to the default with `ilan unmax`.
+- **More brain when it matters.** Pin a hard task to the biggest model its backend has with `ilan max` — Claude's Fable, Codex's Astra — and drop back to the default with `ilan unmax`.
 
 ## Installation
 
@@ -88,7 +88,7 @@ Every task command has a top-level shorthand, so `ilan task reply` is just `ilan
 
 | Command | What it does |
 |---|---|
-| `ilan add [-n NAME] (-d "prompt" \| -f FILE) [--claude \| --codex] [--max]` | Add a task and start it. Omit `-n` for a burnable task; `--max` starts it on the Fable model. |
+| `ilan add [-n NAME] (-d "prompt" \| -f FILE) [--claude \| --codex] [--max]` | Add a task and start it. Omit `-n` for a burnable task; `--max` starts it on its backend's max model. |
 | `ilan ls [-a] [-c]` | List active tasks. `-a` includes closed ones, `-c` prints one plain line per task. |
 | `ilan search PATTERN` | Filter the `ilan ls -a -c` lines by a case-insensitive substring. |
 | `ilan tail NAME [-n N]` | Show the latest reply with the prompt behind it, then which model wrote it, at what effort and cost, and the token counts. `-n` shows the last N replies. |
@@ -124,7 +124,7 @@ Every task command has a top-level shorthand, so `ilan task reply` is just `ilan
 
 | Command | What it does |
 |---|---|
-| `ilan max NAME` / `ilan unmax NAME` | Run the task on Claude's Fable model (`claude-fable-5-1`), or return to the configured default. Takes effect on the next reply. |
+| `ilan max NAME` / `ilan unmax NAME` | Run the task on its backend's max model — Fable (`claude-fable-5-1`) on `claude`, Astra (`gpt-6-astra`) on `codex` — or return to the configured default. Takes effect on the next reply. |
 | `ilan switch-backend NAME` | Move an idle task between Claude Code and Codex. The new backend catches up on its first turn. |
 | `ilan task kill NAME` | Stop a `WORKING` agent. The task moves to `ERROR` until you reply. |
 
@@ -208,6 +208,6 @@ The CLI never touches agents directly; every action goes through the server, so 
 
 ## Further reading
 
-- [docs/reference.md](docs/reference.md): the complete behavioural reference. Every flag, the duration and alias rules, burnable tasks, line-number mode, exact model ids, cost and token attribution, time-zone aliases, the Fable model, the branch tree, remote use, the web app, and the Gist mirror in full.
+- [docs/reference.md](docs/reference.md): the complete behavioural reference. Every flag, the duration and alias rules, burnable tasks, line-number mode, exact model ids, cost and token attribution, time-zone aliases, the max models, the branch tree, remote use, the web app, and the Gist mirror in full.
 - [CLAUDE_VS_CODEX.md](CLAUDE_VS_CODEX.md): sharing project context between Claude Code and Codex.
 - [AGENTS.md](AGENTS.md): guide for agents (and humans) working on this repo.

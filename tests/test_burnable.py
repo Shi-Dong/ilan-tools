@@ -691,12 +691,14 @@ class TestAddCli:
         self, runner: CliRunner, tmp_config
     ) -> None:
         client = _make_client()
-        client.add_task.return_value = {"ok": True, "name": "xxx-owl-naps-dune"}
+        client.add_task.return_value = {
+            "ok": True, "name": "xxx-owl-naps-dune", "model": "claude-fable-5-1",
+        }
         with patch("ilan.cli._client", return_value=client), \
              patch("ilan.cli.shutil.which", return_value="/usr/bin/tmux"):
             result = runner.invoke(main, ["add", "-d", "p", "--max"])
         assert result.exit_code == 0
-        client.add_task.assert_called_once_with(None, "p", "claude", max_model=True)
+        client.add_task.assert_called_once_with(None, "p", None, max_model=True)
         out = _unwrap(_strip_ansi(result.output))
         assert "Task xxx-owl-naps-dune added on FABLE" in out
         assert "Burnable" in out

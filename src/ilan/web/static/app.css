@@ -606,10 +606,13 @@ textarea.field {
   flex: none;
 }
 
-/* The FABLE tag: a task pinned to the expensive model, on a backend that will
- * actually run it there. Bold red text beside the status pill, which is what
- * `ilan ls` prints, and the same size and tracking as the pill's label so the
- * two read as one line of small caps.
+/* The max-model tag — FABLE on the Claude backend, ASTRA on Codex: a task
+ * pinned to its backend's expensive model, on a backend that will actually run
+ * it there. Bold red text beside the status pill, which is what `ilan ls`
+ * prints, and the same size and tracking as the pill's label so the two read
+ * as one line of small caps. One rule for both tags: which model a task is
+ * burning is worth reading, which backend it is on is already in the colour of
+ * the name above, so a second colour here would say it twice.
  *
  * Text, not a second pill. Filled red beside a filled status would read as a
  * second status — and as NEEDS ATTENTION in particular, which is the same red.
@@ -619,7 +622,7 @@ textarea.field {
  * and lightened on a dark one like every other red here. A dark red kept dark
  * would sit at 3.0:1 on a dark card, under the 4.5:1 that eleven-pixel text
  * needs; the scheme's own red clears it in both. */
-.fable {
+.max-tag {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: .03em;

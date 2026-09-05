@@ -62,14 +62,22 @@ class TestBuildCommand:
         cmd, _ = backend.build_command("gpt-5.6-sol", resume=False, session_id=None)
         assert cmd[cmd.index("--model") + 1] == "gpt-5.6-sol"
 
+    def test_astra_override_passed(
+        self, backend: CodexBackend, tmp_config: Path
+    ) -> None:
+        """``ilan max`` on a codex task pins Astra, which is codex's own max
+        model, so it reaches the CLI like any other override."""
+        cmd, _ = backend.build_command("gpt-6-astra", resume=False, session_id=None)
+        assert cmd[cmd.index("--model") + 1] == "gpt-6-astra"
+
     @pytest.mark.parametrize("fable_id", ["claude-fable-5-1", "claude-fable-5"])
     def test_fable_override_falls_back_to_default(
         self, backend: CodexBackend, tmp_config: Path, fable_id: str
     ) -> None:
         """A stale Fable override (from ``ilan max`` before a switch to codex)
-        is Claude-only, so codex ignores it and spawns the codex default. A
-        task maxed before the model bump still holds the older Fable id, so
-        that one has to be ignored too."""
+        is the Claude backend's max model, so codex ignores it and spawns the
+        codex default. A task maxed before the model bump still holds the older
+        Fable id, so that one has to be ignored too."""
         cmd, _ = backend.build_command(fable_id, resume=False, session_id=None)
         assert cmd[cmd.index("--model") + 1] == "gpt-5.6-sol"
 

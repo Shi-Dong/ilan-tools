@@ -900,9 +900,9 @@ def test_the_working_duration_is_measured_from_when_the_task_started_working():
     assert "secondsSince(task.status_changed_at)" in js
 
 
-# ── the FABLE tag ───────────────────────────────────────────────────────
+# ── the max-model tag (FABLE / ASTRA) ───────────────────────────────────
 
-def test_the_fable_tag_is_the_apps_red_and_legible_in_both_schemes():
+def test_the_max_tag_is_the_apps_red_and_legible_in_both_schemes():
     """Bold red text beside the status pill, as `ilan ls` prints it.
 
     Held to --danger rather than to a literal so it lightens in dark mode with
@@ -910,12 +910,16 @@ def test_the_fable_tag_is_the_apps_red_and_legible_in_both_schemes():
     the 4.5:1 that eleven-pixel text needs. The contrast is asserted directly
     in both schemes rather than trusted to the variable, since --danger was
     tuned for larger text and could move.
+
+    One rule serves every backend's tag, so this covers all of them: a
+    per-backend colour here would only repeat what the name's colour above
+    already says.
     """
     css = web.read_asset("app.css").decode()
     light, dark = _scheme_values(css)
 
-    rule = re.search(r"\n\.fable \{(.*?)\}", css, re.S)
-    assert rule, "the FABLE tag has no rule"
+    rule = re.search(r"\n\.max-tag \{(.*?)\}", css, re.S)
+    assert rule, "the max-model tag has no rule"
     assert "color: var(--danger)" in rule.group(1), "the tag is not the app's red"
     assert "background" not in rule.group(1), (
         "a filled red tag beside a filled status pill reads as a second status"
@@ -924,13 +928,13 @@ def test_the_fable_tag_is_the_apps_red_and_legible_in_both_schemes():
     for scheme, values in (("light", light), ("dark", dark)):
         ink, card = values["--danger"], values["--bg-elevated"]
         assert _contrast(ink, card) >= 4.5, (
-            f"{scheme}: FABLE is {ink} on {card}, only {_contrast(ink, card):.2f}:1"
+            f"{scheme}: the tag is {ink} on {card}, only {_contrast(ink, card):.2f}:1"
         )
         r, g, b = (int(ink[i:i + 2], 16) for i in (1, 3, 5))
         assert r > g and r > b, f"{scheme}: --danger is {ink}, which is not a red"
 
 
-def test_the_fable_tag_survives_collapsing():
+def test_the_max_tag_survives_collapsing():
     """Which tasks are burning the expensive model is worth knowing from the
     list, and most of the list is only ever seen collapsed.
 
@@ -940,39 +944,40 @@ def test_the_fable_tag_survives_collapsing():
     css = web.read_asset("app.css").decode()
     js = web.read_asset("app.js").decode()
 
-    assert ".card.collapsed .fable" not in css, "the tag is hidden when collapsed"
-    tag = re.search(r"task\.fable \? '(<span[^>]*>)FABLE</span>'", js)
-    assert tag, "the card no longer renders a FABLE tag from the server's flag"
+    assert ".card.collapsed .max-tag" not in css, "the tag is hidden when collapsed"
+    tag = re.search(r"task\.max_tag \? `(<span[^>]*>)", js)
+    assert tag, "the card no longer renders the tag the server sends"
     assert "meta-detail" not in tag.group(1), (
         "the tag carries the class that collapsing hides"
     )
-    assert 'class="fable"' in tag.group(1)
+    assert 'class="max-tag"' in tag.group(1)
 
 
-def test_the_web_app_is_told_which_tasks_are_fable_rather_than_working_it_out():
-    """The answer depends on FABLE_MODEL, LEGACY_FABLE_MODELS and which backends
-    honour the pin. Every copy of that outside models.py is a future bug — the
-    model bump already has to remember LEGACY_FABLE_MODELS — so the web app
-    reads a flag the server computes with the same predicate `ls` uses.
+def test_the_web_app_is_told_which_tag_to_show_rather_than_working_it_out():
+    """Which tag a task carries depends on every backend's max model, the ids
+    those superseded, and which backend honours which pin. Every copy of that
+    outside models.py is a future bug — a model bump already has to remember
+    the legacy list — so the web app renders a string the server computes with
+    the same predicate `ls` uses.
     """
     js = web.read_asset("app.js").decode()
     server = (Path(web.__file__).parent.parent / "server.py").read_text()
     cli = (Path(web.__file__).parent.parent / "cli.py").read_text()
 
-    assert "task.fable" in js, "the card does not read the server's flag"
-    assert "fable-5" not in js, "a Fable model id is spelled out in the web app"
+    assert "task.max_tag" in js, "the card does not read the server's tag"
+    for model_id in ("fable-5", "gpt-6"):
+        assert model_id not in js, f"the model id {model_id} is spelled out in the web app"
+    for tag in ("FABLE", "ASTRA"):
+        assert f">{tag}<" not in js, f"the web app hard-codes the {tag} tag"
     assert "task.model" not in js.split("function taskRow")[1].split("\n}\n")[0], (
-        "the card inspects the model itself instead of trusting the flag"
+        "the card inspects the model itself instead of trusting the server"
     )
 
-    assert '"fable": runs_on_fable(t.engine, t.model)' in server, (
-        "the list row no longer carries the flag, or computes it differently"
+    assert '"max_tag": max_tag(t.engine, t.model)' in server, (
+        "the list row no longer carries the tag, or computes it differently"
     )
-    assert "runs_on_fable(engine, row.get(\"model\"))" in cli, (
-        "the CLI's FABLE note no longer uses the shared predicate"
-    )
-    assert "is_fable_model(row.get" not in cli, (
-        "the CLI still spells the rule out beside the shared predicate"
+    assert 'max_tag(engine, row.get("model"))' in cli, (
+        "the CLI's max-model note no longer uses the shared predicate"
     )
 
 
@@ -995,7 +1000,7 @@ def test_a_collapsed_card_hides_the_summary_and_the_metadata():
     """The collapsed view is defined by CSS, so assert the rules exist.
 
     A collapsed card shows the pin, alias, name, unread marker, status and the
-    FABLE tag. The summary and the age are what it drops, hidden by class
+    max-model tag. The summary and the age are what it drops, hidden by class
     rather than by a second rendering path — so losing one of these selectors
     would quietly put the detail back.
     """

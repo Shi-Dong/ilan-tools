@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ilan import config as cfg
 from ilan.backends.base import Backend, ParsedResult, TokenUsage
+from ilan.models import ENGINE_CLAUDE, foreign_max_model
 
 _CLAUDE_STATIC_FLAGS = [
     "--dangerously-skip-permissions",
@@ -18,8 +19,15 @@ def _effective_model(model_override: str | None = None) -> str:
 
     *model_override* (a task's ``model``, set via ``ilan max``) takes
     precedence over the configured default; ``None`` falls back to config.
+
+    The mirror of the codex backend's guard: a max pin belonging to the other
+    backend is dropped rather than passed on. A task maxed on codex and later
+    switched to claude still carries ``gpt-6-astra``, which ``claude --model``
+    cannot load. The pin stays on the task, so switching back runs it there.
     """
     conf = cfg.load()
+    if foreign_max_model(ENGINE_CLAUDE, model_override):
+        model_override = None
     return model_override or str(conf["model-claude"])
 
 

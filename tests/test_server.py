@@ -20,7 +20,7 @@ import pytest
 import ilan.server as srv_mod
 from ilan import __version__
 from ilan.client import Client
-from ilan.models import FABLE_MODEL, Task, TaskStatus
+from ilan.models import ASTRA_MODEL, FABLE_MODEL, Task, TaskStatus
 from ilan.server import IlanServer, read_server_info, read_server_owner
 from ilan.store import Store
 
@@ -511,22 +511,41 @@ class TestTasksCRUD:
     def test_add_task_with_max_sets_fable_model(self, ilan_server: IlanServer) -> None:
         resp = _post(ilan_server, "/tasks", {"name": "max-task", "prompt": "P", "max": True})
         assert resp.get("ok") is True
+        assert resp["model"] == FABLE_MODEL
         task = _get(ilan_server, "/tasks/max-task")["task"]
         assert task["model"] == FABLE_MODEL
         assert task["engine"] == "claude"
 
     def test_add_task_without_max_has_no_model(self, ilan_server: IlanServer) -> None:
-        _post(ilan_server, "/tasks", {"name": "plain-model", "prompt": "P"})
+        resp = _post(ilan_server, "/tasks", {"name": "plain-model", "prompt": "P"})
+        assert resp["model"] is None
         task = _get(ilan_server, "/tasks/plain-model")["task"]
         assert task["model"] is None
 
-    def test_add_task_max_with_codex_rejected(self, ilan_server: IlanServer) -> None:
+    def test_add_task_with_max_on_codex_sets_astra_model(
+        self, ilan_server: IlanServer,
+    ) -> None:
+        """The pairing used to be rejected: max was Claude-only."""
         resp = _post(
             ilan_server, "/tasks",
             {"name": "max-codex", "prompt": "P", "agent": "codex", "max": True},
         )
-        assert "error" in resp
-        assert _get(ilan_server, "/tasks/max-codex").get("error")
+        assert resp.get("ok") is True
+        assert resp["model"] == ASTRA_MODEL
+        task = _get(ilan_server, "/tasks/max-codex")["task"]
+        assert task["model"] == ASTRA_MODEL
+        assert task["engine"] == "codex"
+
+    def test_add_task_with_max_follows_the_default_backend(
+        self, ilan_server: IlanServer,
+    ) -> None:
+        """No --claude/--codex means the server picks the backend, so it is the
+        server that has to pick the matching max model too."""
+        _post(ilan_server, "/config/set", {"key": "default-backend", "value": "codex"})
+        _post(ilan_server, "/tasks", {"name": "max-default", "prompt": "P", "max": True})
+        task = _get(ilan_server, "/tasks/max-default")["task"]
+        assert task["engine"] == "codex"
+        assert task["model"] == ASTRA_MODEL
 
     def test_add_duplicate_task(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "dup-task", "prompt": "A"})
@@ -562,41 +581,69 @@ class TestTasksCRUD:
         row = next(t for t in resp["tasks"] if t["name"] == "engine-list")
         assert row["engine"] == "codex"
 
-    # The web app reads `fable` off the list row rather than matching model ids
-    # itself, so the row has to say the right thing in each of the states the
-    # CLI's FABLE note distinguishes.
-    def test_list_row_flags_a_maxed_task_as_fable(self, ilan_server: IlanServer) -> None:
+    # The web app reads `max_tag` off the list row rather than matching model
+    # ids itself, so the row has to say the right thing in each of the states
+    # the CLI's own note distinguishes.
+    def _row(self, ilan_server: IlanServer, name: str) -> dict:
+        return next(t for t in _get(ilan_server, "/tasks")["tasks"] if t["name"] == name)
+
+    def test_list_row_tags_a_maxed_claude_task_fable(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "fable-row", "prompt": "P", "max": True})
-        row = next(t for t in _get(ilan_server, "/tasks")["tasks"] if t["name"] == "fable-row")
-        assert row["fable"] is True
+        row = self._row(ilan_server, "fable-row")
+        assert row["max_tag"] == "FABLE"
         assert row["model"] == FABLE_MODEL
 
-    def test_list_row_does_not_flag_a_plain_task(self, ilan_server: IlanServer) -> None:
-        _post(ilan_server, "/tasks", {"name": "plain-row", "prompt": "P"})
-        row = next(t for t in _get(ilan_server, "/tasks")["tasks"] if t["name"] == "plain-row")
-        assert row["fable"] is False
+    def test_list_row_tags_a_maxed_codex_task_astra(self, ilan_server: IlanServer) -> None:
+        _post(
+            ilan_server, "/tasks",
+            {"name": "astra-row", "prompt": "P", "agent": "codex", "max": True},
+        )
+        row = self._row(ilan_server, "astra-row")
+        assert row["max_tag"] == "ASTRA"
+        assert row["model"] == ASTRA_MODEL
 
-    def test_list_row_drops_the_flag_on_codex_but_keeps_the_pin(
+    def test_list_row_does_not_tag_a_plain_task(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "plain-row", "prompt": "P"})
+        assert self._row(ilan_server, "plain-row")["max_tag"] is None
+
+    def test_list_row_drops_the_tag_on_the_other_backend_but_keeps_the_pin(
         self, ilan_server: IlanServer,
     ) -> None:
-        """Fable is Claude-only, so a maxed task moved to codex is not on it.
+        """A max model is one backend's, so a task maxed on claude and moved to
+        codex is not on it.
 
         The stored model must survive the switch, so that switching back puts
-        the task on Fable again — the flag tracks where the task *runs*, the
+        the task on Fable again — the tag tracks where the task *runs*, the
         model tracks what it is *pinned* to, and only the first is shown.
         """
         _post(ilan_server, "/tasks", {"name": "fable-codex", "prompt": "P", "max": True})
         _park(ilan_server, "fable-codex")
         _post(ilan_server, "/tasks/fable-codex/switch-backend")  # → codex
 
-        row = next(t for t in _get(ilan_server, "/tasks")["tasks"] if t["name"] == "fable-codex")
+        row = self._row(ilan_server, "fable-codex")
         assert row["engine"] == "codex"
-        assert row["fable"] is False, "the tag is shown for a backend that will not run Fable"
+        assert row["max_tag"] is None, "a tag is shown for a backend that will not run Fable"
         assert row["model"] == FABLE_MODEL, "the pin was cleared rather than merely not shown"
 
         _post(ilan_server, "/tasks/fable-codex/switch-backend")  # → claude again
-        row = next(t for t in _get(ilan_server, "/tasks")["tasks"] if t["name"] == "fable-codex")
-        assert row["fable"] is True, "switching back to Claude did not restore the tag"
+        row = self._row(ilan_server, "fable-codex")
+        assert row["max_tag"] == "FABLE", "switching back to Claude did not restore the tag"
+
+    def test_list_row_drops_an_astra_pin_on_claude(self, ilan_server: IlanServer) -> None:
+        """The mirror of the case above, in the direction max could not go
+        before: Astra is OpenAI's, so a claude task pinned to it is not on it.
+        """
+        _post(
+            ilan_server, "/tasks",
+            {"name": "astra-claude", "prompt": "P", "agent": "codex", "max": True},
+        )
+        _park(ilan_server, "astra-claude")
+        _post(ilan_server, "/tasks/astra-claude/switch-backend")  # → claude
+
+        row = self._row(ilan_server, "astra-claude")
+        assert row["engine"] == "claude"
+        assert row["max_tag"] is None
+        assert row["model"] == ASTRA_MODEL
 
     def test_list_tasks_hides_terminal(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "will-done", "prompt": "P"})
@@ -2078,32 +2125,39 @@ class TestMaxUnmax:
         assert resp.get("ok") is True
         assert resp["name"] == "max-alias"
 
-    def test_max_on_codex_is_noop_with_warning(self, ilan_server: IlanServer) -> None:
-        """Fable is Claude-only, so maxing a codex task changes nothing and
-        returns a warning instead of a broken model override."""
+    def test_max_on_codex_sets_astra_model(self, ilan_server: IlanServer) -> None:
+        """Maxing a codex task used to be a no-op with a warning: Fable was
+        Claude-only and there was nothing else to pin."""
         _post(ilan_server, "/tasks", {"name": "max-codex", "prompt": "P", "agent": "codex"})
         resp = _post(ilan_server, "/tasks/max-codex/max")
         assert resp.get("ok") is True
-        assert resp.get("model") is None  # unchanged, not set to Fable
-        assert "warning" in resp
-        assert "codex" in resp["warning"]
+        assert resp["model"] == ASTRA_MODEL
+        assert "warning" not in resp
 
         task = _get(ilan_server, "/tasks/max-codex")["task"]
-        assert task["model"] is None  # no Fable override persisted
+        assert task["model"] == ASTRA_MODEL
         assert task["engine"] == "codex"
 
-    def test_max_after_switch_to_codex_is_noop(self, ilan_server: IlanServer) -> None:
-        """A claude task maxed to Fable, then switched to codex, is a no-op if
-        re-maxed on codex. The task keeps its Fable ``model`` (switch-backend
-        doesn't rewrite it), but the codex backend ignores a Claude-only
-        override at spawn time — see test_backends_codex."""
+    def test_max_after_switch_to_codex_moves_the_pin(self, ilan_server: IlanServer) -> None:
+        """A claude task maxed to Fable and then switched to codex keeps the
+        Fable pin, which codex ignores at spawn time (see test_backends_codex).
+        Maxing it again on codex is what moves it onto Astra."""
         _post(ilan_server, "/tasks", {"name": "max-then-switch", "prompt": "P"})
         _post(ilan_server, "/tasks/max-then-switch/max")  # claude → Fable
         _park(ilan_server, "max-then-switch")
         _post(ilan_server, "/tasks/max-then-switch/switch-backend")  # → codex
+        assert _get(ilan_server, "/tasks/max-then-switch")["task"]["model"] == FABLE_MODEL
+
         resp = _post(ilan_server, "/tasks/max-then-switch/max")
         assert resp.get("ok") is True
-        assert "warning" in resp
+        assert resp["model"] == ASTRA_MODEL
+
+    def test_unmax_clears_an_astra_pin_too(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "unmax-codex", "prompt": "P", "agent": "codex"})
+        _post(ilan_server, "/tasks/unmax-codex/max")
+        resp = _post(ilan_server, "/tasks/unmax-codex/unmax")
+        assert resp["model"] is None
+        assert _get(ilan_server, "/tasks/unmax-codex")["task"]["model"] is None
 
     def test_max_unknown_task_404(self, ilan_server: IlanServer) -> None:
         resp = _post(ilan_server, "/tasks/does-not-exist/max")

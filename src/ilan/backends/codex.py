@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ilan import config as cfg
 from ilan.backends.base import Backend, ParsedResult, TokenUsage
-from ilan.models import is_fable_model
+from ilan.models import ENGINE_CODEX, foreign_max_model
 
 _CODEX_STATIC_FLAGS = [
     "--json",
@@ -87,13 +87,14 @@ class CodexBackend(Backend):
         effort = str(conf.get("effort", "max")).strip()
         if effort:
             cmd += ["-c", f'model_reasoning_effort="{effort}"']
-        # A task's ``model`` override only makes sense for the engine that set
-        # it. ``ilan max`` pins a task to Fable (a Claude-only model); if such a
-        # task is later switched to codex the stale override would spawn
-        # ``codex exec --model claude-fable-5-1``, which codex can't load.
-        # Ignore any Claude-only override here (including a Fable id from
-        # before the model bump) and fall back to the codex default.
-        model = None if is_fable_model(model_override) else model_override
+        # A task's ``model`` override only means anything to the backend that
+        # set it. ``ilan max`` pins a task to its own backend's max model, and
+        # switching backends leaves that pin alone, so a task maxed on claude
+        # and then moved here would spawn ``codex exec --model
+        # claude-fable-5-1``, which codex can't load. Drop another backend's
+        # max pin (a superseded id from before a bump included) and fall back
+        # to the codex default.
+        model = None if foreign_max_model(ENGINE_CODEX, model_override) else model_override
         cmd += ["--model", model or str(conf["model-codex"])]
         # `-` makes codex read the prompt from stdin.
         cmd.append("-")
@@ -110,9 +111,9 @@ class CodexBackend(Backend):
     def build_attach_command(
         self, session_id: str, model_override: str | None
     ) -> list[str]:
-        # Same Fable guard as build_command: a Claude-only override must not
+        # Same guard as build_command: another backend's max pin must not
         # reach `codex --model`.
-        model = None if is_fable_model(model_override) else model_override
+        model = None if foreign_max_model(ENGINE_CODEX, model_override) else model_override
         return [
             "codex", "resume", session_id,
             "--dangerously-bypass-approvals-and-sandbox",
