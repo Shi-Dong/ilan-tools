@@ -108,14 +108,14 @@ Notes:
 
 | Command | Description |
 |---|---|
-| `ilan task add [-n NAME] -d "prompt"` | Add a task (or use `-f file`; name must be ≥ 3 chars, letters/digits/`-`/`_` only, and not all digits). Omit `-n` and the task is given a generated [burnable](#burnable-tasks-xxx-) name such as `xxx-cat-likes-fin`, which makes `done`/`discard` delete it. Pass `--claude` or `--codex` to pick the backend for this task (default: the `default-backend` config value) — see [Agent backends](#agent-backends). Pass `--max` to create the task already on the [Fable model](#fable-model-ilan-max--ilan-unmax) (implies `--claude`) |
+| `ilan task add [-n NAME] -d "prompt"` | Add a task (or use `-f file`; name must be ≥ 3 chars, letters/digits/`-`/`_` only, and not all digits). Omit `-n` and the task is given a generated [burnable](#burnable-tasks-xxx-) name such as `xxx-cat-likes-fin`, which makes `done`/`discard` delete it. Pass `--claude` or `--codex` to pick the backend for this task (default: the `default-backend` config value) — see [Agent backends](#agent-backends). Pass `--max` to create the task already on its backend's [max model](#max-models-ilan-max--ilan-unmax) |
 | `ilan task ls [-a] [-c] [NAME]` | List active tasks (`-a` includes `DONE`/`DISCARDED`, each shown with its [number](#task-numbers); `-c` prints only the pin marker, number, alias, name, and status, one task per line); if `NAME` is given, show its tail instead |
 | `ilan search PATTERN` | Print the `ilan ls -a -c` lines that contain `PATTERN`, keeping their colors. `PATTERN` is matched case-insensitively as a plain substring (not a regex) against the whole line, so it also matches on a number, an alias, or a status; `DONE` / `DISCARDED` tasks are always searched |
 | `ilan task show NAME` | Print the full prompt of a task |
 | `ilan task path NAME` | Print the Claude Code session log path for a task |
 | `ilan task check-model NAME` | Print the model name (e.g. `claude-opus-4-7`) that generated the last assistant message in the task's Claude Code session log |
 | `ilan task tail NAME [-n N]` | Show the last assistant message together with the user prompt that elicited it and any user replies after it; with `-n N`, show history containing the final N assistant messages (user messages do not consume the limit); ends with lines naming the model (plus reasoning effort, paying account and, for API-key spends, cost) and that message's input/output/cached-input token counts |
-| `ilan task reply NAME ["msg"]` | Send a reply to an agent (omit message to show tail). Pass `--max` to switch the task to the [Fable model](#fable-model-ilan-max--ilan-unmax) before posting the reply (persists for all subsequent messages; on a `codex` task a warning is shown and the reply is posted with the model unchanged), or `--unmax` to reset the model to the config default before posting. Pass `-t DURATION` (same format as `ilan sleep`, minimum 20 minutes, e.g. `-t 1h`) to also re-send `"msg"` to the task every DURATION: the task's name is highlighted with a `(responding every 1h)` suffix in `ilan ls` / `ilan dashboard`, its status renders as a light-purple `AGENT_IN_LOOP` wherever it would otherwise read `AGENT_FINISHED` or `NEEDS_ATTENTION` (the stored status is unchanged — the cycle, not you, is what re-prompts the agent), and the cycle runs until your next human message to the task (`reply`/`tap`/`cancel`/`sleep` — each asks `[y/n]` before ending it; confirming a new `reply -t` replaces the cycle) or until the task is killed or marked `DONE`/`DISCARDED` |
+| `ilan task reply NAME ["msg"]` | Send a reply to an agent (omit message to show tail). Pass `--max` to switch the task to its backend's [max model](#max-models-ilan-max--ilan-unmax) before posting the reply (persists for all subsequent messages), or `--unmax` to reset the model to the config default before posting. Pass `-t DURATION` (same format as `ilan sleep`, minimum 20 minutes, e.g. `-t 1h`) to also re-send `"msg"` to the task every DURATION: the task's name is highlighted with a `(responding every 1h)` suffix in `ilan ls` / `ilan dashboard`, its status renders as a light-purple `AGENT_IN_LOOP` wherever it would otherwise read `AGENT_FINISHED` or `NEEDS_ATTENTION` (the stored status is unchanged — the cycle, not you, is what re-prompts the agent), and the cycle runs until your next human message to the task (`reply`/`tap`/`cancel`/`sleep` — each asks `[y/n]` before ending it; confirming a new `reply -t` replaces the cycle) or until the task is killed or marked `DONE`/`DISCARDED` |
 | `ilan task tap NAME` | Ask for a status update (nudges `WORKING` agents; re-prompts `AGENT_FINISHED`/`NEEDS_ATTENTION`/`ERROR` tasks) |
 | `ilan task cancel NAME` | Retract the message you last sent to a task — replies telling the agent that message was a mistake, that it should be ignored, and that any work already started on it should stop immediately. Accepts the same statuses as `tap` (`WORKING`/`AGENT_FINISHED`/`NEEDS_ATTENTION`/`ERROR`) |
 | `ilan task sleep NAME DURATION` | Re-prompt a `NEEDS_ATTENTION` / `AGENT_FINISHED` task to sleep for DURATION and report back. DURATION is an integer or decimal with an optional unit suffix — no whitespace — e.g. `300`, `300s`, `5m`, `2h`, `1.5h`. Units: `s`/`sec`/`second`/`seconds`, `m`/`min`/`mins`/`minute`/`minutes`, `h`/`hr`/`hrs`/`hour`/`hours`; bare numbers are seconds. The task goes back to `WORKING` and shows the duration in `ilan ls` / `ilan dashboard` in minutes below 1800s and hours at 1800s or above, rounded **down** to at most one decimal with a trailing `.0` omitted (e.g. `5m`, `29.9m`, `1.3h`, `2h`). Durations under 6s show `0.1m` rather than `0m`. |
@@ -134,8 +134,8 @@ Notes:
 | `ilan task unread NAME [NAME...]` | Restore the unread marker on task(s) |
 | `ilan task pin NAME` | Pin a task to the top of `ilan ls` / `ilan dashboard`; the row is marked with a `→` before its `(Alias) Name`. A pinned `DONE` / `DISCARDED` task stays visible without `-a` |
 | `ilan task unpin NAME` | Remove the pin, returning the task to its place in creation order (and hiding it again if it is `DONE` / `DISCARDED`) |
-| `ilan task max NAME` | Run this task on the Fable model (`claude-fable-5-1`) instead of the default; a red `FABLE` tag shows beneath the task name in `ilan ls` / `ilan dashboard`, and beside the status on the web app's task list. Takes effect on the task's next agent spawn. Fable is Claude-only, so this is a no-op (with a warning) on a `codex` task — switch it to `claude` first. The tag is hidden while the task is on `codex` (Fable is inactive there) and reappears when it is switched back to `claude`. |
-| `ilan task unmax NAME` | Reset the task's model back to the `model-claude` config default |
+| `ilan task max NAME` | Run this task on its backend's max model instead of the default — Fable (`claude-fable-5-1`) on `claude`, Astra (`gpt-6-astra`) on `codex`. A red tag naming that model (`FABLE`, `ASTRA`) shows beneath the task name in `ilan ls` / `ilan dashboard`, and beside the status on the web app's task list. Takes effect on the task's next agent spawn. Each max model belongs to one backend, so the tag is hidden while the task sits on the other one, and reappears when it is switched back. |
+| `ilan task unmax NAME` | Reset the task's model back to the `model-claude` / `model-codex` config default |
 | `ilan task switch-backend NAME` | Toggle the task's agent backend (`claude` ↔ `codex`). Lazy: takes effect on the task's next spawn, and the new backend catches up on its next turn. Not allowed on a `WORKING` task (warns and does nothing) — wait for the agent to finish or kill it first. See [Agent backends](#agent-backends) |
 | `ilan task rm NAME [NAME...]` | Delete task(s) and all their data; surviving descendants remain and are re-parented |
 
@@ -424,38 +424,50 @@ writes to the local `~/.config/ilan/config.json` instead of going through the
 server, so the toggle works the same way whether you're driving a local or
 remote `ilan` server (set it on the machine you're running the CLI on).
 
-### Fable model (`ilan max` / `ilan unmax`)
+### Max models (`ilan max` / `ilan unmax`)
 
 ```bash
-ilan max my-task      # run my-task on claude-fable-5-1
+ilan max my-task      # run my-task on its backend's max model
 ilan unmax my-task    # back to the default model
-ilan add -n my-task -d "…" --max   # create a task already on Fable
-ilan reply my-task "…" --max       # switch to Fable, then post the reply
+ilan add -n my-task -d "…" --max   # create a task already maxed
+ilan reply my-task "…" --max       # max the task, then post the reply
 ilan reply my-task "…" --unmax     # back to the default model, then reply
 ```
 
-`ilan max` pins a single task to Anthropic's **Fable** model
-(`claude-fable-5-1`), leaving every other task on the configured `model-claude`
-default. While a task is maxed, a red `FABLE` tag is rendered on its own
-line beneath the task name in `ilan ls` and `ilan dashboard`, and beside the
-status on the web app's task list, where it stays visible on a collapsed card
-(hidden in all three while the task is on the `codex` backend, since Fable is
-Claude-only and inactive there; it reappears on switching back to `claude`). The override is per
-task and persists across replies until you run `ilan unmax`, which clears
-it back to the `model-claude` config default. A change takes effect on the task's
-next agent spawn (the next reply), not on an already-running agent.
+Each backend has one **max model**: the strongest thing it can run, worth its
+price on a hard turn. `ilan max` pins a single task to the max model of the
+backend it is on, leaving every other task on the configured default.
+
+| Backend | Max model | Tag |
+| --- | --- | --- |
+| `claude` | Anthropic's Fable (`claude-fable-5-1`) | `FABLE` |
+| `codex` | OpenAI's GPT-6 Astra (`gpt-6-astra`) | `ASTRA` |
+
+While a task is maxed, a red tag naming that model is rendered on its own line
+beneath the task name in `ilan ls` and `ilan dashboard`, and beside the status
+on the web app's task list, where it stays visible on a collapsed card. The
+override is per task and persists across replies until you run `ilan unmax`,
+which clears it back to the `model-claude` / `model-codex` config default. A
+change takes effect on the task's next agent spawn (the next reply), not on an
+already-running agent.
+
+A max model belongs to exactly one backend — Fable is Anthropic's, Astra is
+OpenAI's — so a pin only means anything on the backend that set it. Switching
+backends leaves the pin alone rather than translating it: the incoming backend
+ignores it and spawns on its own configured default, the tag disappears, and
+switching back restores both. To max a task you have just switched, run
+`ilan max` again on the new backend.
 
 `ilan reply` (and its `re` / `ilan task reply` forms) accepts `--max` /
 `--unmax` to combine the two steps: the model is switched first, then the
 reply is posted, so the reply's own turn already runs on the new model and
 the switch persists for every message after it. If the model is already in
-the requested state (`--max` on a task already on `claude-fable-5-1`,
-`--unmax` on a task already on the default model), the switch is silently
-skipped and the reply is posted as usual. A task still pinned to an older
-Fable id is not "already maxed": `--max` moves it up to `claude-fable-5-1`.
-`--max` on a `codex` task prints the same warning as `ilan max` and posts
-the reply with the model untouched. Both flags require a reply message and
-are mutually exclusive.
+the requested state (`--max` on a task already on its backend's current max
+model, `--unmax` on a task already on the default model), the switch is
+silently skipped and the reply is posted as usual. A task pinned to an older
+max id, or to the *other* backend's, is not "already maxed": `--max` moves it
+onto the current model of the backend it is on. Both flags require a reply
+message and are mutually exclusive.
 
 ## Web app
 
@@ -528,9 +540,8 @@ ilan task switch-backend fix-bug   # flip an existing task's backend
   switch turn — the full history is always preserved in the task's unified log
   (`ilan log`) and its Gist mirror.
 
-Codex tasks run on `gpt-5.6-sol` (OpenAI's flagship model); the Codex model is
-currently fixed (`ilan max` pins the Claude-only Fable model and has no effect on
-a Codex task).
+Codex tasks run on `gpt-5.6-sol` (OpenAI's flagship model) unless the task is
+maxed, which pins it to `gpt-6-astra` — see [Max models](#max-models-ilan-max--ilan-unmax).
 
 Codex authenticates with the configured `api-key-codex`, passed as
 `OPENAI_API_KEY`, only when `api-key-mode` is `true` and the key is non-empty.

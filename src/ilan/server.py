@@ -26,9 +26,6 @@ from ilan.models import (
     ALIAS_POOL,
     CANCEL_MESSAGE,
     DEFAULT_ENGINE,
-    ENGINE_CLAUDE,
-    FABLE_MODEL,
-    runs_on_fable,
     REPLY_EVERY_MIN_SECONDS,
     TAP_MESSAGE,
     VALID_ENGINES,
@@ -36,6 +33,8 @@ from ilan.models import (
     TaskStatus,
     generate_task_hash,
     is_burnable_name,
+    max_model_for,
+    max_tag,
     other_engine,
     parse_task_number,
     validate_task_name,
@@ -541,13 +540,14 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     "model": t.model,
                     "gist_url": t.gist_url,
                     "engine": t.engine,
-                    # Computed here rather than in the web app: the answer
-                    # depends on FABLE_MODEL, LEGACY_FABLE_MODELS and which
-                    # backends honour the pin, and a copy of any of that in
-                    # JavaScript would drift the first time one of them moved.
-                    # The list is the only view that shows the tag, so this is
-                    # the only payload that carries it.
-                    "fable": runs_on_fable(t.engine, t.model),
+                    # The tag ("FABLE", "ASTRA") or null, computed here rather
+                    # than in the web app: the answer depends on each backend's
+                    # max model, the ids those superseded, and which backend
+                    # honours which pin, and a copy of any of that in JavaScript
+                    # would drift the first time one of them moved. The list is
+                    # the only view that shows the tag, so this is the only
+                    # payload that carries it.
+                    "max_tag": max_tag(t.engine, t.model),
                 })
             self._json({"tasks": rows})
 
@@ -571,18 +571,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     400,
                 )
                 return
-            # Fable is a Claude-only model, so a maxed task must run on the
-            # Claude backend; reject the contradictory combination.
             want_max = bool(body.get("max"))
-            if want_max and engine != ENGINE_CLAUDE:
-                self._json(
-                    {"error": (
-                        f"Fable ({FABLE_MODEL}) is a Claude-only model; cannot "
-                        f"create a {engine} task with max."
-                    )},
-                    400,
-                )
-                return
             with self._ilan.lock:
                 # Minted under the lock so two concurrent unnamed adds can't be
                 # handed the same name.
@@ -604,14 +593,14 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     alias=alias,
                     task_hash=generate_task_hash(),
                     engine=engine,
-                    model=FABLE_MODEL if want_max else None,
+                    model=max_model_for(engine) if want_max else None,
                 )
                 self._ilan.store.put_task(task)
                 # Log the opening prompt before spawning so the unified log
                 # always opens with the task statement.
                 self._ilan.store.append_log(task.name, "user", prompt)
                 self._ilan.runner.start(task)
-            self._json({"ok": True, "name": task.name})
+            self._json({"ok": True, "name": task.name, "model": task.model})
 
         def handle_get_task(self, name: str):
             with self._ilan.lock:
@@ -1031,24 +1020,12 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task = self._get_task_or_404(name)
                 if task is None:
                     return
-                # Fable is an Anthropic model, so only the Claude backend can
-                # run it. Maxing a task on any other backend would just feed
-                # that backend a model it can't load and break its next spawn,
-                # so it's a no-op here — flip the task to claude first.
-                if task.engine != ENGINE_CLAUDE:
-                    self._json({
-                        "ok": True,
-                        "name": task.name,
-                        "model": task.model,
-                        "warning": (
-                            f"Task {task.name} runs on the {task.engine} backend; "
-                            f"Fable ({FABLE_MODEL}) is a Claude-only model, so "
-                            "max did nothing. Switch it to claude first "
-                            f"(ilan task switch-backend {task.name})."
-                        ),
-                    })
-                    return
-                task.model = FABLE_MODEL
+                # Each backend has its own max model, so this pins whichever
+                # one the task's engine runs. Switching backends afterwards
+                # leaves the pin alone and the incoming backend ignores it
+                # (see ``foreign_max_model``), so maxing again is what moves a
+                # switched task onto the new backend's max model.
+                task.model = max_model_for(task.engine)
                 self._ilan.store.put_task(task)
             self._json({"ok": True, "name": task.name, "model": task.model})
 

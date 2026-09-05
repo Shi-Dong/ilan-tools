@@ -41,14 +41,15 @@ from ilan.models import (
     DEFAULT_ENGINE,
     ENGINE_CODEX,
     ENGINE_NAME_STYLE,
-    FABLE_MODEL,
     REPLY_EVERY_MIN_SECONDS,
     TAP_MESSAGE,
     TaskStatus,
     display_status,
     format_cost_usd,
     is_burnable_name,
-    runs_on_fable,
+    max_model_for,
+    max_tag,
+    tag_for_max_model,
 )
 from ilan.server import read_server_info
 from ilan.store import Store
@@ -547,18 +548,6 @@ def _do_add(
         console.print("[red]Exactly one of --file / --description must be provided.[/red]")
         raise SystemExit(1)
 
-    # Fable is an Anthropic model, so --max only makes sense on the Claude
-    # backend. Reject the contradictory combination outright, and otherwise
-    # pin the task to claude so --max works regardless of the config default.
-    if max_model:
-        if agent == "codex":
-            console.print(
-                f"[red]--max runs the task on Fable ({FABLE_MODEL}), a Claude-only "
-                "model; it can't be combined with --codex.[/red]"
-            )
-            raise SystemExit(1)
-        agent = "claude"
-
     prompt = Path(file_path).read_text() if file_path else description
     if prompt is None:
         raise ValueError("either --file or --description must be provided")
@@ -568,10 +557,15 @@ def _do_add(
         raise SystemExit(1)
     # Without ``-n`` the server mints the name, so report the one it chose.
     task_name = str(resp.get("name") or name or "")
-    if max_model:
+    # Which max model --max landed on depends on the backend, which the server
+    # picks when no --claude/--codex was given, so the model it reports back is
+    # what names the tag. A server old enough not to report one leaves the
+    # plain line, rather than a tag guessed from the wrong end.
+    model = resp.get("model")
+    if max_model and (tag := tag_for_max_model(model)):
         console.print(
             f"[green]Task [bold]{task_name}[/bold] added on "
-            f"[bold red]FABLE[/bold red] ([cyan]{FABLE_MODEL}[/cyan]).[/green]"
+            f"[bold red]{tag}[/bold red] ([cyan]{model}[/cyan]).[/green]"
         )
     else:
         console.print(f"[green]Task [bold]{task_name}[/bold] added.[/green]")
@@ -590,7 +584,7 @@ def _do_add(
 @click.option("--codex", "agent", flag_value="codex",
               help="Run this task on the Codex backend.")
 @click.option("--max", "max_model", is_flag=True, default=False,
-              help="Create the task on the Fable model (implies --claude).")
+              help="Create the task on its backend's max model.")
 def task_add(
     name: str | None, file_path: str | None, description: str | None,
     agent: str | None, max_model: bool,
@@ -635,12 +629,11 @@ def _build_name_cell(row: dict) -> Text:
     a pushpin emoji would be the obvious marker but has the same width
     problem, whereas a bare arrow glyph occupies a single cell.
 
-    Tasks running on the Fable model get a red ``FABLE`` note on a separate
-    line beneath the name. Fable is Claude-only, so the note is hidden while
-    the task's engine is Codex; every other engine runs on the Claude backend
-    (see ``Runner._backend_for``), which honors the Fable override, so it
-    keeps the note. The stored model is untouched, so switching back to Claude
-    restores it.
+    A maxed task gets a red note naming its model on a separate line beneath
+    the name: ``FABLE`` on the Claude backend, ``ASTRA`` on Codex. Each max
+    model belongs to one backend, so the note is hidden while the task sits on
+    the other one, which ignores the pin at spawn time. The stored model is
+    untouched, so switching back restores the note.
     """
     status = TaskStatus(row["status"])
     cell = Text()
@@ -663,10 +656,10 @@ def _build_name_cell(row: dict) -> Text:
     if reply_every_suffix := _format_reply_every_suffix(row.get("reply_every_seconds")):
         cell.append(reply_every_suffix, style=REPLY_EVERY_STYLE)
         # Extend the background under the pin/alias/name so the whole label is
-        # highlighted; the FABLE line is appended later and stays unfilled.
+        # highlighted; the max-model line is appended later and stays unfilled.
         cell.stylize(f"on {REPLY_EVERY_BG}")
-    if runs_on_fable(engine, row.get("model")):
-        cell.append("\nFABLE", style="bold red")
+    if tag := max_tag(engine, row.get("model")):
+        cell.append(f"\n{tag}", style="bold red")
     return cell
 
 
@@ -1357,15 +1350,19 @@ def task_tail(name: str, num: int | None, markdown: bool, line_number: bool | No
 def _model_switch_needed(name: str, max_: bool) -> bool:
     """Return False when the task's model is already in the requested state.
 
-    ``--max`` compares against ``FABLE_MODEL`` rather than asking
-    ``is_fable_model``: a task pinned to a superseded Fable id is still Fable,
-    but it is not on the id ``--max`` means, so it needs the switch to move up.
+    ``--max`` compares against the exact id its backend's max model is on now,
+    rather than asking whether the pin is a max model at all: a task pinned to
+    a superseded id is still maxed, but it is not on the id ``--max`` means, so
+    it needs the switch to move up. The same holds across backends — a task
+    maxed on claude and then switched to codex is not on codex's max model, so
+    ``--max`` moves it there.
     """
     resp = _client().get_task(name)
     if _check_error(resp):
         raise SystemExit(1)
-    model = resp.get("task", {}).get("model")
-    return model != FABLE_MODEL if max_ else model is not None
+    task = resp.get("task", {})
+    model = task.get("model")
+    return model != max_model_for(task.get("engine")) if max_ else model is not None
 
 
 def _print_reply_confirmation(message: str, task_name: str | None) -> None:
@@ -1510,10 +1507,9 @@ def _do_reply_command(
               help="When no message is given, override the ``line-number`` "
                    "config for this invocation.")
 @click.option("--max", "max_", is_flag=True, default=False,
-              help="Switch the task to the Fable model before posting the "
-                   "reply; the model persists for all subsequent messages. "
-                   "Claude backend only (a codex task warns and replies "
-                   "unchanged).")
+              help="Switch the task to its backend's max model before posting "
+                   "the reply; the model persists for all subsequent "
+                   "messages.")
 @click.option("--unmax", "unmax", is_flag=True, default=False,
               help="Reset the task's model to the config default before "
                    "posting the reply.")
@@ -2186,13 +2182,13 @@ def _do_max(name: str) -> None:
     resp = _client().max_task(name)
     if _check_error(resp):
         raise SystemExit(1)
-    if warning := resp.get("warning"):
-        console.print(f"[yellow]{warning}[/yellow]")
-        return
     task_name = resp.get("name", name)
     model = resp.get("model", "")
+    # A remote server can be newer than this CLI and pin a max model it has
+    # never heard of; report the switch rather than mislabelling the model.
+    tag = tag_for_max_model(model) or "MAX"
     console.print(
-        f"[green]Task [bold]{task_name}[/bold] set to [bold red]FABLE[/bold red] "
+        f"[green]Task [bold]{task_name}[/bold] set to [bold red]{tag}[/bold red] "
         f"([cyan]{model}[/cyan]).[/green]"
     )
 
@@ -2210,7 +2206,11 @@ def _do_unmax(name: str) -> None:
 @task_group.command("max")
 @click.argument("name", shell_complete=_complete_task_names)
 def task_max(name: str) -> None:
-    """Run a task on the Fable model (claude-fable-5-1)."""
+    """Run a task on its backend's max model.
+
+    Fable (claude-fable-5-1) on the claude backend, Astra (gpt-6-astra) on
+    codex.
+    """
     _do_max(name)
 
 
@@ -2265,7 +2265,7 @@ def task_switch_backend(name: str) -> None:
 @click.option("--codex", "agent", flag_value="codex",
               help="Run this task on the Codex backend.")
 @click.option("--max", "max_model", is_flag=True, default=False,
-              help="Create the task on the Fable model (implies --claude).")
+              help="Create the task on its backend's max model.")
 def shortcut_add(
     name: str | None, file_path: str | None, description: str | None,
     agent: str | None, max_model: bool,
@@ -2334,10 +2334,9 @@ def shortcut_tail(
               help="When no message is given, override the ``line-number`` "
                    "config for this invocation.")
 @click.option("--max", "max_", is_flag=True, default=False,
-              help="Switch the task to the Fable model before posting the "
-                   "reply; the model persists for all subsequent messages. "
-                   "Claude backend only (a codex task warns and replies "
-                   "unchanged).")
+              help="Switch the task to its backend's max model before posting "
+                   "the reply; the model persists for all subsequent "
+                   "messages.")
 @click.option("--unmax", "unmax", is_flag=True, default=False,
               help="Reset the task's model to the config default before "
                    "posting the reply.")
@@ -2363,10 +2362,9 @@ def shortcut_reply(
               help="When no message is given, override the ``line-number`` "
                    "config for this invocation.")
 @click.option("--max", "max_", is_flag=True, default=False,
-              help="Switch the task to the Fable model before posting the "
-                   "reply; the model persists for all subsequent messages. "
-                   "Claude backend only (a codex task warns and replies "
-                   "unchanged).")
+              help="Switch the task to its backend's max model before posting "
+                   "the reply; the model persists for all subsequent "
+                   "messages.")
 @click.option("--unmax", "unmax", is_flag=True, default=False,
               help="Reset the task's model to the config default before "
                    "posting the reply.")

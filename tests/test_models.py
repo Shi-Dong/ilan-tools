@@ -14,21 +14,26 @@ from ilan.models import (
     API,
     ENGINE_CLAUDE,
     ENGINE_CODEX,
+    ASTRA_MODEL,
     ENGINE_NAME_STYLE,
     FABLE_MODEL,
+    LEGACY_ASTRA_MODELS,
     LEGACY_FABLE_MODELS,
+    MAX_MODELS,
     STYLE_FOR_STATUS,
     VALID_ENGINES,
     LogEntry,
     Task,
     TaskStatus,
     display_status,
+    foreign_max_model,
     format_cost_usd,
     generate_task_hash,
-    is_fable_model,
-    runs_on_fable,
+    max_model_for,
+    max_tag,
     other_engine,
     parse_task_number,
+    tag_for_max_model,
     validate_task_name,
 )
 
@@ -510,63 +515,123 @@ class TestTask:
         assert ENGINE_NAME_STYLE[ENGINE_CODEX] == "light_sky_blue1"
 
 
-# ── Fable model ─────────────────────────────────────────────────────────
+# ── Max models (`ilan max`) ─────────────────────────────────────────────
 
 
-class TestFableModel:
-    def test_fable_model_value(self) -> None:
+class TestMaxModels:
+    def test_model_ids(self) -> None:
         assert FABLE_MODEL == "claude-fable-5-1"
+        assert ASTRA_MODEL == "gpt-6-astra"
 
-    def test_is_fable_model_true(self) -> None:
-        assert is_fable_model(FABLE_MODEL)
+    def test_every_engine_has_a_max_model(self) -> None:
+        """A backend without one would silently max to Claude's Fable id,
+        which its CLI cannot load."""
+        assert set(MAX_MODELS) == set(VALID_ENGINES)
 
-    def test_is_fable_model_false(self) -> None:
-        assert not is_fable_model("opus")
-        assert not is_fable_model("sonnet")
+    def test_the_tags_are_distinct(self) -> None:
+        """The tag is the whole point of showing it: two backends sharing one
+        would stop saying which model a task is burning."""
+        tags = [entry.tag for entry in MAX_MODELS.values()]
+        assert len(set(tags)) == len(tags)
 
-    def test_is_fable_model_none(self) -> None:
-        assert not is_fable_model(None)
+    def test_max_model_for_each_engine(self) -> None:
+        assert max_model_for(ENGINE_CLAUDE) == FABLE_MODEL
+        assert max_model_for(ENGINE_CODEX) == ASTRA_MODEL
 
-    # runs_on_fable is the predicate behind the red FABLE tag in `ls`, the
-    # dashboard and the web app. It is one function so the three cannot
-    # disagree; these pin the two halves of what it asks.
-    def test_runs_on_fable_needs_the_pin(self) -> None:
-        assert runs_on_fable(ENGINE_CLAUDE, FABLE_MODEL)
-        assert not runs_on_fable(ENGINE_CLAUDE, None)
-        assert not runs_on_fable(ENGINE_CLAUDE, "claude-opus-4-7")
+    def test_max_model_for_falls_back_like_a_spawn_does(self) -> None:
+        """An absent engine predates the field and an unknown one is driven by
+        the Claude backend, so both max to Claude's model."""
+        assert max_model_for(None) == FABLE_MODEL
+        assert max_model_for("no-such-engine") == FABLE_MODEL
 
-    def test_runs_on_fable_keeps_a_legacy_pin(self) -> None:
-        """A task maxed before the bump stays tagged, exactly as `ls` does."""
-        for legacy in LEGACY_FABLE_MODELS:
-            assert runs_on_fable(ENGINE_CLAUDE, legacy)
+    # max_tag is the predicate behind the red tag in `ls`, the dashboard and
+    # the web app. It is one function so the three cannot disagree; these pin
+    # the two halves of what it asks.
+    def test_max_tag_needs_the_pin(self) -> None:
+        assert max_tag(ENGINE_CLAUDE, FABLE_MODEL) == "FABLE"
+        assert max_tag(ENGINE_CODEX, ASTRA_MODEL) == "ASTRA"
+        assert max_tag(ENGINE_CLAUDE, None) is None
+        assert max_tag(ENGINE_CLAUDE, "claude-opus-4-7") is None
+        assert max_tag(ENGINE_CODEX, "gpt-5.6-sol") is None
 
-    def test_runs_on_fable_is_false_on_codex(self) -> None:
-        """Fable is Claude-only: codex drops the pin, so the task is not on it.
+    def test_max_tag_keeps_a_legacy_pin(self) -> None:
+        """A task maxed before a bump stays tagged, exactly as `ls` does."""
+        for engine, entry in MAX_MODELS.items():
+            for legacy in entry.legacy:
+                assert max_tag(engine, legacy) == entry.tag
+
+    def test_max_tag_needs_the_owning_backend(self) -> None:
+        """Each max model is one backend's: the other drops the pin at spawn
+        time, so a task sitting there is not on it.
 
         The pin itself is untouched, which is why this takes the model as an
-        argument rather than clearing it — switching back to Claude has to put
-        the tag back.
+        argument rather than clearing it — switching back has to put the tag
+        back.
         """
-        assert not runs_on_fable(ENGINE_CODEX, FABLE_MODEL)
+        assert max_tag(ENGINE_CODEX, FABLE_MODEL) is None
+        assert max_tag(ENGINE_CLAUDE, ASTRA_MODEL) is None
         for legacy in LEGACY_FABLE_MODELS:
-            assert not runs_on_fable(ENGINE_CODEX, legacy)
+            assert max_tag(ENGINE_CODEX, legacy) is None
+        for legacy in LEGACY_ASTRA_MODELS:
+            assert max_tag(ENGINE_CLAUDE, legacy) is None
 
-    def test_runs_on_fable_treats_no_engine_as_the_default(self) -> None:
+    def test_max_tag_treats_no_engine_as_the_default(self) -> None:
         """A task that predates the engine field runs on the default backend,
         which is Claude — the same fallback `_build_name_cell` takes."""
-        assert runs_on_fable(None, FABLE_MODEL)
-        assert not runs_on_fable(None, None)
+        assert max_tag(None, FABLE_MODEL) == "FABLE"
+        assert max_tag(None, None) is None
 
-    def test_legacy_fable_ids_still_read_as_fable(self) -> None:
-        """Tasks maxed before the model bump keep the id they were pinned to.
-        They must still count as Fable, or the codex backend would hand a
-        Claude-only model to ``codex exec --model``."""
+    def test_tag_for_max_model_reads_a_bare_id(self) -> None:
+        assert tag_for_max_model(FABLE_MODEL) == "FABLE"
+        assert tag_for_max_model(ASTRA_MODEL) == "ASTRA"
+        assert tag_for_max_model("claude-opus-4-7") is None
+        assert tag_for_max_model(None) is None
+
+    def test_tag_for_max_model_reads_a_legacy_id(self) -> None:
+        for entry in MAX_MODELS.values():
+            for legacy in entry.legacy:
+                assert tag_for_max_model(legacy) == entry.tag
+
+    # foreign_max_model is what keeps a backend from being handed a model it
+    # cannot load, which is the failure a backend switch would otherwise cause.
+    def test_foreign_max_model_spots_the_other_backends_pin(self) -> None:
+        assert foreign_max_model(ENGINE_CODEX, FABLE_MODEL)
+        assert foreign_max_model(ENGINE_CLAUDE, ASTRA_MODEL)
+
+    def test_foreign_max_model_keeps_its_own_pin(self) -> None:
+        assert not foreign_max_model(ENGINE_CLAUDE, FABLE_MODEL)
+        assert not foreign_max_model(ENGINE_CODEX, ASTRA_MODEL)
+
+    def test_foreign_max_model_keeps_a_legacy_pin_of_its_own(self) -> None:
+        """A superseded id is still this backend's, so it is still run."""
+        for engine, entry in MAX_MODELS.items():
+            for legacy in entry.legacy:
+                assert not foreign_max_model(engine, legacy)
+
+    def test_foreign_max_model_spots_the_other_backends_legacy_pin(self) -> None:
+        for legacy in LEGACY_FABLE_MODELS:
+            assert foreign_max_model(ENGINE_CODEX, legacy)
+        for legacy in LEGACY_ASTRA_MODELS:
+            assert foreign_max_model(ENGINE_CLAUDE, legacy)
+
+    def test_foreign_max_model_ignores_an_ordinary_model(self) -> None:
+        """Only a max pin is dropped: a plain override is the caller's own."""
+        assert not foreign_max_model(ENGINE_CODEX, "gpt-5.6-sol")
+        assert not foreign_max_model(ENGINE_CLAUDE, "claude-opus-4-7")
+        assert not foreign_max_model(ENGINE_CODEX, None)
+
+    def test_legacy_ids_still_read_as_maxed(self) -> None:
+        """Tasks maxed before a model bump keep the id they were pinned to.
+        They must still count as that backend's max model, or the other backend
+        would hand its CLI a model it cannot load."""
         assert LEGACY_FABLE_MODELS  # a bump without an entry here is a bug
-        for model in LEGACY_FABLE_MODELS:
-            assert is_fable_model(model)
+        for entry in MAX_MODELS.values():
+            for legacy in entry.legacy:
+                assert entry.matches(legacy)
 
-    def test_current_fable_id_is_not_listed_as_legacy(self) -> None:
-        assert FABLE_MODEL not in LEGACY_FABLE_MODELS
+    def test_a_current_id_is_not_listed_as_legacy(self) -> None:
+        for entry in MAX_MODELS.values():
+            assert entry.model not in entry.legacy
 
 
 # ── generate_task_hash ─────────────────────────────────────────────────
