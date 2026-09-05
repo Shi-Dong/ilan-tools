@@ -39,7 +39,7 @@ class TestBuildCommand:
         self, backend: ClaudeBackend, tmp_config: Path
     ) -> None:
         """The mirror of the codex backend's guard: a stale Astra override
-        (from ``ilan max`` before a switch to claude) is the codex backend's
+        (from a switch to claude in an older version) is the codex backend's
         max model, which ``claude --model`` cannot load, so it is dropped for
         the configured default."""
         cmd, _ = backend.build_command("gpt-6-astra", resume=False, session_id=None)

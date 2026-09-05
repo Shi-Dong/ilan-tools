@@ -2247,6 +2247,7 @@ def task_switch_backend(name: str) -> None:
     The switch is lazy: it only rewires which backend the task uses on its
     next spawn, and the task catches up on its next turn. A WORKING task
     cannot be switched — wait for the agent to finish (or kill it) first.
+    Maxed tasks stay maxed: FABLE switches to ASTRA, and ASTRA to FABLE.
     """
     _do_switch_backend(name)
 

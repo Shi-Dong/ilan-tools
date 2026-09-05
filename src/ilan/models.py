@@ -204,13 +204,9 @@ def max_model_for(engine: str | None) -> str:
 def max_tag(engine: str | None, model: str | None) -> str | None:
     """The tag for a task on *engine* pinned to *model*, or ``None`` for none.
 
-    Two things have to hold: the task is pinned to a max id, and it sits on the
-    backend that owns that id. Each max model belongs to exactly one backend —
-    Fable is Anthropic's, Astra is OpenAI's — and switching backends leaves the
-    pin alone on purpose, so a codex task can be carrying a Fable pin that
-    nothing will run. Such a task is not on Fable, and a tag saying it was
-    would be wrong. The pin itself is untouched, so switching back puts the
-    task on that model again.
+    The pin must belong to the task's current backend. Older saved tasks may
+    still carry another backend's max pin from before switches translated
+    them. The backend ignores such pins, so they must not be tagged.
 
     This is the predicate behind the tag wherever it appears — ``ilan ls``,
     ``ilan dashboard`` and the web app — so the three cannot disagree about
@@ -235,11 +231,9 @@ def tag_for_max_model(model: str | None) -> str | None:
 def foreign_max_model(engine: str | None, model: str | None) -> bool:
     """Whether *model* is a max pin owned by some backend other than *engine*.
 
-    Backends ask this to drop such a pin before it reaches their CLI: a task
-    maxed on claude and later switched to codex still carries
-    ``claude-fable-5-1``, and ``codex exec --model claude-fable-5-1`` cannot
-    load it. Only the spawn ignores the pin — it stays on the task, so
-    switching back restores it.
+    Backends drop such pins before they reach their CLI. This remains a
+    compatibility guard for older saved tasks whose backend switches did
+    not translate max pins.
     """
     return tag_for_max_model(model) is not None and not _max_model(engine).matches(model)
 

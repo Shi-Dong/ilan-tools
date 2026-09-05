@@ -87,13 +87,9 @@ class CodexBackend(Backend):
         effort = str(conf.get("effort", "max")).strip()
         if effort:
             cmd += ["-c", f'model_reasoning_effort="{effort}"']
-        # A task's ``model`` override only means anything to the backend that
-        # set it. ``ilan max`` pins a task to its own backend's max model, and
-        # switching backends leaves that pin alone, so a task maxed on claude
-        # and then moved here would spawn ``codex exec --model
-        # claude-fable-5-1``, which codex can't load. Drop another backend's
-        # max pin (a superseded id from before a bump included) and fall back
-        # to the codex default.
+        # Older saved tasks may carry a Fable pin from before backend switches
+        # translated max models. Drop it (including superseded ids) so it
+        # cannot reach ``codex exec --model``.
         model = None if foreign_max_model(ENGINE_CODEX, model_override) else model_override
         cmd += ["--model", model or str(conf["model-codex"])]
         # `-` makes codex read the prompt from stdin.

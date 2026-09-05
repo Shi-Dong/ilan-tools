@@ -74,7 +74,7 @@ class TestBuildCommand:
     def test_fable_override_falls_back_to_default(
         self, backend: CodexBackend, tmp_config: Path, fable_id: str
     ) -> None:
-        """A stale Fable override (from ``ilan max`` before a switch to codex)
+        """A stale Fable override (from a switch to codex in an older version)
         is the Claude backend's max model, so codex ignores it and spawns the
         codex default. A task maxed before the model bump still holds the older
         Fable id, so that one has to be ignored too."""
