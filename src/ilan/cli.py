@@ -630,10 +630,9 @@ def _build_name_cell(row: dict) -> Text:
     problem, whereas a bare arrow glyph occupies a single cell.
 
     A maxed task gets a red note naming its model on a separate line beneath
-    the name: ``FABLE`` on the Claude backend, ``ASTRA`` on Codex. Each max
-    model belongs to one backend, so the note is hidden while the task sits on
-    the other one, which ignores the pin at spawn time. The stored model is
-    untouched, so switching back restores the note.
+    the name: ``FABLE`` on the Claude backend, ``ASTRA`` on Codex. Switching
+    backends translates the pin and note together. Older saved tasks can
+    still have a foreign max pin that the backend ignores; those get no note.
     """
     status = TaskStatus(row["status"])
     cell = Text()
