@@ -10,6 +10,9 @@ dependencies = [
     # below 8.4 until the upstream template is fixed.
     "click>=8.1,<8.4",
     "rich>=13.0",
+    # Web Push to phones that installed the web app: VAPID signing and the
+    # RFC 8291 payload encryption, which are not worth hand-rolling.
+    "pywebpush>=2.0",
 ]
 
 [project.optional-dependencies]

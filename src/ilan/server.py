@@ -22,6 +22,7 @@ from pathlib import Path
 from ilan import __version__, config as cfg, get_git_commit, web
 from ilan.backends.claude import last_assistant_model
 from ilan.gist import GistSyncer, github_token, last_comment_url
+from ilan.push import PushNotifier
 from ilan.models import (
     ALIAS_POOL,
     CANCEL_MESSAGE,
@@ -110,6 +111,9 @@ ROUTES: list[tuple[str, str, str]] = [
     ("GET",    r"^/app/?$",                    "handle_app_index"),
     ("GET",    r"^/app/(.+)$",                 "handle_app_asset"),
     ("GET",    r"^/canned-messages$",          "handle_canned_messages"),
+    ("GET",    r"^/push$",                     "handle_push_status"),
+    ("POST",   r"^/push/subscribe$",           "handle_push_subscribe"),
+    ("POST",   r"^/push/unsubscribe$",         "handle_push_unsubscribe"),
     ("GET",    r"^/config$",                   "handle_get_config"),
     ("POST",   r"^/config/set$",               "handle_set_config"),
     ("GET",    r"^/tasks$",                    "handle_list_tasks"),
@@ -173,6 +177,9 @@ class IlanServer:
         # anywhere (server handlers or runner reap) is enqueued automatically.
         self.gist = GistSyncer(self.store, self.lock)
         self.store.on_append = self.gist.enqueue
+        # Tells subscribed phones when a task finishes. Fed by the reaper
+        # loop below; sends on its own thread, like the Gist syncer.
+        self.push = PushNotifier()
         self._backfill_task_numbers()
 
     def _backfill_task_numbers(self) -> None:
@@ -224,6 +231,7 @@ class IlanServer:
         reaper.start()
 
         self.gist.start()
+        self.push.start()
 
         try:
             self._httpd.serve_forever(poll_interval=poll_interval)
@@ -233,6 +241,7 @@ class IlanServer:
     def shutdown(self) -> None:
         self._stop_event.set()
         self.gist.stop()
+        self.push.stop()
         if self._httpd:
             threading.Thread(target=self._httpd.shutdown, daemon=True).start()
 
@@ -276,8 +285,15 @@ class IlanServer:
     def _reaper_loop(self) -> None:
         while not self._stop_event.is_set():
             with self.lock:
-                self.runner.reap_finished()
+                reaped = self.runner.reap_finished()
                 self._fire_due_replies()
+            # Outside the lock: notifying only enqueues, but the rule is that
+            # nothing on the way to a phone runs while the server is held.
+            # Only live finishes notify — a task recovered at startup after
+            # finishing while the server was down is reaped by recover(), not
+            # here, so a restart cannot replay a night of finishes.
+            for task in reaped or []:
+                self.push.notify_finished(task)
             self._stop_event.wait(POLL_INTERVAL)
 
     def _fire_due_replies(self) -> None:
@@ -449,6 +465,34 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             """Messages behind ``tap`` and ``cancel``, for the web app's
             equivalents of those two commands."""
             self._json({"tap": TAP_MESSAGE, "cancel": CANCEL_MESSAGE})
+
+        # ── push notifications ───────────────────────────────────
+
+        def handle_push_status(self):
+            """What a phone needs to subscribe, and how many already have.
+
+            The public key is created on first request, so a server that has
+            never been asked carries no key file at all.
+            """
+            self._json({
+                "public_key": self._ilan.push.public_key(),
+                "subscriptions": self._ilan.push.subscription_count(),
+            })
+
+        def handle_push_subscribe(self):
+            """Register the subscription the browser produced. Idempotent."""
+            count = self._ilan.push.subscribe(self._body())
+            if count is None:
+                self._json({"error": "a push subscription needs an https endpoint "
+                                     "and p256dh and auth keys"}, 400)
+                return
+            self._json({"ok": True, "subscriptions": count})
+
+        def handle_push_unsubscribe(self):
+            body = self._body()
+            removed = self._ilan.push.unsubscribe(body.get("endpoint"))
+            self._json({"ok": True, "removed": removed,
+                        "subscriptions": self._ilan.push.subscription_count()})
 
         def handle_version(self):
             # The pid is what lets a client tell a restarted server from the
