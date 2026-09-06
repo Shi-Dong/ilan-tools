@@ -21,7 +21,7 @@ When connecting to a remote server, the CLI automatically checks whether the loc
 If several user accounts share one workdir (e.g. on a volume mounted with `noowners`), whichever account happens to run `ilan` first auto-starts the server — and the agents it spawns belong to that account, so the other accounts can't signal them (kills and replies fail with EPERM). To pin server startup to a single account, put that account's username in a `server.owner` file in the workdir:
 
 ```bash
-echo shidong > /path/to/workdir/server.owner
+echo alice > /path/to/workdir/server.owner
 ```
 
 Any other account then refuses to start (or auto-start) a server against that workdir with a clear error, but can still talk to a running server normally. Remove the file to unpin.
