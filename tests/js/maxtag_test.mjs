@@ -97,4 +97,47 @@ for (const [name, tag] of [['maxed-task', 'FABLE'], ['maxed-codex', 'ASTRA']]) {
       && !/class="max-tag meta-detail"|class="meta-detail max-tag"/.test(card(shut, name)));
 }
 
+
+// ── the task's own page shows the same tag beside the name ──────────────
+// Same string from the server, same class, same rule: a task tagged on the
+// list is tagged in its title, and one that is not is not.
+{
+  const { settle } = await import('./harness.mjs');
+  const openTask = (task) => {
+    const app = bootApp();
+    app.setFetch(async (path) => {
+      const json = (d) => ({ ok: true, status: 200, json: async () => d });
+      if (path.includes('/tail')) return json({ entries: [] });
+      return json({ task });
+    });
+    return app;
+  };
+  const title = (app) => (app.html().match(/<h1 class="hdr-title[^"]*">([\s\S]*?)<\/h1>/) || [])[1] || '';
+
+  for (const task of TASKS.filter((t) => t.max_tag)) {
+    const app = openTask(task);
+    await app.renderDetail(task.name);
+    await settle();
+    check(`${task.name}: its page carries ${task.max_tag} beside the name`,
+      new RegExp(`${task.name}</span><span class="max-tag">${task.max_tag}</span>`).test(title(app)),
+      title(app));
+    check(`${task.name}: the title is laid out as a row so a long name cannot push the tag out`,
+      app.html().includes('<h1 class="hdr-title hdr-task">')
+        && /class="hdr-name /.test(title(app)), title(app));
+  }
+  for (const task of TASKS.filter((t) => !t.max_tag)) {
+    const app = openTask(task);
+    await app.renderDetail(task.name);
+    await settle();
+    check(`${task.name}: its page shows no tag`, !title(app).includes('class="max-tag"'), title(app));
+  }
+  // The tag is in the title, not smuggled into the sub-line beside the status,
+  // which is where the card puts it: on this page the name is the anchor.
+  const maxed = openTask(TASKS[0]);
+  await maxed.renderDetail(TASKS[0].name);
+  await settle();
+  const sub = (maxed.html().match(/<p class="hdr-sub[^"]*"[^>]*>([\s\S]*?)<\/p>/) || [])[1] || '';
+  check('the tag is beside the name, not on the status line', !sub.includes('class="max-tag"'), sub);
+}
+
 report('max-model-tag');

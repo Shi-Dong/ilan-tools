@@ -193,6 +193,29 @@ button, input, textarea, select {
   white-space: nowrap;
 }
 
+/* A task's title is a row — alias, name, max-model tag — rather than a run of
+ * text, so that the name is the part that gives when the row is too narrow. A
+ * plain title trims from its end, which would drop the tag before touching the
+ * name; the tag is the one item here that cannot be inferred from the rest of
+ * the page, so it is the one that has to stay. The 8px gap replaces the space
+ * character the alias used to be followed by. */
+.hdr-task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.hdr-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The same tag the card shows, same rule. Its font-size, weight and tracking
+ * come from .max-tag; only its placement is the title's business. */
+.hdr-task .max-tag { flex: none; }
+
 /* Four controls plus a wordmark is more than a very narrow phone can hold.
  * Measured rather than guessed: the row fits from 360px up, leaving 40px of
  * slack for the word at the tightest of those, and at 320px it runs 35px short.

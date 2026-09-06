@@ -969,10 +969,15 @@ async function renderDetail(name) {
     <header class="hdr">
       <div class="hdr-row">
         ${BACK_BUTTON}
-        <h1 class="hdr-title">
-          ${task.alias ? `<span class="alias">${esc(task.alias)}</span> ` : ''}<span
-            class="${engineClass(task)}${isLooping(task) ? ' looping' : ''}"
-            >${esc(task.name)}</span>
+        <!-- hdr-task lays the title out as a row so that a long name
+             ellipsises while the tag beside it stays whole. As plain text the
+             title trims from the end, which would take the tag first — on
+             exactly the names long enough to need trimming. -->
+        <h1 class="hdr-title hdr-task">
+          ${task.alias ? `<span class="alias">${esc(task.alias)}</span>` : ''}<span
+            class="hdr-name ${engineClass(task)}${isLooping(task) ? ' looping' : ''}"
+            >${esc(task.name)}</span>${
+            task.max_tag ? `<span class="max-tag">${esc(task.max_tag)}</span>` : ''}
         </h1>
         <!-- Named for the same reason as the list's glyph buttons: the mark is
              the whole label, so without one there is nothing to announce. -->

@@ -1481,3 +1481,58 @@ def test_the_docs_list_server_restart_under_settings():
     ref = (Path(web.__file__).parent.parent.parent.parent / "docs" / "reference.md").read_text()
     row = next(line for line in ref.splitlines() if line.startswith("| Settings |"))
     assert "`server restart`" in row
+
+
+# ── the max-model tag on a task's page ──────────────────────────────────
+
+def test_the_task_page_shows_the_servers_tag_beside_the_name():
+    """The same string the card shows, from the same field, in the title.
+
+    The tag is rendered from ``task.max_tag`` and never spelled out, so the
+    page cannot disagree with the list about which tag a task carries — and
+    the server's task payload has to carry the field, computed with the same
+    predicate as the list row.
+    """
+    js = web.read_asset("app.js").decode()
+    server = (Path(web.__file__).parent.parent / "server.py").read_text()
+
+    page = js.split("async function renderDetail")[1].split("\n}\n")[0]
+    title = re.search(r'<h1 class="hdr-title hdr-task">(.*?)</h1>', page, re.S)
+    assert title, "the conversation title is no longer laid out as a task row"
+    assert "task.max_tag ?" in title.group(1), "the title does not render the server's tag"
+    assert 'class="max-tag"' in title.group(1), "the title's tag is styled differently from the card's"
+    assert title.group(1).index('class="hdr-name') < title.group(1).index("task.max_tag"), (
+        "the tag comes before the name; it belongs beside it, after"
+    )
+
+    assert '"max_tag": max_tag(task.engine, task.model)' in server, (
+        "the task payload does not carry the tag the page renders"
+    )
+
+
+def test_a_long_name_ellipsises_before_the_tag_is_touched():
+    """As plain text the title trims from its end, which would drop the tag
+    first — on exactly the names long enough to need trimming. The row layout
+    makes the name the part that gives, and this pins the three rules that
+    together make that true."""
+    css = web.read_asset("app.css").decode()
+
+    row = re.search(r"\n\.hdr-task \{(.*?)\}", css, re.S)
+    assert row, "the task title has no row layout"
+    assert "display: flex" in row.group(1)
+    assert "min-width: 0" in row.group(1), "the row could refuse to shrink inside the header"
+
+    name = re.search(r"\n\.hdr-name \{(.*?)\}", css, re.S)
+    assert name, "the name has no rule of its own"
+    for prop in ("min-width: 0", "overflow: hidden", "text-overflow: ellipsis"):
+        assert prop in name.group(1), f"the name lacks `{prop}`, so it would not be the part that gives"
+
+    tag = re.search(r"\n\.hdr-task \.max-tag \{(.*?)\}", css, re.S)
+    assert tag and "flex: none" in tag.group(1), "the tag could be squeezed instead of the name"
+
+
+def test_the_docs_say_the_tag_is_on_the_task_page_too():
+    ref = (Path(web.__file__).parent.parent.parent.parent / "docs" / "reference.md").read_text()
+    assert ref.count("beside the name on the task's own page") == 2, (
+        "the docs describe the tag's placement in two places; both should mention the page"
+    )
