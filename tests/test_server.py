@@ -239,8 +239,8 @@ class TestServerOwnerPinning:
     def test_owner_is_stripped(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        self._owner_file(tmp_path, monkeypatch).write_text("shidong\n")
-        assert read_server_owner() == "shidong"
+        self._owner_file(tmp_path, monkeypatch).write_text("alice\n")
+        assert read_server_owner() == "alice"
 
     def test_blank_file_means_unpinned(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
@@ -251,8 +251,8 @@ class TestServerOwnerPinning:
     def test_main_refuses_other_account(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
     ) -> None:
-        monkeypatch.setattr("ilan.server.read_server_owner", lambda: "shidong")
-        monkeypatch.setattr("ilan.server.getpass.getuser", lambda: "openclaw")
+        monkeypatch.setattr("ilan.server.read_server_owner", lambda: "alice")
+        monkeypatch.setattr("ilan.server.getpass.getuser", lambda: "bob")
         with (
             patch.object(srv_mod, "IlanServer") as server_cls,
             pytest.raises(SystemExit) as excinfo,
@@ -261,13 +261,13 @@ class TestServerOwnerPinning:
         assert excinfo.value.code == 1
         server_cls.assert_not_called()
         err = capsys.readouterr().err
-        assert "'shidong'" in err and "'openclaw'" in err
+        assert "'alice'" in err and "'bob'" in err
 
     def test_main_starts_for_pinned_account(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("ilan.server.read_server_owner", lambda: "shidong")
-        monkeypatch.setattr("ilan.server.getpass.getuser", lambda: "shidong")
+        monkeypatch.setattr("ilan.server.read_server_owner", lambda: "alice")
+        monkeypatch.setattr("ilan.server.getpass.getuser", lambda: "alice")
         with patch.object(srv_mod, "IlanServer") as server_cls:
             srv_mod.main()
         server_cls.return_value.run.assert_called_once()
@@ -284,13 +284,13 @@ class TestServerOwnerPinning:
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.delenv("ILAN_SERVER_URL", raising=False)
-        monkeypatch.setattr("ilan.client.read_server_owner", lambda: "shidong")
-        monkeypatch.setattr("ilan.client.getpass.getuser", lambda: "openclaw")
+        monkeypatch.setattr("ilan.client.read_server_owner", lambda: "alice")
+        monkeypatch.setattr("ilan.client.getpass.getuser", lambda: "bob")
         c = Client()
         with (
             patch.object(Client, "_probe", return_value=None),
             patch.object(Client, "_start_server") as start,
-            pytest.raises(RuntimeError, match="pinned to user 'shidong'"),
+            pytest.raises(RuntimeError, match="pinned to user 'alice'"),
         ):
             c.ensure_server()
         start.assert_not_called()
@@ -299,8 +299,8 @@ class TestServerOwnerPinning:
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.delenv("ILAN_SERVER_URL", raising=False)
-        monkeypatch.setattr("ilan.client.read_server_owner", lambda: "shidong")
-        monkeypatch.setattr("ilan.client.getpass.getuser", lambda: "shidong")
+        monkeypatch.setattr("ilan.client.read_server_owner", lambda: "alice")
+        monkeypatch.setattr("ilan.client.getpass.getuser", lambda: "alice")
         c = Client()
         info = {"pid": 1, "port": 4526}
         with patch.object(Client, "_probe", return_value=None), \
@@ -314,8 +314,8 @@ class TestServerOwnerPinning:
     ) -> None:
         """Pinning restricts *starting* servers, not talking to one."""
         monkeypatch.delenv("ILAN_SERVER_URL", raising=False)
-        monkeypatch.setattr("ilan.client.read_server_owner", lambda: "shidong")
-        monkeypatch.setattr("ilan.client.getpass.getuser", lambda: "openclaw")
+        monkeypatch.setattr("ilan.client.read_server_owner", lambda: "alice")
+        monkeypatch.setattr("ilan.client.getpass.getuser", lambda: "bob")
         c = Client()
         info = {"pid": 1, "port": 4526}
         with patch.object(Client, "_probe", return_value=info):
