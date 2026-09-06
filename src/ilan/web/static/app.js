@@ -969,15 +969,10 @@ async function renderDetail(name) {
     <header class="hdr">
       <div class="hdr-row">
         ${BACK_BUTTON}
-        <!-- hdr-task lays the title out as a row so that a long name
-             ellipsises while the tag beside it stays whole. As plain text the
-             title trims from the end, which would take the tag first — on
-             exactly the names long enough to need trimming. -->
-        <h1 class="hdr-title hdr-task">
-          ${task.alias ? `<span class="alias">${esc(task.alias)}</span>` : ''}<span
-            class="hdr-name ${engineClass(task)}${isLooping(task) ? ' looping' : ''}"
-            >${esc(task.name)}</span>${
-            task.max_tag ? `<span class="max-tag">${esc(task.max_tag)}</span>` : ''}
+        <h1 class="hdr-title">
+          ${task.alias ? `<span class="alias">${esc(task.alias)}</span> ` : ''}<span
+            class="${engineClass(task)}${isLooping(task) ? ' looping' : ''}"
+            >${esc(task.name)}</span>
         </h1>
         <!-- Named for the same reason as the list's glyph buttons: the mark is
              the whole label, so without one there is nothing to announce. -->
@@ -993,7 +988,12 @@ async function renderDetail(name) {
            identical on both pages instead of merely similar — one rule styles
            both, so there is nothing to keep in step. rs-* is what feeds the
            pill its colour. -->
+      <!-- The max-model tag follows the pill here exactly as it does on the
+           card: same container class, same rule, same position. Beside the
+           status rather than the name because the title is the one line on
+           this page that cannot afford to give up width. -->
       <p class="hdr-sub row-meta rs-${esc(status)}">${statusPill(task)}${
+        task.max_tag ? `<span class="max-tag">${esc(task.max_tag)}</span>` : ''}${
         sub ? `<span class="meta-detail">${esc(sub)}</span>` : ''}</p>
       ${hasMore ? `
       <div class="hdr-row">
