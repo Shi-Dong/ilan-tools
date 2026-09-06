@@ -606,7 +606,14 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             with self._ilan.lock:
                 task = self._get_task_or_404(name)
             if task:
-                self._json({"task": task.to_dict()})
+                # The tag is computed here, as on the list row, rather than in
+                # to_dict(): that dict is also the on-disk format, and a derived
+                # value does not belong in it. Same predicate as `ls`, so the
+                # page and the list cannot disagree about which tag to show.
+                self._json({"task": {
+                    **task.to_dict(),
+                    "max_tag": max_tag(task.engine, task.model),
+                }})
 
         def handle_delete_task(self, name: str):
             with self._ilan.lock:

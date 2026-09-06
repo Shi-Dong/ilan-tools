@@ -2346,3 +2346,35 @@ class TestRestart:
         resp = _post(ilan_server, "/restart")
         assert "error" in resp and "no such interpreter" in resp["error"]
         assert _get(ilan_server, "/health") == {"status": "ok"}
+
+
+class TestGetTaskMaxTag:
+    """The task page reads the same computed tag the list row carries.
+
+    Derived in the handler rather than stored: ``to_dict()`` is also the
+    on-disk format, and a value that depends on the current max models would
+    go stale in a file the moment one of them was bumped.
+    """
+
+    def test_a_maxed_claude_task_is_tagged_fable(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "page-fable", "prompt": "P", "max": True})
+        task = _get(ilan_server, "/tasks/page-fable")["task"]
+        assert task["max_tag"] == "FABLE"
+        assert task["model"] == FABLE_MODEL
+
+    def test_a_maxed_codex_task_is_tagged_astra(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks",
+              {"name": "page-astra", "prompt": "P", "agent": "codex", "max": True})
+        task = _get(ilan_server, "/tasks/page-astra")["task"]
+        assert task["max_tag"] == "ASTRA"
+        assert task["model"] == ASTRA_MODEL
+
+    def test_a_plain_task_carries_no_tag(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "page-plain", "prompt": "P"})
+        assert _get(ilan_server, "/tasks/page-plain")["task"]["max_tag"] is None
+
+    def test_the_tag_is_not_written_to_disk(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "page-stored", "prompt": "P", "max": True})
+        with ilan_server.lock:
+            stored = ilan_server.store.load_tasks()["page-stored"].to_dict()
+        assert "max_tag" not in stored, "a derived value leaked into the stored task"

@@ -1481,3 +1481,43 @@ def test_the_docs_list_server_restart_under_settings():
     ref = (Path(web.__file__).parent.parent.parent.parent / "docs" / "reference.md").read_text()
     row = next(line for line in ref.splitlines() if line.startswith("| Settings |"))
     assert "`server restart`" in row
+
+
+# ── the max-model tag on a task's page ──────────────────────────────────
+
+def test_the_task_page_shows_the_servers_tag_beside_the_status():
+    """The same string the card shows, from the same field, in the same place.
+
+    Beside the status rather than the name: the title is the one line on the
+    page that cannot give up width, and the status line is already the card's
+    own ``.row-meta`` container, so the pill-then-tag order renders through the
+    very rule the card uses. The tag is read from ``task.max_tag`` and never
+    spelled out, and the server's task payload has to carry that field,
+    computed with the same predicate as the list row.
+    """
+    js = web.read_asset("app.js").decode()
+    server = (Path(web.__file__).parent.parent / "server.py").read_text()
+
+    page = js.split("async function renderDetail")[1].split("\n}\n")[0]
+    line = re.search(r'<p class="hdr-sub row-meta rs-\$\{esc\(status\)\}">(.*?)</p>', page, re.S)
+    assert line, "the status line is no longer the card's container"
+    body = line.group(1)
+    assert "statusPill(task)" in body and "task.max_tag ?" in body, "the status line does not render the tag"
+    assert body.index("statusPill(task)") < body.index("task.max_tag") < body.index("meta-detail"), (
+        "the tag is not directly after the pill"
+    )
+    assert 'class="max-tag"' in body, "the page's tag is styled differently from the card's"
+
+    title = re.search(r'<h1 class="hdr-title">(.*?)</h1>', page, re.S)
+    assert title and "max_tag" not in title.group(1), "the title carries a tag and would clip the name for it"
+
+    assert '"max_tag": max_tag(task.engine, task.model)' in server, (
+        "the task payload does not carry the tag the page renders"
+    )
+
+
+def test_the_docs_say_the_tag_is_on_the_task_page_too():
+    ref = (Path(web.__file__).parent.parent.parent.parent / "docs" / "reference.md").read_text()
+    assert ref.count("beside the status on the task's own page") == 2, (
+        "the docs describe the tag's placement in two places; both should mention the page"
+    )

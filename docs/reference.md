@@ -134,7 +134,7 @@ Notes:
 | `ilan task unread NAME [NAME...]` | Restore the unread marker on task(s) |
 | `ilan task pin NAME` | Pin a task to the top of `ilan ls` / `ilan dashboard`; the row is marked with a `→` before its `(Alias) Name`. A pinned `DONE` / `DISCARDED` task stays visible without `-a` |
 | `ilan task unpin NAME` | Remove the pin, returning the task to its place in creation order (and hiding it again if it is `DONE` / `DISCARDED`) |
-| `ilan task max NAME` | Run this task on its backend's max model instead of the default — Fable (`claude-fable-5-1`) on `claude`, Astra (`gpt-6-astra`) on `codex`. A red tag naming that model (`FABLE`, `ASTRA`) shows beneath the task name in `ilan ls` / `ilan dashboard`, and beside the status on the web app's task list. Takes effect on the task's next agent spawn. Switching backends translates the pin and tag to the destination's max model. |
+| `ilan task max NAME` | Run this task on its backend's max model instead of the default — Fable (`claude-fable-5-1`) on `claude`, Astra (`gpt-6-astra`) on `codex`. A red tag naming that model (`FABLE`, `ASTRA`) shows beneath the task name in `ilan ls` / `ilan dashboard`, and beside the status on the web app's task list and beside the status on the task's own page. Takes effect on the task's next agent spawn. Switching backends translates the pin and tag to the destination's max model. |
 | `ilan task unmax NAME` | Reset the task's model back to the `model-claude` / `model-codex` config default |
 | `ilan task switch-backend NAME` | Toggle the task's agent backend (`claude` ↔ `codex`). Maxed tasks stay maxed (`FABLE` ↔ `ASTRA`). Lazy: takes effect on the task's next spawn, and the new backend catches up on its next turn. Not allowed on a `WORKING` task (warns and does nothing) — wait for the agent to finish or kill it first. See [Agent backends](#agent-backends) |
 | `ilan task rm NAME [NAME...]` | Delete task(s) and all their data; surviving descendants remain and are re-parented |
@@ -445,7 +445,7 @@ backend it is on, leaving every other task on the configured default.
 
 While a task is maxed, a red tag naming that model is rendered on its own line
 beneath the task name in `ilan ls` and `ilan dashboard`, and beside the status
-on the web app's task list, where it stays visible on a collapsed card. The
+on the web app's task list, where it stays visible on a collapsed card, and beside the status on the task's own page. The
 override is per task and persists across replies until you run `ilan unmax`,
 which clears it back to the `model-claude` / `model-codex` config default. A
 change takes effect on the task's next agent spawn (the next reply), not on an

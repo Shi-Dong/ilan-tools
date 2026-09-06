@@ -988,7 +988,12 @@ async function renderDetail(name) {
            identical on both pages instead of merely similar — one rule styles
            both, so there is nothing to keep in step. rs-* is what feeds the
            pill its colour. -->
+      <!-- The max-model tag follows the pill here exactly as it does on the
+           card: same container class, same rule, same position. Beside the
+           status rather than the name because the title is the one line on
+           this page that cannot afford to give up width. -->
       <p class="hdr-sub row-meta rs-${esc(status)}">${statusPill(task)}${
+        task.max_tag ? `<span class="max-tag">${esc(task.max_tag)}</span>` : ''}${
         sub ? `<span class="meta-detail">${esc(sub)}</span>` : ''}</p>
       ${hasMore ? `
       <div class="hdr-row">

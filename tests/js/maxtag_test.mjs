@@ -97,4 +97,44 @@ for (const [name, tag] of [['maxed-task', 'FABLE'], ['maxed-codex', 'ASTRA']]) {
       && !/class="max-tag meta-detail"|class="meta-detail max-tag"/.test(card(shut, name)));
 }
 
+
+// ── the task's own page shows the same tag beside the name ──────────────
+// Same string from the server, same class, same rule: a task tagged on the
+// list is tagged in its title, and one that is not is not.
+{
+  const { settle } = await import('./harness.mjs');
+  const openTask = (task) => {
+    const app = bootApp();
+    app.setFetch(async (path) => {
+      const json = (d) => ({ ok: true, status: 200, json: async () => d });
+      if (path.includes('/tail')) return json({ entries: [] });
+      return json({ task });
+    });
+    return app;
+  };
+  const title = (app) => (app.html().match(/<h1 class="hdr-title[^"]*">([\s\S]*?)<\/h1>/) || [])[1] || '';
+  const statusLine = (app) => (app.html().match(/<p class="hdr-sub[^"]*"[^>]*>([\s\S]*?)<\/p>/) || [])[1] || '';
+
+  for (const task of TASKS.filter((t) => t.max_tag)) {
+    const app = openTask(task);
+    await app.renderDetail(task.name);
+    await settle();
+    // Directly after the status pill, as on the card — the same container
+    // class carries both, so the two surfaces render it identically.
+    check(`${task.name}: its page carries ${task.max_tag} beside the status`,
+      new RegExp(`class="status st-[A-Z_]+">[^<]*</span><span class="max-tag">${task.max_tag}</span>`).test(statusLine(app)),
+      statusLine(app));
+    check(`${task.name}: the title itself carries no tag, so the name keeps its width`,
+      !title(app).includes('class="max-tag"'), title(app));
+    check(`${task.name}: the status line is the card's own container`,
+      /<p class="hdr-sub row-meta rs-[A-Z_]+">/.test(app.html()));
+  }
+  for (const task of TASKS.filter((t) => !t.max_tag)) {
+    const app = openTask(task);
+    await app.renderDetail(task.name);
+    await settle();
+    check(`${task.name}: its page shows no tag`, !app.html().includes('class="max-tag"'), statusLine(app));
+  }
+}
+
 report('max-model-tag');
