@@ -272,8 +272,14 @@ class Runner:
         prompt, resume = self._build_prompt(task)
         return self._spawn(task, prompt, resume=resume)
 
-    def reap_finished(self) -> None:
-        """Reap agents whose process has exited. Called by the poll loop."""
+    def reap_finished(self) -> list[Task]:
+        """Reap agents whose process has exited. Called by the poll loop.
+
+        Returns the tasks reaped on this call, each already in its final
+        status with its summary set, so the caller can tell someone — which
+        is the one thing the caller should do outside the lock it holds here.
+        """
+        reaped: list[Task] = []
         for task in self.store.load_tasks().values():
             if task.status != TaskStatus.WORKING or task.pid is None:
                 continue
@@ -282,8 +288,11 @@ class Runner:
                 if proc.poll() is not None:
                     self._procs.pop(task.name, None)
                     self._try_reap(task)
+                    reaped.append(task)
             elif not self._pid_alive(task.pid) or self._output_complete(task.name):
                 self._try_reap(task)
+                reaped.append(task)
+        return reaped
 
     def reply_to_working(self, task: Task, message: str) -> None:
         """Kill the running agent and immediately resume the session."""

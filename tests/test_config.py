@@ -16,7 +16,7 @@ class TestDefaults:
             "workdir", "model-claude", "model-codex", "effort",
             "time-zone", "editor", "default-backend",
             "api-key-mode", "api-key-claude", "api-key-codex",
-            "github-token",
+            "github-token", "push-contact",
             "dashboard-interval",
             "line-number", "markdown", "one-line-summary",
         }

@@ -264,6 +264,7 @@ before writing. Use `--yes` for non-interactive scripts.
 | `api-key-claude` | _(empty)_ | Anthropic API key passed as `ANTHROPIC_API_KEY` to spawned Claude agents only while `api-key-mode` is `true`. Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
 | `api-key-codex` | _(empty)_ | OpenAI API key passed as `OPENAI_API_KEY` to spawned Codex agents only while `api-key-mode` is `true`; a non-empty value is still used to call `gpt-5.6-luna` for the one-line status summary in `ilan ls` and `ilan dashboard`. When empty, the one-line summary falls back to the server's local `codex` CLI. Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
 | `github-token` | _(empty)_ | GitHub personal-access token (needs the `gist` scope). Setting it turns on [Gist conversation mirroring](#gist-conversation-mirroring); leaving it empty keeps the feature off. Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
+| `push-contact` | `mailto:ilan@example.com` | Server-side: the VAPID contact sent with every web-app push notification. Apple rejects the token for a URL or a host without a dot, so a value that is not a `mailto:` falls back to the default |
 | `dashboard-interval` | `1` | Client-side: seconds between automatic refreshes in `ilan dashboard` |
 | `line-number` | `false` | Client-side: when `true`, `ilan tail` prefixes each assistant line with a yellow `[N]` marker and `ilan reply` / `ilan task branch` expand `@N` into the Nth line, double-quoted |
 | `markdown` | `false` | Client-side: render assistant output as Markdown in `ilan tail`, `ilan reply`, and their task-command equivalents |
@@ -507,6 +508,20 @@ system's Reduce Motion setting: with it on, the app moves nothing.
 The web app inherits the server's access model, which has no authentication: anyone who
 can reach the server's port can drive your agents. Expose it only on a network you
 trust, or put it behind a proxy that authenticates.
+
+### Push notifications (server side)
+
+The server can tell phones that have installed the web app when a task finishes. A
+phone subscribes through `GET /push` (the server's public key and how many devices are
+subscribed) and `POST /push/subscribe` with the subscription its browser produced;
+`POST /push/unsubscribe` forgets it. Each notification carries the task name, how it
+finished (`Agent finished`, `Needs attention` or `Error`) and the one-line summary; a
+finish inside a `reply -t` cycle is not announced, since the cycle re-prompts the agent.
+The signing key (`push/vapid.pem`, created on first use, never to be committed) and the
+device list (`push/subscriptions.json`) live in the workdir; a device whose subscription
+has expired (the push service answers 404 or 410) is dropped automatically. The contact
+address sent with each push is the `push-contact` setting. Because the workdir is shared, every subscribed
+phone hears about every task.
 
 ## Agent backends
 

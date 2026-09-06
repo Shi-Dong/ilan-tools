@@ -17,6 +17,9 @@ DEFAULTS: dict[str, str | int | bool] = {
     "api-key-claude": "",
     "api-key-codex": "",
     "github-token": "",
+    # Who a push service may contact about this server's Web Push traffic
+    # (the VAPID subject). Apple accepts only a mailto: with a dotted host.
+    "push-contact": "mailto:ilan@example.com",
     "dashboard-interval": 1,
     "line-number": False,
     "markdown": False,
