@@ -217,7 +217,7 @@ function modal(innerHtml, wire) {
     const backdrop = document.createElement('div');
     backdrop.className = 'sheet-backdrop';
     backdrop.innerHTML = `<div class="sheet">${innerHtml}</div>`;
-    const close = (value) => { backdrop.remove(); resolve(value); };
+    const close = (value) => { fadeOutAndRemove(backdrop); resolve(value); };
     backdrop.addEventListener('click', (ev) => {
       if (ev.target === backdrop) close(null);
     });
@@ -425,7 +425,104 @@ const state = {
   // The text the ask bar is currently offering to quote. Cached when the bar
   // appears rather than read on click; see syncAskBar.
   askSelection: '',
+  // How the next view should arrive — 'view-push', 'view-pop' or 'view-fade'
+  // — set by route() and consumed by the first showView() after it. Only a
+  // navigation sets it, so a poll or an in-place re-render replaces the page
+  // without replaying the entrance; see showView.
+  entering: null,
+  // The hash route() last rendered, which is what tells a push from a pop.
+  currentHash: null,
 };
+
+// ── motion ───────────────────────────────────────────────────────────
+// Every animation here is opt-out: the stylesheet only applies them under
+// prefers-reduced-motion: no-preference, and the script-driven ones check the
+// same query. Each of them animates opacity, transform or a measured height,
+// and none of them delays what the user asked for — a sheet's value resolves
+// before its fade-out, a toggled card is already in its new state while the
+// height eases.
+
+/** Whether the user has asked for less motion. False where the query does
+ *  not exist, which includes the test harness. */
+function reduceMotion() {
+  return typeof matchMedia === 'function'
+    && matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/** Replace the page with *html*, arriving the way route() asked, if it did.
+ *
+ * The entrance class sits on #app rather than on the view, so the four views
+ * share one rule, and it is consumed on the first render after a navigation:
+ * the children created by a later re-render — the 15-second poll, a toggled
+ * card, a sent reply — would otherwise replay the entrance every time.
+ *
+ * A transient placeholder passes *consume* as false: the "Loading…" shown
+ * while the first list is fetched is not the view the navigation was to, and
+ * spending the entrance on it would have the list itself snap in behind it.
+ */
+function showView(html, consume = true) {
+  const app = $('#app');
+  app.className = state.entering ? `app ${state.entering}` : 'app';
+  if (consume) state.entering = null;
+  app.innerHTML = html;
+}
+
+/** The entrance for moving from *from* to *to*: deeper is a push, back to the
+ *  list is a pop, and anything else — the first load included — is a fade. */
+function entranceFor(from, to) {
+  if (from === null) return 'view-fade';
+  if (from === '#/' && to !== '#/') return 'view-push';
+  if (to === '#/' && from !== '#/') return 'view-pop';
+  return 'view-fade';
+}
+
+/** The card whose body button carries *name*, or null off a real DOM. */
+function cardOf(name) {
+  const row = document.querySelector(`.row[data-toggle="${name}"]`);
+  return row && typeof row.closest === 'function' ? row.closest('.card') : null;
+}
+
+/** Ease *el* from *from* pixels tall to its current height.
+ *
+ * The list is re-rendered on a toggle, so the card is a new element that is
+ * already its final size; this plays the change in size over it after the
+ * fact. Measured and animated rather than styled: a collapsed card's height
+ * depends on its content, so there is no fixed value a stylesheet could
+ * transition between.
+ */
+function animateHeight(el, from) {
+  if (!el || typeof el.animate !== 'function' || !from || reduceMotion()) return;
+  const to = el.getBoundingClientRect().height;
+  if (Math.abs(to - from) < 1) return;
+  el.style.overflow = 'hidden';
+  const run = el.animate(
+    [{ height: `${from}px` }, { height: `${to}px` }],
+    { duration: 220, easing: 'cubic-bezier(.2, .8, .2, 1)' },
+  );
+  const done = () => { el.style.overflow = ''; };
+  run.finished.then(done, done);
+  // What the expansion revealed fades in with it, so it does not pop into
+  // place before the card has finished growing around it.
+  if (to > from && typeof el.querySelectorAll === 'function') {
+    el.querySelectorAll('.row-actions, .row-sum, .meta-detail').forEach((part) => {
+      part.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, easing: 'ease-out' });
+    });
+  }
+}
+
+/** Fade *el* out, then remove it — or just remove it where it cannot fade.
+ *
+ * The caller's promise has already resolved by the time this runs, so the
+ * fade delays nothing but the pixels. Pointer events are cut at once, so a
+ * second tap during the fade cannot land on a sheet that is already spent.
+ */
+function fadeOutAndRemove(el) {
+  if (typeof el.animate !== 'function' || reduceMotion()) { el.remove(); return; }
+  if (el.style) el.style.pointerEvents = 'none';
+  const run = el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, easing: 'ease-in' });
+  const gone = () => el.remove();
+  run.finished.then(gone, gone);
+}
 
 // ── shared chrome ────────────────────────────────────────────────────
 
@@ -578,7 +675,7 @@ function renderList() {
   // says and what leaves the list in one state instead of half of one.
   const anyOpen = visible.some((t) => !isCollapsed(t));
 
-  $('#app').innerHTML = `
+  showView(`
     <header class="hdr">
       <div class="hdr-row">
         <!-- The same icon the home screen uses, so the page a phone opens
@@ -612,7 +709,7 @@ function renderList() {
           ? '<button class="btn btn-sm" id="clear-search">Clear</button>' : ''}
       </div>
     </header>
-    <main class="main">${body}</main>`;
+    <main class="main">${body}</main>`);
 
   const q = $('#q');
   // Typing only updates the draft. No filtering, and deliberately no re-render:
@@ -736,6 +833,11 @@ async function doneFromCard(name) {
  *
  * Membership means expanded, since collapsed is the default state. */
 function toggleCollapsed(name) {
+  // Measured before the re-render replaces the card, so the new one can be
+  // eased from the size the old one was.
+  const before = cardOf(name);
+  const from = before && typeof before.getBoundingClientRect === 'function'
+    ? before.getBoundingClientRect().height : 0;
   if (state.expanded.has(name)) {
     state.expanded.delete(name);
   } else {
@@ -743,6 +845,7 @@ function toggleCollapsed(name) {
   }
   saveExpanded();
   renderList();
+  animateHeight(cardOf(name), from);
 }
 
 /** Close every card, including any the current search is hiding.
@@ -770,12 +873,12 @@ async function refreshList() {
 
 async function loadList(showSpinner = true) {
   if (showSpinner && !state.tasks.length) {
-    $('#app').innerHTML = '<div class="empty">Loading…</div>';
+    showView('<div class="empty">Loading…</div>', false);
   }
   const { ok, data } = await api.get('/tasks?all=true');
   if (!ok) {
-    $('#app').innerHTML = `<div class="empty">Cannot reach the ilan server.<br>
-      ${esc(data.error || '')}</div>`;
+    showView(`<div class="empty">Cannot reach the ilan server.<br>
+      ${esc(data.error || '')}</div>`);
     return;
   }
   state.tasks = data.tasks || [];
@@ -904,8 +1007,8 @@ async function renderDetail(name) {
   ]);
 
   if (!taskResp.ok) {
-    $('#app').innerHTML = `<div class="empty">${esc(taskResp.data.error || 'Not found')}
-      <br><br><button class="btn" onclick="location.hash='#/'">Back</button></div>`;
+    showView(`<div class="empty">${esc(taskResp.data.error || 'Not found')}
+      <br><br><button class="btn" onclick="location.hash='#/'">Back</button></div>`);
     return;
   }
 
@@ -965,7 +1068,7 @@ async function renderDetail(name) {
       <button class="btn btn-primary" id="send" disabled>Send</button>
     </div>`;
 
-  $('#app').innerHTML = `
+  showView(`
     <header class="hdr">
       <div class="hdr-row">
         ${BACK_BUTTON}
@@ -1001,7 +1104,7 @@ async function renderDetail(name) {
       </div>` : ''}
     </header>
     <main class="main">${body}</main>
-    <div class="dock">${footer}</div>`;
+    <div class="dock">${footer}</div>`);
 
   wireBack();
   $('#refresh').onclick = () => renderDetail(name);
@@ -1240,7 +1343,7 @@ async function runAction(choice, task) {
 // ── new task view ────────────────────────────────────────────────────
 
 function renderNew() {
-  $('#app').innerHTML = `
+  showView(`
     <header class="hdr">
       <div class="hdr-row">
         ${BACK_BUTTON}
@@ -1267,7 +1370,7 @@ function renderNew() {
         </label>
         <button class="btn btn-primary" id="create">Create task</button>
       </div>
-    </main>`;
+    </main>`);
 
   wireBack();
   $('#create').onclick = async () => {
@@ -1369,7 +1472,7 @@ async function renderConfig() {
   }).join('');
 
   const pid = version.data.pid;
-  $('#app').innerHTML = `
+  showView(`
     <header class="hdr">
       <div class="hdr-row">
         ${BACK_BUTTON}
@@ -1397,7 +1500,7 @@ async function renderConfig() {
           <button class="btn btn-primary" id="restart-server">Restart server</button>
         </div>
       </div>
-    </main>`;
+    </main>`);
 
   wireBack();
   $('#restart-server').onclick = () => restartServer(pid);
@@ -1439,6 +1542,8 @@ function canAutoRefresh() {
 async function route() {
   stopPolling();
   const hash = location.hash || '#/';
+  state.entering = entranceFor(state.currentHash, hash);
+  state.currentHash = hash;
 
   if (hash.startsWith('#/t/')) {
     // Entering a conversation always starts at the tail, including when it is

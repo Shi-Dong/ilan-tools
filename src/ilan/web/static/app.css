@@ -1066,6 +1066,65 @@ textarea.field {
 
 .toast-err { background: var(--danger); color: #fff; }
 
+/* ── motion ─────────────────────────────────────────────────────────── */
+/* Everything that moves is declared under no-preference, so a reader who has
+ * asked for reduced motion gets the same app with every entrance cut; the
+ * keyframes below are inert until applied. Only opacity and transform are
+ * animated here — both composited, so the phone paints nothing new per frame
+ * — and nothing waits on any of it: each view is fully interactive from its
+ * first frame.
+ *
+ * The distances are small on purpose. A push slides in from 24px, not from
+ * off-screen: enough to say which way the page moved, not enough to make the
+ * eye wait for it. */
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slide-in-from-right {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes slide-in-from-left {
+  from { opacity: 0; transform: translateX(-24px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes sheet-in {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* The toast is centred by a translateX in its base rule, which every frame of
+ * its rise has to keep, or it would jump sideways as it appears. */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to   { opacity: 1; transform: translateX(-50%); }
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .row, .btn { transition: background-color .12s ease; }
+
+  /* A view arrives the way route() decided: deeper is a push from the right,
+   * back to the list is a pop from the left, and the first load is a fade.
+   * Only the main column slides; the header and the composer dock fade,
+   * since they are the page's fixed chrome and sliding them reads as the
+   * frame moving rather than the page. Everything that is not .main fades,
+   * so the dock cannot pop into place while the page is still arriving. The
+   * class is consumed by the first render after a navigation, so a poll
+   * re-render carries none of these. */
+  .app.view-fade > *,
+  .app.view-push > :not(.main),
+  .app.view-pop > :not(.main) { animation: fade-in 180ms ease-out both; }
+  .app.view-push > .main { animation: slide-in-from-right 220ms cubic-bezier(.2, .8, .2, 1) both; }
+  .app.view-pop > .main { animation: slide-in-from-left 220ms cubic-bezier(.2, .8, .2, 1) both; }
+
+  .sheet-backdrop { animation: fade-in 140ms ease-out both; }
+  .sheet { animation: sheet-in 220ms cubic-bezier(.2, .8, .2, 1) both; }
+
+  /* Re-shown from hidden each time, which is what restarts the animation. */
+  .toast { animation: toast-in 200ms cubic-bezier(.2, .8, .2, 1) both; }
 }

@@ -1521,3 +1521,108 @@ def test_the_docs_say_the_tag_is_on_the_task_page_too():
     assert ref.count("beside the status on the task's own page") == 2, (
         "the docs describe the tag's placement in two places; both should mention the page"
     )
+
+
+# ── motion ──────────────────────────────────────────────────────────────
+
+def _reduced_motion_block(css: str) -> str:
+    """The body of the ``prefers-reduced-motion: no-preference`` block."""
+    start = css.index("@media (prefers-reduced-motion: no-preference) {")
+    depth, i = 0, start
+    while True:
+        if css[i] == "{":
+            depth += 1
+        elif css[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return css[start:i + 1]
+        i += 1
+
+
+def test_every_animation_is_opt_out_for_reduced_motion():
+    """A reader who has asked for less motion gets the same app with the
+    entrances cut. That is only true if every ``animation:`` is declared
+    inside the no-preference block — one outside it would play regardless."""
+    css = web.read_asset("app.css").decode()
+    block = _reduced_motion_block(css)
+    assert block.count("animation:") >= 5, "the motion block lost its animations"
+    outside = css.replace(block, "")
+    assert "animation:" not in outside, (
+        "an animation is declared outside the reduced-motion guard"
+    )
+    assert "transition:" not in outside.replace("transition: none", ""), (
+        "a transition is declared outside the reduced-motion guard"
+    )
+
+
+def test_animations_touch_only_what_the_compositor_can_move():
+    """Opacity and transform are painted once and moved by the compositor;
+    anything else re-lays-out the page every frame, which on a phone is the
+    stutter this PR exists to remove."""
+    css = web.read_asset("app.css").decode()
+    frames = re.findall(r"@keyframes [\w-]+ \{(.*?)\n\}", css, re.S)
+    assert len(frames) >= 5, f"expected the motion keyframes, found {len(frames)}"
+    for body in frames:
+        props = set(re.findall(r"([a-z-]+):", body))
+        assert props <= {"opacity", "transform"}, f"a keyframe animates {props - {'opacity', 'transform'}}"
+
+
+def test_no_entrance_takes_longer_than_a_glance():
+    css = web.read_asset("app.css").decode()
+    durations = [int(ms) for ms in re.findall(r"animation: [\w-]+ (\d+)ms", css)]
+    assert durations, "no animation declares a duration"
+    assert max(durations) <= 300, f"an entrance lasts {max(durations)}ms"
+    js = web.read_asset("app.js").decode()
+    for ms in re.findall(r"duration: (\d+)", js):
+        assert int(ms) <= 300, f"a scripted animation lasts {ms}ms"
+
+
+def test_the_toast_keeps_its_centring_while_it_rises():
+    """The toast is centred by a translateX in its base rule; a keyframe that
+    set transform without it would snap the toast sideways as it appeared."""
+    css = web.read_asset("app.css").decode()
+    frames = re.search(r"@keyframes toast-in \{(.*?)\n\}", css, re.S)
+    assert frames, "the toast has no entrance"
+    for line in re.findall(r"transform: ([^;]+);", frames.group(1)):
+        assert "translateX(-50%)" in line, f"a toast keyframe drops the centring: {line}"
+
+
+def test_every_view_arrives_through_one_helper():
+    """The entrance class lives on #app and is consumed by the first render
+    after a navigation. That only holds if every write to #app goes through
+    showView — a stray innerHTML write would either miss the entrance or, worse,
+    leave the class in place for the next poll to replay."""
+    js = web.read_asset("app.js").decode()
+    assert js.count("$('#app').innerHTML") == 0, "a view is written to #app without showView"
+    assert js.count("app.innerHTML = html;") == 1, "showView no longer writes the page"
+    assert "state.entering = entranceFor(state.currentHash, hash);" in js, (
+        "route() no longer decides how the view arrives"
+    )
+    show = re.search(r"function showView\(html, consume = true\) \{(.*?)\n\}", js, re.S)
+    assert show and "if (consume) state.entering = null;" in show.group(1), (
+        "the entrance is not consumed on render"
+    )
+    # The one render allowed to keep the entrance alive is the transient
+    # placeholder shown while the first list is fetched.
+    assert js.count(", false);") == 1 and "Loading…</div>', false);" in js, (
+        "something other than the loading placeholder declines to consume the entrance"
+    )
+    assert show.group(1).index("app.className") < show.group(1).index("app.innerHTML"), (
+        "the class has to be on #app before the children are created, or they will not animate"
+    )
+
+
+def test_scripted_motion_is_guarded_for_browsers_and_readers_without_it():
+    """The Web Animations calls have to survive an element with no animate()
+    — the harness, and any browser that lacks it — and must stand down when
+    the reader has asked for reduced motion."""
+    js = web.read_asset("app.js").decode()
+    for fn in ("animateHeight", "fadeOutAndRemove"):
+        body = re.search(rf"function {fn}\(.*?\) \{{(.*?)\n\}}", js, re.S)
+        assert body, f"{fn} is gone"
+        assert "typeof el.animate !== 'function'" in body.group(1), f"{fn} does not guard animate()"
+        assert "reduceMotion()" in body.group(1), f"{fn} ignores prefers-reduced-motion"
+    assert "typeof matchMedia === 'function'" in js, "reduceMotion would throw where matchMedia is absent"
+    assert "const close = (value) => { fadeOutAndRemove(backdrop); resolve(value); };" in js, (
+        "a sheet's answer no longer resolves before its fade"
+    )

@@ -158,6 +158,27 @@ const PRELUDE = `
     }
     return __modalEls.get(sel);
   }
+  // A fake card per task name: measurable, animatable, and remembering what
+  // was animated on it. Heights are handed out from __cardHeights in order,
+  // so a test can say what the card measured before and after a re-render.
+  const __cards = new Map();
+  const __cardHeights = [];
+  const __animations = [];
+  function __card(name) {
+    if (!__cards.has(name)) {
+      __cards.set(name, {
+        style: {},
+        getBoundingClientRect: () => ({ height: __cardHeights.length ? __cardHeights.shift() : 0 }),
+        animate: (keyframes, options) => {
+          __animations.push({ name, keyframes, options });
+          return { finished: Promise.resolve() };
+        },
+        querySelectorAll: () => [],
+      });
+    }
+    return __cards.get(name);
+  }
+
   // Stable per value, for the same reason __el is.
   const __modalOpts = new Map();
   function __modalOpt(value) {
@@ -175,6 +196,20 @@ const PRELUDE = `
     hidden: false,
     activeElement: null,
     querySelector: (sel) => {
+      // The card body button, as toggleCollapsed looks it up to measure the
+      // card around it. Hands back the same element querySelectorAll does,
+      // with a closest() that reaches a fake card whose height and animations
+      // a test can read; see __card.
+      // Matched without regex escapes: this source is evaluated through a
+      // template literal, which eats a level of backslashes.
+      const rowPrefix = '.row[data-toggle="';
+      if (sel.startsWith(rowPrefix) && sel.endsWith('"]')) {
+        const name = sel.slice(rowPrefix.length, -'"]'.length);
+        if (!__el('app').innerHTML.includes('data-toggle="' + name + '"')) return null;
+        const el = __listEl('.row', name);
+        el.closest = (s) => (s === '.card' ? __card(name) : null);
+        return el;
+      }
       const id = sel.replace('#', '');
       if (__CONDITIONAL.has(id) && !__el('app').innerHTML.includes('id="' + id + '"')) {
         return null;
@@ -231,6 +266,7 @@ const TAIL = `;return {
   replyEverySuffix, displayStatus, reviveAction, isVisible,
   isLooping, isSleeping,
   sendReply, runAction, showActions, postConfirmingReplyEvery, refreshListAfterChange,
+  showView, entranceFor, toggleCollapsed, fadeOutAndRemove, animateHeight, reduceMotion,
   restartServer, waitForRestart,
   toast, toastHtml, withCodeName,
   elide, quoteForReply, selectedMessageText, syncAskBar, askAboutSelection,
@@ -244,6 +280,10 @@ const TAIL = `;return {
   focused: () => (document.activeElement ? document.activeElement.id : null),
   modal: (sel) => __modalEl(sel),
   modalOpen: () => __modalOpen,
+  /** Heights the next card measurements will report, in order. */
+  cardHeights: (...hs) => { __cardHeights.length = 0; __cardHeights.push(...hs); },
+  /** Every animate() call made on a fake card, as {name, keyframes, options}. */
+  animations: () => __animations.slice(),
   /** The options the open sheet offers, in order, as {value, label, danger}. */
   modalOptions: () => {
     const html = (__lastModal && __lastModal.innerHTML) || '';

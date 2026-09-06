@@ -500,6 +500,10 @@ credential keys are shown but not editable in Settings.
 The list refreshes every 15 seconds while it is the frontmost tab and pauses when it is
 not. There are no push notifications — the app shows state when you open it.
 
+Views slide or fade in, cards ease open and shut, and sheets rise and fade — all in well
+under a quarter of a second, and none of it delays a tap. The whole set follows the
+system's Reduce Motion setting: with it on, the app moves nothing.
+
 The web app inherits the server's access model, which has no authentication: anyone who
 can reach the server's port can drive your agents. Expose it only on a network you
 trust, or put it behind a proxy that authenticates.
