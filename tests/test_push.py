@@ -130,14 +130,18 @@ class TestShouldNotify:
     def test_other_statuses_do_not(self, status: TaskStatus) -> None:
         assert not should_notify(_task(status=status))
 
-    @pytest.mark.parametrize("status", [TaskStatus.AGENT_FINISHED, TaskStatus.NEEDS_ATTENTION])
-    def test_a_finish_inside_a_reply_every_cycle_does_not(self, status: TaskStatus) -> None:
-        """The cycle re-prompts the agent; nobody is being waited on, and the
-        list shows the task as AGENT IN LOOP for the same reason."""
+    @pytest.mark.parametrize("status", list(TaskStatus))
+    def test_nothing_on_a_reply_every_cycle_does(self, status: TaskStatus) -> None:
+        """The cycle re-prompts the agent, so nobody is being waited on — and a
+        looping task that kept erroring would otherwise ring the phone every
+        cycle, as often as every twenty minutes. Errors included, therefore."""
         assert not should_notify(_task(status=status, reply_every_seconds=1200))
 
-    def test_an_error_inside_a_cycle_still_does(self) -> None:
-        assert should_notify(_task(status=TaskStatus.ERROR, reply_every_seconds=1200))
+    def test_the_cycle_rule_is_about_the_cycle_not_the_status_words(self) -> None:
+        """A task with no cycle keeps notifying on an error; only the loop
+        silences it."""
+        assert should_notify(_task(status=TaskStatus.ERROR))
+        assert not should_notify(_task(status=TaskStatus.ERROR, reply_every_seconds=1200))
 
 
 # ── devices ───────────────────────────────────────────────────────────────

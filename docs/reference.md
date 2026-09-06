@@ -523,8 +523,9 @@ The server can tell phones that have installed the web app when a task finishes.
 phone subscribes through `GET /push` (the server's public key and how many devices are
 subscribed) and `POST /push/subscribe` with the subscription its browser produced;
 `POST /push/unsubscribe` forgets it. Each notification carries the task name, how it
-finished (`Agent finished`, `Needs attention` or `Error`) and the one-line summary; a
-finish inside a `reply -t` cycle is not announced, since the cycle re-prompts the agent.
+finished (`Agent finished`, `Needs attention` or `Error`) and the one-line summary. A task
+on a `reply -t` cycle is never announced, errors included: the cycle re-prompts the agent on
+its own, and a looping task that kept failing would otherwise ring the phone every cycle.
 The signing key (`push/vapid.pem`, created on first use, never to be committed) and the
 device list (`push/subscriptions.json`) live in the workdir; a device whose subscription
 has expired (the push service answers 404 or 410) is dropped automatically. The contact
