@@ -251,6 +251,36 @@ const PRELUDE = `
     addEventListener: (type, fn) => { __listeners.push({ on: 'window', type, fn }); },
     open: () => {},
   };
+  // Push support is absent by default: a browser with no service worker. A
+  // test that wants a phone calls enablePushSupport(), which adds a worker, a
+  // push manager that records what it is asked, and the badge API.
+  const __push = { registered: [], subscription: null, subscribeCalls: [], unsubscribeCalls: 0,
+    badges: [], swListeners: [] };
+  const navigator = {};
+  const Notification = { permission: 'default',
+    requestPermission: async () => { __push.permissionAsked = (__push.permissionAsked || 0) + 1; return Notification.permission; } };
+  function __enablePushSupport({ installed = true, subscribed = false } = {}) {
+    const makeSub = () => ({
+      endpoint: 'https://web.push.apple.com/QTestDevice',
+      toJSON: () => ({ endpoint: 'https://web.push.apple.com/QTestDevice', keys: { p256dh: 'BPub', auth: 'A' } }),
+      unsubscribe: async () => { __push.unsubscribeCalls += 1; __push.subscription = null; return true; },
+    });
+    if (subscribed) __push.subscription = makeSub();
+    const registration = {
+      pushManager: {
+        getSubscription: async () => __push.subscription,
+        subscribe: async (opts) => { __push.subscribeCalls.push(opts); __push.subscription = makeSub(); return __push.subscription; },
+      },
+    };
+    navigator.serviceWorker = {
+      register: async (url) => { __push.registered.push(url); return registration; },
+      ready: Promise.resolve(registration),
+      addEventListener: (type, fn) => __push.swListeners.push({ type, fn }),
+    };
+    navigator.setAppBadge = async (n) => { __push.badges.push(n); };
+    navigator.clearAppBadge = async () => { __push.badges.push(0); };
+    if (installed) window.PushManager = function PushManager() {}; else delete window.PushManager;
+  }
   const location = { hash: '#/' };
   const setInterval = () => 0;
   const clearInterval = () => {};
@@ -266,6 +296,8 @@ const TAIL = `;return {
   replyEverySuffix, displayStatus, reviveAction, isVisible,
   isLooping, isSleeping,
   sendReply, runAction, showActions, postConfirmingReplyEvery, refreshListAfterChange,
+  pushSupport, pushState, enablePush, disablePush, updateBadge, urlBase64ToUint8Array,
+  registerServiceWorker, push: __push, enablePushSupport: __enablePushSupport, notification: Notification,
   showView, entranceFor, toggleCollapsed, fadeOutAndRemove, animateHeight, reduceMotion,
   restartServer, waitForRestart,
   toast, toastHtml, withCodeName,

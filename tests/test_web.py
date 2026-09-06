@@ -1626,3 +1626,62 @@ def test_scripted_motion_is_guarded_for_browsers_and_readers_without_it():
     assert "const close = (value) => { fadeOutAndRemove(backdrop); resolve(value); };" in js, (
         "a sheet's answer no longer resolves before its fade"
     )
+
+
+# ── push notifications: the worker and the contract ─────────────────────
+
+def test_the_service_worker_only_shows_notifications():
+    """A worker that intercepted fetches and served from a cache would keep
+    serving the previous version of the app after the server moved on — the
+    exact staleness the app is built to avoid. So the worker may show a
+    notification and open a task, and nothing else."""
+    sw = web.read_asset("sw.js")
+    assert sw is not None, "sw.js is not shipped"
+    src = sw.decode()
+    assert "addEventListener('push'" in src, "the worker does not handle push"
+    assert "addEventListener('notificationclick'" in src, "a tapped notification would do nothing"
+    assert "addEventListener('fetch'" not in src, "the worker intercepts fetches"
+    assert "caches." not in src and "caches.open" not in src, "the worker caches"
+    assert "showNotification(note.title" in src, "the title is not the server's"
+    assert "body: note.body" in src, "the body is not the server's"
+    assert "tag: note.tag" in src, "repeats would stack instead of replacing"
+    assert "new URL('./' + hash, self.registration.scope)" in src, (
+        "a tapped notification would open an absolute path, breaking a mounted app"
+    )
+    assert web.content_type("sw.js").startswith("text/javascript"), "the worker is not served as script"
+
+
+def test_the_worker_is_registered_relatively_and_permission_comes_first():
+    js = web.read_asset("app.js").decode()
+    assert "navigator.serviceWorker.register('sw.js')" in js, "the worker is not registered relative to the app"
+    assert "registerServiceWorker();" in js.split("(async function start()")[0][-200:], (
+        "the worker is not registered at boot"
+    )
+    enable = re.search(r"async function enablePush\(\) \{(.*?)\n\}", js, re.S)
+    assert enable, "enablePush is gone"
+    body = enable.group(1)
+    assert body.index("Notification.requestPermission()") < body.index("api.get('/push')"), (
+        "the server is consulted before the permission prompt; iOS drops the user gesture"
+    )
+    assert "userVisibleOnly: true" in body
+    assert "act('/push/subscribe', sub.toJSON()" in body, "the browser's subscription is not what is posted"
+
+
+def test_the_badge_counts_what_is_waiting_and_is_guarded():
+    js = web.read_asset("app.js").decode()
+    fn = re.search(r"function updateBadge\(\) \{(.*?)\n\}", js, re.S)
+    assert fn, "updateBadge is gone"
+    assert "typeof navigator.setAppBadge !== 'function'" in fn.group(1), "the badge is not guarded"
+    assert "t.needs_review && !TERMINAL_STATUSES.has(t.status)" in fn.group(1), (
+        "the badge counts something other than open tasks waiting on you"
+    )
+    assert "updateBadge();" in js.split("function renderList()")[1].split("\n}\n")[0], (
+        "the badge does not follow the list"
+    )
+
+
+def test_the_docs_describe_notifications_instead_of_denying_them():
+    ref = (Path(web.__file__).parent.parent.parent.parent / "docs" / "reference.md").read_text()
+    assert "There are no push notifications" not in ref
+    assert "Push notifications are opt-in per phone" in ref
+    assert "never the alias" in ref

@@ -975,7 +975,7 @@ textarea.field {
 /* The server card sits under the settings card, and its one action carries a
  * sentence of context rather than a key: the note is allowed to wrap and take
  * the width, where a key is pinned to its natural size. */
-.server-card { margin-top: 12px; }
+.server-card, .push-card { margin-top: 12px; }
 .kv-note {
   flex: 1 1 auto;
   color: var(--text-dim);

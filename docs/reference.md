@@ -499,7 +499,15 @@ Commands that act on the host running the server stay CLI-only: `attach`, `open`
 credential keys are shown but not editable in Settings.
 
 The list refreshes every 15 seconds while it is the frontmost tab and pauses when it is
-not. There are no push notifications — the app shows state when you open it.
+not.
+
+Push notifications are opt-in per phone, from Settings, on a phone that has added the app
+to its Home Screen (iOS 16.4 or later; Safari tabs cannot receive them). Once enabled the
+phone is told when a task finishes: the task's name, how it finished (`Agent finished`,
+`Needs attention` or `Error`) and the one-line summary — never the alias. A finish inside a
+`reply -t` cycle is not announced. Tapping a notification opens the task. The app icon also
+carries a badge with the number of tasks waiting on you. Enabling needs the server-side
+support described under [Push notifications (server side)](#push-notifications-server-side).
 
 Views slide or fade in, cards ease open and shut, and sheets rise and fade — all in well
 under a quarter of a second, and none of it delays a tap. The whole set follows the
