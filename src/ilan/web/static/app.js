@@ -756,6 +756,7 @@ function renderList() {
   document.querySelectorAll('.act-revive').forEach((btn) => {
     btn.onclick = () => reviveFromCard(btn.dataset.revive);
   });
+  updateBadge();
 }
 
 /** Ask a task for a status update, after confirming.
@@ -1454,8 +1455,163 @@ async function restartServer(oldPid, wait = pause) {
   renderConfig();
 }
 
+// ── push notifications ──────────────────────────────────────────────
+// A phone that has installed the app can be told when a task finishes. The
+// server composes and sends the note (see ilan/push.py); this side registers
+// the worker that shows it, asks the browser for permission, and hands the
+// resulting subscription to the server.
+
+/** Register the notification worker, once, and listen for it steering the
+ *  page when a notification is tapped. Harmless where there is no worker
+ *  support: the browser simply never shows a notification. */
+function registerServiceWorker() {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+  // Relative, like every other URL the app uses: the worker's scope becomes
+  // the app's own mount path, whatever that is.
+  navigator.serviceWorker.register('sw.js').catch(() => { /* no worker, no notifications */ });
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    const msg = event.data || {};
+    if (msg.type === 'navigate' && typeof msg.hash === 'string') location.hash = msg.hash;
+  });
+}
+
+/** Why this device can or cannot receive notifications.
+ *
+ * 'unsupported' — no service workers at all.
+ * 'install'     — workers yes, push no. On iOS this is exactly "the app is
+ *                 open in Safari rather than from the Home Screen": Apple
+ *                 gives push only to installed web apps.
+ * 'blocked'     — the user said no once; only the OS settings can undo that.
+ * 'ready'       — can subscribe, or is subscribed.
+ */
+function pushSupport() {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return 'unsupported';
+  if (typeof window === 'undefined' || !('PushManager' in window)
+      || typeof Notification === 'undefined') return 'install';
+  if (Notification.permission === 'denied') return 'blocked';
+  return 'ready';
+}
+
+/** The application server key the browser wants as bytes, from the base64url
+ *  the server hands out. */
+function urlBase64ToUint8Array(base64) {
+  const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+  const raw = atob(padded.replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+/** Where this device stands: support, whether it is subscribed, and how many
+ *  devices the server knows. Asks the server only when it could matter. */
+async function pushState() {
+  const support = pushSupport();
+  const state = { support, subscribed: false, endpoint: null, devices: null, serverReady: true };
+  if (support !== 'ready') return state;
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const sub = await registration.pushManager.getSubscription();
+    if (sub) { state.subscribed = true; state.endpoint = sub.endpoint; }
+  } catch { /* an unreadable subscription reads as none */ }
+  const { ok, data } = await api.get('/push');
+  if (!ok) { state.serverReady = false; return state; }
+  state.devices = data.subscriptions ?? null;
+  return state;
+}
+
+/** Turn notifications on for this device.
+ *
+ * Permission is asked for *first*, before anything is fetched: iOS only shows
+ * the prompt in direct response to a tap, and a network round-trip in between
+ * is enough to lose that. The server is asked for its key after, and the
+ * subscription the browser produces is handed to it. Nothing is stored on the
+ * phone beyond what the browser keeps itself.
+ */
+async function enablePush() {
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') {
+    toast(permission === 'denied'
+      ? 'Notifications are blocked for ilan in Settings' : 'Notifications were not enabled', true);
+    return false;
+  }
+  const { ok, data } = await api.get('/push');
+  if (!ok || !data.public_key) {
+    toast('The server does not support notifications yet — update and restart it', true);
+    return false;
+  }
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const sub = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(data.public_key),
+    });
+    if (!await act('/push/subscribe', sub.toJSON(), 'Notifications on')) return false;
+    return true;
+  } catch (err) {
+    toast(`Could not subscribe: ${err && err.message ? err.message : err}`, true);
+    return false;
+  }
+}
+
+/** Turn notifications off for this device: forget it on the server, then in
+ *  the browser. Server first, so a device the server no longer knows cannot
+ *  be left holding a live subscription that nothing will ever use. */
+async function disablePush() {
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const sub = await registration.pushManager.getSubscription();
+    if (!sub) return true;
+    await api.post('/push/unsubscribe', { endpoint: sub.endpoint });
+    await sub.unsubscribe();
+    toast('Notifications off');
+    return true;
+  } catch (err) {
+    toast(`Could not unsubscribe: ${err && err.message ? err.message : err}`, true);
+    return false;
+  }
+}
+
+/** The number on the app icon: tasks waiting on you. Cleared when none are.
+ *  A no-op wherever the badge API is missing. */
+function updateBadge() {
+  if (typeof navigator === 'undefined' || typeof navigator.setAppBadge !== 'function') return;
+  const waiting = state.tasks.filter(
+    (t) => t.needs_review && !TERMINAL_STATUSES.has(t.status)).length;
+  const result = waiting
+    ? navigator.setAppBadge(waiting)
+    : (typeof navigator.clearAppBadge === 'function' ? navigator.clearAppBadge() : navigator.setAppBadge(0));
+  if (result && typeof result.catch === 'function') result.catch(() => {});
+}
+
+/** The Notifications card on Settings, for the state this device is in. */
+function pushCard(push) {
+  const note = {
+    unsupported: 'This browser cannot receive push notifications.',
+    install: 'Add ilan to your Home Screen, then enable notifications from there.',
+    blocked: 'Notifications are blocked for ilan. Allow them in Settings to turn them on.',
+    ready: push.subscribed
+      ? 'This phone is told when a task finishes.'
+      : 'Be told when a task finishes: name, outcome, summary.',
+  }[push.support];
+  const button = push.support !== 'ready' ? ''
+    : !push.serverReady
+      ? '<span class="kv-v">server needs updating</span>'
+      : push.subscribed
+        ? '<button class="btn" id="push-off">Disable</button>'
+        : '<button class="btn btn-primary" id="push-on">Enable notifications</button>';
+  const devices = push.devices === null ? ''
+    : `<div class="kv"><span class="kv-k">notifications</span>
+         <span class="kv-v">${push.devices} device${push.devices === 1 ? '' : 's'}</span></div>`;
+  return `
+      <div class="card push-card">
+        ${devices}
+        <div class="kv">
+          <span class="kv-note">${esc(note)}</span>
+          ${button}
+        </div>
+      </div>`;
+}
+
 async function renderConfig() {
-  const [cfg, version] = await Promise.all([api.get('/config'), api.get('/version')]);
+  const [cfg, version, push] = await Promise.all([api.get('/config'), api.get('/version'), pushState()]);
   const conf = cfg.data.config || {};
 
   const rows = Object.keys(conf).sort().map((key) => {
@@ -1499,11 +1655,15 @@ async function renderConfig() {
                before the label is. -->
           <button class="btn btn-primary" id="restart-server">Restart server</button>
         </div>
-      </div>
+      </div>${pushCard(push)}
     </main>`);
 
   wireBack();
   $('#restart-server').onclick = () => restartServer(pid);
+  const on = $('#push-on');
+  if (on) on.onclick = async () => { if (await enablePush()) renderConfig(); };
+  const off = $('#push-off');
+  if (off) off.onclick = async () => { if (await disablePush()) renderConfig(); };
   document.querySelectorAll('[data-key]').forEach((btn) => {
     btn.onclick = async () => {
       const key = btn.dataset.key;
@@ -1572,6 +1732,8 @@ document.addEventListener('selectionchange', syncAskBar);
 document.addEventListener('visibilitychange', () => {
   if (canAutoRefresh()) loadList(false);
 });
+
+registerServiceWorker();
 
 (async function start() {
   const { ok, data } = await api.get('/canned-messages');
