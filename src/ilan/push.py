@@ -36,7 +36,7 @@ from py_vapid import Vapid, b64urlencode
 from pywebpush import WebPushException, webpush
 
 from ilan import config as cfg
-from ilan.models import IN_LOOP_STATUSES, Task, TaskStatus
+from ilan.models import Task, TaskStatus
 
 # The VAPID ``sub`` claim: who a push service may contact about this server's
 # traffic. The spec allows a URL, but Apple's service rejects the token outright
@@ -78,15 +78,17 @@ BODY_LIMIT = 240
 def should_notify(task: Task) -> bool:
     """Whether a task that has just been reaped is worth a notification.
 
-    A reap that lands in one of the finished statuses is; one inside a
-    ``reply -t`` cycle is not, because the cycle will re-prompt the agent and no
-    person is being waited on — the list shows such a task as AGENT IN LOOP for
-    the same reason. An error inside a cycle still notifies: the cycle does not
-    fix errors.
+    A reap that lands in one of the finished statuses is — unless the task is
+    on a ``reply -t`` cycle, in which case nothing is, errors included. The
+    cycle re-prompts the agent on its own, so no person is being waited on
+    (the list shows such a task as AGENT IN LOOP for the same reason), and a
+    looping task that kept failing would otherwise ring the phone every cycle,
+    as often as every twenty minutes. Someone who wants to hear about a loop
+    is looking at the list; the phone is for the finishes that need a person.
     """
-    if task.status not in FINISH_WORDS:
+    if task.reply_every_seconds:
         return False
-    return not (task.reply_every_seconds and task.status in IN_LOOP_STATUSES)
+    return task.status in FINISH_WORDS
 
 
 def build_payload(task: Task) -> dict[str, str]:
