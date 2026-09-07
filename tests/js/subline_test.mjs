@@ -1,12 +1,14 @@
 /* Assertions for the line under a conversation's title.
  *
- * It answers "what is this task doing now" — the status, plus the model and
- * any sleep or reply-every cycle. Two things are deliberately not on it, and
- * both are asserted as absences with their neighbours checked alongside, since
- * "X is gone" would also be satisfied by the whole line disappearing:
+ * It answers "what is this task doing now" — the status, plus any sleep or
+ * reply-every cycle. Three things are deliberately not on it, and each is
+ * asserted as an absence with its neighbours checked alongside, since "X is
+ * gone" would also be satisfied by the whole line disappearing:
  *
  *   - Where the task was branched from, which is a fact about how it started.
  *   - The backend, which the coloured task name in the title already says.
+ *   - The model id, which the FABLE/ASTRA tag says in a word for a maxed task
+ *     and which is otherwise just the configured default.
  *
  * The status is a pill here, the same element the list renders, so what is
  * checked is the markup rather than a string: a pill that lost its classes
@@ -102,7 +104,9 @@ check('the task name is still coloured by backend',
   'the backend is not shown as a word and not shown as a colour either');
 
 // ── everything else is still there ──────────────────────────────────────
-check('the model is still shown', sub().meta.includes('gpt-5.6-sol'), sub().meta);
+// The model id is gone as well: a maxed task's tag names its model in a word,
+// and any other task is simply on the configured default.
+check('the model id is not shown', !sub().text.includes('gpt-5.6-sol'), sub().text);
 check('an active sleep is still shown', sub().meta.includes('sleeping for 5m'),
   sub().meta);
 check('a reply-every cycle is still shown', sub().meta.includes('responding every 1h'),

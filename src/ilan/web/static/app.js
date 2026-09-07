@@ -1038,8 +1038,13 @@ async function renderDetail(name) {
   // list, so the line was spending width to repeat in a word what the colour
   // was saying anyway. The ••• sheet still names it, on the one entry that
   // changes it.
+  //
+  // And no model id. For a maxed task the FABLE or ASTRA tag beside the
+  // status already says which model it is on, in a word rather than an id;
+  // for any other task the model is the configured default, which is a
+  // setting rather than something about this task. The line keeps what is
+  // true of this task right now: an active sleep, a reply-every cycle.
   const sub = [
-    task.model,
     sleepSuffix(task.sleep_seconds),
     replyEverySuffix(task.reply_every_seconds),
   ].filter(Boolean).join(' · ');
