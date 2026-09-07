@@ -1808,6 +1808,23 @@ def test_the_note_is_a_box_inside_the_card():
         assert fill != values["--bg-elevated"], f"{scheme}: the box is the card's own colour"
 
 
+def test_the_note_is_set_in_italics():
+    """The user's own words, set the way a line in another voice is set within
+    running text. Italics tell the note from the summary above it without
+    making either louder — the two share ink and size — so the summary has to
+    stay upright for the contrast to exist at all.
+    """
+    css = web.read_asset("app.css").decode()
+    note = re.search(r"\n\.row-notes \{(.*?)\}", css, re.S)
+    summary = re.search(r"\n\.row-sum \{(.*?)\}", css, re.S)
+    assert note and summary, "the note or the summary is not styled"
+    # The last declaration is the one that wins, so that is the one asserted:
+    # an italic line followed by a normal one renders upright.
+    slants = re.findall(r"font-style:\s*([a-z]+);", note.group(1))
+    assert slants and slants[-1] == "italic", f"the note renders {slants[-1] if slants else 'upright'}"
+    assert "font-style" not in summary.group(1), "the summary is slanted too, so nothing tells them apart"
+
+
 def test_the_note_button_ink_is_neutral_and_reads_as_secondary():
     """Neutral on purpose: the card's quiet actions already spend an amber and
     a rose, and the light red the CLI prints notes in would sit at the hue of

@@ -609,6 +609,10 @@ textarea.field {
   font-size: 14px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  /* Italic: the note is the user's own words, and italics are how a line in
+   * another voice is set within running text. It tells the note from the
+   * summary above it without making either louder — same ink, same size. */
+  font-style: italic;
 }
 
 .row-meta {
