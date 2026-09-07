@@ -117,7 +117,7 @@ Every task command has a top-level shorthand, so `ilan task reply` is just `ilan
 |---|---|
 | `ilan rename OLD NEW [-d "msg"]` | Rename a task, optionally sending `msg` right after. |
 | `ilan alias NAME XY` | Choose the task's two-letter alias (letters from `asdfghjkl`). |
-| `ilan notes NAME "note"` | Write a reminder of what the task is about, shown in a light-red `Notes` column in `ilan ls` and `ilan dashboard`. `ilan note` is the same command; `""` clears the note. |
+| `ilan notes NAME "note"` | Write a reminder of what the task is about, shown in a light-red `Notes` column in `ilan ls` and `ilan dashboard`. The note stays with the task after it is closed. `ilan note` is the same command; `""` clears the note. |
 | `ilan pin NAME` / `ilan unpin NAME` | Keep a task at the top of every listing, even after it is closed. |
 | `ilan unread NAME…` | Put the `!!` marker back on tasks. |
 

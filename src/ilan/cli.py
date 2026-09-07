@@ -610,6 +610,22 @@ UNREAD_MARKER = "!!"
 # statuses use and from the `orange1` a Claude task's name is painted in,
 # so a note never reads as a status or as part of the name.
 NOTES_STYLE = "light_coral"
+# The Notes column is always present and always this wide, in both listings.
+# A column that sized itself to its contents would move every other column
+# each time a note was written, cleared, or lengthened — and the dashboard
+# re-renders once a second, so that movement would never settle.
+#
+# 20 is the widest this can be while a full task name and its status still
+# fit beside it on a 70-column window. A fixed column never yields, so every
+# extra character taken here is paid for by the two that do flex (Name and
+# Status) — and they are the ones a listing is useless without.
+NOTES_COLUMN_WIDTH = 20
+# `_format_ts(..., seconds=False)` is at most "Yesterday 13:30 PDT"; 15 fits
+# every other form ("Today 13:30 PDT", "09-05 13:30 PDT") on one line and
+# folds only the "Yesterday" case onto a second. Pinning the two timestamp
+# columns is what pays for Notes: under `expand=True` they held a *ratio*
+# share that grew with the terminal, far past anything a timestamp needs.
+TIMESTAMP_COLUMN_WIDTH = 15
 
 
 def _append_task_number(text: Text, row: dict) -> None:
@@ -701,18 +717,6 @@ def _build_notes_cell(row: dict) -> Text:
     if note := (row.get("notes") or "").strip():
         cell.append(note, style=NOTES_STYLE)
     return cell
-
-
-def _any_notes(rows: list[dict]) -> bool:
-    """Whether any listed task has a note, i.e. the column is worth a slot.
-
-    A column nobody has filled in is pure cost: it takes width from the
-    columns that do carry something, and on a narrow window it takes enough
-    to truncate them. So the listings grow a ``Notes`` column the moment the
-    first note is written and go back to four columns when the last one is
-    cleared, instead of reserving space for a feature this user may not use.
-    """
-    return any((row.get("notes") or "").strip() for row in rows)
 
 
 def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
@@ -826,15 +830,13 @@ def _do_ls(show_all: bool, concise: bool = False) -> None:
     # one-liner column would make it even noisier.
     show_one_liner = _one_liner_enabled() and not show_all
     narrow = _terminal_is_narrow()
-    show_notes = _any_notes(rows)
     table = Table(show_lines=True)
     table.add_column("(Alias) Name", style="bold")
     table.add_column("Status")
     if not narrow:
-        table.add_column("Created")
-    table.add_column("Last Changed")
-    if show_notes:
-        table.add_column("Notes")
+        table.add_column("Created", width=TIMESTAMP_COLUMN_WIDTH)
+    table.add_column("Last Changed", width=TIMESTAMP_COLUMN_WIDTH)
+    table.add_column("Notes", width=NOTES_COLUMN_WIDTH)
     for row in rows:
         changed = _format_ts(row["status_changed_at"], seconds=False) if row.get("status_changed_at") else ""
         cells = [
@@ -844,8 +846,7 @@ def _do_ls(show_all: bool, concise: bool = False) -> None:
         if not narrow:
             cells.append(_format_ts(row["created_at"], seconds=False))
         cells.append(changed)
-        if show_notes:
-            cells.append(_build_notes_cell(row))
+        cells.append(_build_notes_cell(row))
         table.add_row(*cells)
     console.print(table)
 
@@ -2638,9 +2639,9 @@ def _build_dashboard_table(
     """Build a Rich Table from task rows, reusing the _do_ls format.
 
     When ``narrow`` is set (terminal below ``_NARROW_TERMINAL_WIDTH``), the
-    ``Created`` column is dropped so the remaining columns stay legible. The
-    ``Notes`` column appears only when some row has a note, on the same terms
-    as in ``_do_ls`` — see :func:`_any_notes`.
+    ``Created`` column is dropped so the remaining columns stay legible.
+    ``Notes`` is never dropped: a reminder the user wrote outranks a creation
+    timestamp on a window with room for only one of them.
     """
     now = datetime.now(tz)
     header = Text()
@@ -2653,34 +2654,28 @@ def _build_dashboard_table(
     header.append("r", style="bold")
     header.append(" refresh", style="dim")
 
-    # Column sizing depends on whether the Luna one-line summary is
+    # Notes and the two timestamp columns are pinned to fixed widths, so only
+    # Name and Status flex with the terminal. They split whatever is left, and
+    # how they split it depends on whether the Luna one-line summary is
     # rendered inside the Status cell:
     #   * one-liner ON  → Status needs a much wider slot to fit the summary
-    #     under the status label, so it takes 16/38 of the proportional space
-    #     and Name shrinks to 10/38.
+    #     under the status label, so it takes 16/26 of the flexible space and
+    #     Name shrinks to 10/26.
     #   * one-liner OFF → Status only holds a short label + duration suffix,
-    #     so Name takes the bulk instead, at 14:8:7:7.
+    #     so Name takes the bulk instead, at 14/22 against Status' 8/22.
     # In both cases overlong name cells fold within the column instead of
     # pushing it wider.
-    #
-    # Notes is prose, like the one-liner, so a timestamp column's 6-7 would
-    # wrap every note into a stack of short lines; it gets 10 in both layouts.
-    show_notes = _any_notes(rows)
     table = Table(title=header, expand=True, show_lines=True)
     if show_one_liner:
         table.add_column("(Alias) Name", style="bold", ratio=10)
         table.add_column("Status", ratio=16)
-        if not narrow:
-            table.add_column("Created", ratio=6)
-        table.add_column("Last Changed", ratio=6)
     else:
         table.add_column("(Alias) Name", style="bold", ratio=14)
         table.add_column("Status", ratio=8)
-        if not narrow:
-            table.add_column("Created", ratio=7)
-        table.add_column("Last Changed", ratio=7)
-    if show_notes:
-        table.add_column("Notes", ratio=10)
+    if not narrow:
+        table.add_column("Created", width=TIMESTAMP_COLUMN_WIDTH)
+    table.add_column("Last Changed", width=TIMESTAMP_COLUMN_WIDTH)
+    table.add_column("Notes", width=NOTES_COLUMN_WIDTH)
 
     if not rows:
         table.add_row(*(Text("No active tasks.", style="dim"),
@@ -2696,8 +2691,7 @@ def _build_dashboard_table(
         if not narrow:
             cells.append(_format_ts(row["created_at"], seconds=False))
         cells.append(changed)
-        if show_notes:
-            cells.append(_build_notes_cell(row))
+        cells.append(_build_notes_cell(row))
         table.add_row(*cells)
     return table
 

@@ -18,8 +18,9 @@ from rich.console import Console
 
 import ilan.cli as cli_mod
 from ilan.cli import (
+    NOTES_COLUMN_WIDTH,
     NOTES_STYLE,
-    _any_notes,
+    TIMESTAMP_COLUMN_WIDTH,
     _build_dashboard_table,
     _build_notes_cell,
     main,
@@ -221,6 +222,70 @@ class TestNotesEndpoint:
         assert rows["beta"]["notes"] is None
 
 
+class TestNotesSurviveClosing:
+    """A note outlives the task's working life.
+
+    ``done`` drops the alias and ``discard`` drops the unread marker, so a
+    task losing state on close is the norm here; the note must be the
+    exception. It is the record of what the task was for, which is exactly
+    what you want left over once the work itself is finished.
+    """
+
+    def _post_plain(self, server: IlanServer, path: str) -> int:
+        req = Request(f"{server._test_url}{path}", method="POST")  # type: ignore[attr-defined]
+        try:
+            with urlopen(req, timeout=5) as resp:
+                return resp.status
+        except HTTPError as exc:
+            return exc.code
+
+    def test_done_keeps_the_note(self, ilan_server: IlanServer) -> None:
+        _seed(ilan_server, "alpha", alias="aa", notes="what this was for")
+        assert self._post_plain(ilan_server, "/tasks/alpha/done") == 200
+        task = ilan_server.store.get_task("alpha")
+        assert task.status is TaskStatus.DONE
+        assert task.notes == "what this was for"
+        # The alias *is* dropped on done, which is what makes the note's
+        # survival a deliberate difference rather than an accident.
+        assert task.alias is None
+
+    def test_discard_keeps_the_note(self, ilan_server: IlanServer) -> None:
+        _seed(ilan_server, "alpha", alias="aa", notes="why this was dropped")
+        assert self._post_plain(ilan_server, "/tasks/alpha/discard") == 200
+        task = ilan_server.store.get_task("alpha")
+        assert task.status is TaskStatus.DISCARDED
+        assert task.notes == "why this was dropped"
+
+    def test_note_survives_a_done_undone_round_trip(
+        self, ilan_server: IlanServer,
+    ) -> None:
+        _seed(ilan_server, "alpha", alias="aa", notes="still relevant")
+        self._post_plain(ilan_server, "/tasks/alpha/done")
+        assert self._post_plain(ilan_server, "/tasks/alpha/undone") == 200
+        task = ilan_server.store.get_task("alpha")
+        assert task.status is TaskStatus.NEEDS_ATTENTION
+        assert task.notes == "still relevant"
+
+    def test_note_survives_a_discard_undiscard_round_trip(
+        self, ilan_server: IlanServer,
+    ) -> None:
+        _seed(ilan_server, "alpha", alias="aa", notes="still relevant")
+        self._post_plain(ilan_server, "/tasks/alpha/discard")
+        assert self._post_plain(ilan_server, "/tasks/alpha/undiscard") == 200
+        assert ilan_server.store.get_task("alpha").notes == "still relevant"
+
+    def test_closed_tasks_carry_their_notes_into_ls_dash_a(
+        self, ilan_server: IlanServer,
+    ) -> None:
+        """``ilan ls -a`` is where a closed task's note is actually read."""
+        _seed(ilan_server, "alpha", alias="aa", notes="shipped in #412")
+        self._post_plain(ilan_server, "/tasks/alpha/done")
+        assert _list(ilan_server) == []  # hidden without -a
+        rows = {r["name"]: r for r in _list(ilan_server, show_all=True)}
+        assert rows["alpha"]["status"] == "DONE"
+        assert rows["alpha"]["notes"] == "shipped in #412"
+
+
 # ── CLI ─────────────────────────────────────────────────────────────────
 
 
@@ -345,29 +410,18 @@ class TestNotesCell:
         assert _build_notes_cell({"name": "alpha"}).plain == ""
 
 
-class TestAnyNotes:
-    def test_false_when_no_row_has_a_note(self) -> None:
-        assert _any_notes([_row("a"), _row("b")]) is False
-
-    def test_true_when_one_row_has_a_note(self) -> None:
-        assert _any_notes([_row("a"), _row("b", notes="x")]) is True
-
-    def test_blank_notes_do_not_count(self) -> None:
-        assert _any_notes([_row("a", notes="  "), _row("b", notes="")]) is False
-
-    def test_empty_listing_is_false(self) -> None:
-        assert _any_notes([]) is False
-
-
 # ── the Notes column ────────────────────────────────────────────────────
 
 
 class TestDashboardNotesColumn:
-    def test_column_absent_when_nobody_has_a_note(self) -> None:
+    def test_column_is_present_even_when_nobody_has_a_note(self) -> None:
+        """The column is unconditional, so the layout never shifts under you."""
         table = _build_dashboard_table([_row("a")], _TZ)
-        assert "Notes" not in [c.header for c in table.columns]
+        assert [c.header for c in table.columns] == [
+            "(Alias) Name", "Status", "Created", "Last Changed", "Notes",
+        ]
 
-    def test_column_present_once_a_note_exists(self) -> None:
+    def test_column_present_with_a_note(self) -> None:
         table = _build_dashboard_table([_row("a", notes="x")], _TZ)
         assert [c.header for c in table.columns] == [
             "(Alias) Name", "Status", "Created", "Last Changed", "Notes",
@@ -382,7 +436,6 @@ class TestDashboardNotesColumn:
         assert table.columns[-1]._cells[0].plain == "the reminder"
 
     def test_annotated_and_bare_rows_share_the_column(self) -> None:
-        """One note is enough to open the column; the other row gets a blank."""
         rows = [_row("a", notes="only mine"), _row("b")]
         table = _build_dashboard_table(rows, _TZ)
         assert [c.plain for c in table.columns[-1]._cells] == ["only mine", ""]
@@ -394,14 +447,34 @@ class TestDashboardNotesColumn:
             "(Alias) Name", "Status", "Last Changed", "Notes",
         ]
 
-    def test_notes_ratio_matches_prose_not_a_timestamp(self) -> None:
+    def test_notes_width_is_fixed_not_a_ratio(self) -> None:
+        """A ratio would grow the column with the terminal and move the rest."""
         table = _build_dashboard_table([_row("a", notes="x")], _TZ)
-        assert table.columns[-1].ratio == 10
+        notes = table.columns[-1]
+        assert notes.width == NOTES_COLUMN_WIDTH
+        assert notes.ratio is None
+
+    def test_timestamp_columns_are_fixed_too(self) -> None:
+        """Pinning these is what pays for Notes — see the module constants."""
+        table = _build_dashboard_table([_row("a", notes="x")], _TZ)
+        created, changed = table.columns[2], table.columns[3]
+        assert (created.header, changed.header) == ("Created", "Last Changed")
+        assert created.width == changed.width == TIMESTAMP_COLUMN_WIDTH
+        assert created.ratio is changed.ratio is None
+
+    def test_only_name_and_status_flex(self) -> None:
+        table = _build_dashboard_table([_row("a", notes="x")], _TZ)
+        assert [c.ratio for c in table.columns] == [10, 16, None, None, None]
 
     def test_empty_listing_keeps_the_placeholder_row_aligned(self) -> None:
         table = _build_dashboard_table([], _TZ)
-        assert "Notes" not in [c.header for c in table.columns]
+        assert [c.header for c in table.columns][-1] == "Notes"
         assert all(len(c._cells) == 1 for c in table.columns)
+
+    def test_timestamp_width_fits_the_common_stamp_on_one_line(self) -> None:
+        """15 fits "Today 13:30 PDT" and "09-05 13:30 PDT" without folding."""
+        assert len("Today 13:30 PDT") == TIMESTAMP_COLUMN_WIDTH
+        assert len("09-05 13:30 PDT") == TIMESTAMP_COLUMN_WIDTH
 
 
 def _invoke_ls(
@@ -420,14 +493,14 @@ def _invoke_ls(
 
 
 class TestLsNotesColumn:
-    def test_header_absent_when_nobody_has_a_note(
+    def test_header_present_even_when_nobody_has_a_note(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         result = _invoke_ls(runner, [_row("a"), _row("b")], monkeypatch)
         assert result.exit_code == 0
-        assert "Notes" not in _strip_ansi(result.output)
+        assert "Notes" in _strip_ansi(result.output)
 
-    def test_header_and_note_shown_once_a_note_exists(
+    def test_header_and_note_shown(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         result = _invoke_ls(
@@ -437,6 +510,34 @@ class TestLsNotesColumn:
         out = _strip_ansi(result.output)
         assert "Notes" in out
         assert "do not forget" in out
+
+    def test_column_keeps_its_width_whether_or_not_a_note_is_set(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The point of the fixed width: the table does not move under you.
+
+        Rendering the same tasks with and without notes must produce rules of
+        exactly the same shape, so writing a note never shifts the columns to
+        its left.
+        """
+        bare = _invoke_ls(runner, [_row("a"), _row("b")], monkeypatch)
+        annotated = _invoke_ls(
+            runner, [_row("a", notes="a note"), _row("b")], monkeypatch,
+        )
+        def rule(out: str) -> str:
+            return next(l for l in _strip_ansi(out).splitlines() if l.startswith("┏"))
+        assert rule(bare.output) == rule(annotated.output)
+
+    def test_a_long_note_does_not_widen_the_column(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        short = _invoke_ls(runner, [_row("a", notes="hi")], monkeypatch)
+        long = _invoke_ls(
+            runner, [_row("a", notes="hi " * 60)], monkeypatch,
+        )
+        def rule(out: str) -> str:
+            return next(l for l in _strip_ansi(out).splitlines() if l.startswith("┏"))
+        assert rule(short.output) == rule(long.output)
 
     def test_note_renders_in_light_red(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
@@ -471,3 +572,38 @@ class TestLsNotesColumn:
             result = runner.invoke(main, ["ls", "-c"])
         assert result.exit_code == 0
         assert _strip_ansi(result.output) == "a WORKING\n"
+
+
+class TestNotesWidthLeavesRoomForTheRest:
+    """A fixed column never yields, so its width has to be chosen, not guessed.
+
+    Widening ``NOTES_COLUMN_WIDTH`` takes the characters straight out of Name
+    and Status, the two columns a listing is useless without. These pin the
+    ceiling so a future bump has to be a deliberate decision.
+    """
+
+    _NARROW_WINDOW = 70
+
+    def _render_ls_at(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, notes_width: int,
+    ) -> str:
+        monkeypatch.setattr(cli_mod, "NOTES_COLUMN_WIDTH", notes_width)
+        row = _row("narrow-task")
+        row["status_changed_at"] = "2026-04-13T01:00:00+00:00"
+        result = _invoke_ls(runner, [row], monkeypatch, width=self._NARROW_WINDOW)
+        assert result.exit_code == 0
+        return _strip_ansi(result.output)
+
+    def test_name_survives_beside_notes_on_a_narrow_window(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        out = self._render_ls_at(runner, monkeypatch, NOTES_COLUMN_WIDTH)
+        assert "narrow-task" in out  # not truncated to "narrow-t…"
+        assert "Notes" in out
+
+    def test_a_wider_notes_column_would_truncate_the_name(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Proves the ceiling is real rather than a number nobody measured."""
+        out = self._render_ls_at(runner, monkeypatch, NOTES_COLUMN_WIDTH + 2)
+        assert "narrow-task" not in out
