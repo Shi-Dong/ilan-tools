@@ -25,7 +25,13 @@ from ilan.cli import (
     _build_notes_cell,
     main,
 )
-from ilan.models import MAX_NOTES_LENGTH, Task, TaskStatus, validate_notes
+from ilan.models import (
+    MAX_NOTES_LENGTH,
+    Task,
+    TaskStatus,
+    join_notes,
+    validate_notes,
+)
 from ilan.server import IlanServer
 from ilan.store import Store
 
@@ -111,6 +117,51 @@ class TestValidateNotes:
         err = validate_notes("x" * 200)
         assert err is not None
         assert "200" in err
+
+    def test_append_wording_says_which_number_it_means(self) -> None:
+        """On an append the length that breaks the limit is not what you typed.
+
+        Reporting "Note is 140 characters" after the user typed 12 of them
+        reads as a bug in the tool rather than a limit they hit.
+        """
+        err = validate_notes("x" * 140, appending=True)
+        assert err is not None
+        assert err.startswith("Appending would make the note 140 characters")
+
+    def test_replace_wording_is_unchanged(self) -> None:
+        err = validate_notes("x" * 140)
+        assert err is not None
+        assert err.startswith("Note is 140 characters")
+
+
+class TestJoinNotes:
+    """The separator rule for ``-a``."""
+
+    def test_joins_with_exactly_one_space(self) -> None:
+        assert join_notes("first", "second") == "first second"
+
+    def test_appending_to_no_note_just_sets_it(self) -> None:
+        """No existing note means no separator, not a leading space."""
+        assert join_notes(None, "second") == "second"
+        assert join_notes("", "second") == "second"
+
+    def test_both_sides_are_stripped(self) -> None:
+        assert join_notes("  first  ", "  second  ") == "first second"
+
+    def test_padding_never_becomes_extra_separators(self) -> None:
+        """However the user padded the argument, the join is one space."""
+        assert join_notes("first   ", "\n\n  second") == "first second"
+
+    def test_an_empty_addition_leaves_the_note_alone(self) -> None:
+        assert join_notes("first", "") == "first"
+        assert join_notes("first", "   \n ") == "first"
+
+    def test_both_empty_gives_empty(self) -> None:
+        assert join_notes(None, "") == ""
+
+    def test_inner_whitespace_is_untouched(self) -> None:
+        """Only the ends are stripped; the note's own shape is the user's."""
+        assert join_notes("one\ntwo", "three  four") == "one\ntwo three  four"
 
 
 # ── server endpoint ─────────────────────────────────────────────────────
@@ -256,6 +307,119 @@ class TestNotesEndpoint:
         assert code == 200
         assert body["notes"] == note
 
+
+class TestNotesAppendEndpoint:
+    """``append`` mode on the route, which is what ``-a`` drives.
+
+    Appending is done server-side rather than read-modify-write in the client
+    so it is atomic under the store lock: two appends both land instead of the
+    second overwriting the first from a stale read.
+    """
+
+    def test_append_joins_with_one_space(self, ilan_server: IlanServer) -> None:
+        _seed(ilan_server, "alpha", notes="first")
+        code, body = _post(
+            ilan_server, "/tasks/alpha/notes", {"notes": "second", "append": True},
+        )
+        assert code == 200
+        assert body["notes"] == "first second"
+        assert ilan_server.store.get_task("alpha").notes == "first second"
+
+    def test_append_to_a_task_with_no_note_just_sets_it(
+        self, ilan_server: IlanServer,
+    ) -> None:
+        _seed(ilan_server, "alpha")
+        _, body = _post(
+            ilan_server, "/tasks/alpha/notes", {"notes": "first", "append": True},
+        )
+        assert body["notes"] == "first"  # no leading space
+
+    def test_append_strips_the_fragment(self, ilan_server: IlanServer) -> None:
+        _seed(ilan_server, "alpha", notes="first")
+        _, body = _post(
+            ilan_server, "/tasks/alpha/notes",
+            {"notes": "  \n second \n ", "append": True},
+        )
+        assert body["notes"] == "first second"
+
+    def test_append_normalises_a_padded_existing_note(
+        self, ilan_server: IlanServer,
+    ) -> None:
+        """A note stored padded by an older write is stripped on the way out."""
+        _seed(ilan_server, "alpha", notes="  first  ")
+        _, body = _post(
+            ilan_server, "/tasks/alpha/notes", {"notes": "second", "append": True},
+        )
+        assert body["notes"] == "first second"
+
+    def test_repeated_appends_accumulate(self, ilan_server: IlanServer) -> None:
+        _seed(ilan_server, "alpha")
+        for word in ("one", "two", "three"):
+            _post(ilan_server, "/tasks/alpha/notes", {"notes": word, "append": True})
+        assert ilan_server.store.get_task("alpha").notes == "one two three"
+
+    def test_an_empty_append_leaves_the_note_alone(
+        self, ilan_server: IlanServer,
+    ) -> None:
+        """Unlike a bare write, an empty append is a no-op, not a clear."""
+        _seed(ilan_server, "alpha", notes="keep me")
+        code, body = _post(
+            ilan_server, "/tasks/alpha/notes", {"notes": "   ", "append": True},
+        )
+        assert code == 200
+        assert body["notes"] == "keep me"
+
+    def test_append_is_capped_on_the_combined_length(
+        self, ilan_server: IlanServer,
+    ) -> None:
+        existing = "x" * (MAX_NOTES_LENGTH - 2)
+        _seed(ilan_server, "alpha", notes=existing)
+        # existing + " " + "yy" is one character over.
+        code, body = _post(
+            ilan_server, "/tasks/alpha/notes", {"notes": "yy", "append": True},
+        )
+        assert code == 400
+        assert str(MAX_NOTES_LENGTH + 1) in body["error"]
+        assert body["error"].startswith("Appending would make the note")
+        # The rejected append must not have disturbed what was there.
+        assert ilan_server.store.get_task("alpha").notes == existing
+
+    def test_an_append_that_exactly_fills_the_limit_is_accepted(
+        self, ilan_server: IlanServer,
+    ) -> None:
+        existing = "x" * (MAX_NOTES_LENGTH - 2)
+        _seed(ilan_server, "alpha", notes=existing)
+        code, body = _post(
+            ilan_server, "/tasks/alpha/notes", {"notes": "y", "append": True},
+        )
+        assert code == 200
+        assert body["notes"] == f"{existing} y"
+        assert len(body["notes"]) == MAX_NOTES_LENGTH
+
+    def test_append_accepts_an_alias(self, ilan_server: IlanServer) -> None:
+        _seed(ilan_server, "alpha", alias="aa", notes="first")
+        code, body = _post(
+            ilan_server, "/tasks/aa/notes", {"notes": "second", "append": True},
+        )
+        assert code == 200
+        assert body["name"] == "alpha"
+
+    def test_append_on_an_unknown_task_is_404(self, ilan_server: IlanServer) -> None:
+        code, _ = _post(
+            ilan_server, "/tasks/nope/notes", {"notes": "x", "append": True},
+        )
+        assert code == 404
+
+    def test_a_falsey_append_flag_still_replaces(
+        self, ilan_server: IlanServer,
+    ) -> None:
+        """An older client omits the key entirely; that must mean replace."""
+        _seed(ilan_server, "alpha", notes="first")
+        _, body = _post(
+            ilan_server, "/tasks/alpha/notes", {"notes": "second", "append": False},
+        )
+        assert body["notes"] == "second"
+
     def test_accepts_an_alias(self, ilan_server: IlanServer) -> None:
         _seed(ilan_server, "alpha", alias="aa")
         code, body = _post(ilan_server, "/tasks/aa/notes", {"notes": "via alias"})
@@ -386,7 +550,7 @@ class TestNotesCommand:
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, args)
         assert result.exit_code == 0
-        client.set_notes.assert_called_once_with("aa", "n")
+        client.set_notes.assert_called_once_with("aa", "n", append=False)
 
     def test_reports_the_note_it_set(self, runner: CliRunner, tmp_config) -> None:
         client = MagicMock()
@@ -407,7 +571,7 @@ class TestNotesCommand:
             result = runner.invoke(main, ["notes", "alpha", ""])
         assert result.exit_code == 0
         assert "cleared" in _strip_ansi(result.output)
-        client.set_notes.assert_called_once_with("alpha", "")
+        client.set_notes.assert_called_once_with("alpha", "", append=False)
 
     def test_error_exits_nonzero(self, runner: CliRunner, tmp_config) -> None:
         client = MagicMock()
@@ -443,7 +607,7 @@ class TestNotesCommand:
         out = _strip_ansi(result.output)
         assert str(MAX_NOTES_LENGTH) in out
         # It is still sent: the client does not second-guess the limit.
-        client.set_notes.assert_called_once_with("alpha", "x" * 200)
+        client.set_notes.assert_called_once_with("alpha", "x" * 200, append=False)
 
     @pytest.mark.parametrize("args", [["notes", "--help"], ["task", "notes", "--help"]])
     def test_help_quotes_the_real_limit(
@@ -452,6 +616,164 @@ class TestNotesCommand:
         result = runner.invoke(main, args)
         assert result.exit_code == 0
         assert str(MAX_NOTES_LENGTH) in _strip_ansi(result.output)
+
+    @pytest.mark.parametrize("args", [["notes", "--help"], ["task", "notes", "--help"]])
+    def test_help_mentions_both_flags(
+        self, runner: CliRunner, tmp_config, args: list[str],
+    ) -> None:
+        out = _strip_ansi(runner.invoke(main, args).output)
+        assert "-a" in out
+        assert "-c" in out
+
+
+def _invoke_notes(runner: CliRunner, argv: list[str], notes: str | None = "RESULT"):
+    """Run a notes command against a mock client; return (result, mock)."""
+    client = MagicMock()
+    client.set_notes.return_value = {"ok": True, "name": "alpha", "notes": notes}
+    with patch("ilan.cli._client", return_value=client):
+        result = runner.invoke(main, argv)
+    return result, client
+
+
+# Every spelling has to grow the flags, not just the canonical one.
+_NOTES_PREFIXES = [["notes"], ["note"], ["task", "notes"], ["task", "note"]]
+
+
+class TestNotesAppendFlag:
+    @pytest.mark.parametrize("prefix", _NOTES_PREFIXES)
+    def test_append_sends_the_text_with_the_append_flag(
+        self, runner: CliRunner, tmp_config, prefix: list[str],
+    ) -> None:
+        result, client = _invoke_notes(runner, [*prefix, "alpha", "-a", "more"])
+        assert result.exit_code == 0
+        client.set_notes.assert_called_once_with("alpha", "more", append=True)
+
+    def test_long_form_works_too(self, runner: CliRunner, tmp_config) -> None:
+        _, client = _invoke_notes(runner, ["notes", "alpha", "--append", "more"])
+        client.set_notes.assert_called_once_with("alpha", "more", append=True)
+
+    def test_the_appended_text_is_stripped_before_it_is_sent(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        _, client = _invoke_notes(runner, ["notes", "alpha", "-a", "  \n more \n "])
+        client.set_notes.assert_called_once_with("alpha", "more", append=True)
+
+    def test_it_reports_the_whole_note_not_the_fragment(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """After an append what matters is what the note now says."""
+        result, _ = _invoke_notes(
+            runner, ["notes", "alpha", "-a", "more"], notes="first more",
+        )
+        out = _strip_ansi(result.output)
+        assert "now reads" in out
+        assert "first more" in out
+
+    def test_a_server_rejection_exits_nonzero(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        client = MagicMock()
+        client.set_notes.return_value = {
+            "error": f"Appending would make the note 200 characters; "
+                     f"the limit is {MAX_NOTES_LENGTH}."
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["notes", "alpha", "-a", "more"])
+        assert result.exit_code == 1
+        assert "Appending would make" in _strip_ansi(result.output)
+
+
+class TestNotesClearFlag:
+    @pytest.mark.parametrize("prefix", _NOTES_PREFIXES)
+    def test_clear_sends_an_empty_note(
+        self, runner: CliRunner, tmp_config, prefix: list[str],
+    ) -> None:
+        """An empty note already means "remove it", so -c needs no new route."""
+        result, client = _invoke_notes(runner, [*prefix, "alpha", "-c"], notes=None)
+        assert result.exit_code == 0
+        client.set_notes.assert_called_once_with("alpha", "", append=False)
+
+    def test_long_form_works_too(self, runner: CliRunner, tmp_config) -> None:
+        _, client = _invoke_notes(runner, ["notes", "alpha", "--clear"], notes=None)
+        client.set_notes.assert_called_once_with("alpha", "", append=False)
+
+    def test_it_reports_a_clear(self, runner: CliRunner, tmp_config) -> None:
+        result, _ = _invoke_notes(runner, ["notes", "alpha", "-c"], notes=None)
+        assert "cleared" in _strip_ansi(result.output)
+
+    @pytest.mark.parametrize("prefix", _NOTES_PREFIXES)
+    def test_clear_with_text_is_rejected(
+        self, runner: CliRunner, tmp_config, prefix: list[str],
+    ) -> None:
+        """-c takes nothing of its own, so text alongside it is a mistake."""
+        result, client = _invoke_notes(runner, [*prefix, "alpha", "-c", "oops"])
+        assert result.exit_code == 1
+        assert "-c takes no note" in _strip_ansi(result.output)
+        client.set_notes.assert_not_called()
+
+
+class TestNotesFlagCombinations:
+    """Each of note / -a / -c says what the note should become.
+
+    Any two of them are a contradiction, so they are rejected before the
+    request goes out rather than silently letting one win.
+    """
+
+    def test_append_and_clear_together_is_rejected(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        result, client = _invoke_notes(runner, ["notes", "alpha", "-a", "x", "-c"])
+        assert result.exit_code == 1
+        assert "use one or the other" in _strip_ansi(result.output)
+        client.set_notes.assert_not_called()
+
+    def test_text_and_append_together_is_rejected(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        result, client = _invoke_notes(runner, ["notes", "alpha", "text", "-a", "x"])
+        assert result.exit_code == 1
+        assert "not as a second argument" in _strip_ansi(result.output)
+        client.set_notes.assert_not_called()
+
+    def test_neither_text_nor_a_flag_is_rejected(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """The note argument is optional now, so "nothing to do" needs saying."""
+        result, client = _invoke_notes(runner, ["notes", "alpha"])
+        assert result.exit_code == 1
+        out = _strip_ansi(result.output)
+        assert "-a" in out and "-c" in out  # the message names both ways out
+        client.set_notes.assert_not_called()
+
+    def test_a_plain_note_still_replaces(self, runner: CliRunner, tmp_config) -> None:
+        """The original two-argument form must keep working unchanged."""
+        _, client = _invoke_notes(runner, ["notes", "alpha", "the note"])
+        client.set_notes.assert_called_once_with("alpha", "the note", append=False)
+
+    def test_a_plain_note_is_stripped_before_it_is_sent(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        _, client = _invoke_notes(runner, ["notes", "alpha", "  \n the note \n "])
+        client.set_notes.assert_called_once_with("alpha", "the note", append=False)
+
+
+class TestClientAppendArgument:
+    def test_append_true_sets_the_body_flag(self) -> None:
+        from ilan.client import Client
+
+        with patch.object(Client, "post", return_value={"ok": True}) as post:
+            Client().set_notes("alpha", "n", append=True)
+        post.assert_called_once_with(
+            "/tasks/alpha/notes", {"notes": "n", "append": True},
+        )
+
+    def test_append_false_omits_the_key(self) -> None:
+        """An older server has never seen the key; do not send a falsey one."""
+        from ilan.client import Client
+
+        with patch.object(Client, "post", return_value={"ok": True}) as post:
+            Client().set_notes("alpha", "n")
+        post.assert_called_once_with("/tasks/alpha/notes", {"notes": "n"})
 
 
 class TestClientSetNotes:

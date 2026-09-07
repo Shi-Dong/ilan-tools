@@ -43,18 +43,40 @@ def validate_task_name(name: str) -> str | None:
 MAX_NOTES_LENGTH = 128
 
 
-def validate_notes(note: str) -> str | None:
+def validate_notes(note: str, *, appending: bool = False) -> str | None:
     """Return an error message if *note* is too long to store, else ``None``.
 
     Rejects rather than truncates: silently dropping the tail would leave the
     user believing they had written something the listing never shows.
+
+    *appending* only changes the wording. On an append the length that breaks
+    the limit is the **combined** one, which is not the length the user typed,
+    so the message has to say which number it is talking about.
     """
-    if len(note) > MAX_NOTES_LENGTH:
-        return (
-            f"Note is {len(note)} characters; the limit is {MAX_NOTES_LENGTH}. "
-            "Shorten it, or keep the detail in the conversation itself."
-        )
-    return None
+    if len(note) <= MAX_NOTES_LENGTH:
+        return None
+    measured = (
+        f"Appending would make the note {len(note)} characters"
+        if appending
+        else f"Note is {len(note)} characters"
+    )
+    return (
+        f"{measured}; the limit is {MAX_NOTES_LENGTH}. "
+        "Shorten it, or keep the detail in the conversation itself."
+    )
+
+
+def join_notes(existing: str | None, addition: str) -> str:
+    """Join a task's current note and an appended fragment with one space.
+
+    Both sides are stripped first, so the result never carries leading or
+    trailing whitespace and the separator is always exactly one space however
+    the user padded their argument. Either side may be empty: appending to a
+    task with no note just sets the note rather than leaving it indented by a
+    stray separator.
+    """
+    parts = [part for part in ((existing or "").strip(), addition.strip()) if part]
+    return " ".join(parts)
 
 
 ALIAS_CHARS = "asdfghjkl"

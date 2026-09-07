@@ -1811,8 +1811,41 @@ def task_alias(name: str, new_alias: str) -> None:
 
 # ── task notes ──────────────────────────────────────────────────────
 
-def _do_set_notes(name: str, note: str) -> None:
-    resp = _client().set_notes(name, note)
+def _notes_usage_error(
+    note: str | None, append: str | None, clear: bool,
+) -> str | None:
+    """Reject note/-a/-c combinations that name two different intentions.
+
+    Each of the three says what the note should become, so any pair of them
+    is a contradiction rather than a refinement. Caught here instead of on the
+    server: these are mistakes about the command line, not about the data.
+    """
+    if clear and append is not None:
+        return "-c clears the note and -a adds to it; use one or the other."
+    if clear and note is not None:
+        return "-c takes no note: it clears the task's note. Drop the text to clear."
+    if append is not None and note is not None:
+        return "Pass the text to append to -a, not as a second argument as well."
+    if not clear and append is None and note is None:
+        return "Give a note to set, -a TEXT to add to the current one, or -c to clear."
+    return None
+
+
+def _do_set_notes(
+    name: str,
+    note: str | None,
+    append: str | None = None,
+    clear: bool = False,
+) -> None:
+    if err := _notes_usage_error(note, append, clear):
+        console.print(f"[red]{err}[/red]")
+        raise SystemExit(1)
+    appending = append is not None
+    # Clearing is an empty note: the server already reads that as "remove it",
+    # so -c needs no separate route.
+    text = "" if clear else (append if appending else note)
+    assert text is not None
+    resp = _client().set_notes(name, text.strip(), append=appending)
     if _check_error(resp):
         raise SystemExit(1)
     if not resp.get("notes"):
@@ -1821,7 +1854,9 @@ def _do_set_notes(name: str, note: str) -> None:
     line = Text()
     line.append("Note for ", style="green")
     line.append(resp["name"], style="bold green")
-    line.append(" set to ", style="green")
+    # On an append the whole note is what matters, not the fragment just added,
+    # so both paths print the note as it now stands.
+    line.append(" now reads " if appending else " set to ", style="green")
     line.append(resp["notes"], style=NOTES_STYLE)
     console.print(line)
 
@@ -1831,17 +1866,28 @@ def _do_set_notes(name: str, note: str) -> None:
 _NOTES_HELP = (
     "Write the note shown beside a task in ilan ls / ilan dashboard. "
     "The note replaces whatever the task carried before, so correcting one is "
-    'just writing it again. Pass an empty note ("") to clear it. A note is '
-    f"limited to {MAX_NOTES_LENGTH} characters."
+    'just writing it again. Pass an empty note ("") or -c to clear it, or -a '
+    "TEXT to add to the note already there. Leading and trailing whitespace is "
+    f"always stripped. A note is limited to {MAX_NOTES_LENGTH} characters."
 )
+_APPEND_HELP = (
+    "Add TEXT to the end of the task's current note, separated by a single "
+    "space, instead of replacing it."
+)
+_CLEAR_HELP = "Clear the task's note. Takes no text of its own."
 
 
 @task_group.command("notes", help=_NOTES_HELP)
 @click.argument("name", shell_complete=_complete_task_names)
-@click.argument("note")
-def task_notes(name: str, note: str) -> None:
+@click.argument("note", required=False, default=None)
+@click.option("-a", "--append", "append", default=None, metavar="TEXT",
+              help=_APPEND_HELP)
+@click.option("-c", "--clear", "clear", is_flag=True, help=_CLEAR_HELP)
+def task_notes(
+    name: str, note: str | None, append: str | None, clear: bool,
+) -> None:
     """Write the note shown beside a task in ilan ls / ilan dashboard."""
-    _do_set_notes(name, note)
+    _do_set_notes(name, note, append=append, clear=clear)
 
 
 # Singular and plural are the same command. Which one comes to mind depends on
@@ -2557,15 +2603,21 @@ def shortcut_alias(name: str, new_alias: str) -> None:
 @main.command(
     "notes",
     help=(
-        "Shorthand for 'ilan task notes'. A note is limited to "
+        "Shorthand for 'ilan task notes'. Pass -a TEXT to add to the current "
+        "note or -c to clear it. A note is limited to "
         f"{MAX_NOTES_LENGTH} characters."
     ),
 )
 @click.argument("name", shell_complete=_complete_task_names)
-@click.argument("note")
-def shortcut_notes(name: str, note: str) -> None:
+@click.argument("note", required=False, default=None)
+@click.option("-a", "--append", "append", default=None, metavar="TEXT",
+              help=_APPEND_HELP)
+@click.option("-c", "--clear", "clear", is_flag=True, help=_CLEAR_HELP)
+def shortcut_notes(
+    name: str, note: str | None, append: str | None, clear: bool,
+) -> None:
     """Shorthand for 'ilan task notes'."""
-    _do_set_notes(name, note)
+    _do_set_notes(name, note, append=append, clear=clear)
 
 
 main.add_command(shortcut_notes, "note")

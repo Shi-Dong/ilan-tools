@@ -34,6 +34,7 @@ from ilan.models import (
     TaskStatus,
     generate_task_hash,
     is_burnable_name,
+    join_notes,
     max_model_for,
     max_tag,
     other_engine,
@@ -988,23 +989,32 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             self._json({"ok": True, "name": task.name, "alias": task.alias})
 
         def handle_task_set_notes(self, name: str):
-            """Replace a task's note. An empty note clears it.
+            """Replace a task's note, or with ``append`` add to it.
 
             Unlike the alias there is no pool to police and no uniqueness to
             enforce, so any text is accepted up to ``MAX_NOTES_LENGTH``. The
             length is checked *after* stripping, so surrounding whitespace
-            never costs the user part of their budget. A terminal task can be
+            never costs the user part of their budget, and on an append it is
+            the combined note that has to fit. A terminal task can be
             annotated too: writing down what a closed task was about is
             exactly the case this command exists for.
+
+            Appending happens here rather than in the client so it is one
+            atomic read-modify-write under the lock: two clients appending at
+            once both land, instead of the second overwriting the first with a
+            note built from a stale read.
             """
             body = self._body()
             note = str(body.get("notes") or "").strip()
-            if err := validate_notes(note):
-                self._json({"error": err}, 400)
-                return
+            appending = bool(body.get("append"))
             with self._ilan.lock:
                 task = self._get_task_or_404(name)
                 if task is None:
+                    return
+                if appending:
+                    note = join_notes(task.notes, note)
+                if err := validate_notes(note, appending=appending):
+                    self._json({"error": err}, 400)
                     return
                 task.notes = note or None
                 self._ilan.store.put_task(task)
