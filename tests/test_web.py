@@ -848,22 +848,28 @@ def test_the_settings_checkbox_is_big_enough_to_hit():
     assert all(size >= 24 for size in sizes), f"checkbox is {sizes}px"
 
 
-def test_the_card_actions_row_tightens_its_buttons():
-    """Three buttons share one row at phone width, and only just fit.
+def test_the_card_actions_sit_two_to_a_row():
+    """Four buttons in one row squeezed every label to fit a 360px screen.
 
-    Each now carries a glyph as well as a label, so the row is tighter than it
-    was even with the shorter middle label. This is a stand-in for a
-    measurement the test suite cannot take — there is no layout engine here —
-    so it guards the padding rather than the wrapping itself. The real
-    measurement is taken in a browser, against main, in the PR.
+    Two to a row gives each the width a glyph and a label want, and keeps
+    every target 44px tall. A closed card has three — its way back where Tap
+    and Done were — and three fit one row at any phone width, which is also
+    what keeps the way back beside Details, where it was put on purpose. The
+    three-column rule is keyed on the revive button being present rather than
+    on a status name, so the CSS follows TERMINAL_STATUSES without naming it.
     """
     css = web.read_asset("app.css").decode()
-    rule = re.search(r"\n\.act \{(.*?)\}", css, re.S)
-    assert rule, "the card action buttons no longer have a sizing rule"
-    padding = re.search(r"padding:\s*0\s+(\d+)px", rule.group(1))
-    assert padding, "the row no longer sets its button padding"
-    assert int(padding.group(1)) <= 8, (
-        f"{padding.group(1)}px of padding wraps a label at 390px"
+    rule = re.search(r"\n\.row-actions \{(.*?)\}", css, re.S)
+    assert rule, "the card actions have no layout rule"
+    assert "display: grid" in rule.group(1), "the actions are no longer a grid"
+    assert re.search(r"grid-template-columns:\s*1fr 1fr;", rule.group(1)), (
+        "the live card no longer lays its four buttons out two by two"
+    )
+    closed = re.search(r"\n\.row-actions:has\(\.act-revive\) \{(.*?)\}", css, re.S)
+    assert closed, "a closed card's three buttons have no single-row rule"
+    columns = re.search(r"grid-template-columns:\s*([^;]+);", closed.group(1))
+    assert columns and len(columns.group(1).split()) == 3, (
+        f"a closed card's row is not three columns: {columns and columns.group(1)}"
     )
 
 
@@ -1747,25 +1753,39 @@ def test_the_note_keeps_its_line_breaks_and_is_not_clamped():
     assert "-webkit-box" not in rule.group(1), "the note is clamped"
 
 
-def test_the_note_bar_takes_the_ink_of_the_button_that_edits_it():
-    """A bar rather than a "Note:" label sets the line off, drawn in the Note
-    button's own ink so the two read as one thing.
+def test_the_note_is_no_louder_than_the_summary():
+    """The agent's summary and the user's note matter equally, so the note
+    takes the summary's ink and size exactly. A first version set it in full
+    ink behind a dark bar, and it shouted the summary down. What tells the two
+    apart is a rule in the app's hairline grey, not a heavier treatment.
+    """
+    css = web.read_asset("app.css").decode()
+    summary = re.search(r"\n\.row-sum \{(.*?)\}", css, re.S)
+    note = re.search(r"\n\.row-notes \{(.*?)\}", css, re.S)
+    assert summary and note, "the summary or the note is not styled"
+    for prop in ("color", "font-size"):
+        want = re.search(rf"{prop}:\s*([^;]+);", summary.group(1))
+        got = re.search(rf"{prop}:\s*([^;]+);", note.group(1))
+        assert want and got, f"{prop} is not set on both lines"
+        assert got.group(1) == want.group(1), (
+            f"the note's {prop} is {got.group(1)}, the summary's {want.group(1)}"
+        )
+    assert "font-weight" not in note.group(1), "the note is weighted differently"
+    assert "border-left: 3px solid var(--border)" in note.group(1), (
+        "the note's rule is no longer the app's own hairline"
+    )
+    assert "background" not in note.group(1), "a filled note reads as a callout"
 
-    The ink is neutral on purpose. The card's quiet actions already spend an
-    amber and a rose, and the light red the CLI prints notes in would sit at
-    the hue of --danger and the NEEDS ATTENTION pill on this same card. It is
-    also a step darker than --text-dim, so a quiet button drawn in it reads as
-    secondary rather than as disabled.
+
+def test_the_note_button_ink_is_neutral_and_reads_as_secondary():
+    """Neutral on purpose: the card's quiet actions already spend an amber and
+    a rose, and the light red the CLI prints notes in would sit at the hue of
+    --danger and the NEEDS ATTENTION pill on this same card. A step darker
+    than --text-dim, so a quiet button drawn in it reads as secondary rather
+    than as disabled.
     """
     css = web.read_asset("app.css").decode()
     light, dark = _scheme_values(css)
-
-    rule = re.search(r"\n\.row-notes \{(.*?)\}", css, re.S)
-    assert rule, ".row-notes is not styled"
-    assert "border-left: 3px solid var(--act-notes)" in rule.group(1), (
-        "the bar is no longer drawn in the Note button's ink"
-    )
-
     for scheme, values in (("light", light), ("dark", dark)):
         ink, card, dim = values["--act-notes"], values["--bg-elevated"], values["--text-dim"]
         r, g, b = (int(ink[i:i + 2], 16) for i in (1, 3, 5))
