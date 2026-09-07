@@ -359,8 +359,11 @@ def test_the_conversation_header_does_not_name_the_backend():
     assert "task.engine" not in sub.group(1), (
         f"the backend is still on the sub-line: {sub.group(1).strip()}"
     )
-    assert "task.model" in sub.group(1), (
-        "the model went with it — the line should keep everything else"
+    assert "task.model" not in sub.group(1), (
+        "the model id is back on the sub-line; the max tag beside the status already names it"
+    )
+    assert "sleepSuffix(" in sub.group(1) and "replyEverySuffix(" in sub.group(1), (
+        "the line should keep what is true of the task right now: a sleep, a cycle"
     )
 
     # The compensating signal, and the reason removing the word is not a loss.
