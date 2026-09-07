@@ -619,6 +619,27 @@ def _append_task_number(text: Text, row: dict) -> None:
         text.append(f"{number} ", style=NUMBER_STYLE)
 
 
+def _name_style(row: dict) -> str:
+    """Style for a task-name span: bold engine color, linked to its Gist.
+
+    The name doubles as an OSC 8 terminal hyperlink to the task's secret-Gist
+    conversation mirror, which keeps the long URL out of the table without
+    spending a column on a link label. The underline is what marks a name as
+    clickable, so it also says at a glance which tasks have been mirrored: a
+    task with no Gist yet (mirroring disabled, or the async syncer hasn't
+    created it) renders plain and unlinked.
+
+    ``underline`` is placed *before* ``link`` because Rich's style parser
+    reads the word after ``link`` as the URL; keeping the URL last means no
+    attribute can be swallowed by it.
+    """
+    engine = row.get("engine") or DEFAULT_ENGINE
+    style = f"bold {ENGINE_NAME_STYLE.get(engine, '')}".strip()
+    if url := (row.get("gist_url") or "").strip():
+        style = f"{style} underline link {url}"
+    return style
+
+
 def _build_name_cell(row: dict) -> Text:
     """Build the styled "number (alias) name" cell.
 
@@ -633,6 +654,9 @@ def _build_name_cell(row: dict) -> Text:
     the name: ``FABLE`` on the Claude backend, ``ASTRA`` on Codex. Switching
     backends translates the pin and note together. Older saved tasks can
     still have a foreign max pin that the backend ignores; those get no note.
+
+    The name itself links to the task's Gist conversation mirror — see
+    :func:`_name_style`.
     """
     status = TaskStatus(row["status"])
     cell = Text()
@@ -642,8 +666,7 @@ def _build_name_cell(row: dict) -> Text:
     if alias := row.get("alias"):
         cell.append(f"({alias}) ", style=ALIAS_STYLE)
     engine = row.get("engine") or DEFAULT_ENGINE
-    name_style = ENGINE_NAME_STYLE.get(engine, "")
-    cell.append(row["name"], style=f"bold {name_style}".strip())
+    cell.append(row["name"], style=_name_style(row))
     if row.get("needs_review"):
         cell.append(f" {UNREAD_MARKER}", style=UNREAD_STYLE)
     if status is TaskStatus.WORKING and (
@@ -659,23 +682,6 @@ def _build_name_cell(row: dict) -> Text:
         cell.stylize(f"on {REPLY_EVERY_BG}")
     if tag := max_tag(engine, row.get("model")):
         cell.append(f"\n{tag}", style="bold red")
-    return cell
-
-
-def _build_history_cell(row: dict) -> Text:
-    """Build the History cell: a hyperlink over the word ``history``.
-
-    Rich renders the link as an OSC 8 terminal hyperlink, so the long Gist URL
-    stays hidden behind the short label. Tasks without a Gist yet (mirroring
-    disabled, or the async syncer hasn't created it) show a dim placeholder.
-    """
-    if not (url := (row.get("gist_url") or "").strip()):
-        return Text("-", style="dim")
-    # Append the styled span instead of using a base Text style: a base style
-    # bleeds across the cell's right padding, so the `underline` would run well
-    # past the word "history" whenever the column is wider than the label.
-    cell = Text()
-    cell.append("history", style=f"link {url} blue underline")
     return cell
 
 
@@ -703,9 +709,12 @@ def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
 
 
 def _build_concise_task_line(row: dict) -> Text:
-    """Build a styled ``→ number (alias) name !! STATUS`` concise line."""
+    """Build a styled ``→ number (alias) name !! STATUS`` concise line.
+
+    The name links to the task's Gist conversation mirror, same as in the full
+    table — see :func:`_name_style`.
+    """
     alias = row.get("alias") or ""
-    engine = row.get("engine") or DEFAULT_ENGINE
     status = TaskStatus(row["status"])
     line = Text()
     if row.get("pinned"):
@@ -713,8 +722,7 @@ def _build_concise_task_line(row: dict) -> Text:
     _append_task_number(line, row)
     if alias:
         line.append(f"({alias}) ", style=ALIAS_STYLE)
-    name_style = ENGINE_NAME_STYLE.get(engine, "")
-    line.append(row["name"], style=f"bold {name_style}".strip())
+    line.append(row["name"], style=_name_style(row))
     if row.get("needs_review"):
         line.append(f" {UNREAD_MARKER}", style=UNREAD_STYLE)
     line.append(" ")
@@ -754,8 +762,8 @@ def _maybe_warn_one_liner_unconfigured(client: Client) -> None:
 
 # Below this terminal width (in columns) the ``ls`` / ``dashboard`` tables
 # drop the lower-priority ``Created`` column so the remaining
-# ``Name`` / ``Status`` / ``Last Changed`` / ``History`` columns stay legible
-# instead of wrapping into an unreadable mess on a narrow window.
+# ``Name`` / ``Status`` / ``Last Changed`` columns stay legible instead of
+# wrapping into an unreadable mess on a narrow window.
 _NARROW_TERMINAL_WIDTH = 120
 
 
@@ -794,7 +802,6 @@ def _do_ls(show_all: bool, concise: bool = False) -> None:
     if not narrow:
         table.add_column("Created")
     table.add_column("Last Changed")
-    table.add_column("History")
     for row in rows:
         changed = _format_ts(row["status_changed_at"], seconds=False) if row.get("status_changed_at") else ""
         cells = [
@@ -804,7 +811,6 @@ def _do_ls(show_all: bool, concise: bool = False) -> None:
         if not narrow:
             cells.append(_format_ts(row["created_at"], seconds=False))
         cells.append(changed)
-        cells.append(_build_history_cell(row))
         table.add_row(*cells)
     console.print(table)
 
@@ -2567,10 +2573,10 @@ def _build_dashboard_table(
     # Column sizing depends on whether the Luna one-line summary is
     # rendered inside the Status cell:
     #   * one-liner ON  → Status needs a much wider slot to fit the summary
-    #     under the status label, so we give it 16/34 of the proportional
-    #     space and shrink Name to 10/34.
-    #   * one-liner OFF → Status only holds a short label + duration
-    #     suffix, so we keep the original 14:7:7:4 ratios.
+    #     under the status label, so it takes 16/38 of the proportional space
+    #     and Name shrinks to 10/38.
+    #   * one-liner OFF → Status only holds a short label + duration suffix,
+    #     so Name takes the bulk instead, at 14:8:7:7.
     # In both cases overlong name cells fold within the column instead of
     # pushing it wider.
     table = Table(title=header, expand=True, show_lines=True)
@@ -2580,14 +2586,12 @@ def _build_dashboard_table(
         if not narrow:
             table.add_column("Created", ratio=6)
         table.add_column("Last Changed", ratio=6)
-        table.add_column("History", ratio=4)
     else:
         table.add_column("(Alias) Name", style="bold", ratio=14)
         table.add_column("Status", ratio=8)
         if not narrow:
             table.add_column("Created", ratio=7)
         table.add_column("Last Changed", ratio=7)
-        table.add_column("History", ratio=4)
 
     if not rows:
         table.add_row(*(Text("No active tasks.", style="dim"),
@@ -2603,7 +2607,6 @@ def _build_dashboard_table(
         if not narrow:
             cells.append(_format_ts(row["created_at"], seconds=False))
         cells.append(changed)
-        cells.append(_build_history_cell(row))
         table.add_row(*cells)
     return table
 
