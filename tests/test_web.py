@@ -1757,7 +1757,8 @@ def test_the_note_is_no_louder_than_the_summary():
     """The agent's summary and the user's note matter equally, so the note
     takes the summary's ink and size exactly. A first version set it in full
     ink behind a dark bar, and it shouted the summary down. What tells the two
-    apart is a rule in the app's hairline grey, not a heavier treatment.
+    apart is the shape — a box inside the card, asserted below — not a heavier
+    treatment.
     """
     css = web.read_asset("app.css").decode()
     summary = re.search(r"\n\.row-sum \{(.*?)\}", css, re.S)
@@ -1771,10 +1772,40 @@ def test_the_note_is_no_louder_than_the_summary():
             f"the note's {prop} is {got.group(1)}, the summary's {want.group(1)}"
         )
     assert "font-weight" not in note.group(1), "the note is weighted differently"
-    assert "border-left: 3px solid var(--border)" in note.group(1), (
-        "the note's rule is no longer the app's own hairline"
+
+
+def test_the_note_is_a_box_inside_the_card():
+    """A box within the card, the way the card sits within the page: the page's
+    own grey behind the app's hairline, with a radius a step inside the card's
+    so it reads as nested rather than as a second card.
+
+    --bg-sunken would be the obvious fill, but --text-dim reads 4.2:1 on it in
+    light mode, under the 4.5:1 a line of text needs — so the fill is its own
+    variable, and its legibility is asserted in both schemes rather than
+    trusted.
+    """
+    css = web.read_asset("app.css").decode()
+    light, dark = _scheme_values(css)
+    rule = re.search(r"\n\.row-notes \{(.*?)\}", css, re.S)
+    assert rule, ".row-notes is not styled"
+    body = rule.group(1)
+    assert "border: 1px solid var(--border)" in body, "the box has lost its hairline"
+    assert "background: var(--bg-inset)" in body, "the box is no longer the inset tone"
+    assert re.search(r"padding:\s*\d+px \d+px;", body), "the text sits on the box's edge"
+    radius = re.search(r"border-radius:\s*(\d+)px;", body)
+    assert radius, "the box has square corners"
+    card_radius = re.search(r"--radius:\s*(\d+)px;", css)
+    assert card_radius, "the card radius variable is gone"
+    assert int(radius.group(1)) < int(card_radius.group(1)), (
+        f"a {radius.group(1)}px radius inside a {card_radius.group(1)}px card reads as a "
+        "second card rather than a box in it"
     )
-    assert "background" not in note.group(1), "a filled note reads as a callout"
+    for scheme, values in (("light", light), ("dark", dark)):
+        ink, fill = values["--text-dim"], values["--bg-inset"]
+        assert _contrast(ink, fill) >= 4.5, (
+            f"{scheme}: the note is {ink} on {fill}, only {_contrast(ink, fill):.2f}:1"
+        )
+        assert fill != values["--bg-elevated"], f"{scheme}: the box is the card's own colour"
 
 
 def test_the_note_button_ink_is_neutral_and_reads_as_secondary():
@@ -1806,8 +1837,8 @@ def test_the_web_app_holds_the_same_note_limit_as_the_server():
     assert f"const MAX_NOTES_LENGTH = {MAX_NOTES_LENGTH};" in js, (
         "app.js no longer carries the server's note limit, or carries another"
     )
-    handler = re.search(r"async function notesFromCard\(name\) \{(.*?)\n\}", js, re.S)
-    assert handler, "the card has no note handler"
+    handler = re.search(r"async function editNote\(name, fallback = ''\) \{(.*?)\n\}", js, re.S)
+    assert handler, "the shared note sheet is gone"
     assert "maxlength: MAX_NOTES_LENGTH" in handler.group(1), "the note field is not capped"
     assert 'maxlength="${maxlength}"' in js, "askText no longer applies a cap to its field"
 
@@ -1815,9 +1846,37 @@ def test_the_web_app_holds_the_same_note_limit_as_the_server():
 def test_the_note_button_posts_to_a_route_the_server_serves():
     """A renamed route would leave the button posting into a 404."""
     js = web.read_asset("app.js").decode()
-    handler = re.search(r"async function notesFromCard\(name\) \{(.*?)\n\}", js, re.S)
-    assert handler, "the card has no note handler"
+    handler = re.search(r"async function editNote\(name, fallback = ''\) \{(.*?)\n\}", js, re.S)
+    assert handler, "the shared note sheet is gone"
     assert "/notes`" in handler.group(1), "the Note button no longer posts to /notes"
     assert (
         "POST", r"^/tasks/([^/]+)/notes$", "handle_task_set_notes",
     ) in ROUTES
+
+
+def test_the_actions_sheet_offers_the_note_on_every_task():
+    """The task page reaches the same sheet the card does, from the ••• menu.
+
+    Offered outside the open/closed condition, so a closed task can be
+    annotated too, and it runs the one handler the card runs, so the two ways
+    in cannot drift. The docs row for the sheet has to say so as well.
+    """
+    js = web.read_asset("app.js").decode()
+    sheet = re.search(r"function showActions\(task\) \{(.*?)\n\}", js, re.S)
+    assert sheet, "the actions sheet builder is gone"
+    body = sheet.group(1)
+    assert "options.push({ value: 'notes', label: 'Note…' });" in body, "Note… is not on the sheet"
+    assert body.index("value: 'notes'") > body.index("} else {"), (
+        "Note… is offered to only one kind of task"
+    )
+    assert body.index("value: 'notes'") < body.index("value: task.pinned"), (
+        "Note… has drifted down the sheet, away from the entries that act on the task"
+    )
+    run = re.search(r"async function runAction\(choice, task\) \{(.*?)\n\}", js, re.S)
+    assert run, "runAction is gone"
+    assert re.search(r"case 'notes':\s*(//[^\n]*\n\s*)*if \(await editNote\(task\.name", run.group(1)), (
+        "the sheet's Note… does not run the card's handler"
+    )
+    ref = (Path(web.__file__).parent.parent.parent.parent / "docs" / "reference.md").read_text()
+    row = next(line for line in ref.splitlines() if line.startswith("| Actions |"))
+    assert "`notes`" in row, "the docs do not list notes under the sheet"

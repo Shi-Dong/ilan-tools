@@ -14,6 +14,11 @@
   --bg: #f2f2f7;
   --bg-elevated: #ffffff;
   --bg-sunken: #e6e6eb;
+  /* A box nested inside a card: the page's own grey, so the card → box step
+   * repeats the page → card step around it. --bg-sunken would be the obvious
+   * pick, but --text-dim reads 4.2:1 on it, under the 4.5:1 a line of text
+   * needs; on this it reads 4.7:1. */
+  --bg-inset: #f2f2f7;
   --text: #1c1c1e;
   --text-dim: #6c6c70;
   --border: #d8d8dd;
@@ -92,6 +97,10 @@
     --bg: #000000;
     --bg-elevated: #1c1c1e;
     --bg-sunken: #2c2c2e;
+    /* Lighter than the card rather than darker: on a dark surface a nested
+     * box rises, the way iOS's tertiary background sits on its secondary.
+     * --text-dim reads 5.0:1 on it. */
+    --bg-inset: #2c2c2e;
     --text: #f2f2f7;
     --text-dim: #9b9ba0;
     --border: #38383a;
@@ -583,16 +592,19 @@ textarea.field {
  * the agent last did, then what the task is for. The two matter equally, so
  * the note takes the summary's ink and size exactly — a first version set it
  * in full ink behind a dark bar, and it shouted the summary down. What tells
- * them apart is a rule in the same grey as every other hairline in the app,
- * rather than a label: "Note:" on every card would spend a word saying what
- * the rule already says. Line breaks are kept: the server stores the note
- * verbatim, so a break the user typed is a break they meant. No clamp, for
- * the same reason the summary has none. */
+ * them apart is the shape: the note is a box inside the card, in the page's
+ * own grey behind the app's hairline, with a radius a step inside the card's
+ * so it reads as nested rather than as a second card. No label — "Note:" on
+ * every card would spend a word saying what the box already says. Line breaks
+ * are kept: the server stores the note verbatim, so a break the user typed is
+ * a break they meant. No clamp, for the same reason the summary has none. */
 .row-notes {
   display: block;
-  margin-top: 6px;
-  padding-left: 9px;
-  border-left: 3px solid var(--border);
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-inset);
   color: var(--text-dim);
   font-size: 14px;
   white-space: pre-wrap;

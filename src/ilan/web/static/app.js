@@ -858,19 +858,27 @@ async function doneFromCard(name) {
  */
 const MAX_NOTES_LENGTH = 128;
 
-/** Write a task's note from its card, the way `ilan notes NAME "note"` does.
+/** Open the note sheet for *name* and save what comes back, the way
+ * `ilan notes NAME "note"` does. Resolves true when a note was written.
  *
- * Whole-note replace rather than append: the sheet opens on what the note
- * says now, so changing it is reading it and editing it, and adding to it is
- * just typing at the end. An empty note clears it — the server already reads
- * an empty note as "remove it", so clearing needs no second control. Nothing
- * is sent when the text comes back unchanged, and a cancelled sheet sends
- * nothing at all.
+ * The sheet opens on the note as the server has it *now*, read back fresh
+ * rather than taken from the list or the page: both are snapshots, and
+ * between two polls a note written from the CLI or another phone is not in
+ * them yet. A sheet opened on the stale copy would offer to overwrite the
+ * newer note with the older one. If the read fails, *fallback* — the caller's
+ * copy — is what the sheet opens on, so it still opens; the server then
+ * judges the save.
+ *
+ * Whole-note replace rather than append: opening on the current note makes
+ * changing it reading it and editing it, and adding to it just typing at the
+ * end. An empty note clears it — the server already reads an empty note as
+ * "remove it", so clearing needs no second control. Nothing is sent when the
+ * text comes back unchanged, and a cancelled sheet sends nothing at all.
  */
-async function notesFromCard(name) {
-  const task = state.tasks.find((t) => t.name === name);
-  if (!task) return;
-  const current = task.notes || '';
+async function editNote(name, fallback = '') {
+  const t = encodeURIComponent(name);
+  const { ok, data } = await api.get(`/tasks/${t}`);
+  const current = ok && data.task ? (data.task.notes || '') : fallback;
   const text = await askText(`Note for ${name}`, {
     value: current,
     placeholder: 'What is this task about?',
@@ -878,12 +886,18 @@ async function notesFromCard(name) {
     okLabel: 'Save',
     maxlength: MAX_NOTES_LENGTH,
   });
-  if (text === null) return;
+  if (text === null) return false;
   const note = text.trim();
-  if (note === current) return;
-  const saved = await act(`/tasks/${encodeURIComponent(name)}/notes`, { notes: note },
+  if (note === current) return false;
+  return act(`/tasks/${t}/notes`, { notes: note },
     note ? `Note saved for \`${name}\`` : `Note cleared for \`${name}\``);
-  if (saved) await refreshListAfterChange();
+}
+
+/** The card's Note button: edit, then reload the list so the card shows it. */
+async function notesFromCard(name) {
+  const task = state.tasks.find((t) => t.name === name);
+  if (!task) return;
+  if (await editNote(name, task.notes || '')) await refreshListAfterChange();
 }
 
 /** Expand or collapse one task's card, and remember which.
@@ -1289,6 +1303,10 @@ function showActions(task) {
       label: task.status === 'DONE' ? 'Un-done' : 'Un-discard',
     });
   }
+  // On every task, closed ones included: writing down what a finished task was
+  // about is exactly the case `ilan notes` exists for. Beside the entries that
+  // change the task rather than talk to the agent.
+  options.push({ value: 'notes', label: 'Note…' });
   options.push({ value: task.pinned ? 'unpin' : 'pin', label: task.pinned ? 'Unpin' : 'Pin' });
   options.push({ value: task.model ? 'unmax' : 'max', label: task.model ? 'Unmax' : 'Max' });
   options.push({ value: 'switch-backend', label: `Switch backend (now ${task.engine || '?'})` });
@@ -1355,6 +1373,12 @@ async function runAction(choice, task) {
       back();
       return;
     }
+
+    case 'notes':
+      // The same sheet the card opens; the page is re-read after a save so the
+      // task it holds is the one the server has.
+      if (await editNote(task.name, task.notes || '')) back();
+      return;
 
     case 'rename': {
       const next = await askText('New name', { value: task.name });

@@ -7,9 +7,10 @@
  * control cannot sit on the line it edits.
  *
  * The stub server applies the real rules: it strips the note, refuses one over
- * the limit in the server's own words, stores an empty note as none, and
- * serves the list re-read that follows a save so the card the user ends up
- * looking at is what is asserted.
+ * the limit in the server's own words, stores an empty note as none, serves
+ * the task back on GET /tasks/<name> — which is where the sheet reads the note
+ * it opens on — and serves the list re-read that follows a save so the card
+ * the user ends up looking at is what is asserted.
  */
 
 import { bootApp, checker, settle } from './harness.mjs';
@@ -22,11 +23,20 @@ function listWith(tasks) {
   const app = bootApp();
   const state = Object.fromEntries(tasks.map((t) => [t.name, { ...t }]));
   const posted = [];
+  const gets = [];
+  const failGets = { on: false };
   app.setFetch(async (path, opts) => {
     const json = (d, status = 200) => ({ ok: status < 400, status, json: async () => d });
     if (path.startsWith('/tasks?')) return json({ tasks: Object.values(state) });
     const parts = path.split('/').filter(Boolean);
     const name = decodeURIComponent(parts[1] || ''), tail = parts[2] || '';
+    if (name && tail === '' && (opts || {}).method !== 'POST') {
+      // GET /tasks/<name>: the note sheet reads the task back from here.
+      gets.push(name);
+      if (failGets.on) return json({ error: 'server down' }, 500);
+      return state[name] ? json({ task: state[name] }) : json({ error: 'No such task' }, 404);
+    }
+    if (tail.startsWith('tail')) return json({ entries: [] });
     if ((opts || {}).method === 'POST' && tail === 'notes') {
       const body = JSON.parse(opts.body);
       posted.push({ name, body });
@@ -47,7 +57,7 @@ function listWith(tasks) {
   // A search is how closed tasks reach the list.
   app.state.query = 'task'; app.state.draft = 'task';
   app.renderList();
-  return { app, state, posted };
+  return { app, state, posted, gets, failGets };
 }
 
 const T = (name, status, extra = {}) => ({
@@ -221,6 +231,75 @@ check('a refused save does not reload the list', listReads(app) === reads1,
   `list reads ${reads1} -> ${listReads(app)}`);
 check('and the card keeps its old note', body(app, 'closed-task').includes('closed &lt;b&gt;'),
   body(app, 'closed-task'));
+
+// ── the sheet opens on the note the server has now, not the list's copy ──
+// The list is a poll; a note written from the CLI between two polls is not in
+// it yet, and a sheet opened on the stale copy would offer to overwrite the
+// newer note with the older one.
+const fresh = listWith([T('stale-task', 'WORKING', { notes: 'as the list saw it' })]);
+fresh.state['stale-task'].notes = 'as the CLI just wrote it';
+pressNote(fresh.app, 'stale-task');
+await settle();
+check('the sheet reads the task back before it opens', fresh.gets.includes('stale-task'),
+  `gets=${JSON.stringify(fresh.gets)}`);
+check('and opens on the note the server has now',
+  fresh.app.modalHtml().includes('>as the CLI just wrote it</textarea>'), fresh.app.modalHtml());
+check('not on the one the list last saw', !fresh.app.modalHtml().includes('as the list saw it'));
+fresh.app.modal('#mv').value = 'as the CLI just wrote it';
+clickModal(fresh.app, '#mo', 'the note sheet must be saveable');
+await settle(); await settle();
+check('unchanged against the server copy sends nothing', fresh.posted.length === 0,
+  JSON.stringify(fresh.posted));
+
+// If the read fails, the copy the list had is what the sheet opens on: the
+// user still gets a sheet, and the server judges whatever they save.
+const down = listWith([T('lonely-task', 'WORKING', { notes: 'from the list' })]);
+down.failGets.on = true;
+pressNote(down.app, 'lonely-task');
+await settle();
+check('when the read fails the sheet still opens', down.app.modalOpen());
+check('on the copy the list had', down.app.modalHtml().includes('>from the list</textarea>'),
+  down.app.modalHtml());
+clickModal(down.app, '#mc', 'the note sheet must be cancellable');
+await settle();
+
+// ── the same sheet from the task page's ••• menu ────────────────────────
+const paged = listWith([T('paged-task', 'AGENT_FINISHED', { notes: 'page note' })]);
+paged.app.showActions({ ...paged.state['paged-task'] });
+await settle();
+const options = paged.app.modalOptions();
+const values = options.map((o) => o.value);
+check('the ••• sheet offers Note…', options.some((o) => o.value === 'notes' && o.label === 'Note…'),
+  JSON.stringify(options));
+check('after the entries that talk to the agent, before the ones that change the task',
+  values.slice(3, 6).join(',') === 'done,notes,pin', values.join(','));
+check('it is not marked dangerous', options.some((o) => o.value === 'notes' && !o.danger));
+clickModal(paged.app, '[data-value="notes"]', 'Note… must be on the sheet');
+await settle(); await settle();
+check('choosing it opens the note sheet',
+  paged.app.modalHasField() && paged.app.modalTitle() === 'Note for paged-task',
+  `title=${paged.app.modalTitle()} field=${paged.app.modalHasField()}`);
+check('opened on the current note', paged.app.modalHtml().includes('>page note</textarea>'),
+  paged.app.modalHtml());
+paged.app.modal('#mv').value = 'page note, revised';
+clickModal(paged.app, '#mo', 'the note sheet must be saveable');
+await settle(); await settle(); await settle();
+const pagePost = paged.posted[paged.posted.length - 1];
+check('saving posts to the notes route',
+  pagePost && pagePost.name === 'paged-task' && pagePost.body.notes === 'page note, revised',
+  JSON.stringify(pagePost));
+check('the toast confirms it', toastText(paged.app) === 'Note saved for paged-task',
+  `toast=${toastText(paged.app)}`);
+check('the page is re-read after the save',
+  paged.gets.filter((n) => n === 'paged-task').length >= 2, `gets=${JSON.stringify(paged.gets)}`);
+
+// A closed task's sheet offers it too, right after its way back.
+const shut = listWith([T('shut-task', 'DONE', { notes: 'closed note' })]);
+shut.app.showActions({ ...shut.state['shut-task'] });
+await settle();
+const shutValues = shut.app.modalOptions().map((o) => o.value);
+check('a closed task is offered Note… right after its way back',
+  shutValues[0] === 'undone' && shutValues[1] === 'notes', shutValues.join(','));
 
 // ── a name the list no longer knows opens nothing ───────────────────────
 await app.notesFromCard('ghost-task');
