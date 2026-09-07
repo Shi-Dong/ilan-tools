@@ -38,6 +38,7 @@ from ilan.models import (
     max_tag,
     other_engine,
     parse_task_number,
+    validate_notes,
     validate_task_name,
 )
 from ilan.runner import Runner
@@ -990,13 +991,17 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             """Replace a task's note. An empty note clears it.
 
             Unlike the alias there is no pool to police and no uniqueness to
-            enforce, and unlike ``rename`` nothing downstream keys off the
-            value, so any string is accepted. A terminal task can be annotated
-            too: writing down what a closed task was about is exactly the case
-            this command exists for.
+            enforce, so any text is accepted up to ``MAX_NOTES_LENGTH``. The
+            length is checked *after* stripping, so surrounding whitespace
+            never costs the user part of their budget. A terminal task can be
+            annotated too: writing down what a closed task was about is
+            exactly the case this command exists for.
             """
             body = self._body()
             note = str(body.get("notes") or "").strip()
+            if err := validate_notes(note):
+                self._json({"error": err}, 400)
+                return
             with self._ilan.lock:
                 task = self._get_task_or_404(name)
                 if task is None:

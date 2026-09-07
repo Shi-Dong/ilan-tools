@@ -25,7 +25,7 @@ from ilan.cli import (
     _build_notes_cell,
     main,
 )
-from ilan.models import Task, TaskStatus
+from ilan.models import MAX_NOTES_LENGTH, Task, TaskStatus, validate_notes
 from ilan.server import IlanServer
 from ilan.store import Store
 
@@ -78,6 +78,39 @@ class TestNotesField:
         )
         assert child.notes is None
         assert store.get_task("parent").notes == "parent's reminder"
+
+
+class TestValidateNotes:
+    """The length rule, as a plain function.
+
+    Kept out of the dataclass on purpose: like ``name``, a note is validated
+    where user input arrives (the route), not on every ``Task`` a test or a
+    migration happens to construct.
+    """
+
+    def test_the_limit_is_128(self) -> None:
+        assert MAX_NOTES_LENGTH == 128
+
+    def test_a_short_note_passes(self) -> None:
+        assert validate_notes("a reminder") is None
+
+    def test_an_empty_note_passes(self) -> None:
+        """Clearing goes through the same path, so it must not trip the rule."""
+        assert validate_notes("") is None
+
+    def test_exactly_the_limit_passes(self) -> None:
+        assert validate_notes("x" * MAX_NOTES_LENGTH) is None
+
+    def test_one_over_the_limit_fails(self) -> None:
+        err = validate_notes("x" * (MAX_NOTES_LENGTH + 1))
+        assert err is not None
+        assert str(MAX_NOTES_LENGTH) in err
+
+    def test_the_message_names_the_length_the_user_wrote(self) -> None:
+        """Knowing it is too long is useless without knowing by how much."""
+        err = validate_notes("x" * 200)
+        assert err is not None
+        assert "200" in err
 
 
 # ── server endpoint ─────────────────────────────────────────────────────
@@ -182,6 +215,46 @@ class TestNotesEndpoint:
         _seed(ilan_server, "alpha")
         _, body = _post(ilan_server, "/tasks/alpha/notes", {"notes": "one\ntwo"})
         assert body["notes"] == "one\ntwo"
+
+    def test_a_note_at_the_limit_is_accepted(self, ilan_server: IlanServer) -> None:
+        _seed(ilan_server, "alpha")
+        note = "x" * MAX_NOTES_LENGTH
+        code, body = _post(ilan_server, "/tasks/alpha/notes", {"notes": note})
+        assert code == 200
+        assert body["notes"] == note
+
+    def test_a_note_over_the_limit_is_rejected(self, ilan_server: IlanServer) -> None:
+        _seed(ilan_server, "alpha", notes="the old note")
+        code, body = _post(
+            ilan_server, "/tasks/alpha/notes", {"notes": "x" * (MAX_NOTES_LENGTH + 1)},
+        )
+        assert code == 400
+        assert str(MAX_NOTES_LENGTH) in body["error"]
+        assert str(MAX_NOTES_LENGTH + 1) in body["error"]  # names the actual length
+        # A rejected write must not have disturbed what was already there.
+        assert ilan_server.store.get_task("alpha").notes == "the old note"
+
+    def test_the_limit_is_measured_after_stripping(
+        self, ilan_server: IlanServer,
+    ) -> None:
+        """Padding the user did not intend must not cost part of the budget."""
+        _seed(ilan_server, "alpha")
+        note = "x" * MAX_NOTES_LENGTH
+        code, body = _post(
+            ilan_server, "/tasks/alpha/notes", {"notes": f"   {note}   "},
+        )
+        assert code == 200
+        assert body["notes"] == note
+
+    def test_the_limit_counts_characters_not_bytes(
+        self, ilan_server: IlanServer,
+    ) -> None:
+        """A multi-byte character is one character, not two or three."""
+        _seed(ilan_server, "alpha")
+        note = "é" * MAX_NOTES_LENGTH  # 2 bytes each in UTF-8
+        code, body = _post(ilan_server, "/tasks/alpha/notes", {"notes": note})
+        assert code == 200
+        assert body["notes"] == note
 
     def test_accepts_an_alias(self, ilan_server: IlanServer) -> None:
         _seed(ilan_server, "alpha", alias="aa")
@@ -351,6 +424,34 @@ class TestNotesCommand:
             result = runner.invoke(main, ["notes", "alpha"])
         assert result.exit_code != 0
         client.set_notes.assert_not_called()
+
+    def test_an_over_long_note_surfaces_the_server_error(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """The server owns the rule; the CLI just reports what it says.
+
+        No client-side length check, matching ``alias``: one authority means
+        the web app and any future client get the same answer.
+        """
+        client = MagicMock()
+        client.set_notes.return_value = {
+            "error": f"Note is 200 characters; the limit is {MAX_NOTES_LENGTH}."
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["notes", "alpha", "x" * 200])
+        assert result.exit_code == 1
+        out = _strip_ansi(result.output)
+        assert str(MAX_NOTES_LENGTH) in out
+        # It is still sent: the client does not second-guess the limit.
+        client.set_notes.assert_called_once_with("alpha", "x" * 200)
+
+    @pytest.mark.parametrize("args", [["notes", "--help"], ["task", "notes", "--help"]])
+    def test_help_quotes_the_real_limit(
+        self, runner: CliRunner, tmp_config, args: list[str],
+    ) -> None:
+        result = runner.invoke(main, args)
+        assert result.exit_code == 0
+        assert str(MAX_NOTES_LENGTH) in _strip_ansi(result.output)
 
 
 class TestClientSetNotes:

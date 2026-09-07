@@ -36,6 +36,27 @@ def validate_task_name(name: str) -> str | None:
     return None
 
 
+# A note has to stay glanceable inside a fixed-width column in ``ilan ls`` and
+# ``ilan dashboard``, and every character past a line's worth pushes the rest
+# of the listing further down the screen. Past this the text has stopped being
+# a reminder and belongs in the conversation itself.
+MAX_NOTES_LENGTH = 128
+
+
+def validate_notes(note: str) -> str | None:
+    """Return an error message if *note* is too long to store, else ``None``.
+
+    Rejects rather than truncates: silently dropping the tail would leave the
+    user believing they had written something the listing never shows.
+    """
+    if len(note) > MAX_NOTES_LENGTH:
+        return (
+            f"Note is {len(note)} characters; the limit is {MAX_NOTES_LENGTH}. "
+            "Shorten it, or keep the detail in the conversation itself."
+        )
+    return None
+
+
 ALIAS_CHARS = "asdfghjkl"
 _BANNED_ALIASES: set[str] = {"ls"}
 ALIAS_POOL: list[str] = [

@@ -41,6 +41,7 @@ from ilan.models import (
     DEFAULT_ENGINE,
     ENGINE_CODEX,
     ENGINE_NAME_STYLE,
+    MAX_NOTES_LENGTH,
     REPLY_EVERY_MIN_SECONDS,
     TAP_MESSAGE,
     TaskStatus,
@@ -1825,15 +1826,21 @@ def _do_set_notes(name: str, note: str) -> None:
     console.print(line)
 
 
-@task_group.command("notes")
+# Built as an f-string rather than written as a docstring so the limit quoted
+# in `--help` can only ever be the limit the server enforces.
+_NOTES_HELP = (
+    "Write the note shown beside a task in ilan ls / ilan dashboard. "
+    "The note replaces whatever the task carried before, so correcting one is "
+    'just writing it again. Pass an empty note ("") to clear it. A note is '
+    f"limited to {MAX_NOTES_LENGTH} characters."
+)
+
+
+@task_group.command("notes", help=_NOTES_HELP)
 @click.argument("name", shell_complete=_complete_task_names)
 @click.argument("note")
 def task_notes(name: str, note: str) -> None:
-    """Write the note shown beside a task in ilan ls / ilan dashboard.
-
-    The note replaces whatever the task carried before, so correcting one is
-    just writing it again. Pass an empty note ("") to clear it.
-    """
+    """Write the note shown beside a task in ilan ls / ilan dashboard."""
     _do_set_notes(name, note)
 
 
@@ -2544,7 +2551,16 @@ def shortcut_alias(name: str, new_alias: str) -> None:
     _do_set_alias(name, new_alias)
 
 
-@main.command("notes")
+# The other shortcuts are a bare pointer at the canonical command, but this is
+# the spelling people actually type, so it carries the one rule they need at
+# the moment of typing.
+@main.command(
+    "notes",
+    help=(
+        "Shorthand for 'ilan task notes'. A note is limited to "
+        f"{MAX_NOTES_LENGTH} characters."
+    ),
+)
 @click.argument("name", shell_complete=_complete_task_names)
 @click.argument("note")
 def shortcut_notes(name: str, note: str) -> None:
