@@ -145,7 +145,7 @@ class TestBuildDashboardTable:
         table = _build_dashboard_table([], _TZ)
         col_names = [c.header for c in table.columns]
         assert col_names == [
-            "(Alias) Name", "Status", "Created", "Last Changed", "Notes",
+            "(Alias) Name", "Status", "Notes", "Created", "Last Changed",
         ]
 
 
@@ -454,13 +454,13 @@ class TestDashboardTableProperties:
     def test_table_expands_with_one_liner_on(self) -> None:
         """One-liner ON: Status gets the bigger share of the flexible space.
 
-        Only Name and Status carry a ratio; Created, Last Changed and Notes
+        Only Name and Status carry a ratio; Notes, Created and Last Changed
         are pinned to fixed widths, so those two split whatever is left.
         """
         table = _build_dashboard_table([], _TZ, show_one_liner=True)
         assert table.expand is True
         ratios = [c.ratio for c in table.columns]
-        assert ratios == [10, 16, None, None, None]
+        assert ratios == [10, 13, None, None, None]
 
     def test_table_expands_with_one_liner_off(self) -> None:
         """One-liner OFF: Name takes the bulk, since Status only holds a
@@ -469,7 +469,7 @@ class TestDashboardTableProperties:
         table = _build_dashboard_table([], _TZ, show_one_liner=False)
         assert table.expand is True
         ratios = [c.ratio for c in table.columns]
-        assert ratios == [14, 8, None, None, None]
+        assert ratios == [14, 7, None, None, None]
 
     def test_table_draws_separator_between_rows(self) -> None:
         """``show_lines=True`` draws a horizontal rule between every task row."""
@@ -497,18 +497,18 @@ class TestNarrowDashboardColumns:
     def test_narrow_drops_created_one_liner_on(self) -> None:
         table = _build_dashboard_table([], _TZ, show_one_liner=True, narrow=True)
         col_names = [c.header for c in table.columns]
-        assert col_names == ["(Alias) Name", "Status", "Last Changed", "Notes"]
+        assert col_names == ["(Alias) Name", "Status", "Notes", "Last Changed"]
 
     def test_narrow_drops_created_one_liner_off(self) -> None:
         table = _build_dashboard_table([], _TZ, show_one_liner=False, narrow=True)
         col_names = [c.header for c in table.columns]
-        assert col_names == ["(Alias) Name", "Status", "Last Changed", "Notes"]
+        assert col_names == ["(Alias) Name", "Status", "Notes", "Last Changed"]
 
     def test_wide_keeps_all_columns(self) -> None:
         table = _build_dashboard_table([], _TZ, narrow=False)
         col_names = [c.header for c in table.columns]
         assert col_names == [
-            "(Alias) Name", "Status", "Created", "Last Changed", "Notes",
+            "(Alias) Name", "Status", "Notes", "Created", "Last Changed",
         ]
 
     def test_narrow_empty_row_matches_column_count(self) -> None:
