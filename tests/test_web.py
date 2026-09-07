@@ -12,6 +12,7 @@ from ilan import web
 from ilan.models import (
     AGENT_IN_LOOP_LABEL,
     CANCEL_MESSAGE,
+    MAX_NOTES_LENGTH,
     TAP_MESSAGE,
     TaskStatus,
 )
@@ -423,7 +424,9 @@ def test_each_quiet_action_takes_its_ink_from_its_own_variable():
     and an unrelated colour.
     """
     css = web.read_asset("app.css").decode()
-    for selector, var in ((".act-tap", "--act-tap"), (".act-done", "--act-done")):
+    for selector, var in (
+        (".act-tap", "--act-tap"), (".act-done", "--act-done"), (".act-notes", "--act-notes"),
+    ):
         rule = re.search(rf"\{selector} \{{(.*?)\}}", css, re.S)
         assert rule, f"no rule for {selector}"
         assert f"color: var({var})" in rule.group(1), (
@@ -445,7 +448,7 @@ def test_every_quiet_action_is_legible_on_the_card():
     css = web.read_asset("app.css").decode()
     light, dark = _scheme_values(css)
 
-    for var in ("--act-tap", "--act-done"):
+    for var in ("--act-tap", "--act-done", "--act-notes"):
         for scheme, values in (("light", light), ("dark", dark)):
             ink, card = values[var], values["--bg-elevated"]
             assert _contrast(ink, card) >= 4.5, (
@@ -467,7 +470,7 @@ def test_exactly_one_card_action_is_filled():
     css = web.read_asset("app.css").decode()
 
     filled = []
-    for selector in (".act-tap", ".act-done", ".act-revive", ".act-details"):
+    for selector in (".act-tap", ".act-done", ".act-revive", ".act-notes", ".act-details"):
         rule = re.search(rf"\{selector} \{{(.*?)\}}", css, re.S)
         assert rule, f"no rule for {selector}"
         background = re.search(r"background:\s*([^;]+);", rule.group(1))
@@ -517,7 +520,9 @@ def test_the_quiet_actions_are_bounded_as_visibly_as_anything_else_in_the_app():
     css = web.read_asset("app.css").decode()
     light, dark = _scheme_values(css)
 
-    for selector, var in ((".act-tap", "--act-tap"), (".act-done", "--act-done")):
+    for selector, var in (
+        (".act-tap", "--act-tap"), (".act-done", "--act-done"), (".act-notes", "--act-notes"),
+    ):
         rule = re.search(rf"\{selector} \{{(.*?)\}}", css, re.S)
         assert rule, f"no rule for {selector}"
         mix = re.search(
@@ -556,13 +561,18 @@ def test_every_glyph_resolves_to_a_symbol_in_the_sprite():
 
     The button would still be there, still be tappable, and simply have lost
     its icon — so nothing else in the suite would notice. Both directions are
-    checked: every reference resolves, and no symbol is left unused.
+    checked: every reference resolves, and no symbol is left unused — and no
+    id is defined twice, which the set comparison alone would hide.
     """
     js = web.read_asset("app.js").decode()
     html = web.read_asset("index.html").decode()
 
-    defined = set(re.findall(r'<symbol id="([^"]+)"', html))
+    ids = re.findall(r'<symbol id="([^"]+)"', html)
+    defined = set(ids)
     assert defined, "the icon sprite defines no symbols"
+    assert len(ids) == len(defined), (
+        f"defined twice: {sorted(i for i in defined if ids.count(i) > 1)}"
+    )
 
     keys = re.search(r"const ICONS = \{(.*?)\};", js, re.S)
     assert keys, "app.js no longer names its glyphs"
@@ -587,12 +597,14 @@ def test_the_card_buttons_run_tap_done_details():
     A closed card shows its way back in the same position, so in source order
     the revive button comes first — it and Tap/Done are the two arms of one
     condition — and Details, outside the condition, is last for every card.
+    Note sits between them: offered on every card like Details, so outside the
+    condition too, and before Details so the filled button stays last.
     """
     js = web.read_asset("app.js").decode()
     row = re.search(r'<div class="row-actions">(.*?)</div>', js, re.S)
     assert row, "the card no longer has an actions row"
-    order = re.findall(r"data-(revive|tap|done|details)=", row.group(1))
-    assert order == ["revive", "tap", "done", "details"], order
+    order = re.findall(r"data-(revive|tap|done|notes|details)=", row.group(1))
+    assert order == ["revive", "tap", "done", "notes", "details"], order
 
 
 def test_a_closed_card_offers_its_way_back_where_tap_and_done_would_be():
@@ -1003,13 +1015,17 @@ def test_a_collapsed_card_hides_the_summary_and_the_metadata():
     """The collapsed view is defined by CSS, so assert the rules exist.
 
     A collapsed card shows the pin, alias, name, unread marker, status and the
-    max-model tag. The summary and the age are what it drops, hidden by class
-    rather than by a second rendering path — so losing one of these selectors
-    would quietly put the detail back.
+    max-model tag. The summary, the note and the age are what it drops, hidden
+    by class rather than by a second rendering path — so losing one of these
+    selectors would quietly put the detail back.
     """
     css = web.read_asset("app.css").decode()
 
-    for selector in (".card.collapsed .row-sum", ".card.collapsed .meta-detail"):
+    for selector in (
+        ".card.collapsed .row-sum",
+        ".card.collapsed .row-notes",
+        ".card.collapsed .meta-detail",
+    ):
         assert selector in css, f"{selector} is no longer hidden when collapsed"
 
     # The status must NOT be hidden: it is one of the things that stay, and it
@@ -1688,3 +1704,100 @@ def test_the_docs_describe_notifications_instead_of_denying_them():
     assert "There are no push notifications" not in ref
     assert "Push notifications are opt-in per phone" in ref
     assert "never the alias" in ref
+
+
+# ── the note ────────────────────────────────────────────────────────────
+
+def test_the_note_sits_under_the_summary_inside_the_card_body():
+    """`ilan notes` gives a task a line the user writes. The card shows it
+    under the summary the server wrote and inside the body button, so it is
+    detail that toggles the card the way the summary does, not a control.
+
+    Rendered only when there is one: an empty bar under every card would say
+    "no note" across a list where most tasks have none.
+    """
+    js = web.read_asset("app.js").decode()
+    body = re.search(r'<button class="row" data-toggle=(.*?)</button>', js, re.S)
+    assert body, "the card body is gone"
+    inside = body.group(1)
+    for cls in ("row-sum", "row-notes", "row-meta"):
+        assert f'class="{cls}"' in inside, f"{cls} is no longer in the card body"
+    assert (
+        inside.index('class="row-sum"')
+        < inside.index('class="row-notes"')
+        < inside.index('class="row-meta"')
+    ), "the note is no longer between the summary and the status line"
+    assert "${esc(task.notes)}" in inside, "the note is rendered unescaped"
+    assert re.search(r"\$\{task\.notes\s*\?\s*`<span class=\"row-notes\">", js), (
+        "the note line is drawn even when the task has no note"
+    )
+
+
+def test_the_note_keeps_its_line_breaks_and_is_not_clamped():
+    """The server stores a note verbatim, line breaks included, so a break the
+    user typed is one they meant. The summary's reason for having no clamp
+    holds here too: the line only renders on an expanded card.
+    """
+    css = web.read_asset("app.css").decode()
+    rule = re.search(r"\n\.row-notes \{(.*?)\}", css, re.S)
+    assert rule, ".row-notes is not styled"
+    assert "white-space: pre-wrap" in rule.group(1), "line breaks in a note are collapsed"
+    assert "overflow-wrap: anywhere" in rule.group(1), "an unbroken token can overflow the card"
+    assert "line-clamp" not in rule.group(1), "the note is clamped"
+    assert "-webkit-box" not in rule.group(1), "the note is clamped"
+
+
+def test_the_note_bar_takes_the_ink_of_the_button_that_edits_it():
+    """A bar rather than a "Note:" label sets the line off, drawn in the Note
+    button's own ink so the two read as one thing.
+
+    The ink is neutral on purpose. The card's quiet actions already spend an
+    amber and a rose, and the light red the CLI prints notes in would sit at
+    the hue of --danger and the NEEDS ATTENTION pill on this same card. It is
+    also a step darker than --text-dim, so a quiet button drawn in it reads as
+    secondary rather than as disabled.
+    """
+    css = web.read_asset("app.css").decode()
+    light, dark = _scheme_values(css)
+
+    rule = re.search(r"\n\.row-notes \{(.*?)\}", css, re.S)
+    assert rule, ".row-notes is not styled"
+    assert "border-left: 3px solid var(--act-notes)" in rule.group(1), (
+        "the bar is no longer drawn in the Note button's ink"
+    )
+
+    for scheme, values in (("light", light), ("dark", dark)):
+        ink, card, dim = values["--act-notes"], values["--bg-elevated"], values["--text-dim"]
+        r, g, b = (int(ink[i:i + 2], 16) for i in (1, 3, 5))
+        assert max(r, g, b) - min(r, g, b) <= 8, (
+            f"{scheme}: --act-notes is {ink}, a hue rather than a neutral"
+        )
+        assert _contrast(ink, card) > _contrast(dim, card), (
+            f"{scheme}: --act-notes {ink} is no stronger than --text-dim {dim} on the card"
+        )
+
+
+def test_the_web_app_holds_the_same_note_limit_as_the_server():
+    """The field stops at the limit so nobody types past it and loses the tail
+    to a refusal. The number is mirrored rather than fetched, so this is what
+    keeps the two from drifting apart.
+    """
+    js = web.read_asset("app.js").decode()
+    assert f"const MAX_NOTES_LENGTH = {MAX_NOTES_LENGTH};" in js, (
+        "app.js no longer carries the server's note limit, or carries another"
+    )
+    handler = re.search(r"async function notesFromCard\(name\) \{(.*?)\n\}", js, re.S)
+    assert handler, "the card has no note handler"
+    assert "maxlength: MAX_NOTES_LENGTH" in handler.group(1), "the note field is not capped"
+    assert 'maxlength="${maxlength}"' in js, "askText no longer applies a cap to its field"
+
+
+def test_the_note_button_posts_to_a_route_the_server_serves():
+    """A renamed route would leave the button posting into a 404."""
+    js = web.read_asset("app.js").decode()
+    handler = re.search(r"async function notesFromCard\(name\) \{(.*?)\n\}", js, re.S)
+    assert handler, "the card has no note handler"
+    assert "/notes`" in handler.group(1), "the Note button no longer posts to /notes"
+    assert (
+        "POST", r"^/tasks/([^/]+)/notes$", "handle_task_set_notes",
+    ) in ROUTES

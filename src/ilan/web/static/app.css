@@ -62,6 +62,13 @@
   --act-tap: #a56800;
   --act-done: #8f3a5f;
 
+  /* Ink for the Note button and the bar beside the note it edits. Neutral on
+   * purpose: the two quiet actions above already spend an amber and a rose,
+   * and the light red the CLI prints notes in would sit at the hue of
+   * --danger and the NEEDS ATTENTION pill on this same card. A shade past
+   * --text-dim, so a quiet button in it reads as secondary, not disabled. */
+  --act-notes: #5f5f64;
+
   /* Fill behind a looping task's name, mirroring REPLY_EVERY_BG (grey27) in
    * cli.py. The terminal value is #444444, which is a fill for a dark
    * background; on a white card it would bury the name. This is the darkest
@@ -123,6 +130,8 @@
      * read as another Claude-coloured word. */
     --act-tap: #e0aa3c;
     --act-done: #e0a3c0;
+    /* Lifted the same way: 7.3:1 on the dark card, a step above --text-dim. */
+    --act-notes: #a9a9ae;
   }
 }
 
@@ -401,7 +410,11 @@ textarea.field {
  * collapsing by default exists to provide. */
 .row-actions {
   display: flex;
-  gap: 8px;
+  /* Four buttons fit a 360px screen with room to spare, and a 320px one not
+   * at all: there the row would run past the card. Wrapping puts Details on
+   * its own line instead, and changes nothing on a screen the row fits. */
+  flex-wrap: wrap;
+  gap: 6px;
   padding: 0 14px 12px;
 }
 
@@ -424,7 +437,11 @@ textarea.field {
 .act {
   flex: 1 1 0;
   min-height: var(--tap);
-  padding: 0 6px;
+  /* Four to a row now, so the padding and the gap between buttons are what
+   * decide whether a 360px screen fits them on one line. Measured in a
+   * browser: with these, Tap, Done, Note and Details fit at 360px with about
+   * twenty pixels to spare. */
+  padding: 0 4px;
   border: 1px solid transparent;
   border-radius: 11px;
   background: none;
@@ -456,6 +473,15 @@ textarea.field {
   border-color: color-mix(in srgb, var(--accent) 42%, transparent);
 }
 
+/* Editing the note. Neutral ink (see --act-notes): it is the one action on
+ * the card that changes a line of text rather than what the task is doing,
+ * and the same ink draws the bar beside the note, which is what ties the
+ * button to the line it edits. */
+.act-notes {
+  color: var(--act-notes);
+  border-color: color-mix(in srgb, var(--act-notes) 42%, transparent);
+}
+
 /* Wider than the other two, so which one leads survives being read at arm's
  * length: the fill says it on colour, the width says it again on shape. */
 .act-details {
@@ -470,7 +496,8 @@ textarea.field {
  * the other way instead. */
 .act-tap:active,
 .act-done:active,
-.act-revive:active {
+.act-revive:active,
+.act-notes:active {
   background: color-mix(in srgb, currentColor 14%, transparent);
 }
 
@@ -504,6 +531,7 @@ textarea.field {
  * phone the fact that a task is asleep is worth a line of its own, and a
  * collapsed card is the only thing most of the list ever shows. */
 .card.collapsed .row-sum,
+.card.collapsed .row-notes,
 .card.collapsed .meta-detail {
   display: none;
 }
@@ -543,6 +571,24 @@ textarea.field {
    * one-liner had already been shortened to, hiding the tail of a sentence
    * that was meant to be complete. */
   display: block;
+  overflow-wrap: anywhere;
+}
+
+/* The note the user wrote with `ilan notes`, under the agent's summary: what
+ * the agent last did, then what the task is for. Set off by a bar in the ink
+ * of the button that edits it rather than by a label — "Note:" on every card
+ * would spend a word saying what the bar already says — and in full ink,
+ * since it is the one line on the card the user wrote. Line breaks are kept:
+ * the server stores the note verbatim, so a break the user typed is a break
+ * they meant. No clamp, for the same reason the summary has none. */
+.row-notes {
+  display: block;
+  margin-top: 6px;
+  padding-left: 9px;
+  border-left: 3px solid var(--act-notes);
+  color: var(--text);
+  font-size: 14px;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
