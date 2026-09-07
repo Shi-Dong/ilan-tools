@@ -189,7 +189,7 @@ The web app has the same access model as the server, which is none: anyone who c
 
 ## Gist mirroring
 
-Set a `github-token` and every task's conversation is mirrored to its own **secret GitHub Gist**: one comment per message, with timestamps and the model that wrote each reply, so the whole exchange reads as a chat thread in the browser. Mirroring runs in the background and never slows a reply, existing tasks are back-filled on their next message, and `ilan ls` gains a `History` link per task.
+Set a `github-token` and every task's conversation is mirrored to its own **secret GitHub Gist**: one comment per message, with timestamps and the model that wrote each reply, so the whole exchange reads as a chat thread in the browser. Mirroring runs in the background and never slows a reply, existing tasks are back-filled on their next message, and every task name in `ilan ls` becomes a link straight to that task's Gist.
 
 ```bash
 ilan config set github-token ghp_xxxxxxxxxxxxxxxxxxxx

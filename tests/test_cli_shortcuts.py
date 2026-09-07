@@ -20,7 +20,9 @@ from ilan.cli import (
 from ilan.models import ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_NAME_STYLE
 
 
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+# SGR color/attribute codes, plus the OSC 8 hyperlink sequences Rich emits
+# around a linked task name (``ESC ] 8 ; <params> ; <url> ESC \``).
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m|\x1b\]8;[^\x1b]*\x1b\\")
 
 
 def _strip_ansi(s: str) -> str:
@@ -316,6 +318,44 @@ class TestLsNoArgs:
             (" !!", "bold yellow"),
             ("AGENT_FINISHED", "green"),
         ]
+
+    def test_concise_line_links_the_name_to_its_gist(self) -> None:
+        """The concise view links the name too, same as the full table.
+
+        ``ilan ls -c`` and ``ilan search`` share this builder, so a mirrored
+        task is one click from its conversation in either.
+        """
+        url = "https://gist.github.com/u/abc123"
+        line = _build_concise_task_line(
+            {
+                "name": "styled-task",
+                "alias": None,
+                "status": "WORKING",
+                "engine": ENGINE_CLAUDE,
+                "gist_url": url,
+            }
+        )
+        name_span = next(
+            span for span in line.spans
+            if line.plain[span.start:span.end] == "styled-task"
+        )
+        assert f"link {url}" in str(name_span.style)
+        assert "underline" in str(name_span.style)
+
+    def test_concise_line_name_is_unlinked_without_a_gist(self) -> None:
+        line = _build_concise_task_line(
+            {
+                "name": "styled-task",
+                "alias": None,
+                "status": "WORKING",
+                "engine": ENGINE_CLAUDE,
+            }
+        )
+        name_span = next(
+            span for span in line.spans
+            if line.plain[span.start:span.end] == "styled-task"
+        )
+        assert name_span.style == "bold orange1"
 
     @staticmethod
     def _one_liner_row() -> dict:

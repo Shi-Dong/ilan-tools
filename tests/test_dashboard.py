@@ -3,21 +3,24 @@
 from __future__ import annotations
 
 import io
+import re
 from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
 from click.testing import CliRunner
 from rich.console import Console
-from rich.text import Text
+from rich.table import Table
+from rich.text import Span, Text
 
 from ilan.cli import (
     ALIAS_STYLE,
     _NARROW_TERMINAL_WIDTH,
     _build_dashboard_table,
-    _build_history_cell,
+    _build_name_cell,
     _format_ts,
     _maybe_warn_one_liner_unconfigured,
+    _name_style,
     _terminal_is_narrow,
     main,
 )
@@ -142,7 +145,7 @@ class TestBuildDashboardTable:
         table = _build_dashboard_table([], _TZ)
         col_names = [c.header for c in table.columns]
         assert col_names == [
-            "(Alias) Name", "Status", "Created", "Last Changed", "History",
+            "(Alias) Name", "Status", "Created", "Last Changed",
         ]
 
 
@@ -449,20 +452,20 @@ class TestFormatTsSeconds:
 
 class TestDashboardTableProperties:
     def test_table_expands_with_one_liner_on(self) -> None:
-        """One-liner ON: Status gets the biggest slot (16/34)."""
+        """One-liner ON: Status gets the biggest slot (16/38)."""
         table = _build_dashboard_table([], _TZ, show_one_liner=True)
         assert table.expand is True
         ratios = [c.ratio for c in table.columns]
-        assert ratios == [10, 16, 6, 6, 4]
+        assert ratios == [10, 16, 6, 6]
 
     def test_table_expands_with_one_liner_off(self) -> None:
-        """One-liner OFF: keep the original 14:8:7:7:4 ratios since Status
+        """One-liner OFF: Name takes the bulk at 14:8:7:7, since Status
         only holds a short label + duration suffix.
         """
         table = _build_dashboard_table([], _TZ, show_one_liner=False)
         assert table.expand is True
         ratios = [c.ratio for c in table.columns]
-        assert ratios == [14, 8, 7, 7, 4]
+        assert ratios == [14, 8, 7, 7]
 
     def test_table_draws_separator_between_rows(self) -> None:
         """``show_lines=True`` draws a horizontal rule between every task row."""
@@ -490,31 +493,31 @@ class TestNarrowDashboardColumns:
     def test_narrow_drops_created_one_liner_on(self) -> None:
         table = _build_dashboard_table([], _TZ, show_one_liner=True, narrow=True)
         col_names = [c.header for c in table.columns]
-        assert col_names == ["(Alias) Name", "Status", "Last Changed", "History"]
+        assert col_names == ["(Alias) Name", "Status", "Last Changed"]
 
     def test_narrow_drops_created_one_liner_off(self) -> None:
         table = _build_dashboard_table([], _TZ, show_one_liner=False, narrow=True)
         col_names = [c.header for c in table.columns]
-        assert col_names == ["(Alias) Name", "Status", "Last Changed", "History"]
+        assert col_names == ["(Alias) Name", "Status", "Last Changed"]
 
     def test_wide_keeps_all_columns(self) -> None:
         table = _build_dashboard_table([], _TZ, narrow=False)
         col_names = [c.header for c in table.columns]
         assert col_names == [
-            "(Alias) Name", "Status", "Created", "Last Changed", "History",
+            "(Alias) Name", "Status", "Created", "Last Changed",
         ]
 
     def test_narrow_empty_row_matches_column_count(self) -> None:
         """The 'No active tasks.' placeholder row must not over/under-fill cells."""
         table = _build_dashboard_table([], _TZ, narrow=True)
-        assert len(table.columns) == 4
+        assert len(table.columns) == 3
         # Each column has exactly one placeholder cell.
         assert all(len(c._cells) == 1 for c in table.columns)
 
     def test_narrow_task_row_drops_created(self) -> None:
         row = _task_row(name="narrow-task", status="WORKING")
         table = _build_dashboard_table([row], _TZ, narrow=True)
-        assert len(table.columns) == 4
+        assert len(table.columns) == 3
         col_names = [c.header for c in table.columns]
         assert "Created" not in col_names
 
@@ -526,73 +529,128 @@ class TestNarrowDashboardColumns:
         assert "WORKING" in text
 
 
-# ── History (gist) column ────────────────────────────────────────────
+# ── task name as Gist hyperlink ──────────────────────────────────────
 
 
-class TestHistoryColumn:
-    def test_history_cell_is_linked_when_gist_url(self) -> None:
-        row = _task_row()
-        row["gist_url"] = "https://gist.github.com/u/abc123"
-        table = _build_dashboard_table([row], _TZ)
-        hist_cell = table.columns[4]._cells[0]
-        assert isinstance(hist_cell, Text)
-        assert hist_cell.plain == "history"
-        # The link/underline style is carried by a span over just the label,
-        # NOT as a base Text style. A base style bleeds across the cell's right
-        # padding, so the underline would run past the word "history".
-        assert str(hist_cell.style) in ("", "none")
-        assert len(hist_cell.spans) == 1
-        span = hist_cell.spans[0]
-        assert (span.start, span.end) == (0, len("history"))
-        assert "link https://gist.github.com/u/abc123" in str(span.style)
+_GIST_URL = "https://gist.github.com/u/abc123"
+# The SGR run that styles the task name, plus the text it covers, so a test
+# can assert on the run's *contents* instead of hard-coding a color code.
+_NAME_SGR_RUN = re.compile(r"\x1b\[([0-9;]*)m(my-task[^\x1b]*)")
+
+
+def _name_span(row: dict) -> tuple[Text, Span]:
+    """Return the dashboard row's name cell and the span covering the name."""
+    table = _build_dashboard_table([row], _TZ)
+    name_cell = table.columns[0]._cells[0]
+    assert isinstance(name_cell, Text)
+    # A plain row carries the name as its only span, so it is the last one.
+    return name_cell, name_cell.spans[-1]
+
+
+def _render_name_cell(row: dict) -> str:
+    """Render the row's name cell in a column far wider than the name."""
+    table = Table()
+    table.add_column("(Alias) Name", style="bold", width=30)
+    table.add_column("Status")
+    table.add_row(_build_name_cell(row), "WORKING")
+    buf = io.StringIO()
+    # no_color=False: Rich honors the NO_COLOR env var by dropping color SGR
+    # codes, which would change the byte runs asserted below whenever the
+    # test runs under NO_COLOR (CI, agent shells).
+    Console(
+        file=buf, force_terminal=True, width=60, color_system="standard",
+        no_color=False,
+    ).print(table)
+    return buf.getvalue()
+
+
+class TestNameGistLink:
+    """The task name doubles as a link to its Gist conversation mirror.
+
+    This replaced the old ``History`` column, which spent a whole column of
+    both listings on a single short ``history`` label.
+    """
+
+    def test_name_span_is_linked_when_gist_url(self) -> None:
+        row = _task_row(name="my-task")
+        row["gist_url"] = _GIST_URL
+        cell, span = _name_span(row)
+        assert cell.plain == "my-task"
+        # The link and underline live on a span over just the name, NOT as a
+        # base Text style: a base style bleeds across the cell's padding.
+        assert str(cell.style) in ("", "none")
+        assert (span.start, span.end) == (0, len("my-task"))
+        assert f"link {_GIST_URL}" in str(span.style)
         assert "underline" in str(span.style)
 
-    def test_history_underline_does_not_bleed_into_padding(self) -> None:
-        """Rendered underline must cover only "history", never the padding.
+    def test_engine_color_and_bold_survive_the_link(self) -> None:
+        """Linking must not cost the name its engine color or its weight."""
+        row = _task_row(name="my-task")
+        row["engine"] = DEFAULT_ENGINE
+        row["gist_url"] = _GIST_URL
+        _, span = _name_span(row)
+        assert "bold" in str(span.style)
+        assert ENGINE_NAME_STYLE[DEFAULT_ENGINE] in str(span.style)
 
-        Regression test: when the History column is wider than the label (as it
-        is in the expanding dashboard table), a base Text style would extend the
-        underline SGR across the trailing padding spaces.
+    def test_url_is_the_last_word_of_the_style(self) -> None:
+        """Rich reads the word after ``link`` as the URL.
+
+        Anything written after the URL would be swallowed into it, so the URL
+        has to stay last and every attribute has to precede it.
         """
-        import io
-
-        from rich.console import Console
-        from rich.table import Table
-
-        cell = _build_history_cell({"gist_url": "https://gist/abc"})
-        table = Table()
-        table.add_column("Name")
-        table.add_column("History", width=20)  # far wider than "history"
-        table.add_row("x", cell)
-        buf = io.StringIO()
-        # no_color=False: Rich honors the NO_COLOR env var by dropping color
-        # SGR codes (underline survives), which would turn the expected
-        # ``4;34`` run into ``4`` and break the byte-exact assertions below
-        # whenever the test runs under NO_COLOR (CI, agent shells).
-        Console(
-            file=buf, force_terminal=True, width=60, color_system="standard",
-            no_color=False,
-        ).print(table)
-        out = buf.getvalue()
-        # Underline (SGR 4) + blue (34) opens right before the word and resets
-        # immediately after it — the padding spaces stay outside the SGR run.
-        assert "\x1b[4;34mhistory\x1b[0m" in out
-        assert "\x1b[4;34mhistory " not in out
-
-    def test_history_cell_placeholder_without_gist(self) -> None:
         row = _task_row()
-        table = _build_dashboard_table([row], _TZ)
-        hist_cell = table.columns[4]._cells[0]
-        assert isinstance(hist_cell, Text)
-        assert hist_cell.plain == "-"
+        row["gist_url"] = _GIST_URL
+        assert _name_style(row).endswith(f"link {_GIST_URL}")
 
-    def test_history_cell_placeholder_when_blank_url(self) -> None:
-        row = _task_row()
+    def test_no_link_without_gist(self) -> None:
+        row = _task_row(name="my-task")
+        _, span = _name_span(row)
+        assert "link" not in str(span.style)
+        assert "underline" not in str(span.style)
+
+    def test_no_link_when_blank_url(self) -> None:
+        row = _task_row(name="my-task")
         row["gist_url"] = "   "
-        table = _build_dashboard_table([row], _TZ)
-        hist_cell = table.columns[4]._cells[0]
-        assert isinstance(hist_cell, Text)
-        assert hist_cell.plain == "-"
+        _, span = _name_span(row)
+        assert "link" not in str(span.style)
+        assert "underline" not in str(span.style)
+
+    def test_rendered_hyperlink_wraps_exactly_the_name(self) -> None:
+        r"""The OSC 8 hyperlink must open and close around the name alone.
+
+        Rich opens a terminal hyperlink with ``ESC ] 8 ; id=<n> ; <url> ESC \``
+        and closes it with ``ESC ] 8 ; ; ESC \``. The id is derived from the
+        URL, so only the open sequence's tail and the close are asserted.
+        """
+        row = _task_row(name="my-task")
+        row["gist_url"] = _GIST_URL
+        out = _render_name_cell(row)
+        assert f";{_GIST_URL}\x1b\\" in out
+        # The link closes immediately after the name, so the cell's trailing
+        # padding is not part of the clickable region.
+        assert "my-task\x1b[0m\x1b]8;;\x1b\\" in out
+
+    def test_underline_does_not_bleed_into_padding(self) -> None:
+        """The underline must cover only the name, never the cell padding.
+
+        Regression test: the name column is far wider than most names, so a
+        base Text style would extend the underline SGR across the trailing
+        padding spaces and draw a rule out to the column edge.
+        """
+        row = _task_row(name="my-task")
+        row["gist_url"] = _GIST_URL
+        match = _NAME_SGR_RUN.search(_render_name_cell(row))
+        assert match is not None
+        # SGR 4 is underline; it must open for the name and for nothing else.
+        assert "4" in match.group(1).split(";")
+        assert match.group(2) == "my-task"
+
+    def test_unlinked_name_is_neither_hyperlinked_nor_underlined(self) -> None:
+        row = _task_row(name="my-task")
+        match = _NAME_SGR_RUN.search(_render_name_cell(row))
+        assert match is not None
+        assert "4" not in match.group(1).split(";")
+        assert "\x1b]8;" not in _render_name_cell(row)
 
 
 # ── one-liner summary rendering ──────────────────────────────────────
