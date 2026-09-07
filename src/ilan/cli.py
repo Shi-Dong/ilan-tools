@@ -41,6 +41,7 @@ from ilan.models import (
     DEFAULT_ENGINE,
     ENGINE_CODEX,
     ENGINE_NAME_STYLE,
+    MAX_NOTES_LENGTH,
     REPLY_EVERY_MIN_SECONDS,
     TAP_MESSAGE,
     TaskStatus,
@@ -606,6 +607,26 @@ PIN_STYLE = "bold yellow"
 PIN_MARKER = "→ "
 UNREAD_STYLE = "bold yellow"
 UNREAD_MARKER = "!!"
+# A light red, distinct from the plain `red` the NEEDS_ATTENTION / ERROR
+# statuses use and from the `orange1` a Claude task's name is painted in,
+# so a note never reads as a status or as part of the name.
+NOTES_STYLE = "light_coral"
+# The Notes column is always present and always this wide, in both listings.
+# A column that sized itself to its contents would move every other column
+# each time a note was written, cleared, or lengthened — and the dashboard
+# re-renders once a second, so that movement would never settle.
+#
+# 20 is the widest this can be while a full task name and its status still
+# fit beside it on a 70-column window. A fixed column never yields, so every
+# extra character taken here is paid for by the two that do flex (Name and
+# Status) — and they are the ones a listing is useless without.
+NOTES_COLUMN_WIDTH = 20
+# `_format_ts(..., seconds=False)` is at most "Yesterday 13:30 PDT"; 15 fits
+# every other form ("Today 13:30 PDT", "09-05 13:30 PDT") on one line and
+# folds only the "Yesterday" case onto a second. Pinning the two timestamp
+# columns is what pays for Notes: under `expand=True` they held a *ratio*
+# share that grew with the terminal, far past anything a timestamp needs.
+TIMESTAMP_COLUMN_WIDTH = 15
 
 
 def _append_task_number(text: Text, row: dict) -> None:
@@ -682,6 +703,20 @@ def _build_name_cell(row: dict) -> Text:
         cell.stylize(f"on {REPLY_EVERY_BG}")
     if tag := max_tag(engine, row.get("model")):
         cell.append(f"\n{tag}", style="bold red")
+    return cell
+
+
+def _build_notes_cell(row: dict) -> Text:
+    """Build the Notes cell: the reminder the user wrote with ``ilan notes``.
+
+    Appended as a styled span rather than a base ``Text`` style, matching the
+    other cell builders: a base style is emitted across the cell's right
+    padding too, which is invisible for a plain foreground color but would
+    show the moment the style grew an underline or a background.
+    """
+    cell = Text()
+    if note := (row.get("notes") or "").strip():
+        cell.append(note, style=NOTES_STYLE)
     return cell
 
 
@@ -800,8 +835,9 @@ def _do_ls(show_all: bool, concise: bool = False) -> None:
     table.add_column("(Alias) Name", style="bold")
     table.add_column("Status")
     if not narrow:
-        table.add_column("Created")
-    table.add_column("Last Changed")
+        table.add_column("Created", width=TIMESTAMP_COLUMN_WIDTH)
+    table.add_column("Last Changed", width=TIMESTAMP_COLUMN_WIDTH)
+    table.add_column("Notes", width=NOTES_COLUMN_WIDTH)
     for row in rows:
         changed = _format_ts(row["status_changed_at"], seconds=False) if row.get("status_changed_at") else ""
         cells = [
@@ -811,6 +847,7 @@ def _do_ls(show_all: bool, concise: bool = False) -> None:
         if not narrow:
             cells.append(_format_ts(row["created_at"], seconds=False))
         cells.append(changed)
+        cells.append(_build_notes_cell(row))
         table.add_row(*cells)
     console.print(table)
 
@@ -1772,6 +1809,93 @@ def task_alias(name: str, new_alias: str) -> None:
     _do_set_alias(name, new_alias)
 
 
+# ── task notes ──────────────────────────────────────────────────────
+
+def _notes_usage_error(
+    note: str | None, append: str | None, clear: bool,
+) -> str | None:
+    """Reject note/-a/-c combinations that name two different intentions.
+
+    Each of the three says what the note should become, so any pair of them
+    is a contradiction rather than a refinement. Caught here instead of on the
+    server: these are mistakes about the command line, not about the data.
+    """
+    if clear and append is not None:
+        return "-c clears the note and -a adds to it; use one or the other."
+    if clear and note is not None:
+        return "-c takes no note: it clears the task's note. Drop the text to clear."
+    if append is not None and note is not None:
+        return "Pass the text to append to -a, not as a second argument as well."
+    if not clear and append is None and note is None:
+        return "Give a note to set, -a TEXT to add to the current one, or -c to clear."
+    return None
+
+
+def _do_set_notes(
+    name: str,
+    note: str | None,
+    append: str | None = None,
+    clear: bool = False,
+) -> None:
+    if err := _notes_usage_error(note, append, clear):
+        console.print(f"[red]{err}[/red]")
+        raise SystemExit(1)
+    appending = append is not None
+    # Clearing is an empty note: the server already reads that as "remove it",
+    # so -c needs no separate route.
+    text = "" if clear else (append if appending else note)
+    assert text is not None
+    resp = _client().set_notes(name, text.strip(), append=appending)
+    if _check_error(resp):
+        raise SystemExit(1)
+    if not resp.get("notes"):
+        console.print(f"[green]Note for [bold]{resp['name']}[/bold] cleared.[/green]")
+        return
+    line = Text()
+    line.append("Note for ", style="green")
+    line.append(resp["name"], style="bold green")
+    # On an append the whole note is what matters, not the fragment just added,
+    # so both paths print the note as it now stands.
+    line.append(" now reads " if appending else " set to ", style="green")
+    line.append(resp["notes"], style=NOTES_STYLE)
+    console.print(line)
+
+
+# Built as an f-string rather than written as a docstring so the limit quoted
+# in `--help` can only ever be the limit the server enforces.
+_NOTES_HELP = (
+    "Write the note shown beside a task in ilan ls / ilan dashboard. "
+    "The note replaces whatever the task carried before, so correcting one is "
+    'just writing it again. Pass an empty note ("") or -c to clear it, or -a '
+    "TEXT to add to the note already there. Leading and trailing whitespace is "
+    f"always stripped. A note is limited to {MAX_NOTES_LENGTH} characters."
+)
+_APPEND_HELP = (
+    "Add TEXT to the end of the task's current note, separated by a single "
+    "space, instead of replacing it."
+)
+_CLEAR_HELP = "Clear the task's note. Takes no text of its own."
+
+
+@task_group.command("notes", help=_NOTES_HELP)
+@click.argument("name", shell_complete=_complete_task_names)
+@click.argument("note", required=False, default=None)
+@click.option("-a", "--append", "append", default=None, metavar="TEXT",
+              help=_APPEND_HELP)
+@click.option("-c", "--clear", "clear", is_flag=True, help=_CLEAR_HELP)
+def task_notes(
+    name: str, note: str | None, append: str | None, clear: bool,
+) -> None:
+    """Write the note shown beside a task in ilan ls / ilan dashboard."""
+    _do_set_notes(name, note, append=append, clear=clear)
+
+
+# Singular and plural are the same command. Which one comes to mind depends on
+# whether you are writing one note or thinking of the task's notes, and
+# guessing wrong should not cost the user a round trip.
+task_group.add_command(task_notes, "note")
+
+
 # ── task branch ─────────────────────────────────────────────────────
 
 def _do_branch(
@@ -2473,6 +2597,32 @@ def shortcut_alias(name: str, new_alias: str) -> None:
     _do_set_alias(name, new_alias)
 
 
+# The other shortcuts are a bare pointer at the canonical command, but this is
+# the spelling people actually type, so it carries the one rule they need at
+# the moment of typing.
+@main.command(
+    "notes",
+    help=(
+        "Shorthand for 'ilan task notes'. Pass -a TEXT to add to the current "
+        "note or -c to clear it. A note is limited to "
+        f"{MAX_NOTES_LENGTH} characters."
+    ),
+)
+@click.argument("name", shell_complete=_complete_task_names)
+@click.argument("note", required=False, default=None)
+@click.option("-a", "--append", "append", default=None, metavar="TEXT",
+              help=_APPEND_HELP)
+@click.option("-c", "--clear", "clear", is_flag=True, help=_CLEAR_HELP)
+def shortcut_notes(
+    name: str, note: str | None, append: str | None, clear: bool,
+) -> None:
+    """Shorthand for 'ilan task notes'."""
+    _do_set_notes(name, note, append=append, clear=clear)
+
+
+main.add_command(shortcut_notes, "note")
+
+
 @main.command("branch")
 @click.argument("old_name", shell_complete=_complete_task_names)
 @click.option("-n", "--name", "new_name", default=None,
@@ -2558,6 +2708,8 @@ def _build_dashboard_table(
 
     When ``narrow`` is set (terminal below ``_NARROW_TERMINAL_WIDTH``), the
     ``Created`` column is dropped so the remaining columns stay legible.
+    ``Notes`` is never dropped: a reminder the user wrote outranks a creation
+    timestamp on a window with room for only one of them.
     """
     now = datetime.now(tz)
     header = Text()
@@ -2570,28 +2722,28 @@ def _build_dashboard_table(
     header.append("r", style="bold")
     header.append(" refresh", style="dim")
 
-    # Column sizing depends on whether the Luna one-line summary is
+    # Notes and the two timestamp columns are pinned to fixed widths, so only
+    # Name and Status flex with the terminal. They split whatever is left, and
+    # how they split it depends on whether the Luna one-line summary is
     # rendered inside the Status cell:
     #   * one-liner ON  → Status needs a much wider slot to fit the summary
-    #     under the status label, so it takes 16/38 of the proportional space
-    #     and Name shrinks to 10/38.
+    #     under the status label, so it takes 16/26 of the flexible space and
+    #     Name shrinks to 10/26.
     #   * one-liner OFF → Status only holds a short label + duration suffix,
-    #     so Name takes the bulk instead, at 14:8:7:7.
+    #     so Name takes the bulk instead, at 14/22 against Status' 8/22.
     # In both cases overlong name cells fold within the column instead of
     # pushing it wider.
     table = Table(title=header, expand=True, show_lines=True)
     if show_one_liner:
         table.add_column("(Alias) Name", style="bold", ratio=10)
         table.add_column("Status", ratio=16)
-        if not narrow:
-            table.add_column("Created", ratio=6)
-        table.add_column("Last Changed", ratio=6)
     else:
         table.add_column("(Alias) Name", style="bold", ratio=14)
         table.add_column("Status", ratio=8)
-        if not narrow:
-            table.add_column("Created", ratio=7)
-        table.add_column("Last Changed", ratio=7)
+    if not narrow:
+        table.add_column("Created", width=TIMESTAMP_COLUMN_WIDTH)
+    table.add_column("Last Changed", width=TIMESTAMP_COLUMN_WIDTH)
+    table.add_column("Notes", width=NOTES_COLUMN_WIDTH)
 
     if not rows:
         table.add_row(*(Text("No active tasks.", style="dim"),
@@ -2607,6 +2759,7 @@ def _build_dashboard_table(
         if not narrow:
             cells.append(_format_ts(row["created_at"], seconds=False))
         cells.append(changed)
+        cells.append(_build_notes_cell(row))
         table.add_row(*cells)
     return table
 

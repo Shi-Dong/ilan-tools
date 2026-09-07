@@ -36,6 +36,49 @@ def validate_task_name(name: str) -> str | None:
     return None
 
 
+# A note has to stay glanceable inside a fixed-width column in ``ilan ls`` and
+# ``ilan dashboard``, and every character past a line's worth pushes the rest
+# of the listing further down the screen. Past this the text has stopped being
+# a reminder and belongs in the conversation itself.
+MAX_NOTES_LENGTH = 128
+
+
+def validate_notes(note: str, *, appending: bool = False) -> str | None:
+    """Return an error message if *note* is too long to store, else ``None``.
+
+    Rejects rather than truncates: silently dropping the tail would leave the
+    user believing they had written something the listing never shows.
+
+    *appending* only changes the wording. On an append the length that breaks
+    the limit is the **combined** one, which is not the length the user typed,
+    so the message has to say which number it is talking about.
+    """
+    if len(note) <= MAX_NOTES_LENGTH:
+        return None
+    measured = (
+        f"Appending would make the note {len(note)} characters"
+        if appending
+        else f"Note is {len(note)} characters"
+    )
+    return (
+        f"{measured}; the limit is {MAX_NOTES_LENGTH}. "
+        "Shorten it, or keep the detail in the conversation itself."
+    )
+
+
+def join_notes(existing: str | None, addition: str) -> str:
+    """Join a task's current note and an appended fragment with one space.
+
+    Both sides are stripped first, so the result never carries leading or
+    trailing whitespace and the separator is always exactly one space however
+    the user padded their argument. Either side may be empty: appending to a
+    task with no note just sets the note rather than leaving it indented by a
+    stray separator.
+    """
+    parts = [part for part in ((existing or "").strip(), addition.strip()) if part]
+    return " ".join(parts)
+
+
 ALIAS_CHARS = "asdfghjkl"
 _BANNED_ALIASES: set[str] = {"ls"}
 ALIAS_POOL: list[str] = [
@@ -313,6 +356,12 @@ class Task:
     # tombstone where the task used to be instead of pretending the child was
     # branched off the grandparent directly.
     deleted_ancestors: list[str] = field(default_factory=list)
+    # A free-form reminder the *user* writes with ``ilan notes``, shown in
+    # its own column in ``ilan ls`` / ``ilan dashboard``. Distinct from
+    # ``summary_one_liner`` below, which the server generates from the
+    # agent's latest reply: this one says why the task exists at all, so
+    # nothing overwrites it and it survives every status change.
+    notes: str | None = None
     summary_one_liner: str | None = None
     model: str | None = None
     # The model that generated the most recent assistant message, cached at
@@ -440,6 +489,7 @@ class Task:
             "reply_every_next_at": self.reply_every_next_at,
             "parent_name": self.parent_name,
             "deleted_ancestors": self.deleted_ancestors,
+            "notes": self.notes,
             "summary_one_liner": self.summary_one_liner,
             "model": self.model,
             "last_assistant_model": self.last_assistant_model,
@@ -490,6 +540,7 @@ class Task:
             reply_every_next_at=d.get("reply_every_next_at"),
             parent_name=d.get("parent_name"),
             deleted_ancestors=list(d.get("deleted_ancestors") or []),
+            notes=d.get("notes"),
             summary_one_liner=d.get("summary_one_liner"),
             model=d.get("model"),
             last_assistant_model=d.get("last_assistant_model"),
