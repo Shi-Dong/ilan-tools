@@ -132,6 +132,7 @@ ROUTES: list[tuple[str, str, str]] = [
     ("POST",   r"^/tasks/([^/]+)/kill$",       "handle_task_kill"),
     ("POST",   r"^/tasks/([^/]+)/rename$",     "handle_task_rename"),
     ("POST",   r"^/tasks/([^/]+)/alias$",      "handle_task_set_alias"),
+    ("POST",   r"^/tasks/([^/]+)/notes$",      "handle_task_set_notes"),
     ("POST",   r"^/tasks/([^/]+)/branch$",     "handle_task_branch"),
     ("POST",   r"^/tasks/([^/]+)/max$",        "handle_task_max"),
     ("POST",   r"^/tasks/([^/]+)/unmax$",      "handle_task_unmax"),
@@ -580,6 +581,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     "reply_every_seconds": t.reply_every_seconds,
                     "parent_name": t.parent_name,
                     "deleted_ancestors": t.deleted_ancestors,
+                    "notes": t.notes,
                     "summary_one_liner": t.summary_one_liner,
                     "model": t.model,
                     "gist_url": t.gist_url,
@@ -983,6 +985,25 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task.alias = new_alias
                 self._ilan.store.put_task(task)
             self._json({"ok": True, "name": task.name, "alias": task.alias})
+
+        def handle_task_set_notes(self, name: str):
+            """Replace a task's note. An empty note clears it.
+
+            Unlike the alias there is no pool to police and no uniqueness to
+            enforce, and unlike ``rename`` nothing downstream keys off the
+            value, so any string is accepted. A terminal task can be annotated
+            too: writing down what a closed task was about is exactly the case
+            this command exists for.
+            """
+            body = self._body()
+            note = str(body.get("notes") or "").strip()
+            with self._ilan.lock:
+                task = self._get_task_or_404(name)
+                if task is None:
+                    return
+                task.notes = note or None
+                self._ilan.store.put_task(task)
+            self._json({"ok": True, "name": task.name, "notes": task.notes})
 
         def handle_task_branch(self, name: str):
             body = self._body()

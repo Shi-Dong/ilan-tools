@@ -313,6 +313,12 @@ class Task:
     # tombstone where the task used to be instead of pretending the child was
     # branched off the grandparent directly.
     deleted_ancestors: list[str] = field(default_factory=list)
+    # A free-form reminder the *user* writes with ``ilan notes``, shown in
+    # its own column in ``ilan ls`` / ``ilan dashboard``. Distinct from
+    # ``summary_one_liner`` below, which the server generates from the
+    # agent's latest reply: this one says why the task exists at all, so
+    # nothing overwrites it and it survives every status change.
+    notes: str | None = None
     summary_one_liner: str | None = None
     model: str | None = None
     # The model that generated the most recent assistant message, cached at
@@ -440,6 +446,7 @@ class Task:
             "reply_every_next_at": self.reply_every_next_at,
             "parent_name": self.parent_name,
             "deleted_ancestors": self.deleted_ancestors,
+            "notes": self.notes,
             "summary_one_liner": self.summary_one_liner,
             "model": self.model,
             "last_assistant_model": self.last_assistant_model,
@@ -490,6 +497,7 @@ class Task:
             reply_every_next_at=d.get("reply_every_next_at"),
             parent_name=d.get("parent_name"),
             deleted_ancestors=list(d.get("deleted_ancestors") or []),
+            notes=d.get("notes"),
             summary_one_liner=d.get("summary_one_liner"),
             model=d.get("model"),
             last_assistant_model=d.get("last_assistant_model"),

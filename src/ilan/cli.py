@@ -606,6 +606,10 @@ PIN_STYLE = "bold yellow"
 PIN_MARKER = "→ "
 UNREAD_STYLE = "bold yellow"
 UNREAD_MARKER = "!!"
+# A light red, distinct from the plain `red` the NEEDS_ATTENTION / ERROR
+# statuses use and from the `orange1` a Claude task's name is painted in,
+# so a note never reads as a status or as part of the name.
+NOTES_STYLE = "light_coral"
 
 
 def _append_task_number(text: Text, row: dict) -> None:
@@ -683,6 +687,32 @@ def _build_name_cell(row: dict) -> Text:
     if tag := max_tag(engine, row.get("model")):
         cell.append(f"\n{tag}", style="bold red")
     return cell
+
+
+def _build_notes_cell(row: dict) -> Text:
+    """Build the Notes cell: the reminder the user wrote with ``ilan notes``.
+
+    Appended as a styled span rather than a base ``Text`` style, matching the
+    other cell builders: a base style is emitted across the cell's right
+    padding too, which is invisible for a plain foreground color but would
+    show the moment the style grew an underline or a background.
+    """
+    cell = Text()
+    if note := (row.get("notes") or "").strip():
+        cell.append(note, style=NOTES_STYLE)
+    return cell
+
+
+def _any_notes(rows: list[dict]) -> bool:
+    """Whether any listed task has a note, i.e. the column is worth a slot.
+
+    A column nobody has filled in is pure cost: it takes width from the
+    columns that do carry something, and on a narrow window it takes enough
+    to truncate them. So the listings grow a ``Notes`` column the moment the
+    first note is written and go back to four columns when the last one is
+    cleared, instead of reserving space for a feature this user may not use.
+    """
+    return any((row.get("notes") or "").strip() for row in rows)
 
 
 def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
@@ -796,12 +826,15 @@ def _do_ls(show_all: bool, concise: bool = False) -> None:
     # one-liner column would make it even noisier.
     show_one_liner = _one_liner_enabled() and not show_all
     narrow = _terminal_is_narrow()
+    show_notes = _any_notes(rows)
     table = Table(show_lines=True)
     table.add_column("(Alias) Name", style="bold")
     table.add_column("Status")
     if not narrow:
         table.add_column("Created")
     table.add_column("Last Changed")
+    if show_notes:
+        table.add_column("Notes")
     for row in rows:
         changed = _format_ts(row["status_changed_at"], seconds=False) if row.get("status_changed_at") else ""
         cells = [
@@ -811,6 +844,8 @@ def _do_ls(show_all: bool, concise: bool = False) -> None:
         if not narrow:
             cells.append(_format_ts(row["created_at"], seconds=False))
         cells.append(changed)
+        if show_notes:
+            cells.append(_build_notes_cell(row))
         table.add_row(*cells)
     console.print(table)
 
@@ -1772,6 +1807,41 @@ def task_alias(name: str, new_alias: str) -> None:
     _do_set_alias(name, new_alias)
 
 
+# ── task notes ──────────────────────────────────────────────────────
+
+def _do_set_notes(name: str, note: str) -> None:
+    resp = _client().set_notes(name, note)
+    if _check_error(resp):
+        raise SystemExit(1)
+    if not resp.get("notes"):
+        console.print(f"[green]Note for [bold]{resp['name']}[/bold] cleared.[/green]")
+        return
+    line = Text()
+    line.append("Note for ", style="green")
+    line.append(resp["name"], style="bold green")
+    line.append(" set to ", style="green")
+    line.append(resp["notes"], style=NOTES_STYLE)
+    console.print(line)
+
+
+@task_group.command("notes")
+@click.argument("name", shell_complete=_complete_task_names)
+@click.argument("note")
+def task_notes(name: str, note: str) -> None:
+    """Write the note shown beside a task in ilan ls / ilan dashboard.
+
+    The note replaces whatever the task carried before, so correcting one is
+    just writing it again. Pass an empty note ("") to clear it.
+    """
+    _do_set_notes(name, note)
+
+
+# Singular and plural are the same command. Which one comes to mind depends on
+# whether you are writing one note or thinking of the task's notes, and
+# guessing wrong should not cost the user a round trip.
+task_group.add_command(task_notes, "note")
+
+
 # ── task branch ─────────────────────────────────────────────────────
 
 def _do_branch(
@@ -2473,6 +2543,17 @@ def shortcut_alias(name: str, new_alias: str) -> None:
     _do_set_alias(name, new_alias)
 
 
+@main.command("notes")
+@click.argument("name", shell_complete=_complete_task_names)
+@click.argument("note")
+def shortcut_notes(name: str, note: str) -> None:
+    """Shorthand for 'ilan task notes'."""
+    _do_set_notes(name, note)
+
+
+main.add_command(shortcut_notes, "note")
+
+
 @main.command("branch")
 @click.argument("old_name", shell_complete=_complete_task_names)
 @click.option("-n", "--name", "new_name", default=None,
@@ -2557,7 +2638,9 @@ def _build_dashboard_table(
     """Build a Rich Table from task rows, reusing the _do_ls format.
 
     When ``narrow`` is set (terminal below ``_NARROW_TERMINAL_WIDTH``), the
-    ``Created`` column is dropped so the remaining columns stay legible.
+    ``Created`` column is dropped so the remaining columns stay legible. The
+    ``Notes`` column appears only when some row has a note, on the same terms
+    as in ``_do_ls`` — see :func:`_any_notes`.
     """
     now = datetime.now(tz)
     header = Text()
@@ -2579,6 +2662,10 @@ def _build_dashboard_table(
     #     so Name takes the bulk instead, at 14:8:7:7.
     # In both cases overlong name cells fold within the column instead of
     # pushing it wider.
+    #
+    # Notes is prose, like the one-liner, so a timestamp column's 6-7 would
+    # wrap every note into a stack of short lines; it gets 10 in both layouts.
+    show_notes = _any_notes(rows)
     table = Table(title=header, expand=True, show_lines=True)
     if show_one_liner:
         table.add_column("(Alias) Name", style="bold", ratio=10)
@@ -2592,6 +2679,8 @@ def _build_dashboard_table(
         if not narrow:
             table.add_column("Created", ratio=7)
         table.add_column("Last Changed", ratio=7)
+    if show_notes:
+        table.add_column("Notes", ratio=10)
 
     if not rows:
         table.add_row(*(Text("No active tasks.", style="dim"),
@@ -2607,6 +2696,8 @@ def _build_dashboard_table(
         if not narrow:
             cells.append(_format_ts(row["created_at"], seconds=False))
         cells.append(changed)
+        if show_notes:
+            cells.append(_build_notes_cell(row))
         table.add_row(*cells)
     return table
 

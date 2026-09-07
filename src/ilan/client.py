@@ -217,6 +217,9 @@ class Client:
     def set_alias(self, name: str, new_alias: str) -> dict:
         return self.post(f"/tasks/{name}/alias", {"alias": new_alias})
 
+    def set_notes(self, name: str, notes: str) -> dict:
+        return self.post(f"/tasks/{name}/notes", {"notes": notes})
+
     def branch_task(self, old_name: str, new_name: str | None, message: str) -> dict:
         """Branch a task. A *new_name* of ``None`` lets the server mint a burnable one."""
         body: dict = {"message": message}

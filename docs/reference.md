@@ -123,6 +123,7 @@ Notes:
 | `ilan task open NAME` | Open the task's GitHub Gist history page in your default browser, deep-linked to the most recent comment, and clear its unread marker when a page is available. Warns without opening the browser or clearing the marker if the task has no Gist yet (see [Gist conversation mirroring](#gist-conversation-mirroring)) |
 | `ilan task rename OLD NEW [-d "msg"]` | Rename a task; with `-d`, immediately send `"msg"` as a reply to the renamed task |
 | `ilan task alias NAME NEW_ALIAS` | Change the two-letter alias of an active task (`NEW_ALIAS` must be two letters from `asdfghjkl` and not already in use) |
+| `ilan task notes NAME "note"` | Write the free-form reminder shown in the `Notes` column of `ilan ls` / `ilan dashboard` — what the task is about, so a listing full of names still means something a week later. `ilan task note` is the same command. The note **replaces** whatever the task carried before (correcting one is just writing it again), surrounding whitespace is stripped, and an empty or all-whitespace note clears it. Unlike the alias it is not frozen when the task closes, so a `DONE` task can still be annotated; unlike the `Status` cell's one-line summary it is never regenerated, so nothing overwrites what you wrote. A branched child does not inherit its parent's note |
 | `ilan task branch OLD [-n NEW] (-d "msg" \| -f FILE)` | Branch a new task from `OLD`, inheriting its full Claude Code context (both tasks stay repliable and diverge from there). `"msg"` is the child's first assignment — required — and the child is told up front that the inherited conversation is background context only. Omit `-n` and the child is given a generated [burnable](#burnable-tasks-xxx-) name, which makes `done`/`discard` delete it |
 | `ilan task tree NAME` | Draw the branch tree `NAME` belongs to, from its outermost ancestor down — see [Branch tree](#branch-tree) |
 | `ilan task kill NAME` | Kill a `WORKING` agent, move task to `ERROR` |
@@ -152,6 +153,8 @@ Frequently used task commands have top-level aliases to save typing:
 | `ilan re NAME ["msg"]` | `ilan task reply NAME ["msg"]` |
 | `ilan rename OLD NEW [-d "msg"]` | `ilan task rename OLD NEW [-d "msg"]` |
 | `ilan alias NAME NEW_ALIAS` | `ilan task alias NAME NEW_ALIAS` |
+| `ilan notes NAME "note"` | `ilan task notes NAME "note"` |
+| `ilan note NAME "note"` | `ilan task notes NAME "note"` |
 | `ilan branch OLD [-n NEW] -d "msg"` | `ilan task branch OLD [-n NEW] -d "msg"` |
 | `ilan tree NAME` | `ilan task tree NAME` |
 | `ilan tap NAME` | `ilan task tap NAME` |
@@ -184,6 +187,8 @@ Full-screen, real-time task table (like `htop`). Polls the server at the configu
 Each row's `Status` cell carries a `gpt-5.6-luna`-generated one-line summary of the agent's most recent reply (≤ 20 words). The summary is refreshed only on `WORKING → NEEDS_ATTENTION` / `AGENT_FINISHED` transitions. The server produces it via OpenAI's API when `api-key-codex` is set, otherwise it falls back to the server's local `codex` CLI (`codex login` session, requires `codex` installed and logged in). Toggle whether the client renders it with `ilan config set one-line-summary true|false` (default `true`); if the toggle is on but the server has no `api-key-codex`, the client prints a note about the CLI fallback above the table. A thin separator is drawn between every task row in both `ilan ls` and `ilan dashboard`. When a `github-token` is configured, each task's name is underlined and links to its secret-Gist conversation mirror — see [Gist conversation mirroring](#gist-conversation-mirroring).
 
 Both `ilan ls` and `ilan dashboard` adapt to the terminal width: on a window narrower than 120 columns they drop the `Created` column so the remaining `Name` / `Status` / `Last Changed` columns stay legible.
+
+Both listings also grow a `Notes` column, in a light red, carrying whatever you wrote with [`ilan notes`](#commands) — see the `ilan task notes` row above. The column appears only while at least one listed task has a note and disappears again when the last one is cleared, so a user who never writes a note never pays a column for the feature. It survives the narrow-window rule: below 120 columns `Created` is still the column that goes, since a note you asked for is worth more than a creation timestamp. `ilan ls --concise` does not show notes — that view is one greppable line per task, and free-form prose would break its shape.
 
 Both listings are flat and ordered by creation time, oldest first — a branched child sits at its own creation time rather than under its parent, and a `DONE` / `DISCARDED` task is hidden without `-a` even when it has active children. To see how a task relates to the ones it was branched from, use `ilan tree`.
 
