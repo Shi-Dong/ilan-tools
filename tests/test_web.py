@@ -1688,3 +1688,32 @@ def test_the_docs_describe_notifications_instead_of_denying_them():
     assert "There are no push notifications" not in ref
     assert "Push notifications are opt-in per phone" in ref
     assert "never the alias" in ref
+
+
+# ── the app icon ────────────────────────────────────────────────────────
+
+def test_the_icon_is_a_flat_mark_rendered_from_its_source():
+    """The icon used to be a portrait illustration, which turns to mush at tab
+    size. It is a flat lettermark now, drawn in icon.svg and rendered to the
+    two PNGs iOS and the manifest need.
+
+    Flatness is asserted by weight: a flat mark compresses to a few kilobytes
+    and a picture does not — the old 512px icon weighed 300 KB, this one under
+    six. The source ships beside the renders so the next change edits shapes
+    rather than pixels, and it carries the manifest's theme colour so the tile,
+    the status-bar tint and the mark agree.
+    """
+    svg = web.read_asset("icon.svg")
+    assert svg is not None, "icon.svg, the source of the PNG icons, is not shipped"
+    source = svg.decode()
+    assert 'viewBox="0 0 512 512"' in source, (
+        "the source is not drawn on the 512 canvas the PNGs are rendered at"
+    )
+    manifest = json.loads(web.read_asset("manifest.webmanifest"))
+    assert manifest["theme_color"] in source, "the mark is not the app's theme colour"
+    assert web.content_type("icon.svg") == "image/svg+xml"
+    for name, cap in (("icon-512.png", 20_000), ("icon-180.png", 8_000)):
+        weight = len(web.read_asset(name))
+        assert weight < cap, (
+            f"{name} weighs {weight} bytes; a flat mark is a few kilobytes, a picture is not"
+        )

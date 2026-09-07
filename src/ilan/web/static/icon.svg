@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- The app's mark: a lowercase i, drawn as two shapes rather than set in a
+       font, so it rasterises identically wherever it is rendered. The blue is
+       the app's accent, the same value as theme_color in manifest.webmanifest.
+       Full-bleed and opaque on purpose: iOS paints the transparent corners of
+       a home-screen icon black and rounds the corners itself, and the header
+       logo rounds them in CSS. icon-512.png and icon-180.png are renders of
+       this file (headless Chrome at 512, downscaled to 180); edit this, then
+       re-render, rather than editing the pixels. -->
+  <rect width="512" height="512" fill="#0a63c9"/>
+  <circle cx="256" cy="138" r="54" fill="#ffffff"/>
+  <rect x="200" y="224" width="112" height="210" rx="40" fill="#ffffff"/>
+</svg>
