@@ -313,6 +313,15 @@ class Task:
     status: TaskStatus = TaskStatus.WORKING
     created_at: str = ""
     status_changed_at: str = ""
+    # The most recent time the task became *active*: when it was created, and
+    # again every time ``undone`` / ``undiscard`` brought it back. This is what
+    # the listing sorts on, so a revived task lands at the bottom next to the
+    # work you just picked up rather than back at the position it held before
+    # it was closed, which is where ``created_at`` would leave it. Left unset
+    # it falls back to ``created_at`` (see ``__post_init__``), which is both
+    # what a brand-new task wants and the migration for a store written before
+    # this field existed.
+    activated_at: str = ""
     session_id: str | None = None
     session_log_path: str | None = None
     pid: int | None = None
@@ -430,6 +439,15 @@ class Task:
     # tmux prefix — as its own. Reset once spent.
     awaiting_branch_notice: bool = False
 
+    def __post_init__(self) -> None:
+        # Creation is an activation, and for a task that has never been closed
+        # and revived it is the only one, so an unset ``activated_at`` means
+        # ``created_at``. Doing it here rather than at each call site covers
+        # both of them plus ``from_dict``, so a task loaded from a store
+        # written before the field existed sorts where it always did.
+        if not self.activated_at:
+            self.activated_at = self.created_at
+
     def set_session_for(self, engine: str, session_id: str) -> None:
         """Record the native session id for *engine*."""
         self.sessions[engine] = session_id
@@ -462,6 +480,7 @@ class Task:
             "status": self.status.value,
             "created_at": self.created_at,
             "status_changed_at": self.status_changed_at,
+            "activated_at": self.activated_at,
             "session_id": self.session_id,
             "session_log_path": self.session_log_path,
             "pid": self.pid,
@@ -513,6 +532,7 @@ class Task:
             status=cls._migrate_status(d["status"]),
             created_at=d.get("created_at", ""),
             status_changed_at=d.get("status_changed_at", d.get("created_at", "")),
+            activated_at=d.get("activated_at", ""),
             session_id=d.get("session_id"),
             session_log_path=d.get("session_log_path"),
             pid=d.get("pid"),

@@ -1011,9 +1011,9 @@ def _build_branch_forest(rows: list[dict]) -> list[_TreeNode]:
     tombstone is keyed by the chain of names leading to it, so two siblings
     orphaned by one delete stay siblings under a single marker.
 
-    *rows* must be in ``created_at`` order — the order the server returns.
-    Children are then appended in creation order, and a tombstone lands at the
-    position of its earliest surviving descendant.
+    *rows* must be in activation order — the order the server returns.
+    Children are then appended in that same order, and a tombstone lands at
+    the position of its earliest surviving descendant.
     """
     nodes: dict[object, _TreeNode] = {
         ("task", r["name"]): _TreeNode(name=r["name"], row=r) for r in rows

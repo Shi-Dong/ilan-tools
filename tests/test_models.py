@@ -281,6 +281,7 @@ class TestTask:
         d = t.to_dict()
         expected_keys = {
             "name", "prompt", "status", "created_at", "status_changed_at",
+            "activated_at",
             "session_id", "session_log_path", "pid", "cached_replies", "alias",
             "number",
             "task_hash", "needs_review", "pinned", "input_tokens", "output_tokens",
