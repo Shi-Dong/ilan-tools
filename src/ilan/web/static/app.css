@@ -14,6 +14,11 @@
   --bg: #f2f2f7;
   --bg-elevated: #ffffff;
   --bg-sunken: #e6e6eb;
+  /* A box nested inside a card: the page's own grey, so the card → box step
+   * repeats the page → card step around it. --bg-sunken would be the obvious
+   * pick, but --text-dim reads 4.2:1 on it, under the 4.5:1 a line of text
+   * needs; on this it reads 4.7:1. */
+  --bg-inset: #f2f2f7;
   --text: #1c1c1e;
   --text-dim: #6c6c70;
   --border: #d8d8dd;
@@ -62,6 +67,13 @@
   --act-tap: #a56800;
   --act-done: #8f3a5f;
 
+  /* Ink for the Note button. Neutral on purpose: the two quiet actions above
+   * already spend an amber and a rose, and the light red the CLI prints notes
+   * in would sit at the hue of --danger and the NEEDS ATTENTION pill on this
+   * same card. A shade past --text-dim, so a quiet button in it reads as
+   * secondary, not disabled. */
+  --act-notes: #5f5f64;
+
   /* Fill behind a looping task's name, mirroring REPLY_EVERY_BG (grey27) in
    * cli.py. The terminal value is #444444, which is a fill for a dark
    * background; on a white card it would bury the name. This is the darkest
@@ -85,6 +97,10 @@
     --bg: #000000;
     --bg-elevated: #1c1c1e;
     --bg-sunken: #2c2c2e;
+    /* Lighter than the card rather than darker: on a dark surface a nested
+     * box rises, the way iOS's tertiary background sits on its secondary.
+     * --text-dim reads 5.0:1 on it. */
+    --bg-inset: #2c2c2e;
     --text: #f2f2f7;
     --text-dim: #9b9ba0;
     --border: #38383a;
@@ -123,6 +139,8 @@
      * read as another Claude-coloured word. */
     --act-tap: #e0aa3c;
     --act-done: #e0a3c0;
+    /* Lifted the same way: 7.3:1 on the dark card, a step above --text-dim. */
+    --act-notes: #a9a9ae;
   }
 }
 
@@ -400,9 +418,22 @@ textarea.field {
  * would add two rows of chrome to every task and undo the density that
  * collapsing by default exists to provide. */
 .row-actions {
-  display: flex;
+  /* Two by two. Four in one row squeezed every label to fit a 360px screen;
+   * two to a row gives each the width a glyph and a label want, and keeps
+   * every target 44px tall. Tap and Done, the two that act on the task, share
+   * the top row; Note and Details the bottom, with the filled button
+   * bottom-right, where a thumb expects the one that leads. */
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
   padding: 0 14px 12px;
+}
+
+/* A closed card has three: its way back (undone or undiscard) where Tap and
+ * Done were, then Note and Details. Three fit one row at any phone width, and
+ * one row keeps the way back beside Details, where it was put on purpose. */
+.row-actions:has(.act-revive) {
+  grid-template-columns: 1fr 1fr 1.2fr;
 }
 
 .card.collapsed .row-actions { display: none; }
@@ -422,9 +453,11 @@ textarea.field {
  * treatment suits it — a filled rose button was the loudest thing on the card
  * and pulled the thumb toward the one action that ends something. */
 .act {
-  flex: 1 1 0;
   min-height: var(--tap);
-  padding: 0 6px;
+  /* 4px rather than 6: on a closed card's single row it is what lets
+   * Undiscard, Note and Details share a 320px screen. Two by two, the
+   * buttons are wide enough that the difference does not show. */
+  padding: 0 4px;
   border: 1px solid transparent;
   border-radius: 11px;
   background: none;
@@ -456,10 +489,17 @@ textarea.field {
   border-color: color-mix(in srgb, var(--accent) 42%, transparent);
 }
 
-/* Wider than the other two, so which one leads survives being read at arm's
- * length: the fill says it on colour, the width says it again on shape. */
+/* Editing the note. Neutral ink (see --act-notes): it is the one action on
+ * the card that changes a line of text rather than what the task is doing. */
+.act-notes {
+  color: var(--act-notes);
+  border-color: color-mix(in srgb, var(--act-notes) 42%, transparent);
+}
+
+/* The fill says which one leads. On a closed card's single row the grid also
+ * makes it the widest, so at arm's length the shape says it again; on the
+ * two-by-two card the columns are equal and the colour carries it alone. */
 .act-details {
-  flex: 1.2 1 0;
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-contrast);
@@ -470,7 +510,8 @@ textarea.field {
  * the other way instead. */
 .act-tap:active,
 .act-done:active,
-.act-revive:active {
+.act-revive:active,
+.act-notes:active {
   background: color-mix(in srgb, currentColor 14%, transparent);
 }
 
@@ -504,6 +545,7 @@ textarea.field {
  * phone the fact that a task is asleep is worth a line of its own, and a
  * collapsed card is the only thing most of the list ever shows. */
 .card.collapsed .row-sum,
+.card.collapsed .row-notes,
 .card.collapsed .meta-detail {
   display: none;
 }
@@ -544,6 +586,33 @@ textarea.field {
    * that was meant to be complete. */
   display: block;
   overflow-wrap: anywhere;
+}
+
+/* The note the user wrote with `ilan notes`, under the agent's summary: what
+ * the agent last did, then what the task is for. The two matter equally, so
+ * the note takes the summary's ink and size exactly — a first version set it
+ * in full ink behind a dark bar, and it shouted the summary down. What tells
+ * them apart is the shape: the note is a box inside the card, in the page's
+ * own grey behind the app's hairline, with a radius a step inside the card's
+ * so it reads as nested rather than as a second card. No label — "Note:" on
+ * every card would spend a word saying what the box already says. Line breaks
+ * are kept: the server stores the note verbatim, so a break the user typed is
+ * a break they meant. No clamp, for the same reason the summary has none. */
+.row-notes {
+  display: block;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-inset);
+  color: var(--text-dim);
+  font-size: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  /* Italic: the note is the user's own words, and italics are how a line in
+   * another voice is set within running text. It tells the note from the
+   * summary above it without making either louder — same ink, same size. */
+  font-style: italic;
 }
 
 .row-meta {

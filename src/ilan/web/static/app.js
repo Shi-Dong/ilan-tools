@@ -226,10 +226,15 @@ function modal(innerHtml, wire) {
   });
 }
 
-function askText(title, { value = '', placeholder = '', multiline = false, okLabel = 'OK' } = {}) {
+function askText(title, {
+  value = '', placeholder = '', multiline = false, okLabel = 'OK', maxlength = 0,
+} = {}) {
+  // A maxlength stops the field at the limit the server would refuse, so the
+  // user never types past it only to lose the tail to a refusal afterwards.
+  const cap = maxlength ? ` maxlength="${maxlength}"` : '';
   const field = multiline
-    ? `<textarea class="field" id="mv" rows="4" placeholder="${esc(placeholder)}">${esc(value)}</textarea>`
-    : `<input class="field" id="mv" value="${esc(value)}" placeholder="${esc(placeholder)}"
+    ? `<textarea class="field" id="mv" rows="4" placeholder="${esc(placeholder)}"${cap}>${esc(value)}</textarea>`
+    : `<input class="field" id="mv" value="${esc(value)}" placeholder="${esc(placeholder)}"${cap}
          autocapitalize="off" autocorrect="off" spellcheck="false">`;
   return modal(
     `<div class="sheet-title">${esc(title)}</div>
@@ -548,7 +553,9 @@ function wireBack() {
  * aria-hidden throughout: every one of these sits beside a real text label, so
  * announcing it would repeat the label as a shape.
  */
-const ICONS = { send: 'i-send', check: 'i-check', chevron: 'i-chevron', undo: 'i-undo' };
+const ICONS = {
+  send: 'i-send', check: 'i-check', chevron: 'i-chevron', undo: 'i-undo', pencil: 'i-pencil',
+};
 
 function icon(name) {
   return `<svg class="ico" aria-hidden="true"><use href="#${ICONS[name]}"></use></svg>`;
@@ -584,6 +591,12 @@ function taskRow(task) {
   // whether a task carries one and what it says are the server's call (see
   // handle_list_tasks): the model ids and the backend rule live in models.py,
   // and this only reads the answer.
+  //
+  // The note the user wrote with `ilan notes` sits under the summary: the
+  // agent's account of what it just did, then the user's of what the task is
+  // for. It is detail in the same sense the summary is, so it goes with it
+  // when the card collapses. A Note button in the actions row edits it — it
+  // cannot sit on the note itself, since the card body is already a button.
   const meta = [
     statusPill(task),
     task.max_tag ? `<span class="max-tag">${esc(task.max_tag)}</span>` : '',
@@ -612,6 +625,8 @@ function taskRow(task) {
         </span>
         ${task.summary_one_liner
           ? `<span class="row-sum">${esc(task.summary_one_liner)}</span>` : ''}
+        ${task.notes
+          ? `<span class="row-notes">${esc(task.notes)}</span>` : ''}
         <span class="row-meta">${meta}</span>
       </button>
       <div class="row-actions">
@@ -622,6 +637,8 @@ function taskRow(task) {
           ${icon('send')}<span>Tap</span></button>
         <button class="act act-done" data-done="${esc(task.name)}">
           ${icon('check')}<span>Done</span></button>`}
+        <button class="act act-notes" data-notes="${esc(task.name)}">
+          ${icon('pencil')}<span>Note</span></button>
         <button class="act act-details" data-details="${esc(task.name)}">
           <span>Details</span>${icon('chevron')}</button>
       </div>
@@ -756,6 +773,9 @@ function renderList() {
   document.querySelectorAll('.act-revive').forEach((btn) => {
     btn.onclick = () => reviveFromCard(btn.dataset.revive);
   });
+  document.querySelectorAll('.act-notes').forEach((btn) => {
+    btn.onclick = () => notesFromCard(btn.dataset.notes);
+  });
   updateBadge();
 }
 
@@ -828,6 +848,56 @@ async function doneFromCard(name) {
   );
   if (!ok) return;
   if (await act(`/tasks/${encodeURIComponent(name)}/done`)) await refreshListAfterChange();
+}
+
+/** The longest note the server stores, as models.MAX_NOTES_LENGTH.
+ *
+ * Mirrored here so the field stops the user at the limit rather than letting
+ * them write past it and lose the tail to a refusal. The server still checks:
+ * this is a courtesy, not the rule, and a test pins the two numbers together.
+ */
+const MAX_NOTES_LENGTH = 128;
+
+/** Open the note sheet for *name* and save what comes back, the way
+ * `ilan notes NAME "note"` does. Resolves true when a note was written.
+ *
+ * The sheet opens on the note as the server has it *now*, read back fresh
+ * rather than taken from the list or the page: both are snapshots, and
+ * between two polls a note written from the CLI or another phone is not in
+ * them yet. A sheet opened on the stale copy would offer to overwrite the
+ * newer note with the older one. If the read fails, *fallback* — the caller's
+ * copy — is what the sheet opens on, so it still opens; the server then
+ * judges the save.
+ *
+ * Whole-note replace rather than append: opening on the current note makes
+ * changing it reading it and editing it, and adding to it just typing at the
+ * end. An empty note clears it — the server already reads an empty note as
+ * "remove it", so clearing needs no second control. Nothing is sent when the
+ * text comes back unchanged, and a cancelled sheet sends nothing at all.
+ */
+async function editNote(name, fallback = '') {
+  const t = encodeURIComponent(name);
+  const { ok, data } = await api.get(`/tasks/${t}`);
+  const current = ok && data.task ? (data.task.notes || '') : fallback;
+  const text = await askText(`Note for ${name}`, {
+    value: current,
+    placeholder: 'What is this task about?',
+    multiline: true,
+    okLabel: 'Save',
+    maxlength: MAX_NOTES_LENGTH,
+  });
+  if (text === null) return false;
+  const note = text.trim();
+  if (note === current) return false;
+  return act(`/tasks/${t}/notes`, { notes: note },
+    note ? `Note saved for \`${name}\`` : `Note cleared for \`${name}\``);
+}
+
+/** The card's Note button: edit, then reload the list so the card shows it. */
+async function notesFromCard(name) {
+  const task = state.tasks.find((t) => t.name === name);
+  if (!task) return;
+  if (await editNote(name, task.notes || '')) await refreshListAfterChange();
 }
 
 /** Expand or collapse one task's card, and remember which.
@@ -1233,6 +1303,10 @@ function showActions(task) {
       label: task.status === 'DONE' ? 'Un-done' : 'Un-discard',
     });
   }
+  // On every task, closed ones included: writing down what a finished task was
+  // about is exactly the case `ilan notes` exists for. Beside the entries that
+  // change the task rather than talk to the agent.
+  options.push({ value: 'notes', label: 'Note…' });
   options.push({ value: task.pinned ? 'unpin' : 'pin', label: task.pinned ? 'Unpin' : 'Pin' });
   options.push({ value: task.model ? 'unmax' : 'max', label: task.model ? 'Unmax' : 'Max' });
   options.push({ value: 'switch-backend', label: `Switch backend (now ${task.engine || '?'})` });
@@ -1299,6 +1373,12 @@ async function runAction(choice, task) {
       back();
       return;
     }
+
+    case 'notes':
+      // The same sheet the card opens; the page is re-read after a save so the
+      // task it holds is the one the server has.
+      if (await editNote(task.name, task.notes || '')) back();
+      return;
 
     case 'rename': {
       const next = await askText('New name', { value: task.name });

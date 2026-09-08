@@ -117,7 +117,7 @@ Every task command has a top-level shorthand, so `ilan task reply` is just `ilan
 |---|---|
 | `ilan rename OLD NEW [-d "msg"]` | Rename a task, optionally sending `msg` right after. |
 | `ilan alias NAME XY` | Choose the task's two-letter alias (letters from `asdfghjkl`). |
-| `ilan notes NAME ["note"] [-a TEXT] [-c]` | Write a reminder of what the task is about, shown in a light-red `Notes` column in `ilan ls` and `ilan dashboard`. `-a` adds to the note already there (separated by a space), `-c` clears it. The note stays with the task after it is closed, and is capped at 128 characters. `ilan note` is the same command. |
+| `ilan notes NAME ["note"] [-a TEXT] [-c]` | Write a reminder of what the task is about, shown in a light-red `Notes` column in `ilan ls` and `ilan dashboard`, and under the summary on the web app's task list. `-a` adds to the note already there (separated by a space), `-c` clears it. The note stays with the task after it is closed, and is capped at 128 characters. `ilan note` is the same command. |
 | `ilan pin NAME` / `ilan unpin NAME` | Keep a task at the top of every listing, even after it is closed. |
 | `ilan unread NAME…` | Put the `!!` marker back on tasks. |
 
@@ -184,7 +184,7 @@ Task names are tinted by backend in every listing: orange for Claude, light blue
 
 ## Web app
 
-The server serves a phone-first web app at `/app` (`http://127.0.0.1:4526/app/`), with nothing extra to install. It covers the everyday commands: the task list with search, reading and replying, tap, sleep, done, pin, max, switch-backend, branch, and settings — and, once the app is on an iPhone's Home Screen, push notifications when a task finishes. Point a phone at the server over your LAN, a VPN, or an SSH tunnel, and on iOS use Share, then Add to Home Screen, to install it as an app.
+The server serves a phone-first web app at `/app` (`http://127.0.0.1:4526/app/`), with nothing extra to install. It covers the everyday commands: the task list with search, reading and replying, tap, sleep, done, pin, max, switch-backend, branch, notes, and settings — and, once the app is on an iPhone's Home Screen, push notifications when a task finishes. Point a phone at the server over your LAN, a VPN, or an SSH tunnel, and on iOS use Share, then Add to Home Screen, to install it as an app.
 
 The web app has the same access model as the server, which is none: anyone who can reach the port can drive your agents. Expose it only on a network you trust, or behind an authenticating proxy.
 
