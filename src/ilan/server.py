@@ -27,6 +27,7 @@ from ilan.models import (
     ALIAS_POOL,
     CANCEL_MESSAGE,
     DEFAULT_ENGINE,
+    MAX_NOTES_LENGTH,
     REPLY_EVERY_MIN_SECONDS,
     TAP_MESSAGE,
     VALID_ENGINES,
@@ -39,7 +40,7 @@ from ilan.models import (
     max_tag,
     other_engine,
     parse_task_number,
-    validate_notes,
+    truncate_notes,
     validate_task_name,
 )
 from ilan.runner import Runner
@@ -992,11 +993,13 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             """Replace a task's note, or with ``append`` add to it.
 
             Unlike the alias there is no pool to police and no uniqueness to
-            enforce, so any text is accepted up to ``MAX_NOTES_LENGTH``. The
-            length is checked *after* stripping, so surrounding whitespace
-            never costs the user part of their budget, and on an append it is
-            the combined note that has to fit. A terminal task can be
-            annotated too: writing down what a closed task was about is
+            enforce, so any text is accepted: anything past
+            ``MAX_NOTES_LENGTH`` is cut to fit rather than refused, and the
+            response says so via ``truncated`` so a client can tell the user
+            it was trimmed. The length is measured *after* stripping, so
+            surrounding whitespace never costs part of the budget, and on an
+            append it is the combined note that has to fit. A terminal task
+            can be annotated too: writing down what a closed task was about is
             exactly the case this command exists for.
 
             Appending happens here rather than in the client so it is one
@@ -1013,12 +1016,15 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     return
                 if appending:
                     note = join_notes(task.notes, note)
-                if err := validate_notes(note, appending=appending):
-                    self._json({"error": err}, 400)
-                    return
-                task.notes = note or None
+                truncated = len(note) > MAX_NOTES_LENGTH
+                task.notes = truncate_notes(note) or None
                 self._ilan.store.put_task(task)
-            self._json({"ok": True, "name": task.name, "notes": task.notes})
+            self._json({
+                "ok": True,
+                "name": task.name,
+                "notes": task.notes,
+                "truncated": truncated,
+            })
 
         def handle_task_branch(self, name: str):
             body = self._body()

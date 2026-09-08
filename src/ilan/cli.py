@@ -1832,42 +1832,135 @@ def task_alias(name: str, new_alias: str) -> None:
 # ── task notes ──────────────────────────────────────────────────────
 
 def _notes_usage_error(
-    note: str | None, append: str | None, clear: bool,
+    note: str | None, append: str | None, clear: bool, editor: bool,
 ) -> str | None:
-    """Reject note/-a/-c combinations that name two different intentions.
+    """Reject note/-a/-c/-e combinations that name two different intentions.
 
-    Each of the three says what the note should become, so any pair of them
-    is a contradiction rather than a refinement. Caught here instead of on the
+    Each of the four says what the note should become, so any pair of them is
+    a contradiction rather than a refinement. Caught here instead of on the
     server: these are mistakes about the command line, not about the data.
     """
+    if editor and clear:
+        return "-e opens the note for editing and -c clears it; use one or the other."
+    if editor and append is not None:
+        return "-e opens the note for editing and -a adds to it; use one or the other."
+    if editor and note is not None:
+        return "-e takes no note: it opens the current one in your editor."
     if clear and append is not None:
         return "-c clears the note and -a adds to it; use one or the other."
     if clear and note is not None:
         return "-c takes no note: it clears the task's note. Drop the text to clear."
     if append is not None and note is not None:
         return "Pass the text to append to -a, not as a second argument as well."
-    if not clear and append is None and note is None:
-        return "Give a note to set, -a TEXT to add to the current one, or -c to clear."
+    if not clear and not editor and append is None and note is None:
+        return (
+            "Give a note to set, -a TEXT to add to the current one, "
+            "-e to edit it, or -c to clear."
+        )
     return None
 
 
-def _do_set_notes(
-    name: str,
-    note: str | None,
-    append: str | None = None,
-    clear: bool = False,
-) -> None:
-    if err := _notes_usage_error(note, append, clear):
-        console.print(f"[red]{err}[/red]")
-        raise SystemExit(1)
-    appending = append is not None
-    # Clearing is an empty note: the server already reads that as "remove it",
-    # so -c needs no separate route.
-    text = "" if clear else (append if appending else note)
-    assert text is not None
-    resp = _client().set_notes(name, text.strip(), append=appending)
+_SET_EDITOR_HINT = "Set one with `ilan config set editor <name>`."
+
+
+def _resolve_editor() -> str | None:
+    """Return a runnable editor command, or ``None`` after saying what is wrong.
+
+    Checked before anything else happens, so a user without a usable editor
+    gets one clear message instead of a temp file and whatever their shell
+    makes of an unknown command. ``editor`` always has a value because it is
+    in the config DEFAULTS, so "not configured" means blank or not on PATH —
+    the default of ``emacs`` is only a guess on a machine that may not have it.
+    """
+    editor = str(cfg.load().get("editor", "")).strip()
+    if not editor:
+        console.print(f"[red]No editor configured. {_SET_EDITOR_HINT}[/red]")
+        return None
+    if shutil.which(editor) is None:
+        console.print(
+            f"[red]The configured editor {editor!r} is not installed, or not "
+            f"on your PATH. {_SET_EDITOR_HINT}[/red]"
+        )
+        return None
+    return editor
+
+
+def _edit_text_in_editor(editor: str, task_name: str, current: str) -> str | None:
+    """Open *current* in *editor* and return what came back.
+
+    Returns ``None`` when the note should be left alone: the editor could not
+    be launched, or it exited non-zero. A non-zero exit is how an editor says
+    the edit was abandoned (``:cq`` in vim), so it must not be read as "the
+    user emptied the note" — that would clear it on a crash.
+
+    The temp file holds nothing but the note. No instruction header, so there
+    is no comment syntax to strip and no way for a note that legitimately
+    starts with ``#`` to be swallowed.
+    """
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=f"-{task_name}-note.txt", delete=False,
+    ) as tmp:
+        tmp.write(current)
+        tmp_path = tmp.name
+    try:
+        try:
+            completed = subprocess.run([editor, tmp_path])
+        except OSError as exc:
+            # `shutil.which` said it was there, so this is a race or a
+            # permission problem rather than a missing editor.
+            console.print(
+                f"[red]Cannot run the configured editor {editor!r}: {exc}. "
+                f"{_SET_EDITOR_HINT}[/red]"
+            )
+            return None
+        if completed.returncode != 0:
+            console.print(
+                f"[yellow]{editor} exited with {completed.returncode}; "
+                "the note is unchanged.[/yellow]"
+            )
+            return None
+        return Path(tmp_path).read_text()
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)
+
+
+def _do_edit_notes(name: str) -> None:
+    """Edit a task's note in the configured editor, prefilled with it."""
+    editor = _resolve_editor()
+    if editor is None:
+        raise SystemExit(1)  # _resolve_editor said what was wrong
+    resp = _client().get_task(name)
     if _check_error(resp):
         raise SystemExit(1)
+    current = (resp["task"].get("notes") or "").strip()
+
+    edited = _edit_text_in_editor(editor, resp["task"]["name"], current)
+    if edited is None:
+        # The editor could not run or reported an abandoned edit. Nothing was
+        # saved, so exiting 0 here would let `ilan notes t -e && …` claim the
+        # note was written. _edit_text_in_editor has already said which it was.
+        raise SystemExit(1)
+    edited = edited.strip()
+    if edited == current:
+        console.print(f"[dim]Note for {resp['task']['name']} unchanged.[/dim]")
+        return
+    _apply_notes(name, edited)
+
+
+def _apply_notes(name: str, text: str, *, appending: bool = False) -> None:
+    """Send the note to the server and report what the task now carries."""
+    resp = _client().set_notes(name, text, append=appending)
+    if _check_error(resp):
+        raise SystemExit(1)
+    if resp.get("truncated"):
+        # Trimmed, not swallowed: the note was saved, so this is a note about
+        # what is missing rather than an error, and it comes first so it is
+        # not lost under the text that did fit.
+        console.print(
+            f"[yellow]Note was longer than {MAX_NOTES_LENGTH} characters; kept "
+            "the front and dropped the rest.[/yellow]"
+        )
     if not resp.get("notes"):
         console.print(f"[green]Note for [bold]{resp['name']}[/bold] cleared.[/green]")
         return
@@ -1881,20 +1974,47 @@ def _do_set_notes(
     console.print(line)
 
 
+def _do_set_notes(
+    name: str,
+    note: str | None,
+    append: str | None = None,
+    clear: bool = False,
+    editor: bool = False,
+) -> None:
+    if err := _notes_usage_error(note, append, clear, editor):
+        console.print(f"[red]{err}[/red]")
+        raise SystemExit(1)
+    if editor:
+        _do_edit_notes(name)
+        return
+    appending = append is not None
+    # Clearing is an empty note: the server already reads that as "remove it",
+    # so -c needs no separate route.
+    text = "" if clear else (append if appending else note)
+    assert text is not None
+    _apply_notes(name, text.strip(), appending=appending)
+
+
 # Built as an f-string rather than written as a docstring so the limit quoted
 # in `--help` can only ever be the limit the server enforces.
 _NOTES_HELP = (
     "Write the note shown beside a task in ilan ls / ilan dashboard. "
     "The note replaces whatever the task carried before, so correcting one is "
-    'just writing it again. Pass an empty note ("") or -c to clear it, or -a '
-    "TEXT to add to the note already there. Leading and trailing whitespace is "
-    f"always stripped. A note is limited to {MAX_NOTES_LENGTH} characters."
+    'just writing it again. Pass an empty note ("") or -c to clear it, -a '
+    "TEXT to add to the note already there, or -e to open the current note in "
+    "your editor. Leading and trailing whitespace is always stripped, and a "
+    f"note longer than {MAX_NOTES_LENGTH} characters is cut down to its first "
+    f"{MAX_NOTES_LENGTH}."
 )
 _APPEND_HELP = (
     "Add TEXT to the end of the task's current note, separated by a single "
     "space, instead of replacing it."
 )
 _CLEAR_HELP = "Clear the task's note. Takes no text of its own."
+_EDITOR_HELP = (
+    "Edit the task's note in the `editor` from your config, prefilled with "
+    "the note it already has. Takes no text of its own."
+)
 
 
 @task_group.command("notes", help=_NOTES_HELP)
@@ -1903,11 +2023,12 @@ _CLEAR_HELP = "Clear the task's note. Takes no text of its own."
 @click.option("-a", "--append", "append", default=None, metavar="TEXT",
               help=_APPEND_HELP)
 @click.option("-c", "--clear", "clear", is_flag=True, help=_CLEAR_HELP)
+@click.option("-e", "--editor", "editor", is_flag=True, help=_EDITOR_HELP)
 def task_notes(
-    name: str, note: str | None, append: str | None, clear: bool,
+    name: str, note: str | None, append: str | None, clear: bool, editor: bool,
 ) -> None:
     """Write the note shown beside a task in ilan ls / ilan dashboard."""
-    _do_set_notes(name, note, append=append, clear=clear)
+    _do_set_notes(name, note, append=append, clear=clear, editor=editor)
 
 
 # Singular and plural are the same command. Which one comes to mind depends on
@@ -2624,8 +2745,9 @@ def shortcut_alias(name: str, new_alias: str) -> None:
     "notes",
     help=(
         "Shorthand for 'ilan task notes'. Pass -a TEXT to add to the current "
-        "note or -c to clear it. A note is limited to "
-        f"{MAX_NOTES_LENGTH} characters."
+        "note, -e to edit it in your editor, or -c to clear it. A note longer "
+        f"than {MAX_NOTES_LENGTH} characters is cut down to its first "
+        f"{MAX_NOTES_LENGTH}."
     ),
 )
 @click.argument("name", shell_complete=_complete_task_names)
@@ -2633,11 +2755,12 @@ def shortcut_alias(name: str, new_alias: str) -> None:
 @click.option("-a", "--append", "append", default=None, metavar="TEXT",
               help=_APPEND_HELP)
 @click.option("-c", "--clear", "clear", is_flag=True, help=_CLEAR_HELP)
+@click.option("-e", "--editor", "editor", is_flag=True, help=_EDITOR_HELP)
 def shortcut_notes(
-    name: str, note: str | None, append: str | None, clear: bool,
+    name: str, note: str | None, append: str | None, clear: bool, editor: bool,
 ) -> None:
     """Shorthand for 'ilan task notes'."""
-    _do_set_notes(name, note, append=append, clear=clear)
+    _do_set_notes(name, note, append=append, clear=clear, editor=editor)
 
 
 main.add_command(shortcut_notes, "note")
