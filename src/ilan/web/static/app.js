@@ -229,8 +229,8 @@ function modal(innerHtml, wire) {
 function askText(title, {
   value = '', placeholder = '', multiline = false, okLabel = 'OK', maxlength = 0, clearLabel = '',
 } = {}) {
-  // A maxlength stops the field at the limit the server would refuse, so the
-  // user never types past it only to lose the tail to a refusal afterwards.
+  // A maxlength stops the field at the limit the server would trim to, so the
+  // user never types past it only to lose the tail on save.
   const cap = maxlength ? ` maxlength="${maxlength}"` : '';
   const field = multiline
     ? `<textarea class="field" id="mv" rows="4" placeholder="${esc(placeholder)}"${cap}>${esc(value)}</textarea>`

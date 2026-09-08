@@ -39,31 +39,23 @@ def validate_task_name(name: str) -> str | None:
 # A note has to stay glanceable inside a fixed-width column in ``ilan ls`` and
 # ``ilan dashboard``, and every character past a line's worth pushes the rest
 # of the listing further down the screen. Past this the text has stopped being
-# a reminder and belongs in the conversation itself.
+# a reminder and belongs in the conversation itself. Anything longer is cut to
+# fit rather than refused — see :func:`truncate_notes`.
 MAX_NOTES_LENGTH = 128
 
 
-def validate_notes(note: str, *, appending: bool = False) -> str | None:
-    """Return an error message if *note* is too long to store, else ``None``.
+def truncate_notes(note: str) -> str:
+    """Cut *note* down to ``MAX_NOTES_LENGTH``, keeping the front.
 
-    Rejects rather than truncates: silently dropping the tail would leave the
-    user believing they had written something the listing never shows.
+    Kept rather than refused: a note is a reminder, and the first sentence of
+    one is worth more than an error telling the user to count characters. The
+    front is what survives because that is where a reminder says what it is
+    about. Callers report the cut so it is trimmed, not swallowed.
 
-    *appending* only changes the wording. On an append the length that breaks
-    the limit is the **combined** one, which is not the length the user typed,
-    so the message has to say which number it is talking about.
+    Stripped again after the cut, since slicing can land on a space and leave
+    a note ending in whitespace that was never part of the text.
     """
-    if len(note) <= MAX_NOTES_LENGTH:
-        return None
-    measured = (
-        f"Appending would make the note {len(note)} characters"
-        if appending
-        else f"Note is {len(note)} characters"
-    )
-    return (
-        f"{measured}; the limit is {MAX_NOTES_LENGTH}. "
-        "Shorten it, or keep the detail in the conversation itself."
-    )
+    return note[:MAX_NOTES_LENGTH].strip()
 
 
 def join_notes(existing: str | None, addition: str) -> str:

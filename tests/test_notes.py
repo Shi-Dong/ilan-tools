@@ -32,7 +32,7 @@ from ilan.models import (
     Task,
     TaskStatus,
     join_notes,
-    validate_notes,
+    truncate_notes,
 )
 from ilan.server import IlanServer
 from ilan.store import Store
@@ -88,52 +88,51 @@ class TestNotesField:
         assert store.get_task("parent").notes == "parent's reminder"
 
 
-class TestValidateNotes:
+class TestTruncateNotes:
     """The length rule, as a plain function.
 
-    Kept out of the dataclass on purpose: like ``name``, a note is validated
-    where user input arrives (the route), not on every ``Task`` a test or a
-    migration happens to construct.
+    A note longer than the limit is cut to fit rather than refused: a
+    reminder's first sentence is worth more than an error telling the user to
+    count characters. Kept out of the dataclass on purpose — like ``name``, a
+    note is normalised where user input arrives (the route), not on every
+    ``Task`` a test or a migration happens to construct.
     """
 
     def test_the_limit_is_128(self) -> None:
         assert MAX_NOTES_LENGTH == 128
 
-    def test_a_short_note_passes(self) -> None:
-        assert validate_notes("a reminder") is None
+    def test_a_short_note_is_returned_unchanged(self) -> None:
+        assert truncate_notes("a reminder") == "a reminder"
 
-    def test_an_empty_note_passes(self) -> None:
-        """Clearing goes through the same path, so it must not trip the rule."""
-        assert validate_notes("") is None
+    def test_an_empty_note_stays_empty(self) -> None:
+        """Clearing goes through the same path, so it must survive it."""
+        assert truncate_notes("") == ""
 
-    def test_exactly_the_limit_passes(self) -> None:
-        assert validate_notes("x" * MAX_NOTES_LENGTH) is None
+    def test_exactly_the_limit_is_kept_whole(self) -> None:
+        note = "x" * MAX_NOTES_LENGTH
+        assert truncate_notes(note) == note
 
-    def test_one_over_the_limit_fails(self) -> None:
-        err = validate_notes("x" * (MAX_NOTES_LENGTH + 1))
-        assert err is not None
-        assert str(MAX_NOTES_LENGTH) in err
+    def test_one_over_the_limit_loses_its_last_character(self) -> None:
+        assert truncate_notes("x" * (MAX_NOTES_LENGTH + 1)) == "x" * MAX_NOTES_LENGTH
 
-    def test_the_message_names_the_length_the_user_wrote(self) -> None:
-        """Knowing it is too long is useless without knowing by how much."""
-        err = validate_notes("x" * 200)
-        assert err is not None
-        assert "200" in err
+    def test_the_front_is_what_survives(self) -> None:
+        """A reminder says what it is about at the start, not the end."""
+        note = "the important part " + "z" * MAX_NOTES_LENGTH
+        assert truncate_notes(note).startswith("the important part")
 
-    def test_append_wording_says_which_number_it_means(self) -> None:
-        """On an append the length that breaks the limit is not what you typed.
+    def test_a_much_longer_note_is_cut_to_the_limit(self) -> None:
+        assert len(truncate_notes("x" * 5000)) == MAX_NOTES_LENGTH
 
-        Reporting "Note is 140 characters" after the user typed 12 of them
-        reads as a bug in the tool rather than a limit they hit.
-        """
-        err = validate_notes("x" * 140, appending=True)
-        assert err is not None
-        assert err.startswith("Appending would make the note 140 characters")
+    def test_a_cut_landing_on_a_space_leaves_no_trailing_whitespace(self) -> None:
+        """Slicing mid-space would otherwise store a note ending in a space."""
+        note = "a" * (MAX_NOTES_LENGTH - 1) + " tail"
+        cut = truncate_notes(note)
+        assert cut == "a" * (MAX_NOTES_LENGTH - 1)
+        assert cut == cut.strip()
 
-    def test_replace_wording_is_unchanged(self) -> None:
-        err = validate_notes("x" * 140)
-        assert err is not None
-        assert err.startswith("Note is 140 characters")
+    def test_it_counts_characters_not_bytes(self) -> None:
+        note = "é" * (MAX_NOTES_LENGTH + 10)  # 2 bytes each in UTF-8
+        assert len(truncate_notes(note)) == MAX_NOTES_LENGTH
 
 
 class TestJoinNotes:
@@ -236,7 +235,10 @@ class TestNotesEndpoint:
         _seed(ilan_server, "alpha")
         code, body = _post(ilan_server, "/tasks/alpha/notes", {"notes": "ship by Friday"})
         assert code == 200
-        assert body == {"ok": True, "name": "alpha", "notes": "ship by Friday"}
+        assert body == {
+            "ok": True, "name": "alpha", "notes": "ship by Friday",
+            "truncated": False,
+        }
         assert ilan_server.store.get_task("alpha").notes == "ship by Friday"
 
     def test_replaces_rather_than_appends(self, ilan_server: IlanServer) -> None:
@@ -276,16 +278,38 @@ class TestNotesEndpoint:
         assert code == 200
         assert body["notes"] == note
 
-    def test_a_note_over_the_limit_is_rejected(self, ilan_server: IlanServer) -> None:
+    def test_a_note_over_the_limit_is_trimmed_not_refused(
+        self, ilan_server: IlanServer,
+    ) -> None:
+        """The note is saved, cut to the limit, and the cut is reported."""
         _seed(ilan_server, "alpha", notes="the old note")
         code, body = _post(
             ilan_server, "/tasks/alpha/notes", {"notes": "x" * (MAX_NOTES_LENGTH + 1)},
         )
-        assert code == 400
-        assert str(MAX_NOTES_LENGTH) in body["error"]
-        assert str(MAX_NOTES_LENGTH + 1) in body["error"]  # names the actual length
-        # A rejected write must not have disturbed what was already there.
-        assert ilan_server.store.get_task("alpha").notes == "the old note"
+        assert code == 200
+        assert body["truncated"] is True
+        assert body["notes"] == "x" * MAX_NOTES_LENGTH
+        assert ilan_server.store.get_task("alpha").notes == "x" * MAX_NOTES_LENGTH
+
+    def test_a_note_at_the_limit_is_not_reported_as_trimmed(
+        self, ilan_server: IlanServer,
+    ) -> None:
+        """``truncated`` must mean something was actually dropped."""
+        _seed(ilan_server, "alpha")
+        _, body = _post(
+            ilan_server, "/tasks/alpha/notes", {"notes": "x" * MAX_NOTES_LENGTH},
+        )
+        assert body["truncated"] is False
+
+    def test_the_front_of_an_over_long_note_is_what_is_kept(
+        self, ilan_server: IlanServer,
+    ) -> None:
+        _seed(ilan_server, "alpha")
+        _, body = _post(
+            ilan_server, "/tasks/alpha/notes",
+            {"notes": "the important part " + "z" * MAX_NOTES_LENGTH},
+        )
+        assert body["notes"].startswith("the important part")
 
     def test_the_limit_is_measured_after_stripping(
         self, ilan_server: IlanServer,
@@ -371,20 +395,32 @@ class TestNotesAppendEndpoint:
         assert code == 200
         assert body["notes"] == "keep me"
 
-    def test_append_is_capped_on_the_combined_length(
+    def test_append_is_trimmed_on_the_combined_length(
         self, ilan_server: IlanServer,
     ) -> None:
+        """The limit applies to the joined note, and the tail of it is cut."""
         existing = "x" * (MAX_NOTES_LENGTH - 2)
         _seed(ilan_server, "alpha", notes=existing)
-        # existing + " " + "yy" is one character over.
+        # existing + " " + "yy" is one character over, so the last y goes.
         code, body = _post(
             ilan_server, "/tasks/alpha/notes", {"notes": "yy", "append": True},
         )
-        assert code == 400
-        assert str(MAX_NOTES_LENGTH + 1) in body["error"]
-        assert body["error"].startswith("Appending would make the note")
-        # The rejected append must not have disturbed what was there.
-        assert ilan_server.store.get_task("alpha").notes == existing
+        assert code == 200
+        assert body["truncated"] is True
+        assert body["notes"] == f"{existing} y"
+        assert len(body["notes"]) == MAX_NOTES_LENGTH
+
+    def test_appending_to_a_full_note_keeps_the_note_it_had(
+        self, ilan_server: IlanServer,
+    ) -> None:
+        """Nothing fits, so the note is unchanged rather than mangled."""
+        existing = "x" * MAX_NOTES_LENGTH
+        _seed(ilan_server, "alpha", notes=existing)
+        _, body = _post(
+            ilan_server, "/tasks/alpha/notes", {"notes": "more", "append": True},
+        )
+        assert body["truncated"] is True
+        assert body["notes"] == existing
 
     def test_an_append_that_exactly_fills_the_limit_is_accepted(
         self, ilan_server: IlanServer,
@@ -750,8 +786,11 @@ def _invoke_editor(
         seen["prefill"] = Path(cmd[-1]).read_text()
         return _fake_editor(new_text, returncode)(cmd, *args, **kwargs)
 
+    # `shutil.which` is patched, not left to the host: CI runners do not all
+    # ship vim, and these tests are about ilan's behaviour, not the image's.
     with patch("ilan.cli._client", return_value=client), \
             patch("ilan.cli.subprocess.run", side_effect=run), \
+            patch("ilan.cli.shutil.which", return_value=f"/usr/bin/{editor}"), \
             patch("ilan.cli.cfg.load", return_value={"editor": editor}):
         result = runner.invoke(main, argv)
     return result, client, seen
@@ -895,23 +934,16 @@ class TestNotesEditorFlag:
         run.assert_not_called()
         assert "not found" in _strip_ansi(result.output)
 
-    def test_over_long_text_is_caught_before_the_round_trip(
+    def test_over_long_text_is_sent_and_trimmed_by_the_server(
         self, runner: CliRunner, tmp_config,
     ) -> None:
-        """The one path that pre-checks the limit, because nothing else holds
-        the text: a server rejection would lose the editor buffer.
-        """
+        """No client-side length check: the server owns the limit and trims."""
         typed = "x" * (MAX_NOTES_LENGTH + 1)
         result, client, _ = _invoke_editor(
             runner, ["notes", "alpha", "-e"], new_text=typed,
         )
-        assert result.exit_code == 1
-        client.set_notes.assert_not_called()
-        out = _strip_ansi(result.output)
-        assert str(MAX_NOTES_LENGTH) in out
-        # Echoed back so it can be recovered from the scrollback. Rich wraps
-        # it across lines, so rejoin before looking for the text.
-        assert typed in "".join(out.split())
+        assert result.exit_code == 0
+        client.set_notes.assert_called_once_with("alpha", typed, append=False)
 
     def test_text_at_the_limit_is_accepted(
         self, runner: CliRunner, tmp_config,
@@ -968,6 +1000,156 @@ class TestNotesEditorFlag:
         assert expected in _strip_ansi(result.output)
         run.assert_not_called()
         client.set_notes.assert_not_called()
+
+
+class TestEditorMustBeUsable:
+    """``-e`` refuses up front when there is no editor it could open.
+
+    Checked before the task is even fetched, so the user gets one clear
+    message instead of a temp file and whatever their shell makes of an
+    unknown command.
+    """
+
+    def _invoke(self, runner: CliRunner, *, configured: str, on_path: str | None):
+        client = MagicMock()
+        client.get_task.return_value = {"task": {"name": "alpha", "notes": "n"}}
+        with patch("ilan.cli._client", return_value=client), \
+                patch("ilan.cli.cfg.load", return_value={"editor": configured}), \
+                patch("ilan.cli.shutil.which", return_value=on_path), \
+                patch("ilan.cli.subprocess.run") as run:
+            result = runner.invoke(main, ["notes", "alpha", "-e"])
+        return result, client, run
+
+    def test_a_blank_editor_setting_is_an_error(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        result, client, run = self._invoke(runner, configured="", on_path=None)
+        assert result.exit_code == 1
+        out = " ".join(_strip_ansi(result.output).split())
+        assert "No editor configured" in out
+        assert "ilan config set editor" in out  # says how to fix it
+        run.assert_not_called()
+        client.set_notes.assert_not_called()
+
+    def test_an_editor_that_is_not_installed_is_an_error(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """``editor`` defaults to emacs, which many machines do not have."""
+        result, client, run = self._invoke(runner, configured="emacs", on_path=None)
+        assert result.exit_code == 1
+        out = " ".join(_strip_ansi(result.output).split())
+        assert "emacs" in out
+        assert "PATH" in out
+        assert "ilan config set editor" in out
+        run.assert_not_called()
+        client.set_notes.assert_not_called()
+
+    def test_it_refuses_before_touching_the_task(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """No point fetching a note we have no way to show the user."""
+        _, client, _ = self._invoke(runner, configured="", on_path=None)
+        client.get_task.assert_not_called()
+
+    def test_a_whitespace_only_setting_counts_as_unset(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        result, _, run = self._invoke(runner, configured="   ", on_path=None)
+        assert result.exit_code == 1
+        assert "No editor configured" in " ".join(_strip_ansi(result.output).split())
+        run.assert_not_called()
+
+    def test_an_installed_editor_proceeds(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        _, _, run = self._invoke(runner, configured="vim", on_path="/usr/bin/vim")
+        assert run.called
+
+    def test_an_exec_failure_after_the_check_is_still_reported(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """`which` can pass and exec still fail — a race, or bad permissions."""
+        client = MagicMock()
+        client.get_task.return_value = {"task": {"name": "alpha", "notes": "n"}}
+        with patch("ilan.cli._client", return_value=client), \
+                patch("ilan.cli.cfg.load", return_value={"editor": "vim"}), \
+                patch("ilan.cli.shutil.which", return_value="/usr/bin/vim"), \
+                patch("ilan.cli.subprocess.run",
+                      side_effect=PermissionError("denied")):
+            result = runner.invoke(main, ["notes", "alpha", "-e"])
+        assert result.exit_code == 1
+        assert "Cannot run" in " ".join(_strip_ansi(result.output).split())
+        client.set_notes.assert_not_called()
+
+
+class TestTruncationIsReported:
+    """Over-long notes are trimmed, not refused — but never silently."""
+
+    def _invoke(self, runner: CliRunner, argv: list[str], *, truncated: bool):
+        client = MagicMock()
+        client.set_notes.return_value = {
+            "ok": True, "name": "alpha", "notes": "x" * MAX_NOTES_LENGTH,
+            "truncated": truncated,
+        }
+        with patch("ilan.cli._client", return_value=client):
+            return runner.invoke(main, argv), client
+
+    def test_an_over_long_note_succeeds(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """The whole point of the change: this is no longer an error."""
+        result, client = self._invoke(
+            runner, ["notes", "alpha", "y" * 200], truncated=True,
+        )
+        assert result.exit_code == 0
+        # Sent whole; the server is what shortens it.
+        client.set_notes.assert_called_once_with("alpha", "y" * 200, append=False)
+
+    def test_the_cut_is_reported(self, runner: CliRunner, tmp_config) -> None:
+        result, _ = self._invoke(
+            runner, ["notes", "alpha", "y" * 200], truncated=True,
+        )
+        out = " ".join(_strip_ansi(result.output).split())
+        assert str(MAX_NOTES_LENGTH) in out
+        assert "dropped the rest" in out
+
+    def test_the_saved_note_is_still_shown(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """The warning must not replace the confirmation of what was saved."""
+        result, _ = self._invoke(
+            runner, ["notes", "alpha", "y" * 200], truncated=True,
+        )
+        out = " ".join(_strip_ansi(result.output).split())
+        assert "Note for alpha set to" in out
+
+    def test_nothing_is_said_when_nothing_was_cut(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        result, _ = self._invoke(runner, ["notes", "alpha", "short"], truncated=False)
+        assert "dropped" not in _strip_ansi(result.output)
+
+    def test_an_older_server_without_the_flag_says_nothing(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """A response predating `truncated` must not read as a truncation."""
+        client = MagicMock()
+        client.set_notes.return_value = {"ok": True, "name": "alpha", "notes": "n"}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["notes", "alpha", "n"])
+        assert result.exit_code == 0
+        assert "dropped" not in _strip_ansi(result.output)
+
+    def test_an_over_long_append_is_reported_too(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        result, _ = self._invoke(
+            runner, ["notes", "alpha", "-a", "y" * 200], truncated=True,
+        )
+        assert result.exit_code == 0
+        out = " ".join(_strip_ansi(result.output).split())
+        assert "dropped the rest" in out
+        assert "now reads" in out
 
 
 class TestNotesFlagCombinations:

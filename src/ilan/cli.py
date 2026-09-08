@@ -51,7 +51,6 @@ from ilan.models import (
     max_model_for,
     max_tag,
     tag_for_max_model,
-    validate_notes,
 )
 from ilan.server import read_server_info
 from ilan.store import Store
@@ -1861,8 +1860,33 @@ def _notes_usage_error(
     return None
 
 
-def _edit_text_in_editor(task_name: str, current: str) -> str | None:
-    """Open *current* in the configured editor and return what came back.
+_SET_EDITOR_HINT = "Set one with `ilan config set editor <name>`."
+
+
+def _resolve_editor() -> str | None:
+    """Return a runnable editor command, or ``None`` after saying what is wrong.
+
+    Checked before anything else happens, so a user without a usable editor
+    gets one clear message instead of a temp file and whatever their shell
+    makes of an unknown command. ``editor`` always has a value because it is
+    in the config DEFAULTS, so "not configured" means blank or not on PATH —
+    the default of ``emacs`` is only a guess on a machine that may not have it.
+    """
+    editor = str(cfg.load().get("editor", "")).strip()
+    if not editor:
+        console.print(f"[red]No editor configured. {_SET_EDITOR_HINT}[/red]")
+        return None
+    if shutil.which(editor) is None:
+        console.print(
+            f"[red]The configured editor {editor!r} is not installed, or not "
+            f"on your PATH. {_SET_EDITOR_HINT}[/red]"
+        )
+        return None
+    return editor
+
+
+def _edit_text_in_editor(editor: str, task_name: str, current: str) -> str | None:
+    """Open *current* in *editor* and return what came back.
 
     Returns ``None`` when the note should be left alone: the editor could not
     be launched, or it exited non-zero. A non-zero exit is how an editor says
@@ -1873,7 +1897,6 @@ def _edit_text_in_editor(task_name: str, current: str) -> str | None:
     is no comment syntax to strip and no way for a note that legitimately
     starts with ``#`` to be swallowed.
     """
-    editor = str(cfg.load().get("editor", "emacs"))
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=f"-{task_name}-note.txt", delete=False,
     ) as tmp:
@@ -1882,10 +1905,12 @@ def _edit_text_in_editor(task_name: str, current: str) -> str | None:
     try:
         try:
             completed = subprocess.run([editor, tmp_path])
-        except (FileNotFoundError, PermissionError) as exc:
+        except OSError as exc:
+            # `shutil.which` said it was there, so this is a race or a
+            # permission problem rather than a missing editor.
             console.print(
                 f"[red]Cannot run the configured editor {editor!r}: {exc}. "
-                "Set another with `ilan config set editor <name>`.[/red]"
+                f"{_SET_EDITOR_HINT}[/red]"
             )
             return None
         if completed.returncode != 0:
@@ -1902,12 +1927,15 @@ def _edit_text_in_editor(task_name: str, current: str) -> str | None:
 
 def _do_edit_notes(name: str) -> None:
     """Edit a task's note in the configured editor, prefilled with it."""
+    editor = _resolve_editor()
+    if editor is None:
+        raise SystemExit(1)  # _resolve_editor said what was wrong
     resp = _client().get_task(name)
     if _check_error(resp):
         raise SystemExit(1)
     current = (resp["task"].get("notes") or "").strip()
 
-    edited = _edit_text_in_editor(resp["task"]["name"], current)
+    edited = _edit_text_in_editor(editor, resp["task"]["name"], current)
     if edited is None:
         # The editor could not run or reported an abandoned edit. Nothing was
         # saved, so exiting 0 here would let `ilan notes t -e && …` claim the
@@ -1917,15 +1945,6 @@ def _do_edit_notes(name: str) -> None:
     if edited == current:
         console.print(f"[dim]Note for {resp['task']['name']} unchanged.[/dim]")
         return
-    # Checked here, unlike the other paths, because this is the only one where
-    # the text exists nowhere but the editor buffer that just closed. A server
-    # rejection would lose it, so the limit is applied before the round trip
-    # and the text is echoed back so it can be recovered from the scrollback.
-    if err := validate_notes(edited):
-        console.print(f"[red]{err}[/red]")
-        console.print("[dim]What you wrote, so it is not lost:[/dim]")
-        console.print(Text(edited, style=NOTES_STYLE))
-        raise SystemExit(1)
     _apply_notes(name, edited)
 
 
@@ -1934,6 +1953,14 @@ def _apply_notes(name: str, text: str, *, appending: bool = False) -> None:
     resp = _client().set_notes(name, text, append=appending)
     if _check_error(resp):
         raise SystemExit(1)
+    if resp.get("truncated"):
+        # Trimmed, not swallowed: the note was saved, so this is a note about
+        # what is missing rather than an error, and it comes first so it is
+        # not lost under the text that did fit.
+        console.print(
+            f"[yellow]Note was longer than {MAX_NOTES_LENGTH} characters; kept "
+            "the front and dropped the rest.[/yellow]"
+        )
     if not resp.get("notes"):
         console.print(f"[green]Note for [bold]{resp['name']}[/bold] cleared.[/green]")
         return
@@ -1975,8 +2002,9 @@ _NOTES_HELP = (
     "The note replaces whatever the task carried before, so correcting one is "
     'just writing it again. Pass an empty note ("") or -c to clear it, -a '
     "TEXT to add to the note already there, or -e to open the current note in "
-    "your editor. Leading and trailing whitespace is always stripped. A note "
-    f"is limited to {MAX_NOTES_LENGTH} characters."
+    "your editor. Leading and trailing whitespace is always stripped, and a "
+    f"note longer than {MAX_NOTES_LENGTH} characters is cut down to its first "
+    f"{MAX_NOTES_LENGTH}."
 )
 _APPEND_HELP = (
     "Add TEXT to the end of the task's current note, separated by a single "
@@ -2717,8 +2745,9 @@ def shortcut_alias(name: str, new_alias: str) -> None:
     "notes",
     help=(
         "Shorthand for 'ilan task notes'. Pass -a TEXT to add to the current "
-        "note, -e to edit it in your editor, or -c to clear it. A note is "
-        f"limited to {MAX_NOTES_LENGTH} characters."
+        "note, -e to edit it in your editor, or -c to clear it. A note longer "
+        f"than {MAX_NOTES_LENGTH} characters is cut down to its first "
+        f"{MAX_NOTES_LENGTH}."
     ),
 )
 @click.argument("name", shell_complete=_complete_task_names)
