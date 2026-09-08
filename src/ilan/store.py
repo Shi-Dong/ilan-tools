@@ -5,6 +5,7 @@ import random
 import shutil
 import uuid
 from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from ilan.models import (
@@ -17,6 +18,16 @@ from ilan.models import (
     parse_task_number,
     random_burnable_name,
 )
+
+
+def _parse_ts(iso: str) -> datetime | None:
+    """Read *iso* as an aware UTC datetime, or ``None`` if it is unreadable."""
+    if not iso:
+        return None
+    try:
+        return datetime.fromisoformat(iso).astimezone(timezone.utc)
+    except ValueError:
+        return None
 
 
 class Store:
@@ -90,6 +101,31 @@ class Store:
         """
         used = [t.number for t in self.load_tasks().values() if t.number is not None]
         return max(used, default=0) + 1
+
+    def next_activation_ts(self) -> str:
+        """Return the ``activated_at`` to stamp on a task activated right now.
+
+        The listing sorts on ``activated_at`` ascending, so this timestamp is
+        what has to be later than every other task's for a revived task to
+        land at the bottom. The current time is that already — every other
+        activation happened in the past — and is what this returns almost
+        always. The step past a stored timestamp covers the case where it is
+        not: a clock that moved backwards, or a ``tasks.json`` carried over
+        from a machine that was running ahead, would otherwise drop the task
+        the user just revived into the middle of the list, which is a worse
+        answer than not reordering at all. Timestamps that do not parse are
+        ignored rather than allowed to veto the clamp.
+        """
+        now = datetime.now(timezone.utc)
+        stamps = [
+            ts
+            for task in self.load_tasks().values()
+            if (ts := _parse_ts(task.activated_at)) is not None
+        ]
+        latest = max(stamps, default=None)
+        if latest is not None and latest >= now:
+            return (latest + timedelta(microseconds=1)).isoformat()
+        return now.isoformat()
 
     def next_available_alias(self) -> str | None:
         """Return a random unused alias from the pool, or None if exhausted."""

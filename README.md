@@ -64,7 +64,7 @@ The first command starts a background server on port 4526. It stays up, spawns a
 
 A task is `WORKING` from the second it is created, and any reply to a finished, blocked, or errored task re-spawns its agent at once. Agents report their own state: Ilan asks every prompt to end with a `[STATUS: DONE]` or `[STATUS: NEEDS_ATTENTION]` marker.
 
-Listings are in creation order with pinned tasks first, and a task you have not read since its last reply carries a `!!` marker. `ilan ls -a -c` looks like this:
+Listings are in activation order — when a task was created, or last revived with `undone` / `undiscard` — with pinned tasks first, and a task you have not read since its last reply carries a `!!` marker. `ilan ls -a -c` looks like this:
 
 ```
 → (as) fix-bug !! AGENT_FINISHED

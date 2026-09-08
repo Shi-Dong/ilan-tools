@@ -683,11 +683,12 @@ function renderList() {
     .filter((t) => searching || isVisible(t))
     .filter((t) => matchesQuery(t, state.query));
 
-  // Rendered flat, in the order /tasks returned: pinned first, then oldest
-  // first. `ilan dashboard` passes the same response straight to its table
-  // without re-sorting, so leaving the order alone here is what makes the two
-  // agree — an earlier version grouped by status and re-sorted each group by
-  // status_changed_at descending, which disagreed on both axes at once.
+  // Rendered flat, in the order /tasks returned: pinned first, then least
+  // recently activated first. `ilan dashboard` passes the same response
+  // straight to its table without re-sorting, so leaving the order alone here
+  // is what makes the two agree — an earlier version grouped by status and
+  // re-sorted each group by status_changed_at descending, which disagreed on
+  // both axes at once.
   const body = visible.length
     ? visible.map(taskRow).join('')
     : `<div class="empty">${state.tasks.length

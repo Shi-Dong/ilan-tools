@@ -563,8 +563,12 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 tasks = self._ilan.store.load_tasks()
 
             rows = []
-            # Pinned tasks float to the top; within each group, oldest first.
-            for t in sorted(tasks.values(), key=lambda t: (not t.pinned, t.created_at)):
+            # Pinned tasks float to the top; within each group, least recently
+            # activated first. Activation rather than creation is what puts a
+            # task you have just revived with ``undone`` / ``undiscard`` at the
+            # bottom, beside the work you are actually holding, instead of back
+            # at the spot it occupied before it was closed.
+            for t in sorted(tasks.values(), key=lambda t: (not t.pinned, t.activated_at)):
                 # A pin overrides the default filter, so a pinned DONE /
                 # DISCARDED task stays visible without `-a`; unpinning it is
                 # what makes it drop out of the listing again.
@@ -752,6 +756,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     self._json({"error": f"Task is {task.status.value}, not DONE"}, 409)
                     return
                 task.set_status(TaskStatus.NEEDS_ATTENTION)
+                task.activated_at = self._ilan.store.next_activation_ts()
                 task.alias = self._ilan.store.next_available_alias()
                 self._ilan.store.put_task(task)
             self._json({"ok": True, "name": task.name})
@@ -765,6 +770,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     self._json({"error": f"Task is {task.status.value}, not DISCARDED"}, 409)
                     return
                 task.set_status(TaskStatus.NEEDS_ATTENTION)
+                task.activated_at = self._ilan.store.next_activation_ts()
                 # The task kept its alias through discard; only mint a new one
                 # if it somehow has none (e.g. the pool was exhausted at add).
                 if task.alias is None:
