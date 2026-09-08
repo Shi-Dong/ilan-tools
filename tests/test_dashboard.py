@@ -451,25 +451,24 @@ class TestFormatTsSeconds:
 
 
 class TestDashboardTableProperties:
-    def test_table_expands_with_one_liner_on(self) -> None:
-        """One-liner ON: the Status/Notes pair gets the bulk, split 3:2.
+    def test_table_expands_with_name_as_the_only_ratio(self) -> None:
+        """Name flexes; every other column is given an explicit width.
 
-        The timestamp columns are pinned, so Name, Status and Notes split
-        whatever is left.
+        Status and Notes are computed as a pair (see
+        ``_dashboard_pair_widths``) so that widening Notes cannot take room
+        from Name, and the timestamp columns are pinned outright.
         """
-        table = _build_dashboard_table([], _TZ, show_one_liner=True)
+        table = _build_dashboard_table([], _TZ, show_one_liner=True, width=200)
         assert table.expand is True
         ratios = [c.ratio for c in table.columns]
-        assert ratios == [10, 12, 8, None, None]
+        assert ratios == [10, None, None, None, None]
 
-    def test_table_expands_with_one_liner_off(self) -> None:
-        """One-liner OFF: Name takes the bulk, since Status only holds a
-        short label + duration suffix. The pair is still 3:2.
-        """
-        table = _build_dashboard_table([], _TZ, show_one_liner=False)
-        assert table.expand is True
-        ratios = [c.ratio for c in table.columns]
-        assert ratios == [14, 6, 4, None, None]
+    def test_name_takes_a_bigger_share_with_the_one_liner_off(self) -> None:
+        """Without a summary in the Status cell, Name deserves the bulk."""
+        on = _build_dashboard_table([], _TZ, show_one_liner=True, width=200)
+        off = _build_dashboard_table([], _TZ, show_one_liner=False, width=200)
+        assert on.columns[0].ratio == 10
+        assert off.columns[0].ratio == 14
 
     def test_table_draws_separator_between_rows(self) -> None:
         """``show_lines=True`` draws a horizontal rule between every task row."""
