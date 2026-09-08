@@ -452,24 +452,24 @@ class TestFormatTsSeconds:
 
 class TestDashboardTableProperties:
     def test_table_expands_with_one_liner_on(self) -> None:
-        """One-liner ON: Status gets the bigger share of the flexible space.
+        """One-liner ON: the Status/Notes pair gets the bulk, split 3:2.
 
-        Only Name and Status carry a ratio; Notes, Created and Last Changed
-        are pinned to fixed widths, so those two split whatever is left.
+        The timestamp columns are pinned, so Name, Status and Notes split
+        whatever is left.
         """
         table = _build_dashboard_table([], _TZ, show_one_liner=True)
         assert table.expand is True
         ratios = [c.ratio for c in table.columns]
-        assert ratios == [10, 13, None, None, None]
+        assert ratios == [10, 12, 8, None, None]
 
     def test_table_expands_with_one_liner_off(self) -> None:
         """One-liner OFF: Name takes the bulk, since Status only holds a
-        short label + duration suffix.
+        short label + duration suffix. The pair is still 3:2.
         """
         table = _build_dashboard_table([], _TZ, show_one_liner=False)
         assert table.expand is True
         ratios = [c.ratio for c in table.columns]
-        assert ratios == [14, 7, None, None, None]
+        assert ratios == [14, 6, 4, None, None]
 
     def test_table_draws_separator_between_rows(self) -> None:
         """``show_lines=True`` draws a horizontal rule between every task row."""
@@ -497,12 +497,12 @@ class TestNarrowDashboardColumns:
     def test_narrow_drops_created_one_liner_on(self) -> None:
         table = _build_dashboard_table([], _TZ, show_one_liner=True, narrow=True)
         col_names = [c.header for c in table.columns]
-        assert col_names == ["(Alias) Name", "Status", "Notes", "Last Changed"]
+        assert col_names == ["(Alias) Name", "Status", "Last Changed"]
 
     def test_narrow_drops_created_one_liner_off(self) -> None:
         table = _build_dashboard_table([], _TZ, show_one_liner=False, narrow=True)
         col_names = [c.header for c in table.columns]
-        assert col_names == ["(Alias) Name", "Status", "Notes", "Last Changed"]
+        assert col_names == ["(Alias) Name", "Status", "Last Changed"]
 
     def test_wide_keeps_all_columns(self) -> None:
         table = _build_dashboard_table([], _TZ, narrow=False)
@@ -514,14 +514,14 @@ class TestNarrowDashboardColumns:
     def test_narrow_empty_row_matches_column_count(self) -> None:
         """The 'No active tasks.' placeholder row must not over/under-fill cells."""
         table = _build_dashboard_table([], _TZ, narrow=True)
-        assert len(table.columns) == 4
+        assert len(table.columns) == 3
         # Each column has exactly one placeholder cell.
         assert all(len(c._cells) == 1 for c in table.columns)
 
     def test_narrow_task_row_drops_created(self) -> None:
         row = _task_row(name="narrow-task", status="WORKING")
         table = _build_dashboard_table([row], _TZ, narrow=True)
-        assert len(table.columns) == 4
+        assert len(table.columns) == 3
         col_names = [c.header for c in table.columns]
         assert "Created" not in col_names
 
