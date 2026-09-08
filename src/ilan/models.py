@@ -41,7 +41,12 @@ def validate_task_name(name: str) -> str | None:
 # of the listing further down the screen. Past this the text has stopped being
 # a reminder and belongs in the conversation itself. Anything longer is cut to
 # fit rather than refused — see :func:`truncate_notes`.
-MAX_NOTES_LENGTH = 128
+#
+# This is a ceiling, not a target: a note that actually uses all of it fills
+# roughly six lines of the Notes column on a wide window and ten on a narrow
+# one, so a listing of maximal notes is a tall listing. The web app mirrors
+# the number in ``app.js``, and a test pins the two together.
+MAX_NOTES_LENGTH = 256
 
 
 def truncate_notes(note: str) -> str:

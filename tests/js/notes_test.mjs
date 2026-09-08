@@ -6,18 +6,19 @@
  * in the actions row edits it: the card body is itself a button, so the
  * control cannot sit on the line it edits.
  *
- * The stub server applies the real rules: it strips the note, refuses one over
- * the limit in the server's own words, stores an empty note as none, serves
- * the task back on GET /tasks/<name> — which is where the sheet reads the note
- * it opens on — and serves the list re-read that follows a save so the card
- * the user ends up looking at is what is asserted.
+ * The stub server applies the real rules: it strips the note, cuts one over
+ * the limit down to its front rather than refusing it, stores an empty note as
+ * none, 404s a task it no longer has, serves the task back on
+ * GET /tasks/<name> — which is where the sheet reads the note it opens on —
+ * and serves the list re-read that follows a save so the card the user ends up
+ * looking at is what is asserted.
  */
 
 import { bootApp, checker, settle } from './harness.mjs';
 
 const { check, clickModal, report } = checker();
 
-const LIMIT = 128;
+const LIMIT = 256;
 
 function listWith(tasks) {
   const app = bootApp();
@@ -43,12 +44,11 @@ function listWith(tasks) {
       const task = state[name];
       if (!task) return json({ error: `No task named ${name}` }, 404);
       const note = String(body.notes || '').trim();
-      if (note.length > LIMIT) {
-        return json({ error: `Note is ${note.length} characters; the limit is ${LIMIT}. `
-          + 'Shorten it, or keep the detail in the conversation itself.' }, 400);
-      }
-      task.notes = note || null;
-      return json({ ok: true, name, notes: task.notes });
+      // Trimmed, not refused: `truncate_notes` keeps the front and strips
+      // again, and the response reports the cut through `truncated`.
+      const kept = note.slice(0, LIMIT).trim();
+      task.notes = kept || null;
+      return json({ ok: true, name, notes: task.notes, truncated: note.length > LIMIT });
     }
     return json({ ok: true });
   });
@@ -94,7 +94,7 @@ function pressNote(app, name) {
 }
 
 // ── where the note is shown ─────────────────────────────────────────────
-const { app, posted } = listWith([
+const { app, posted, state } = listWith([
   T('noted-task', 'AGENT_FINISHED', { notes: 'why this exists' }),
   T('bare-task', 'WORKING'),
   T('closed-task', 'DONE', { notes: 'closed <b>&</b> noted' }),
@@ -276,21 +276,48 @@ clickModal(wiped.app, '#mc', 'the note sheet must be cancellable');
 await settle();
 check('and cancelling after Clear sends nothing', wiped.posted.length === 2, JSON.stringify(wiped.posted));
 
-// ── a refusal changes nothing on screen ─────────────────────────────────
-// The field's maxlength stops this in a browser; the stub has no such field,
-// so this is the server's own refusal reaching the user.
+// ── an over-long note is trimmed, not refused ───────────────────────────
+// The field's maxlength means the app cannot send one; the stub has no such
+// field, so this is the server's trim reaching a client that did. There is
+// deliberately no notice in the UI for it: unreachable from the app, so a
+// banner would be dead weight. What matters is that the save succeeds and the
+// card shows what was actually stored, rather than the app believing the
+// longer text went in.
 const reads1 = listReads(app);
 pressNote(app, 'closed-task');
 await settle();
-app.modal('#mv').value = 'x'.repeat(LIMIT + 1);
+app.modal('#mv').value = 'y'.repeat(LIMIT + 40);
 clickModal(app, '#mo', 'the note sheet must be saveable');
 await settle(); await settle();
-check('the refusal is shown in the server\'s words', toastText(app).includes(`the limit is ${LIMIT}`),
+check('the save is accepted', toastText(app) === 'Note saved for closed-task',
   `toast=${toastText(app)}`);
-check('a refused save does not reload the list', listReads(app) === reads1,
-  `list reads ${reads1} -> ${listReads(app)}`);
-check('and the card keeps its old note', body(app, 'closed-task').includes('closed &lt;b&gt;'),
+check('the server kept only the front of it', state['closed-task'].notes === 'y'.repeat(LIMIT),
+  `stored ${(state['closed-task'].notes || '').length} chars`);
+check('the list is reloaded, so the card shows what was stored',
+  listReads(app) === reads1 + 1, `list reads ${reads1} -> ${listReads(app)}`);
+check('and the card shows the trimmed note, not what was typed',
+  body(app, 'closed-task').includes('y'.repeat(LIMIT))
+  && !body(app, 'closed-task').includes('y'.repeat(LIMIT + 1)),
   body(app, 'closed-task'));
+
+// ── a save the server refuses changes nothing on screen ─────────────────
+// Driven by a failure that can really happen: the task is removed while the
+// sheet is open, so the POST 404s. This is the path a refusal takes to the
+// user, whatever the reason for it.
+const vanish = listWith([T('doomed-task', 'WORKING', { notes: 'still here' })]);
+const reads2 = listReads(vanish.app);
+pressNote(vanish.app, 'doomed-task');
+await settle();
+delete vanish.state['doomed-task'];  // removed from under the open sheet
+vanish.app.modal('#mv').value = 'written too late';
+clickModal(vanish.app, '#mo', 'the note sheet must be saveable');
+await settle(); await settle();
+check('the refusal is shown in the server\'s words',
+  toastText(vanish.app).includes('No task named doomed-task'), `toast=${toastText(vanish.app)}`);
+check('a refused save does not reload the list', listReads(vanish.app) === reads2,
+  `list reads ${reads2} -> ${listReads(vanish.app)}`);
+check('and the card keeps its old note',
+  body(vanish.app, 'doomed-task').includes('still here'), body(vanish.app, 'doomed-task'));
 
 // ── the sheet opens on the note the server has now, not the list's copy ──
 // The list is a poll; a note written from the CLI between two polls is not in
