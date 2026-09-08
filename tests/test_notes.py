@@ -101,8 +101,8 @@ class TestTruncateNotes:
     ``Task`` a test or a migration happens to construct.
     """
 
-    def test_the_limit_is_128(self) -> None:
-        assert MAX_NOTES_LENGTH == 128
+    def test_the_limit_is_256(self) -> None:
+        assert MAX_NOTES_LENGTH == 256
 
     def test_a_short_note_is_returned_unchanged(self) -> None:
         assert truncate_notes("a reminder") == "a reminder"

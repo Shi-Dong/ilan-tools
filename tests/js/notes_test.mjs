@@ -17,7 +17,7 @@ import { bootApp, checker, settle } from './harness.mjs';
 
 const { check, clickModal, report } = checker();
 
-const LIMIT = 128;
+const LIMIT = 256;
 
 function listWith(tasks) {
   const app = bootApp();

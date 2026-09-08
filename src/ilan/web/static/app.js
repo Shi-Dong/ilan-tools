@@ -866,7 +866,7 @@ async function doneFromCard(name) {
  * them write past it and lose the tail to a refusal. The server still checks:
  * this is a courtesy, not the rule, and a test pins the two numbers together.
  */
-const MAX_NOTES_LENGTH = 128;
+const MAX_NOTES_LENGTH = 256;
 
 /** Open the note sheet for *name* and save what comes back, the way
  * `ilan notes NAME "note"` does. Resolves true when a note was written.
