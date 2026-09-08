@@ -714,8 +714,264 @@ class TestNotesClearFlag:
         client.set_notes.assert_not_called()
 
 
+def _fake_editor(new_text: str | None, returncode: int = 0):
+    """Stand in for ``subprocess.run``: rewrite the temp file, then exit.
+
+    ``new_text=None`` leaves the file exactly as ilan wrote it, which is what
+    an editor opened and closed without a change looks like.
+    """
+    def run(cmd, *args, **kwargs):
+        if new_text is not None:
+            Path(cmd[-1]).write_text(new_text)
+        return MagicMock(returncode=returncode)
+
+    return run
+
+
+def _invoke_editor(
+    runner: CliRunner,
+    argv: list[str],
+    *,
+    current: str | None = "the old note",
+    new_text: str | None = None,
+    returncode: int = 0,
+    editor: str = "vim",
+):
+    """Run a ``-e`` notes command against a mock client and a fake editor."""
+    client = MagicMock()
+    client.get_task.return_value = {"task": {"name": "alpha", "notes": current}}
+    client.set_notes.return_value = {
+        "ok": True, "name": "alpha", "notes": (new_text or "").strip() or None,
+    }
+    seen: dict = {}
+
+    def run(cmd, *args, **kwargs):
+        seen["cmd"] = list(cmd)
+        seen["prefill"] = Path(cmd[-1]).read_text()
+        return _fake_editor(new_text, returncode)(cmd, *args, **kwargs)
+
+    with patch("ilan.cli._client", return_value=client), \
+            patch("ilan.cli.subprocess.run", side_effect=run), \
+            patch("ilan.cli.cfg.load", return_value={"editor": editor}):
+        result = runner.invoke(main, argv)
+    return result, client, seen
+
+
+class TestNotesEditorFlag:
+    """``-e`` opens the task's note in the configured editor."""
+
+    @pytest.mark.parametrize("prefix", _NOTES_PREFIXES)
+    def test_every_spelling_takes_the_flag(
+        self, runner: CliRunner, tmp_config, prefix: list[str],
+    ) -> None:
+        result, client, _ = _invoke_editor(
+            runner, [*prefix, "alpha", "-e"], new_text="a brand new note",
+        )
+        assert result.exit_code == 0
+        client.set_notes.assert_called_once_with(
+            "alpha", "a brand new note", append=False,
+        )
+
+    def test_long_form_works_too(self, runner: CliRunner, tmp_config) -> None:
+        _, client, _ = _invoke_editor(
+            runner, ["notes", "alpha", "--editor"], new_text="edited",
+        )
+        client.set_notes.assert_called_once_with("alpha", "edited", append=False)
+
+    def test_the_editor_is_prefilled_with_the_current_note(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """Editing a note means starting from it, not from a blank buffer."""
+        _, _, seen = _invoke_editor(
+            runner, ["notes", "alpha", "-e"], current="the old note",
+        )
+        assert seen["prefill"] == "the old note"
+
+    def test_a_task_with_no_note_opens_empty(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        _, _, seen = _invoke_editor(runner, ["notes", "alpha", "-e"], current=None)
+        assert seen["prefill"] == ""
+
+    def test_it_runs_the_configured_editor(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        _, _, seen = _invoke_editor(
+            runner, ["notes", "alpha", "-e"], new_text="x", editor="nano",
+        )
+        assert seen["cmd"][0] == "nano"
+
+    def test_no_read_only_flag_is_passed(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """``ilan log`` opens read-only; a note has to be writable."""
+        _, _, seen = _invoke_editor(
+            runner, ["notes", "alpha", "-e"], new_text="x", editor="vim",
+        )
+        assert seen["cmd"] == ["vim", seen["cmd"][-1]]
+        assert "-R" not in seen["cmd"]
+
+    def test_the_edited_text_is_stripped(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """Editors add a trailing newline; that must not reach the note."""
+        _, client, _ = _invoke_editor(
+            runner, ["notes", "alpha", "-e"], new_text="  edited  \n",
+        )
+        client.set_notes.assert_called_once_with("alpha", "edited", append=False)
+
+    def test_emptying_the_buffer_clears_the_note(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        result, client, _ = _invoke_editor(
+            runner, ["notes", "alpha", "-e"], new_text="",
+        )
+        assert result.exit_code == 0
+        client.set_notes.assert_called_once_with("alpha", "", append=False)
+        assert "cleared" in _strip_ansi(result.output)
+
+    def test_an_unchanged_buffer_sends_nothing(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """Closing the editor without editing should not be a write."""
+        result, client, _ = _invoke_editor(
+            runner, ["notes", "alpha", "-e"], current="same", new_text="same",
+        )
+        assert result.exit_code == 0
+        assert "unchanged" in _strip_ansi(result.output)
+        client.set_notes.assert_not_called()
+
+    def test_a_buffer_left_untouched_counts_as_unchanged(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """The realistic no-op: the editor never writes the file at all."""
+        result, client, _ = _invoke_editor(
+            runner, ["notes", "alpha", "-e"], current="same", new_text=None,
+        )
+        assert "unchanged" in _strip_ansi(result.output)
+        client.set_notes.assert_not_called()
+
+    def test_a_non_zero_editor_exit_abandons_the_edit(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """``:cq`` in vim means "throw this away", not "empty the note".
+
+        Reading it as an empty buffer would clear the note on an editor crash.
+        """
+        result, client, _ = _invoke_editor(
+            runner, ["notes", "alpha", "-e"], new_text="typed but abandoned",
+            returncode=1,
+        )
+        assert result.exit_code == 1
+        client.set_notes.assert_not_called()
+        assert "unchanged" in _strip_ansi(result.output)
+
+    def test_a_missing_editor_is_reported_and_saves_nothing(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        client = MagicMock()
+        client.get_task.return_value = {"task": {"name": "alpha", "notes": "n"}}
+        with patch("ilan.cli._client", return_value=client), \
+                patch("ilan.cli.subprocess.run", side_effect=FileNotFoundError("nope")), \
+                patch("ilan.cli.cfg.load", return_value={"editor": "no-such-editor"}):
+            result = runner.invoke(main, ["notes", "alpha", "-e"])
+        assert result.exit_code == 1
+        # Rich wraps the message, so compare on collapsed whitespace rather
+        # than on wherever the line happened to break.
+        out = " ".join(_strip_ansi(result.output).split())
+        assert "no-such-editor" in out
+        assert "ilan config set editor" in out  # says how to fix it
+        client.set_notes.assert_not_called()
+
+    def test_an_unknown_task_never_opens_an_editor(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        client = MagicMock()
+        client.get_task.return_value = {"error": "Task nope not found"}
+        with patch("ilan.cli._client", return_value=client), \
+                patch("ilan.cli.subprocess.run") as run:
+            result = runner.invoke(main, ["notes", "nope", "-e"])
+        assert result.exit_code == 1
+        run.assert_not_called()
+        assert "not found" in _strip_ansi(result.output)
+
+    def test_over_long_text_is_caught_before_the_round_trip(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """The one path that pre-checks the limit, because nothing else holds
+        the text: a server rejection would lose the editor buffer.
+        """
+        typed = "x" * (MAX_NOTES_LENGTH + 1)
+        result, client, _ = _invoke_editor(
+            runner, ["notes", "alpha", "-e"], new_text=typed,
+        )
+        assert result.exit_code == 1
+        client.set_notes.assert_not_called()
+        out = _strip_ansi(result.output)
+        assert str(MAX_NOTES_LENGTH) in out
+        # Echoed back so it can be recovered from the scrollback. Rich wraps
+        # it across lines, so rejoin before looking for the text.
+        assert typed in "".join(out.split())
+
+    def test_text_at_the_limit_is_accepted(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        typed = "x" * MAX_NOTES_LENGTH
+        result, client, _ = _invoke_editor(
+            runner, ["notes", "alpha", "-e"], new_text=typed,
+        )
+        assert result.exit_code == 0
+        client.set_notes.assert_called_once_with("alpha", typed, append=False)
+
+    def test_the_temp_file_is_cleaned_up(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        _, _, seen = _invoke_editor(
+            runner, ["notes", "alpha", "-e"], new_text="edited",
+        )
+        assert not Path(seen["cmd"][-1]).exists()
+
+    def test_the_temp_file_is_named_after_the_task(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """So a stray buffer in a split window still says what it belongs to."""
+        _, _, seen = _invoke_editor(
+            runner, ["notes", "alpha", "-e"], new_text="edited",
+        )
+        assert "alpha" in Path(seen["cmd"][-1]).name
+
+    def test_the_buffer_holds_only_the_note(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """No instruction header: nothing to strip, and a note may start with #."""
+        _, _, seen = _invoke_editor(
+            runner, ["notes", "alpha", "-e"], current="# a heading-ish note",
+        )
+        assert seen["prefill"] == "# a heading-ish note"
+
+    @pytest.mark.parametrize(
+        "extra, expected",
+        [
+            (["-c"], "use one or the other"),
+            (["-a", "x"], "use one or the other"),
+            (["some text"], "-e takes no note"),
+        ],
+    )
+    def test_it_is_exclusive_with_the_other_ways_to_write_a_note(
+        self, runner: CliRunner, tmp_config, extra: list[str], expected: str,
+    ) -> None:
+        client = MagicMock()
+        with patch("ilan.cli._client", return_value=client), \
+                patch("ilan.cli.subprocess.run") as run:
+            result = runner.invoke(main, ["notes", "alpha", "-e", *extra])
+        assert result.exit_code == 1
+        assert expected in _strip_ansi(result.output)
+        run.assert_not_called()
+        client.set_notes.assert_not_called()
+
+
 class TestNotesFlagCombinations:
-    """Each of note / -a / -c says what the note should become.
+    """Each of note / -a / -c / -e says what the note should become.
 
     Any two of them are a contradiction, so they are rejected before the
     request goes out rather than silently letting one win.
@@ -744,7 +1000,8 @@ class TestNotesFlagCombinations:
         result, client = _invoke_notes(runner, ["notes", "alpha"])
         assert result.exit_code == 1
         out = _strip_ansi(result.output)
-        assert "-a" in out and "-c" in out  # the message names both ways out
+        # The message names every way out, so it is never a dead end.
+        assert "-a" in out and "-c" in out and "-e" in out
         client.set_notes.assert_not_called()
 
     def test_a_plain_note_still_replaces(self, runner: CliRunner, tmp_config) -> None:
