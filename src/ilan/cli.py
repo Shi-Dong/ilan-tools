@@ -611,34 +611,43 @@ UNREAD_MARKER = "!!"
 # statuses use and from the `orange1` a Claude task's name is painted in,
 # so a note never reads as a status or as part of the name.
 NOTES_STYLE = "light_coral"
-# The Notes column is always present and always this wide, in both listings.
-# A column that sized itself to its contents would move every other column
-# each time a note was written, cleared, or lengthened — and the dashboard
-# re-renders once a second, so that movement would never settle.
+# Status and Notes hold the two answers to "what is this task about" — the
+# agent's summary of what it just did, and the user's own note — so they are
+# sized against each other at 3:2 rather than independently. Status takes the
+# larger share because it carries a label and a duration on top of its prose.
 #
-# A fixed column never yields, so every character taken here is paid for by
-# the ones that flex (Name and Status). On a wide window there is slack to
-# spare; on a narrow one there is none — 20 is the widest the column can be
-# while a full task name still fits beside it on a 70-column terminal, which
-# is why the two tiers exist rather than a single number. The tier is chosen
-# by the same ``_terminal_is_narrow`` threshold that drops ``Created``, so a
-# layout only ever changes shape when the window does, never while you are
-# reading it.
+# On a window with no room for both, the Notes *column* is dropped and the
+# note moves inside the Status cell, beneath the summary; see
+# :func:`_build_status_cell`. That is why there is one width here and not a
+# narrow tier: below the threshold there is no column to size.
+STATUS_TO_NOTES = (3, 2)
+# How the dashboard splits its flexible space between Name and the
+# Status/Notes pair. These are the shares Name and Status alone used to hold,
+# kept unchanged so that widening Notes takes its room from Status and from
+# nothing else — see :func:`_dashboard_pair_widths`.
+NAME_TO_PAIR = (10, 13)
+NAME_TO_PAIR_PLAIN = (14, 7)
+# `ilan ls` sizes Status to its contents, and with a one-line summary in the
+# cell that grew it past every other column — wider than the task names it
+# sat beside, so it is capped. Capped rather than pinned: a listing whose
+# statuses are all short (`-a`, where the summary is suppressed) should not
+# reserve the room a summary would have needed. Notes is pinned, because a
+# column that sized itself to its contents would move every other column each
+# time a note was written or lengthened, and the dashboard re-renders once a
+# second.
+#
+# These two are left as they are: 38:26 is already 1.46, within a character of
+# the 3:2 above, so there is nothing to trade here. It is the dashboard, where
+# Status grew with the terminal while Notes stayed pinned, that ran away from
+# the ratio — at 240 columns it reached 95:26.
 NOTES_COLUMN_WIDTH = 26
-NOTES_COLUMN_WIDTH_NARROW = 20
+STATUS_MAX_WIDTH = 38
 # `_format_ts(..., seconds=False)` is at most "Yesterday 13:30 PDT"; 15 fits
 # every other form ("Today 13:30 PDT", "09-05 13:30 PDT") on one line and
 # folds only the "Yesterday" case onto a second. Pinning the two timestamp
 # columns is what pays for Notes: under `expand=True` they held a *ratio*
 # share that grew with the terminal, far past anything a timestamp needs.
 TIMESTAMP_COLUMN_WIDTH = 15
-# `ilan ls` sizes Status to its contents, and with a one-line summary in the
-# cell that grew it past every other column — wider than the task names it
-# sat beside. Capped rather than pinned: a listing whose statuses are all
-# short (`-a`, where the summary is suppressed) should not reserve the room a
-# summary would have needed. The dashboard has no use for this; there Status
-# is a ratio, so shrinking its share is what makes it narrower.
-STATUS_MAX_WIDTH = 38
 
 
 def _append_task_number(text: Text, row: dict) -> None:
@@ -732,7 +741,18 @@ def _build_notes_cell(row: dict) -> Text:
     return cell
 
 
-def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
+def _build_status_cell(
+    row: dict, show_one_liner: bool = True, inline_note: bool = False,
+) -> Text:
+    """Build the Status cell: the label, how long it has been there, the
+    agent's one-line summary, and — when *inline_note* is set — the user's
+    note beneath that summary.
+
+    ``inline_note`` is how a window too narrow for a ``Notes`` column still
+    shows notes: the note keeps its own light red, so it reads as a third
+    kind of line rather than more of the summary, and it goes last because
+    the summary is what changed most recently.
+    """
     status = TaskStatus(row["status"])
     label, style = display_status(status, row.get("reply_every_seconds"))
     # Apply the status style only to the status span (not as a base style on
@@ -752,6 +772,9 @@ def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
     ):
         cell.append("\n")
         cell.append(one_liner, style="yellow italic")
+    if inline_note and (note := (row.get("notes") or "").strip()):
+        cell.append("\n")
+        cell.append(note, style=NOTES_STYLE)
     return cell
 
 
@@ -808,9 +831,11 @@ def _maybe_warn_one_liner_unconfigured(client: Client) -> None:
 
 
 # Below this terminal width (in columns) the ``ls`` / ``dashboard`` tables
-# drop the lower-priority ``Created`` column so the remaining
-# ``Name`` / ``Status`` / ``Notes`` / ``Last Changed`` columns stay legible
-# instead of wrapping into an unreadable mess on a narrow window.
+# drop both ``Created`` and ``Notes``, leaving ``Name`` / ``Status`` /
+# ``Last Changed`` legible instead of wrapping into an unreadable mess. The
+# note is not lost with its column: it moves into the ``Status`` cell (see
+# :func:`_build_status_cell`), because two prose columns side by side leave
+# nothing for the task name while one prose column stacked does not.
 _NARROW_TERMINAL_WIDTH = 120
 
 
@@ -821,9 +846,36 @@ def _terminal_is_narrow(width: int | None = None) -> bool:
     return width < _NARROW_TERMINAL_WIDTH
 
 
-def _notes_column_width(narrow: bool) -> int:
-    """How wide the Notes column is on this terminal — see the constants."""
-    return NOTES_COLUMN_WIDTH_NARROW if narrow else NOTES_COLUMN_WIDTH
+# A bordered, padded Rich table spends this much per column on chrome: one
+# vertical rule per column plus a closing one, and a space either side of
+# every cell.
+_TABLE_CHROME_PER_COLUMN = 3
+
+
+def _dashboard_pair_widths(
+    terminal_width: int, shares: tuple[int, int], columns: int = 5,
+) -> tuple[int, int]:
+    """Widths for the dashboard's Status and Notes columns.
+
+    The pair is handed exactly the room the two of them held before Notes was
+    sized against Status — that is, whatever Status' ratio share came to, plus
+    the width Notes was pinned at — and that room is then split
+    ``STATUS_TO_NOTES``. Because the total is unchanged, Name (the only
+    remaining ratio column) is left with precisely what it had, so widening
+    Notes takes from Status and from nothing else.
+    """
+    content = terminal_width - (_TABLE_CHROME_PER_COLUMN * columns + 1)
+    flexible = content - NOTES_COLUMN_WIDTH - 2 * TIMESTAMP_COLUMN_WIDTH
+    name_share, pair_share = shares
+    # Rounded, not floored, to match how Rich itself hands out a ratio share
+    # — it distributes the remainder rather than dropping it. Matching means
+    # Name comes out at exactly the width it had before; a mismatch would
+    # only shift it by a character, but there is no reason to accept even
+    # that when the arithmetic is this cheap.
+    status_before = round(flexible * pair_share / (name_share + pair_share))
+    pair = max(status_before + NOTES_COLUMN_WIDTH, sum(STATUS_TO_NOTES))
+    status = pair * STATUS_TO_NOTES[0] // sum(STATUS_TO_NOTES)
+    return status, pair - status
 
 
 def _do_ls(show_all: bool, concise: bool = False) -> None:
@@ -851,21 +903,25 @@ def _do_ls(show_all: bool, concise: bool = False) -> None:
     table = Table(show_lines=True)
     table.add_column("(Alias) Name", style="bold")
     table.add_column("Status", max_width=STATUS_MAX_WIDTH)
-    # Notes sits beside Status: the agent's summary of what it just did and
-    # the user's note on why the task exists answer the same question, so
-    # reading one after the other should not mean crossing two timestamps.
-    table.add_column("Notes", width=_notes_column_width(narrow))
     if not narrow:
+        # Notes sits beside Status: the agent's summary of what it just did
+        # and the user's note on why the task exists answer the same question,
+        # so reading one after the other should not mean crossing two
+        # timestamps. On a narrow window the column goes and the note moves
+        # into the Status cell instead.
+        table.add_column("Notes", width=NOTES_COLUMN_WIDTH)
         table.add_column("Created", width=TIMESTAMP_COLUMN_WIDTH)
     table.add_column("Last Changed", width=TIMESTAMP_COLUMN_WIDTH)
     for row in rows:
         changed = _format_ts(row["status_changed_at"], seconds=False) if row.get("status_changed_at") else ""
         cells = [
             _build_name_cell(row),
-            _build_status_cell(row, show_one_liner=show_one_liner),
-            _build_notes_cell(row),
+            _build_status_cell(
+                row, show_one_liner=show_one_liner, inline_note=narrow,
+            ),
         ]
         if not narrow:
+            cells.append(_build_notes_cell(row))
             cells.append(_format_ts(row["created_at"], seconds=False))
         cells.append(changed)
         table.add_row(*cells)
@@ -2845,7 +2901,7 @@ def shortcut_check_model(name: str) -> None:
 
 def _build_dashboard_table(
     rows: list[dict], tz: ZoneInfo, show_one_liner: bool = True,
-    narrow: bool = False,
+    narrow: bool = False, width: int | None = None,
 ) -> Table:
     """Build a Rich Table from task rows, reusing the _do_ls format.
 
@@ -2865,30 +2921,36 @@ def _build_dashboard_table(
     header.append("r", style="bold")
     header.append(" refresh", style="dim")
 
-    # Notes and the two timestamp columns are pinned to fixed widths, so only
-    # Name and Status flex with the terminal. They split whatever is left, and
-    # how they split it depends on whether the Luna one-line summary is
-    # rendered inside the Status cell:
-    #   * one-liner ON  → Status still needs the wider slot to fit the summary
-    #     under the status label, so it takes 13/23 of the flexible space and
-    #     Name takes 10/23. It used to take 16/26, which grew it wider than
-    #     every other column, task names included. The trade is real but
-    #     small: a long summary gains a line, and the width goes to Notes.
-    #   * one-liner OFF → Status only holds a short label + duration suffix,
-    #     so Name takes the bulk instead, at 14/21 against Status' 7/21.
-    # In both cases overlong name cells fold within the column instead of
-    # pushing it wider.
+    # The timestamp columns are pinned, and Name keeps exactly the share it
+    # has always had, so Name is the only ratio column. Status and Notes get
+    # explicit widths from :func:`_dashboard_pair_widths`, which hands the
+    # pair the space the two of them already occupied and splits it 3:2 —
+    # that way widening Notes takes its room from Status and from nowhere
+    # else. Name's share still depends on whether the one-liner is rendered
+    # in the Status cell:
+    #   * one-liner ON  → the summary lives there, so the pair needs the
+    #     bulk and Name takes 10 against the pair's 13.
+    #   * one-liner OFF → Status holds only a short label + duration suffix,
+    #     so Name takes the bulk instead, 14 against 7.
+    # Overlong name cells fold within the column instead of pushing it wider.
+    #
+    # On a narrow window Notes has no column at all — the note moves into the
+    # Status cell (``inline_note`` below) — so Status is simply the ratio it
+    # always was and there is no pair to split.
+    shares = NAME_TO_PAIR if show_one_liner else NAME_TO_PAIR_PLAIN
+    name_share, pair_share = shares
     table = Table(title=header, expand=True, show_lines=True)
-    if show_one_liner:
-        table.add_column("(Alias) Name", style="bold", ratio=10)
-        table.add_column("Status", ratio=13)
+    table.add_column("(Alias) Name", style="bold", ratio=name_share)
+    if narrow:
+        table.add_column("Status", ratio=pair_share)
     else:
-        table.add_column("(Alias) Name", style="bold", ratio=14)
-        table.add_column("Status", ratio=7)
-    # Beside Status, for the same reason as in `_do_ls`: the agent's summary
-    # and the user's note answer the same question about a task.
-    table.add_column("Notes", width=_notes_column_width(narrow))
-    if not narrow:
+        status_width, notes_width = _dashboard_pair_widths(
+            console.width if width is None else width, shares,
+        )
+        table.add_column("Status", width=status_width)
+        # Beside Status, for the same reason as in `_do_ls`: the agent's
+        # summary and the user's note answer the same question about a task.
+        table.add_column("Notes", width=notes_width)
         table.add_column("Created", width=TIMESTAMP_COLUMN_WIDTH)
     table.add_column("Last Changed", width=TIMESTAMP_COLUMN_WIDTH)
 
@@ -2901,10 +2963,12 @@ def _build_dashboard_table(
         changed = _format_ts(row["status_changed_at"], seconds=False) if row.get("status_changed_at") else ""
         cells = [
             _build_name_cell(row),
-            _build_status_cell(row, show_one_liner=show_one_liner),
-            _build_notes_cell(row),
+            _build_status_cell(
+                row, show_one_liner=show_one_liner, inline_note=narrow,
+            ),
         ]
         if not narrow:
+            cells.append(_build_notes_cell(row))
             cells.append(_format_ts(row["created_at"], seconds=False))
         cells.append(changed)
         table.add_row(*cells)
