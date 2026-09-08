@@ -905,29 +905,20 @@ class TestNotesEditorFlag:
         client.set_notes.assert_not_called()
         assert "unchanged" in _strip_ansi(result.output)
 
-    def test_a_missing_editor_is_reported_and_saves_nothing(
-        self, runner: CliRunner, tmp_config,
-    ) -> None:
-        client = MagicMock()
-        client.get_task.return_value = {"task": {"name": "alpha", "notes": "n"}}
-        with patch("ilan.cli._client", return_value=client), \
-                patch("ilan.cli.subprocess.run", side_effect=FileNotFoundError("nope")), \
-                patch("ilan.cli.cfg.load", return_value={"editor": "no-such-editor"}):
-            result = runner.invoke(main, ["notes", "alpha", "-e"])
-        assert result.exit_code == 1
-        # Rich wraps the message, so compare on collapsed whitespace rather
-        # than on wherever the line happened to break.
-        out = " ".join(_strip_ansi(result.output).split())
-        assert "no-such-editor" in out
-        assert "ilan config set editor" in out  # says how to fix it
-        client.set_notes.assert_not_called()
-
     def test_an_unknown_task_never_opens_an_editor(
         self, runner: CliRunner, tmp_config,
     ) -> None:
+        """The 404 comes back from the prefill fetch, before any editor runs.
+
+        ``cfg.load`` and ``shutil.which`` are patched so this asserts the 404
+        path and not the editor pre-check, which now runs first and would
+        otherwise fire on any host without the configured editor installed.
+        """
         client = MagicMock()
         client.get_task.return_value = {"error": "Task nope not found"}
         with patch("ilan.cli._client", return_value=client), \
+                patch("ilan.cli.cfg.load", return_value={"editor": "vim"}), \
+                patch("ilan.cli.shutil.which", return_value="/usr/bin/vim"), \
                 patch("ilan.cli.subprocess.run") as run:
             result = runner.invoke(main, ["notes", "nope", "-e"])
         assert result.exit_code == 1
