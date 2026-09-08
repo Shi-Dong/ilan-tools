@@ -227,7 +227,7 @@ function modal(innerHtml, wire) {
 }
 
 function askText(title, {
-  value = '', placeholder = '', multiline = false, okLabel = 'OK', maxlength = 0,
+  value = '', placeholder = '', multiline = false, okLabel = 'OK', maxlength = 0, clearLabel = '',
 } = {}) {
   // A maxlength stops the field at the limit the server would refuse, so the
   // user never types past it only to lose the tail to a refusal afterwards.
@@ -241,6 +241,7 @@ function askText(title, {
      <div class="stack">
        ${field}
        <div class="split">
+         ${clearLabel ? `<button class="btn" id="mx">${esc(clearLabel)}</button>` : ''}
          <button class="btn" id="mc">Cancel</button>
          <button class="btn btn-primary" id="mo">${esc(okLabel)}</button>
        </div>
@@ -250,6 +251,14 @@ function askText(title, {
       input.focus();
       root.querySelector('#mc').onclick = () => close(null);
       root.querySelector('#mo').onclick = () => close(input.value);
+      // A third button, when the caller asks for one, that answers with the
+      // empty string: for a field whose empty value means "remove it", that is
+      // one tap in place of select-all, delete, OK — and it runs the very path
+      // an emptied field run through OK runs, so nothing new can go wrong. It
+      // sits before Cancel, away from OK, the way a dialog's "Don't Save"
+      // sits apart from its Save.
+      const clearBtn = root.querySelector('#mx');
+      if (clearBtn) clearBtn.onclick = () => close('');
       if (!multiline) {
         input.onkeydown = (ev) => { if (ev.key === 'Enter') close(input.value); };
       }
@@ -879,12 +888,16 @@ async function editNote(name, fallback = '') {
   const t = encodeURIComponent(name);
   const { ok, data } = await api.get(`/tasks/${t}`);
   const current = ok && data.task ? (data.task.notes || '') : fallback;
+  // Clear only when there is a note: a Clear that changes nothing is a button
+  // that lies. It is `ilan notes -c` as one tap, and answers with the empty
+  // string, which the save below already reads as "remove it".
   const text = await askText(`Note for ${name}`, {
     value: current,
     placeholder: 'What is this task about?',
     multiline: true,
     okLabel: 'Save',
     maxlength: MAX_NOTES_LENGTH,
+    clearLabel: current ? 'Clear' : '',
   });
   if (text === null) return false;
   const note = text.trim();

@@ -1922,3 +1922,43 @@ def test_the_icon_is_a_flat_drawing_rendered_from_its_source():
         assert weight < cap, (
             f"{name} weighs {weight} bytes; flat shapes are a few kilobytes, a shaded picture is not"
         )
+
+
+def test_the_note_sheet_offers_clear_only_when_there_is_a_note():
+    """Emptying the field and saving already cleared a note, but on a phone
+    that is select-all, delete, Save. Clear is that in one tap, the way `-c`
+    is one flag on the command line.
+
+    It answers the sheet with the empty string, so it runs the same path a
+    saved-empty note runs and needs no second route or handler. Offered only
+    when there is a note: a Clear that changes nothing is a button that lies.
+    It sits before Cancel, away from Save, the way a dialog's "Don't Save"
+    sits apart from its Save, and it is a plain button, so Save stays the one
+    filled button on the sheet.
+    """
+    js = web.read_asset("app.js").decode()
+    ask = re.search(r"function askText\(title, \{(.*?)\n\}\n", js, re.S)
+    assert ask, "askText is gone"
+    body = ask.group(1)
+    assert "clearLabel = ''" in body, "askText has no clear option, or it is on by default"
+    assert re.search(r"\$\{clearLabel \? `<button class=\"btn\" id=\"mx\">", body), (
+        "the Clear button is not a plain button rendered only when asked for"
+    )
+    split = re.search(r'<div class="split">(.*?)</div>', body, re.S)
+    assert split, "the sheet's button row is gone"
+    assert re.findall(r'id="(m[xco])"', split.group(1)) == ["mx", "mc", "mo"], (
+        "Clear has moved from before Cancel, or a button is missing"
+    )
+    assert "if (clearBtn) clearBtn.onclick = () => close('');" in body, (
+        "Clear no longer answers the sheet with the empty string"
+    )
+
+    handler = re.search(r"async function editNote\(name, fallback = ''\) \{(.*?)\n\}", js, re.S)
+    assert handler, "the shared note sheet is gone"
+    assert "clearLabel: current ? 'Clear' : ''" in handler.group(1), (
+        "the note sheet offers Clear regardless of whether there is a note"
+    )
+
+    ref = (Path(web.__file__).parent.parent.parent.parent / "docs" / "reference.md").read_text()
+    row = next(line for line in ref.splitlines() if line.startswith("| List |"))
+    assert "Clear" in row, "the docs do not mention the sheet's Clear button"
