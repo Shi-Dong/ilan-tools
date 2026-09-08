@@ -44,6 +44,7 @@ const LIST_SELECTORS = {
   '.act-details': 'details',
   '.act-done': 'done',
   '.act-revive': 'revive',
+  '.act-notes': 'notes',
 };
 
 const PRELUDE = `
@@ -299,7 +300,7 @@ const TAIL = `;return {
   pushSupport, pushState, enablePush, disablePush, updateBadge, urlBase64ToUint8Array,
   registerServiceWorker, push: __push, enablePushSupport: __enablePushSupport, notification: Notification,
   showView, entranceFor, toggleCollapsed, fadeOutAndRemove, animateHeight, reduceMotion,
-  restartServer, waitForRestart,
+  restartServer, waitForRestart, notesFromCard,
   toast, toastHtml, withCodeName,
   elide, quoteForReply, selectedMessageText, syncAskBar, askAboutSelection,
   el: __el,
@@ -308,6 +309,7 @@ const TAIL = `;return {
   detailsBtn: (name) => __listEl('.act-details', name),
   doneBtn: (name) => __listEl('.act-done', name),
   reviveBtn: (name) => __listEl('.act-revive', name),
+  notesBtn: (name) => __listEl('.act-notes', name),
   html: () => __el('app').innerHTML,
   focused: () => (document.activeElement ? document.activeElement.id : null),
   modal: (sel) => __modalEl(sel),
@@ -325,6 +327,8 @@ const TAIL = `;return {
   },
   /** Whether the open sheet carries a text field. */
   modalHasField: () => ((__lastModal && __lastModal.innerHTML) || '').includes('id="mv"'),
+  /** The open sheet's markup, for asserting what a field was opened with. */
+  modalHtml: () => (__lastModal && __lastModal.innerHTML) || '',
   modalTitle: () => {
     const m = ((__lastModal && __lastModal.innerHTML) || '')
       .match(/class="sheet-title">([^<]*)</);

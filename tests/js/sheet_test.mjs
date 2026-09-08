@@ -27,7 +27,7 @@ await settle();
 check('the sheet opens', a.modalOpen());
 check('an open task is offered exactly these, in this order',
   JSON.stringify(values(a)) === JSON.stringify(
-    ['tap', 'cancel', 'sleep', 'done', 'pin', 'max', 'switch-backend', 'rename', 'branch', 'delete']),
+    ['tap', 'cancel', 'sleep', 'done', 'notes', 'pin', 'max', 'switch-backend', 'rename', 'branch', 'delete']),
   JSON.stringify(values(a)));
 for (const gone of ['replyEvery', 'unread', 'alias', 'discard']) {
   check(`${gone} is no longer offered`, !values(a).includes(gone));
@@ -54,6 +54,8 @@ check('a closed task is offered its way back and none of the live-only entries',
   JSON.stringify(values(c)));
 check('and none of the three removed entries either',
   !values(c).some((v) => ['replyEvery', 'unread', 'alias', 'discard'].includes(v)));
+check('a closed task is offered Note… right after its way back', values(c)[1] === 'notes',
+  JSON.stringify(values(c)));
 
 // ── Sleep opens a fixed choice ──────────────────────────────────────────
 const s = bootApp();
