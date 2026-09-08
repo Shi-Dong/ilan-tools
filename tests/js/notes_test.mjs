@@ -76,6 +76,11 @@ const body = (app, name) => {
   const m = card(app, name).match(/<button class="row"[\s\S]*?<\/button>/);
   return m ? m[0] : '';
 };
+/** The rendered note box: a sibling of the body button, before the actions. */
+const noteBox = (app, name) => {
+  const m = card(app, name).match(/<div class="row-notes md">([\s\S]*?)<\/div>\s*<div class="row-actions">/);
+  return m ? m[1] : '';
+};
 const listReads = (app) => app.fetches.filter((f) => f.path.startsWith('/tasks?')).length;
 const toastText = (app) => app.el('toast').textContent;
 /** Press a card's Note button, reporting rather than throwing if none is wired.
@@ -98,19 +103,33 @@ const { app, posted, state } = listWith([
   T('noted-task', 'AGENT_FINISHED', { notes: 'why this exists' }),
   T('bare-task', 'WORKING'),
   T('closed-task', 'DONE', { notes: 'closed <b>&</b> noted' }),
+  T('marked-task', 'WORKING', { notes: 'See **the paper** and https://x.test/p\n\n- one\n- two' }),
+  T('sneaky-task', 'WORKING', { notes: '<img src=x onerror=alert(1)>' }),
 ]);
 
-check('a note is rendered on its card',
-  body(app, 'noted-task').includes('<span class="row-notes">why this exists</span>'),
+check('a note is rendered on its card, as Markdown',
+  noteBox(app, 'noted-task') === '<p>why this exists</p>', noteBox(app, 'noted-task'));
+// Beside the body button, not inside it: a link or a list cannot live inside
+// a button, and a screen reader flattens a button's contents to its name.
+check('it sits after the body button and before the actions',
+  /<\/button>\s*<div class="row-notes md">[\s\S]*?<\/div>\s*<div class="row-actions">/.test(card(app, 'noted-task')),
+  card(app, 'noted-task'));
+check('and not inside the body button', !body(app, 'noted-task').includes('row-notes'),
   body(app, 'noted-task'));
-check('it sits under the summary and above the status line',
-  /class="row-sum">[\s\S]*?class="row-notes">[\s\S]*?class="row-meta">/.test(body(app, 'noted-task')),
-  'the note moved out from between the summary and the status');
-check('a task without a note shows no note line', !card(app, 'bare-task').includes('row-notes'),
-  'an empty note line is drawn on a card that has no note');
-check('the note is escaped',
-  body(app, 'closed-task').includes('closed &lt;b&gt;&amp;&lt;/b&gt; noted')
-  && !body(app, 'closed-task').includes('<b>'), body(app, 'closed-task'));
+check('a task without a note shows no note box', !card(app, 'bare-task').includes('row-notes'),
+  'an empty note box is drawn on a card that has no note');
+check('the note is escaped by the renderer',
+  noteBox(app, 'closed-task').includes('closed &lt;b&gt;&amp;&lt;/b&gt; noted')
+  && !noteBox(app, 'closed-task').includes('<b>'), noteBox(app, 'closed-task'));
+check('markup in a note never becomes markup',
+  noteBox(app, 'sneaky-task').includes('&lt;img') && !card(app, 'sneaky-task').includes('<img'),
+  noteBox(app, 'sneaky-task'));
+const marked = noteBox(app, 'marked-task');
+check('bold, links and lists in a note are rendered as Markdown',
+  marked.includes('<strong>the paper</strong>') && marked.includes('<a href="https://x.test/p"')
+  && marked.includes('<ul>') && marked.includes('<li>one</li>') && marked.includes('<li>two</li>'), marked);
+check('a link in a note is outside every button',
+  !/<button[^>]*>(?:(?!<\/button>)[\s\S])*<a /.test(card(app, 'marked-task')), card(app, 'marked-task'));
 
 // ── the button that edits it ────────────────────────────────────────────
 // Offered on every card, closed ones included: writing down what a finished
@@ -166,8 +185,7 @@ check('the toast names the task, as code',
 check('the list is reloaded straight after', listReads(app) === reads0 + 1,
   `list reads ${reads0} -> ${listReads(app)}`);
 check('the card now shows the new note',
-  body(app, 'noted-task').includes('<span class="row-notes">now about something else</span>'),
-  body(app, 'noted-task'));
+  noteBox(app, 'noted-task') === '<p>now about something else</p>', noteBox(app, 'noted-task'));
 check('the sheet is closed', !app.modalOpen());
 check('the search that surfaced the cards survives the reload', app.html().includes('value="task"'));
 
@@ -200,7 +218,7 @@ app.modal('#mv').value = 'first note';
 clickModal(app, '#mo', 'the note sheet must be saveable');
 await settle(); await settle();
 check('the first note appears on the card',
-  body(app, 'bare-task').includes('<span class="row-notes">first note</span>'), body(app, 'bare-task'));
+  noteBox(app, 'bare-task') === '<p>first note</p>', noteBox(app, 'bare-task'));
 
 // ── clearing is saving an empty note ────────────────────────────────────
 pressNote(app, 'noted-task');
@@ -244,8 +262,7 @@ const overPost = wiped.posted[wiped.posted.length - 1];
 check('Save then posts what was typed after Clear',
   wiped.posted.length === 1 && overPost.body.notes === 'started over', JSON.stringify(wiped.posted));
 check('and the card shows it',
-  body(wiped.app, 'wipe-task').includes('<span class="row-notes">started over</span>'),
-  body(wiped.app, 'wipe-task'));
+  noteBox(wiped.app, 'wipe-task') === '<p>started over</p>', noteBox(wiped.app, 'wipe-task'));
 
 // Clear, then Save with nothing typed, is how a note is removed.
 pressNote(wiped.app, 'wipe-task');
@@ -296,9 +313,9 @@ check('the server kept only the front of it', state['closed-task'].notes === 'y'
 check('the list is reloaded, so the card shows what was stored',
   listReads(app) === reads1 + 1, `list reads ${reads1} -> ${listReads(app)}`);
 check('and the card shows the trimmed note, not what was typed',
-  body(app, 'closed-task').includes('y'.repeat(LIMIT))
-  && !body(app, 'closed-task').includes('y'.repeat(LIMIT + 1)),
-  body(app, 'closed-task'));
+  noteBox(app, 'closed-task').includes('y'.repeat(LIMIT))
+  && !noteBox(app, 'closed-task').includes('y'.repeat(LIMIT + 1)),
+  noteBox(app, 'closed-task'));
 
 // ── a save the server refuses changes nothing on screen ─────────────────
 // Driven by a failure that can really happen: the task is removed while the
@@ -317,7 +334,7 @@ check('the refusal is shown in the server\'s words',
 check('a refused save does not reload the list', listReads(vanish.app) === reads2,
   `list reads ${reads2} -> ${listReads(vanish.app)}`);
 check('and the card keeps its old note',
-  body(vanish.app, 'doomed-task').includes('still here'), body(vanish.app, 'doomed-task'));
+  noteBox(vanish.app, 'doomed-task').includes('still here'), noteBox(vanish.app, 'doomed-task'));
 
 // ── the sheet opens on the note the server has now, not the list's copy ──
 // The list is a poll; a note written from the CLI between two polls is not in

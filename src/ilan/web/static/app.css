@@ -588,32 +588,51 @@ textarea.field {
   overflow-wrap: anywhere;
 }
 
-/* The note the user wrote with `ilan notes`, under the agent's summary: what
- * the agent last did, then what the task is for. The two matter equally, so
- * the note takes the summary's ink and size exactly — a first version set it
- * in full ink behind a dark bar, and it shouted the summary down. What tells
- * them apart is the shape: the note is a box inside the card, in the page's
- * own grey behind the app's hairline, with a radius a step inside the card's
- * so it reads as nested rather than as a second card. No label — "Note:" on
- * every card would spend a word saying what the box already says. Line breaks
- * are kept: the server stores the note verbatim, so a break the user typed is
- * a break they meant. No clamp, for the same reason the summary has none. */
+/* The note the user wrote with `ilan notes`, rendered as Markdown in a box
+ * below the card body. A sibling of the body button rather than part of it: a
+ * link or a list cannot live inside a button, and a screen reader flattens a
+ * button's contents to its name. The two matter equally, so the note takes
+ * the summary's ink and size exactly — a first version set it in full ink
+ * behind a dark bar, and it shouted the summary down. What tells them apart
+ * is the shape: a box inside the card, in the page's own grey behind the
+ * app's hairline, with a radius a step inside the card's so it reads as
+ * nested rather than as a second card. No label — "Note:" on every card would
+ * spend a word saying what the box already says. Line breaks follow
+ * Markdown's rules, as they do in a message: a blank line starts a paragraph,
+ * a dash starts a list. No clamp, for the same reason the summary has none. */
 .row-notes {
   display: block;
-  margin-top: 8px;
+  margin: 0 14px 12px;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg-inset);
   color: var(--text-dim);
   font-size: 14px;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
   /* Italic: the note is the user's own words, and italics are how a line in
    * another voice is set within running text. It tells the note from the
    * summary above it without making either louder — same ink, same size. */
   font-style: italic;
 }
+
+/* The Markdown styles are shared with the message bubbles, which are set at
+ * 15px with document spacing. A note is a line or two, so in its box the text
+ * comes down to the summary's size, the spacing tightens, and headings grow no
+ * bigger than the text. Emphasis is set upright: the box is already italic, so
+ * an italic word would vanish into it — the way a title inside an italic
+ * passage is set roman. */
+.row-notes.md { font-size: 14px; }
+.row-notes.md p, .row-notes.md ul, .row-notes.md ol, .row-notes.md blockquote,
+.row-notes.md .md-pre, .row-notes.md .md-table-wrap { margin-bottom: 6px; }
+.row-notes.md > :last-child { margin-bottom: 0; }
+.row-notes.md ul, .row-notes.md ol { padding-left: 18px; }
+.row-notes.md li { margin: 1px 0; }
+.row-notes.md h3, .row-notes.md h4, .row-notes.md h5, .row-notes.md h6 {
+  font-size: 14px;
+  margin: 6px 0 2px;
+}
+.row-notes.md em { font-style: normal; }
 
 .row-meta {
   display: flex;
