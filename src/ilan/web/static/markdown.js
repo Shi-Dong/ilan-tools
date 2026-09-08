@@ -49,14 +49,29 @@ const MD = (() => {
   }
 
   // Inline code is pulled out before any other inline rule runs, so ``*`` or
-  // ``_`` inside a code span is never mistaken for emphasis.
+  // ``_`` inside a code span is never mistaken for emphasis. Links get the
+  // same protection once built: their markup is parked behind a second marker
+  // and restored last, so no emphasis rule can reach into an href.
   const PLACEHOLDER = '\u0000';
+  const PARKED = '\u0001';
+
+  // Marks that end a sentence around a URL rather than belonging to it.
+  // ``see https://x.test/a.`` means the URL without the full stop, and
+  // ``**https://x.test/a**`` means a bold link, not a URL ending in stars.
+  // Closing brackets are already kept out of a URL by the pattern itself.
+  const URL_TAIL = /(?:[*_~.,:;!?]|&quot;|&#39;)+$/;
 
   function inline(text) {
     const codes = [];
+    const parked = [];
+    const park = (html) => {
+      parked.push(html);
+      return `${PARKED}${parked.length - 1}${PARKED}`;
+    };
     // Double-backtick form first: it may legitimately contain a single tick.
     let out = String(text)
       .replaceAll(PLACEHOLDER, '')
+      .replaceAll(PARKED, '')
       .replace(/``([^`]+)``/g, (_m, code) => {
         codes.push(code);
         return `${PLACEHOLDER}${codes.length - 1}${PLACEHOLDER}`;
@@ -72,18 +87,36 @@ const MD = (() => {
     // the literal markdown rather than silently vanishing. An optional title
     // after the URL is matched loosely and dropped: it cannot contain ')', so
     // the match still ends at the right place, and matching it loosely means a
-    // title containing quotes does not defeat the whole link.
+    // title containing quotes does not defeat the whole link. The opening tag
+    // is parked so the emphasis rules below cannot touch the href; the label
+    // stays in the text, so ``[**bold**](url)`` still renders bold.
     out = out.replace(/\[([^\]\n]*)\]\(([^)\s]+)(?:\s+[^)\n]*)?\)/g,
       (whole, label, target) => {
         const href = safeUrl(target.replaceAll('&amp;', '&'));
         if (href === null) return whole;
-        return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+        const open = `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">`;
+        return `${park(open)}${label}</a>`;
       });
 
-    // Bare URLs, but not ones already inside an href="..." from the step above.
-    out = out.replace(/(^|[\s(])(https?:\/\/[^\s<>()]+)/g,
-      (_m, lead, url) =>
-        `${lead}<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`);
+    // Bare URLs. A URL counts when it follows the start of the line, a space,
+    // an opening bracket, or an emphasis marker — the last so that a bold link
+    // at the head of a line, ``**https://…**``, is a link at all. A quote is
+    // deliberately not in that set: the one place a URL follows a quote is
+    // inside an href="..." this file already wrote.
+    //
+    // Trailing punctuation goes back to the text. Before it did, an agent's
+    // ``**PR: https://x.test/pull/1**`` swallowed the closing stars into the
+    // URL; the bold rule then found its ``**`` inside the href and closed the
+    // <strong> in there, leaving it open for the rest of the message — and a
+    // browser carries an unclosed bold across every paragraph that follows.
+    // The whole anchor is parked, since its text is the URL itself and nothing
+    // in a URL is emphasis.
+    out = out.replace(/(^|[\s(*_~])(https?:\/\/[^\s<>()]+)/g, (_m, lead, url) => {
+      const tail = (url.match(URL_TAIL) || [''])[0];
+      const target = url.slice(0, url.length - tail.length);
+      const anchor = `<a href="${target}" target="_blank" rel="noopener noreferrer">${target}</a>`;
+      return `${lead}${park(anchor)}${tail}`;
+    });
 
     out = out.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
     out = out.replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
@@ -96,6 +129,10 @@ const MD = (() => {
     out = out.replace(/(^|[^\w*])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>');
     out = out.replace(/(^|[^\w_])_([^_\n]+)_(?!\w)/g, '$1<em>$2</em>');
 
+    out = out.replace(
+      new RegExp(`${PARKED}(\\d+)${PARKED}`, 'g'),
+      (_m, i) => parked[Number(i)],
+    );
     return out.replace(
       new RegExp(`${PLACEHOLDER}(\\d+)${PLACEHOLDER}`, 'g'),
       (_m, i) => `<code>${escapeHtml(codes[Number(i)])}</code>`,
