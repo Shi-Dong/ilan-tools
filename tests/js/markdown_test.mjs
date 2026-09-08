@@ -59,6 +59,35 @@ const CASES = [
     ['<a href="https://example.com"', 'rel="noopener noreferrer"', '>docs</a>'], []],
   ['bare url autolinks', 'see https://example.com/x now',
     ['<a href="https://example.com/x"'], []],
+
+  // ── links and emphasis leave each other alone ─────────────────────────
+  // An agent wrote ``**PR: https://…/pull/259** — …``. The bare-URL rule ran
+  // first and swallowed the closing stars into the href; the bold rule then
+  // found its ``**`` inside that attribute and closed the <strong> in there.
+  // With the close tag lost inside a tag the <strong> stayed open, and the
+  // browser carried bold across every paragraph that followed.
+  ['bold around a bare url', '**PR: https://x.test/pull/1** — after',
+    ['<strong>PR: <a href="https://x.test/pull/1"', '</a></strong> — after'],
+    ['1**', '</strong>"']],
+  ['emphasis markers never enter an href', '**https://x.test/x**',
+    ['<strong><a href="https://x.test/x"', '</a></strong>'], ['x**', '</strong>"']],
+  ['italic around a bare url', 'see *https://x.test/i* now',
+    ['<em><a href="https://x.test/i"', '</a></em> now'], ['i*"']],
+  ['bare url sheds trailing punctuation', 'see https://x.test/a. Then https://x.test/b, and https://x.test/c!',
+    ['href="https://x.test/a"', '</a>. Then', 'href="https://x.test/b"', '</a>, and', 'href="https://x.test/c"', '</a>!'],
+    ['a."', 'b,"', 'c!"']],
+  ['bare url keeps its inner punctuation', 'see https://x.test/a.b/c?d=1,2&e=3 now',
+    ['href="https://x.test/a.b/c?d=1,2&amp;e=3"', '</a> now'], []],
+  ['link label keeps its bold', '[**b**](https://x.test/)',
+    ['<a href="https://x.test/"', '<strong>b</strong></a>'], []],
+  ['underscores inside a link target are not emphasis', '[x](https://x.test/_v_/y) and _z_',
+    ['href="https://x.test/_v_/y"', '<em>z</em>'], ['/<em>v</em>/']],
+  ['underscores inside a bare url are not emphasis', 'see https://x.test/_v_/y and _z_',
+    ['href="https://x.test/_v_/y"', '>https://x.test/_v_/y</a>', '<em>z</em>'], ['/<em>v</em>/']],
+  ['stars inside a link target are not emphasis', '[x](https://x.test/*/y) and *z* done',
+    ['href="https://x.test/*/y"', '<em>z</em>'], ['/<em>']],
+  ['a parked marker in the input is inert', '\u00010\u0001 https://x.test/p',
+    ['0 <a href="https://x.test/p"'], ['\u0001']],
   ['unordered list', '- one\n- two', ['<ul>', '<li>one</li>', '<li>two</li>'], []],
   ['ordered list', '1. one\n2. two', ['<ol>', '<li>one</li>'], []],
   ['nested list', '- top\n  - inner', ['<ul>', 'inner'], []],
@@ -97,6 +126,11 @@ const CASES = [
 function unsafe(html) {
   const problems = [];
   if (/<script/i.test(html)) problems.push('contains a <script tag');
+  // A closing tag inside another tag is how an unclosed <strong> once bled
+  // bold across a whole message: the close landed inside an href.
+  if (/<[a-zA-Z][^>]*<\/[a-zA-Z]+>[^>]*>/.test(html)) {
+    problems.push('has a closing tag inside another tag');
+  }
   if (/<[a-zA-Z][^>]*\son[a-z]+\s*=/i.test(html)) {
     problems.push('has an event-handler attribute inside a tag');
   }
