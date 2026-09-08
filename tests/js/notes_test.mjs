@@ -216,44 +216,65 @@ check('the toast says cleared', toastText(app) === 'Note cleared for noted-task'
 check('the note line is gone from the card', !card(app, 'noted-task').includes('row-notes'),
   card(app, 'noted-task'));
 
-// ── Clear: one tap, the way `ilan notes -c` is one flag ─────────────────
-// Emptying the field and saving already clears a note, but on a phone that is
-// select-all, delete, Save. Clear answers the sheet with the empty string, so
-// it runs the very path a saved-empty note runs.
+// ── Clear: empty the field and start over ───────────────────────────────
+// It decides nothing: the sheet stays open and nothing is sent until Save.
+// Save on the emptied field is what removes the note, the path `-c` takes.
 const wiped = listWith([
   T('wipe-task', 'AGENT_FINISHED', { notes: 'to be cleared' }), T('blank-task', 'WORKING'),
 ]);
 pressNote(wiped.app, 'wipe-task');
 await settle();
-check('a task with a note is offered Clear', wiped.app.modalHtml().includes('id="mx">Clear<'),
-  wiped.app.modalHtml());
-check('Clear sits before Cancel, away from Save',
+check('the sheet offers Clear', wiped.app.modalHtml().includes('id="mx">Clear<'), wiped.app.modalHtml());
+check('Clear sits before Cancel, apart from the two that close the sheet',
   /id="mx"[\s\S]*id="mc"[\s\S]*id="mo"/.test(wiped.app.modalHtml()), wiped.app.modalHtml());
-check('and it is not the filled button', wiped.app.modalHtml().includes('class="btn" id="mx"'),
-  wiped.app.modalHtml());
-const reads2 = listReads(wiped.app);
+check('and it is a ghost button, unlike the bordered Cancel',
+  wiped.app.modalHtml().includes('class="btn btn-ghost" id="mx"')
+  && wiped.app.modalHtml().includes('class="btn" id="mc"'), wiped.app.modalHtml());
+wiped.app.modal('#mv').value = 'to be cleared';
 clickModal(wiped.app, '#mx', 'the note sheet must offer Clear');
+await settle();
+check('Clear empties the field', wiped.app.modal('#mv').value === '',
+  `field=${JSON.stringify(wiped.app.modal('#mv').value)}`);
+check('the sheet stays open', wiped.app.modalOpen());
+check('and nothing is sent', wiped.posted.length === 0, JSON.stringify(wiped.posted));
+wiped.app.modal('#mv').value = 'started over';
+clickModal(wiped.app, '#mo', 'the note sheet must be saveable');
 await settle(); await settle();
-const wipe = wiped.posted[wiped.posted.length - 1];
-check('Clear posts an empty note, once',
-  wiped.posted.length === 1 && wipe.name === 'wipe-task' && wipe.body.notes === '',
+const overPost = wiped.posted[wiped.posted.length - 1];
+check('Save then posts what was typed after Clear',
+  wiped.posted.length === 1 && overPost.body.notes === 'started over', JSON.stringify(wiped.posted));
+check('and the card shows it',
+  body(wiped.app, 'wipe-task').includes('<span class="row-notes">started over</span>'),
+  body(wiped.app, 'wipe-task'));
+
+// Clear, then Save with nothing typed, is how a note is removed.
+pressNote(wiped.app, 'wipe-task');
+await settle();
+clickModal(wiped.app, '#mx', 'the note sheet must offer Clear');
+await settle();
+clickModal(wiped.app, '#mo', 'the note sheet must be saveable');
+await settle(); await settle();
+const gonePost = wiped.posted[wiped.posted.length - 1];
+check('Clear then Save posts an empty note', wiped.posted.length === 2 && gonePost.body.notes === '',
   JSON.stringify(wiped.posted));
 check('the toast says cleared', toastText(wiped.app) === 'Note cleared for wipe-task',
   `toast=${toastText(wiped.app)}`);
-check('the sheet is closed', !wiped.app.modalOpen());
-check('the list is reloaded', listReads(wiped.app) === reads2 + 1,
-  `list reads ${reads2} -> ${listReads(wiped.app)}`);
 check('and the card has no note line', !card(wiped.app, 'wipe-task').includes('row-notes'),
   card(wiped.app, 'wipe-task'));
 
+// Offered without a note too: a fresh note typed halfway is as much a thing
+// to start over as an old one.
 pressNote(wiped.app, 'blank-task');
 await settle();
-check('a task without a note is not offered Clear', !wiped.app.modalHtml().includes('id="mx"'),
+check('a task without a note is offered Clear too', wiped.app.modalHtml().includes('id="mx">Clear<'),
   wiped.app.modalHtml());
-check('but still Cancel and Save', wiped.app.modalHtml().includes('id="mc"') && wiped.app.modalHtml().includes('id="mo"'));
+wiped.app.modal('#mv').value = 'half a thought';
+clickModal(wiped.app, '#mx', 'the note sheet must offer Clear');
+await settle();
+check('it empties what was typed', wiped.app.modal('#mv').value === '');
 clickModal(wiped.app, '#mc', 'the note sheet must be cancellable');
 await settle();
-check('Clear was never offered for nothing', wiped.posted.length === 1);
+check('and cancelling after Clear sends nothing', wiped.posted.length === 2, JSON.stringify(wiped.posted));
 
 // ── a refusal changes nothing on screen ─────────────────────────────────
 // The field's maxlength stops this in a browser; the stub has no such field,

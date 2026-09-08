@@ -241,7 +241,7 @@ function askText(title, {
      <div class="stack">
        ${field}
        <div class="split">
-         ${clearLabel ? `<button class="btn" id="mx">${esc(clearLabel)}</button>` : ''}
+         ${clearLabel ? `<button class="btn btn-ghost" id="mx">${esc(clearLabel)}</button>` : ''}
          <button class="btn" id="mc">Cancel</button>
          <button class="btn btn-primary" id="mo">${esc(okLabel)}</button>
        </div>
@@ -251,14 +251,15 @@ function askText(title, {
       input.focus();
       root.querySelector('#mc').onclick = () => close(null);
       root.querySelector('#mo').onclick = () => close(input.value);
-      // A third button, when the caller asks for one, that answers with the
-      // empty string: for a field whose empty value means "remove it", that is
-      // one tap in place of select-all, delete, OK — and it runs the very path
-      // an emptied field run through OK runs, so nothing new can go wrong. It
-      // sits before Cancel, away from OK, the way a dialog's "Don't Save"
-      // sits apart from its Save.
+      // A third button, when the caller asks for one, that empties the field
+      // and leaves the sheet open: on a phone, starting over is otherwise
+      // select-all and delete. It decides nothing — OK still does, and OK on
+      // an emptied field is what a caller reads as "remove it" — so it is a
+      // ghost button rather than a bordered one, the way the composer's own
+      // clear is, and it sits before Cancel, apart from the two buttons that
+      // close the sheet.
       const clearBtn = root.querySelector('#mx');
-      if (clearBtn) clearBtn.onclick = () => close('');
+      if (clearBtn) clearBtn.onclick = () => { input.value = ''; input.focus(); };
       if (!multiline) {
         input.onkeydown = (ev) => { if (ev.key === 'Enter') close(input.value); };
       }
@@ -888,16 +889,17 @@ async function editNote(name, fallback = '') {
   const t = encodeURIComponent(name);
   const { ok, data } = await api.get(`/tasks/${t}`);
   const current = ok && data.task ? (data.task.notes || '') : fallback;
-  // Clear only when there is a note: a Clear that changes nothing is a button
-  // that lies. It is `ilan notes -c` as one tap, and answers with the empty
-  // string, which the save below already reads as "remove it".
+  // Clear empties the field so a note can be started over; nothing changes
+  // until Save, and Save on the emptied field is what removes the note — the
+  // path `ilan notes -c` takes. Offered whether or not there is a note yet: a
+  // fresh note typed halfway is just as much a thing to start over.
   const text = await askText(`Note for ${name}`, {
     value: current,
     placeholder: 'What is this task about?',
     multiline: true,
     okLabel: 'Save',
     maxlength: MAX_NOTES_LENGTH,
-    clearLabel: current ? 'Clear' : '',
+    clearLabel: 'Clear',
   });
   if (text === null) return false;
   const note = text.trim();
