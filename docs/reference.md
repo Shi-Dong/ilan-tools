@@ -493,7 +493,7 @@ requests relative URLs, so no server address is configured anywhere. On iOS,
 
 | Screen | Commands it covers |
 |---|---|
-| List | `ls`, `ls -a`, `search`; an expanded card shows the task's note under its summary, and each card also offers `tap`, `done`, `notes`, and — on a closed task — `undone` / `undiscard` |
+| List | `ls`, `ls -a`, `search`; an expanded card shows the task's note under its summary, and each card also offers `tap`, `done`, `notes` (its sheet has a Clear button to start the note over; saving it empty removes the note, as `notes -c` does), and — on a closed task — `undone` / `undiscard` |
 | Task | `tail`, `logs`, `show` |
 | Composer | `reply`, `re` |
 | Actions | `tap`, `cancel`, `sleep` (a fixed choice of 15m, 30m, 1h, 2h, 4h or 8h), `done`, `undone`, `undiscard`, `pin`, `unpin`, `max`, `unmax`, `switch-backend`, `rename`, `branch`, `notes`, `kill`, `rm` |

@@ -227,7 +227,7 @@ function modal(innerHtml, wire) {
 }
 
 function askText(title, {
-  value = '', placeholder = '', multiline = false, okLabel = 'OK', maxlength = 0,
+  value = '', placeholder = '', multiline = false, okLabel = 'OK', maxlength = 0, clearLabel = '',
 } = {}) {
   // A maxlength stops the field at the limit the server would refuse, so the
   // user never types past it only to lose the tail to a refusal afterwards.
@@ -241,6 +241,7 @@ function askText(title, {
      <div class="stack">
        ${field}
        <div class="split">
+         ${clearLabel ? `<button class="btn btn-ghost" id="mx">${esc(clearLabel)}</button>` : ''}
          <button class="btn" id="mc">Cancel</button>
          <button class="btn btn-primary" id="mo">${esc(okLabel)}</button>
        </div>
@@ -250,6 +251,15 @@ function askText(title, {
       input.focus();
       root.querySelector('#mc').onclick = () => close(null);
       root.querySelector('#mo').onclick = () => close(input.value);
+      // A third button, when the caller asks for one, that empties the field
+      // and leaves the sheet open: on a phone, starting over is otherwise
+      // select-all and delete. It decides nothing — OK still does, and OK on
+      // an emptied field is what a caller reads as "remove it" — so it is a
+      // ghost button rather than a bordered one, the way the composer's own
+      // clear is, and it sits before Cancel, apart from the two buttons that
+      // close the sheet.
+      const clearBtn = root.querySelector('#mx');
+      if (clearBtn) clearBtn.onclick = () => { input.value = ''; input.focus(); };
       if (!multiline) {
         input.onkeydown = (ev) => { if (ev.key === 'Enter') close(input.value); };
       }
@@ -879,12 +889,17 @@ async function editNote(name, fallback = '') {
   const t = encodeURIComponent(name);
   const { ok, data } = await api.get(`/tasks/${t}`);
   const current = ok && data.task ? (data.task.notes || '') : fallback;
+  // Clear empties the field so a note can be started over; nothing changes
+  // until Save, and Save on the emptied field is what removes the note — the
+  // path `ilan notes -c` takes. Offered whether or not there is a note yet: a
+  // fresh note typed halfway is just as much a thing to start over.
   const text = await askText(`Note for ${name}`, {
     value: current,
     placeholder: 'What is this task about?',
     multiline: true,
     okLabel: 'Save',
     maxlength: MAX_NOTES_LENGTH,
+    clearLabel: 'Clear',
   });
   if (text === null) return false;
   const note = text.trim();
