@@ -602,11 +602,13 @@ function taskRow(task) {
   // handle_list_tasks): the model ids and the backend rule live in models.py,
   // and this only reads the answer.
   //
-  // The note the user wrote with `ilan notes` sits under the summary: the
-  // agent's account of what it just did, then the user's of what the task is
-  // for. It is detail in the same sense the summary is, so it goes with it
-  // when the card collapses. A Note button in the actions row edits it — it
-  // cannot sit on the note itself, since the card body is already a button.
+  // The note the user wrote with `ilan notes` is rendered as Markdown in a
+  // box below the body: what the agent last did, the status, then what the
+  // task is for in the user's own words, with whatever links, lists or code
+  // they used. It is a sibling of the body button rather than part of it — a
+  // link or a list cannot live inside a button, and a screen reader flattens
+  // a button's contents to its name — and like the summary it is detail, so
+  // it goes when the card collapses. A Note button in the actions row edits it.
   const meta = [
     statusPill(task),
     task.max_tag ? `<span class="max-tag">${esc(task.max_tag)}</span>` : '',
@@ -635,10 +637,9 @@ function taskRow(task) {
         </span>
         ${task.summary_one_liner
           ? `<span class="row-sum">${esc(task.summary_one_liner)}</span>` : ''}
-        ${task.notes
-          ? `<span class="row-notes">${esc(task.notes)}</span>` : ''}
         <span class="row-meta">${meta}</span>
       </button>
+      ${task.notes ? `<div class="row-notes md">${MD.render(task.notes)}</div>` : ''}
       <div class="row-actions">
         ${TERMINAL_STATUSES.has(task.status) ? `
         <button class="act act-revive" data-revive="${esc(task.name)}">

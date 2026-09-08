@@ -1714,43 +1714,71 @@ def test_the_docs_describe_notifications_instead_of_denying_them():
 
 # ── the note ────────────────────────────────────────────────────────────
 
-def test_the_note_sits_under_the_summary_inside_the_card_body():
-    """`ilan notes` gives a task a line the user writes. The card shows it
-    under the summary the server wrote and inside the body button, so it is
-    detail that toggles the card the way the summary does, not a control.
+def test_the_note_is_rendered_as_markdown_beside_the_card_body():
+    """`ilan notes` gives a task a line the user writes, and the card renders
+    it as Markdown â links, lists and code included â through the renderer
+    the messages use, which escapes everything it did not produce itself.
 
-    Rendered only when there is one: an empty bar under every card would say
-    "no note" across a list where most tasks have none.
+    That is what puts the box beside the body button rather than inside it:
+    a link or a list item cannot live inside a button, and a screen reader
+    flattens a button's contents to its name. So the box follows the body and
+    precedes the actions, and still hides with the summary when the card
+    collapses. Rendered only when there is a note: an empty box under every
+    card would say "no note" across a list where most tasks have none.
     """
     js = web.read_asset("app.js").decode()
     body = re.search(r'<button class="row" data-toggle=(.*?)</button>', js, re.S)
     assert body, "the card body is gone"
-    inside = body.group(1)
-    for cls in ("row-sum", "row-notes", "row-meta"):
-        assert f'class="{cls}"' in inside, f"{cls} is no longer in the card body"
-    assert (
-        inside.index('class="row-sum"')
-        < inside.index('class="row-notes"')
-        < inside.index('class="row-meta"')
-    ), "the note is no longer between the summary and the status line"
-    assert "${esc(task.notes)}" in inside, "the note is rendered unescaped"
-    assert re.search(r"\$\{task\.notes\s*\?\s*`<span class=\"row-notes\">", js), (
-        "the note line is drawn even when the task has no note"
+    assert "row-notes" not in body.group(1), "the note is back inside the body button"
+    row = js.split("function taskRow")[1]
+    between = re.search(r"</button>(.*?)<div class=\"row-actions\">", row, re.S)
+    assert between, "nothing sits between the body and the actions"
+    assert '`<div class="row-notes md">${MD.render(task.notes)}</div>`' in between.group(1), (
+        "the note is not rendered as Markdown between the body and the actions"
     )
+    assert "esc(task.notes)" not in js, "the note is escaped as plain text somewhere"
+    assert re.search(r"\$\{task\.notes \? `<div class=\"row-notes md\">", js), (
+        "the note box is drawn even when the task has no note"
+    )
+    css = web.read_asset("app.css").decode()
+    assert ".card.collapsed .row-notes" in css, "the note no longer hides with the summary"
+    ref = (Path(web.__file__).parent.parent.parent.parent / "docs" / "reference.md").read_text()
+    row_doc = next(line for line in ref.splitlines() if line.startswith("| List |"))
+    assert "rendered as Markdown" in row_doc, "the docs do not say the note is Markdown"
 
 
-def test_the_note_keeps_its_line_breaks_and_is_not_clamped():
-    """The server stores a note verbatim, line breaks included, so a break the
-    user typed is one they meant. The summary's reason for having no clamp
-    holds here too: the line only renders on an expanded card.
+def test_the_note_box_sets_its_markdown_at_the_summarys_size():
+    """The Markdown styles are shared with the message bubbles, which are set
+    at 15px with document spacing. A note is a line or two, so in its box the
+    text comes down to the summary's 14px, the spacing tightens, headings grow
+    no bigger than the text, and emphasis is set upright â the box is already
+    italic, so an italic word would vanish into it. Nothing is clamped, for
+    the same reason the summary is not, and pre-wrap is gone: the renderer
+    decides where lines break now, as it does in a message.
     """
     css = web.read_asset("app.css").decode()
     rule = re.search(r"\n\.row-notes \{(.*?)\}", css, re.S)
     assert rule, ".row-notes is not styled"
-    assert "white-space: pre-wrap" in rule.group(1), "line breaks in a note are collapsed"
+    assert "line-clamp" not in rule.group(1) and "-webkit-box" not in rule.group(1), "the note is clamped"
+    assert "white-space: pre-wrap" not in rule.group(1), (
+        "pre-wrap fights the renderer, which already decides where lines break"
+    )
     assert "overflow-wrap: anywhere" in rule.group(1), "an unbroken token can overflow the card"
-    assert "line-clamp" not in rule.group(1), "the note is clamped"
-    assert "-webkit-box" not in rule.group(1), "the note is clamped"
+    size = re.search(r"\n\.row-notes\.md \{(.*?)\}", css, re.S)
+    assert size and "font-size: 14px" in size.group(1), (
+        "the note's Markdown is set at the message size, not the summary's"
+    )
+    assert re.search(r"\n\.row-notes\.md em \{[^}]*font-style: normal", css), (
+        "emphasis inside the italic box is invisible"
+    )
+    assert re.search(r"\n\.row-notes\.md > :last-child \{[^}]*margin-bottom: 0", css), (
+        "the last block in the box keeps its bottom margin"
+    )
+    headings = re.search(
+        r"\n\.row-notes\.md h3, \.row-notes\.md h4, \.row-notes\.md h5, \.row-notes\.md h6 \{(.*?)\}",
+        css, re.S,
+    )
+    assert headings and "font-size: 14px" in headings.group(1), "a heading in a note grows past the text"
 
 
 def test_the_note_is_no_louder_than_the_summary():

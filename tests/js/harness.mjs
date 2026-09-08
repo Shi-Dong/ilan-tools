@@ -26,6 +26,11 @@ const here = dirname(fileURLToPath(import.meta.url));
 const STATIC = join(here, '..', '..', 'src', 'ilan', 'web', 'static');
 
 const APP_SOURCE = readFileSync(join(STATIC, 'app.js'), 'utf8');
+// The real renderer rather than a stub: a card's note is Markdown now, so what
+// a test sees in a card has to be what the renderer makes of the note. It is
+// interpolated into the prelude as a value, so nothing in it is re-parsed as
+// template text.
+const MD_SOURCE = readFileSync(join(STATIC, 'markdown.js'), 'utf8');
 
 export const EXPANDED_KEY = 'ilan.expanded';
 
@@ -48,10 +53,7 @@ const LIST_SELECTORS = {
 };
 
 const PRELUDE = `
-  const MD = { escapeHtml: (v) => String(v ?? '')
-    .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
-    .replaceAll('"','&quot;').replaceAll("'",'&#39;'),
-    render: (v) => String(v ?? '') };
+  ${MD_SOURCE}
 
   const __store = new Map(__SEED__);
   const localStorage = __DENIED__
