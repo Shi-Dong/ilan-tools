@@ -1897,3 +1897,28 @@ def test_the_actions_sheet_offers_the_note_on_every_task():
     ref = (Path(web.__file__).parent.parent.parent.parent / "docs" / "reference.md").read_text()
     row = next(line for line in ref.splitlines() if line.startswith("| Actions |"))
     assert "`notes`" in row, "the docs do not list notes under the sheet"
+
+
+# ── the app icon ────────────────────────────────────────────────────────
+
+def test_the_icon_is_a_flat_drawing_rendered_from_its_source():
+    """The icon is the same portrait as before, redrawn in a few flat shapes
+    and strokes: the shaded original turned to mush at tab size.
+
+    Flatness is asserted by weight: flat shapes compress to a few kilobytes
+    and a shaded picture does not — the old 512px icon weighed 300 KB, this
+    one under twenty. The source ships beside the renders so the next change
+    edits shapes rather than pixels.
+    """
+    svg = web.read_asset("icon.svg")
+    assert svg is not None, "icon.svg, the source of the PNG icons, is not shipped"
+    source = svg.decode()
+    assert 'viewBox="0 0 512 512"' in source, (
+        "the source is not drawn on the 512 canvas the PNGs are rendered at"
+    )
+    assert web.content_type("icon.svg") == "image/svg+xml"
+    for name, cap in (("icon-512.png", 60_000), ("icon-180.png", 25_000)):
+        weight = len(web.read_asset(name))
+        assert weight < cap, (
+            f"{name} weighs {weight} bytes; flat shapes are a few kilobytes, a shaded picture is not"
+        )
