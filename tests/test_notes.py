@@ -622,13 +622,15 @@ class TestNotesCommand:
         assert result.exit_code == 1
         assert "not found" in _strip_ansi(result.output)
 
-    def test_note_is_required(self, runner: CliRunner, tmp_config) -> None:
-        """Without a note there is nothing to do, so this is a usage error."""
-        client = MagicMock()
-        with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["notes", "alpha"])
-        assert result.exit_code != 0
-        client.set_notes.assert_not_called()
+    def test_a_bare_invocation_is_not_a_usage_error(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """It opens the editor — see TestABareInvocationEdits for the rest."""
+        result, client, _ = _invoke_editor(
+            runner, ["notes", "alpha"], new_text="edited",
+        )
+        assert result.exit_code == 0
+        client.set_notes.assert_called_once_with("alpha", "edited", append=False)
 
     def test_an_over_long_note_surfaces_the_server_error(
         self, runner: CliRunner, tmp_config,
@@ -722,6 +724,90 @@ class TestNotesAppendFlag:
             result = runner.invoke(main, ["notes", "alpha", "-a", "more"])
         assert result.exit_code == 1
         assert "Appending would make" in _strip_ansi(result.output)
+
+
+class TestABareInvocationEdits:
+    """``ilan notes NAME`` with no note and no flag opens the editor.
+
+    Each of note / -a / -c / -e says what the note should become; giving none
+    of them leaves exactly one useful reading, so it is treated as ``-e``
+    rather than as a mistake.
+    """
+
+    @pytest.mark.parametrize("prefix", _NOTES_PREFIXES)
+    def test_every_spelling_opens_the_editor(
+        self, runner: CliRunner, tmp_config, prefix: list[str],
+    ) -> None:
+        result, client, seen = _invoke_editor(
+            runner, [*prefix, "alpha"], new_text="edited bare",
+        )
+        assert result.exit_code == 0
+        assert seen["cmd"][0] == "vim"
+        client.set_notes.assert_called_once_with("alpha", "edited bare", append=False)
+
+    def test_it_is_prefilled_like_dash_e(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        _, _, seen = _invoke_editor(
+            runner, ["notes", "alpha"], current="the old note",
+        )
+        assert seen["prefill"] == "the old note"
+
+    def test_it_is_indistinguishable_from_dash_e(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """The point of the change: one is an alias for the other."""
+        bare, bare_client, bare_seen = _invoke_editor(
+            runner, ["notes", "alpha"], new_text="same text",
+        )
+        flag, flag_client, flag_seen = _invoke_editor(
+            runner, ["notes", "alpha", "-e"], new_text="same text",
+        )
+        assert bare.exit_code == flag.exit_code == 0
+        assert bare_client.set_notes.call_args == flag_client.set_notes.call_args
+        assert bare_seen["prefill"] == flag_seen["prefill"]
+        assert bare_seen["cmd"][0] == flag_seen["cmd"][0]
+
+    def test_an_explicit_empty_note_still_clears(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """The boundary: `""` is a note that was given, not a note omitted.
+
+        Routing it to the editor would take away the shortest way to clear a
+        note and silently change what an existing script does.
+        """
+        result, client, seen = _invoke_editor(runner, ["notes", "alpha", ""])
+        assert result.exit_code == 0
+        assert "cmd" not in seen  # no editor was launched
+        client.set_notes.assert_called_once_with("alpha", "", append=False)
+
+    def test_a_missing_task_name_is_still_a_usage_error(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """Only the note became optional; the task to annotate did not."""
+        client = MagicMock()
+        with patch("ilan.cli._client", return_value=client), \
+                patch("ilan.cli.subprocess.run") as run:
+            result = runner.invoke(main, ["notes"])
+        assert result.exit_code != 0
+        run.assert_not_called()
+        client.set_notes.assert_not_called()
+
+    def test_it_still_needs_a_usable_editor(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """A bare call reaches the same editor check `-e` does."""
+        client = MagicMock()
+        client.get_task.return_value = {"task": {"name": "alpha", "notes": "n"}}
+        with patch("ilan.cli._client", return_value=client), \
+                patch("ilan.cli.cfg.load", return_value={"editor": ""}), \
+                patch("ilan.cli.shutil.which", return_value=None), \
+                patch("ilan.cli.subprocess.run") as run:
+            result = runner.invoke(main, ["notes", "alpha"])
+        assert result.exit_code == 1
+        assert "No editor configured" in " ".join(_strip_ansi(result.output).split())
+        run.assert_not_called()
+        client.set_notes.assert_not_called()
 
 
 class TestNotesClearFlag:
@@ -1169,16 +1255,17 @@ class TestNotesFlagCombinations:
         assert "not as a second argument" in _strip_ansi(result.output)
         client.set_notes.assert_not_called()
 
-    def test_neither_text_nor_a_flag_is_rejected(
+    def test_neither_text_nor_a_flag_opens_the_editor(
         self, runner: CliRunner, tmp_config,
     ) -> None:
-        """The note argument is optional now, so "nothing to do" needs saying."""
-        result, client = _invoke_notes(runner, ["notes", "alpha"])
-        assert result.exit_code == 1
-        out = _strip_ansi(result.output)
-        # The message names every way out, so it is never a dead end.
-        assert "-a" in out and "-c" in out and "-e" in out
-        client.set_notes.assert_not_called()
+        """Not a contradiction, so not an error: with nothing to set, add or
+        clear, editing the note the task has is the only thing left to mean.
+        """
+        result, _, seen = _invoke_editor(
+            runner, ["notes", "alpha"], current="the old note",
+        )
+        assert result.exit_code == 0
+        assert seen["prefill"] == "the old note"
 
     def test_a_plain_note_still_replaces(self, runner: CliRunner, tmp_config) -> None:
         """The original two-argument form must keep working unchanged."""
