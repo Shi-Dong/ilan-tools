@@ -621,26 +621,23 @@ UNREAD_MARKER = "!!"
 # because the whole Name column is bold and the note would inherit it — a
 # reminder should sit quieter than the name it hangs under, not match it.
 NOTES_STYLE = "not bold italic light_green"
-# How the dashboard splits its flexible space between Name and Status; the
-# timestamp columns are pinned. Name now carries the note beneath the name,
-# so it takes the larger share. With the one-liner on, Status holds a summary
-# and needs real room too; with it off, Status is a label and a duration and
-# Name takes nearly everything.
-NAME_TO_STATUS = (5, 3)
-NAME_TO_STATUS_PLAIN = (7, 3)
-# `ilan ls` sizes its columns to their contents. Two of them hold prose and
-# are capped so a long note or summary cannot push the table off the right
-# edge: Name folds the note under the alias and name past this width, and
-# Status folds the summary. Capped rather than pinned: a listing of short
-# names and short statuses should not reserve room prose would have needed.
-NAME_MAX_WIDTH = 46
-STATUS_MAX_WIDTH = 38
-# `_format_ts(..., seconds=False)` is at most "Yesterday 13:30 PDT"; 15 fits
-# every other form ("Today 13:30 PDT", "09-05 13:30 PDT") on one line and
-# folds only the "Yesterday" case onto a second. Pinned, because under
-# `expand=True` a ratio share grew with the terminal, far past anything a
-# timestamp needs, and the room belongs to the two prose columns instead.
-TIMESTAMP_COLUMN_WIDTH = 15
+# The dashboard splits its flexible space equally between Name and Status;
+# the timestamp columns are pinned. Both are prose columns now — Name carries
+# the note beneath the alias and name, Status the one-line summary beneath
+# the label — and neither has a claim on more room than the other.
+NAME_TO_STATUS = (1, 1)
+# `ilan ls` sizes its columns to their contents. The two prose columns share
+# one cap, so a long note or summary folds within its cell instead of pushing
+# the table off the right edge, and the two come out equal whenever both are
+# full. Capped rather than pinned: a listing of short names and short
+# statuses should not reserve room prose would have needed.
+PROSE_MAX_WIDTH = 42
+# `_format_ts(..., seconds=False)` is longest as "Yesterday 21:38 CEST": nine
+# for the day word, a space, five for the time, a space, and up to four for a
+# zone abbreviation. At 20 no stamp folds onto a second line in any common
+# zone. Pinned, because under `expand=True` a ratio share grew with the
+# terminal, far past anything a timestamp needs.
+TIMESTAMP_COLUMN_WIDTH = 20
 
 
 def _append_task_number(text: Text, row: dict) -> None:
@@ -853,8 +850,8 @@ def _do_ls(show_all: bool, concise: bool = False) -> None:
     show_one_liner = _one_liner_enabled() and not show_all
     narrow = _terminal_is_narrow()
     table = Table(show_lines=True)
-    table.add_column("(Alias) Name", style="bold", max_width=NAME_MAX_WIDTH)
-    table.add_column("Status", max_width=STATUS_MAX_WIDTH)
+    table.add_column("(Alias) Name", style="bold", max_width=PROSE_MAX_WIDTH)
+    table.add_column("Status", max_width=PROSE_MAX_WIDTH)
     if not narrow:
         table.add_column("Created", width=TIMESTAMP_COLUMN_WIDTH)
     table.add_column("Last Changed", width=TIMESTAMP_COLUMN_WIDTH)
@@ -2870,15 +2867,10 @@ def _build_dashboard_table(
     header.append(" refresh", style="dim")
 
     # The timestamp columns are pinned; Name and Status split what is left
-    # by ``NAME_TO_STATUS``. Name carries the note beneath the alias and name,
-    # so it takes the larger share, and how much larger depends on whether
-    # the one-liner is rendered in the Status cell: with it on, Status holds a
-    # summary and needs real room (5:3); with it off, Status is a label and a
-    # duration, and Name takes nearly everything (7:3). Overlong cells fold
-    # within their column instead of pushing it wider.
-    name_share, status_share = (
-        NAME_TO_STATUS if show_one_liner else NAME_TO_STATUS_PLAIN
-    )
+    # equally (``NAME_TO_STATUS``). Both hold prose — the note under the name,
+    # the summary under the status label — so neither is favoured, and
+    # overlong cells fold within their column instead of pushing it wider.
+    name_share, status_share = NAME_TO_STATUS
     table = Table(title=header, expand=True, show_lines=True)
     table.add_column("(Alias) Name", style="bold", ratio=name_share)
     table.add_column("Status", ratio=status_share)

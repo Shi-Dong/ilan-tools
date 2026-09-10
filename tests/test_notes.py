@@ -19,11 +19,9 @@ from rich.console import Console
 
 import ilan.cli as cli_mod
 from ilan.cli import (
-    NAME_MAX_WIDTH,
     NAME_TO_STATUS,
-    NAME_TO_STATUS_PLAIN,
     NOTES_STYLE,
-    STATUS_MAX_WIDTH,
+    PROSE_MAX_WIDTH,
     TIMESTAMP_COLUMN_WIDTH,
     _build_concise_task_line,
     _build_dashboard_table,
@@ -1465,27 +1463,43 @@ class TestDashboardWidths:
         assert ratios == [*NAME_TO_STATUS, None, None]
         assert widths[2:] == [TIMESTAMP_COLUMN_WIDTH] * 2
 
-    def test_name_takes_the_larger_share(self) -> None:
-        """It carries the note now, and a note can run to 256 characters."""
-        assert NAME_TO_STATUS[0] > NAME_TO_STATUS[1]
-        assert NAME_TO_STATUS_PLAIN[0] > NAME_TO_STATUS_PLAIN[1]
+    def test_name_and_status_are_equal(self) -> None:
+        """Both are prose columns — the note under the name, the summary
+        under the status label — so neither has a claim on more room.
+        """
+        assert NAME_TO_STATUS == (1, 1)
 
-    def test_status_gets_less_with_the_one_liner_off(self) -> None:
-        """Without a summary, Status is a label and a duration."""
-        on = _build_dashboard_table([], _TZ, show_one_liner=True).columns[1].ratio
-        off = _build_dashboard_table([], _TZ, show_one_liner=False).columns[1].ratio
-        on_name = _build_dashboard_table([], _TZ, show_one_liner=True).columns[0].ratio
-        off_name = _build_dashboard_table([], _TZ, show_one_liner=False).columns[0].ratio
-        assert off / off_name < on / on_name
+    def test_the_split_ignores_the_one_liner(self) -> None:
+        on = _build_dashboard_table([], _TZ, show_one_liner=True).columns
+        off = _build_dashboard_table([], _TZ, show_one_liner=False).columns
+        assert [c.ratio for c in on[:2]] == [c.ratio for c in off[:2]] == [1, 1]
 
-    # Measured when the Notes column was folded into Name. Pinned so a later
-    # change to the geometry has to be a deliberate one.
+    @pytest.mark.parametrize("width", [140, 150, 180, 200, 240])
+    def test_name_and_status_render_within_a_character_of_each_other(
+        self, width: int,
+    ) -> None:
+        """Rich hands an odd remainder to the first ratio column; that is the
+        only difference an equal split can leave.
+        """
+        name, status = _rendered_widths(_build_dashboard_table([_row("a")], _TZ), width)[:2]
+        assert 0 <= name - status <= 1
+
+    def test_no_timestamp_ever_folds(self) -> None:
+        """The longest stamp in any common zone is nine for the day word, a
+        space, five for the time, a space, and a four-letter zone.
+        """
+        assert len("Yesterday 21:38 CEST") <= TIMESTAMP_COLUMN_WIDTH
+        assert TIMESTAMP_COLUMN_WIDTH == 20
+
+    # Measured when the Notes column was folded into Name and the timestamps
+    # widened to 20. Pinned so a later change to the geometry has to be a
+    # deliberate one.
     _EXPECTED = {
-        140: (62, 35, 15, 15),
-        150: (68, 39, 15, 15),
-        180: (87, 50, 15, 15),
-        200: (99, 58, 15, 15),
-        240: (124, 73, 15, 15),
+        140: (44, 43, 20, 20),
+        150: (49, 48, 20, 20),
+        180: (64, 63, 20, 20),
+        200: (74, 73, 20, 20),
+        240: (94, 93, 20, 20),
     }
 
     @pytest.mark.parametrize("width", sorted(_EXPECTED))
@@ -1496,7 +1510,7 @@ class TestDashboardWidths:
     @pytest.mark.parametrize("width", sorted(_EXPECTED))
     def test_the_timestamps_never_move(self, width: int) -> None:
         table = _build_dashboard_table([_row("a", notes="x")], _TZ)
-        assert _rendered_widths(table, width)[2:] == [15, 15]
+        assert _rendered_widths(table, width)[2:] == [TIMESTAMP_COLUMN_WIDTH] * 2
 
     @pytest.mark.parametrize("width", sorted(_EXPECTED))
     def test_a_long_note_does_not_change_the_geometry(self, width: int) -> None:
@@ -1578,7 +1592,7 @@ class TestLsLayout:
         """A 256-character note must fold, not push the table off the edge."""
         out = _invoke_ls(runner, [_row("a", notes="word " * 50)], monkeypatch).output
         headers, widths = _ls_headers(out), _ls_column_widths(out)
-        assert widths[headers.index("(Alias) Name")] == NAME_MAX_WIDTH
+        assert widths[headers.index("(Alias) Name")] == PROSE_MAX_WIDTH
 
     def test_a_short_listing_does_not_reserve_the_cap(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
@@ -1586,7 +1600,7 @@ class TestLsLayout:
         """Capped, not pinned: short names and no notes stay compact."""
         out = _invoke_ls(runner, [_row("a")], monkeypatch).output
         headers, widths = _ls_headers(out), _ls_column_widths(out)
-        assert widths[headers.index("(Alias) Name")] < NAME_MAX_WIDTH
+        assert widths[headers.index("(Alias) Name")] < PROSE_MAX_WIDTH
 
     def test_status_is_still_capped(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
@@ -1595,13 +1609,22 @@ class TestLsLayout:
         row["summary_one_liner"] = "words " * 30
         out = _invoke_ls(runner, [row], monkeypatch).output
         headers, widths = _ls_headers(out), _ls_column_widths(out)
-        assert widths[headers.index("Status")] == STATUS_MAX_WIDTH
+        assert widths[headers.index("Status")] == PROSE_MAX_WIDTH
 
-    def test_the_table_is_no_wider_than_with_the_notes_column(
+    def test_the_two_prose_columns_share_one_cap(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Folding the 26-column Notes column into Name must not have grown
-        the table: 20 + 26 is what the Name cap was chosen to be.
-        """
-        out = _invoke_ls(runner, [_row("a", notes="word " * 50)], monkeypatch).output
-        assert sum(_ls_column_widths(out)) <= 46 + 38 + 15 + 15
+        """With both full, Name and Status come out equal."""
+        row = _row("a", notes="word " * 50)
+        row["summary_one_liner"] = "words " * 30
+        out = _invoke_ls(runner, [row], monkeypatch).output
+        headers, widths = _ls_headers(out), _ls_column_widths(out)
+        assert widths[headers.index("(Alias) Name")] == widths[headers.index("Status")] == PROSE_MAX_WIDTH
+
+    def test_the_full_table_width_is_the_caps_plus_the_stamps(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        row = _row("a", notes="word " * 50)
+        row["summary_one_liner"] = "words " * 30
+        out = _invoke_ls(runner, [row], monkeypatch).output
+        assert sum(_ls_column_widths(out)) == 2 * PROSE_MAX_WIDTH + 2 * TIMESTAMP_COLUMN_WIDTH

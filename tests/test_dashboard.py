@@ -451,23 +451,21 @@ class TestFormatTsSeconds:
 
 
 class TestDashboardTableProperties:
-    def test_table_expands_with_name_and_status_as_the_ratio_columns(self) -> None:
-        """Name and Status flex; the timestamp columns are pinned outright.
+    def test_table_expands_with_name_and_status_as_equal_ratio_columns(self) -> None:
+        """Name and Status flex equally; the timestamp columns are pinned.
 
-        Name takes the larger share because the note now lives beneath the
-        alias and name, and a note can run to 256 characters.
+        Both are prose columns now — the note under the name, the summary
+        under the status label — so neither has a claim on more room.
         """
         table = _build_dashboard_table([], _TZ, show_one_liner=True)
         assert table.expand is True
         ratios = [c.ratio for c in table.columns]
-        assert ratios == [5, 3, None, None]
+        assert ratios == [1, 1, None, None]
 
-    def test_name_takes_a_bigger_share_with_the_one_liner_off(self) -> None:
-        """Without a summary in the Status cell, Name deserves the bulk."""
+    def test_the_split_does_not_depend_on_the_one_liner(self) -> None:
         on = _build_dashboard_table([], _TZ, show_one_liner=True)
         off = _build_dashboard_table([], _TZ, show_one_liner=False)
-        assert [c.ratio for c in on.columns[:2]] == [5, 3]
-        assert [c.ratio for c in off.columns[:2]] == [7, 3]
+        assert [c.ratio for c in on.columns[:2]] == [c.ratio for c in off.columns[:2]] == [1, 1]
 
     def test_table_draws_separator_between_rows(self) -> None:
         """``show_lines=True`` draws a horizontal rule between every task row."""
