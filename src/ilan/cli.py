@@ -1895,6 +1895,10 @@ def _notes_usage_error(
     Each of the four says what the note should become, so any pair of them is
     a contradiction rather than a refinement. Caught here instead of on the
     server: these are mistakes about the command line, not about the data.
+
+    Giving *none* of them is not a mistake: with nothing to set, add or
+    clear, editing the note the task already has is the only thing left for
+    the command to mean, so a bare ``ilan notes NAME`` opens the editor.
     """
     if editor and clear:
         return "-e opens the note for editing and -c clears it; use one or the other."
@@ -1908,11 +1912,6 @@ def _notes_usage_error(
         return "-c takes no note: it clears the task's note. Drop the text to clear."
     if append is not None and note is not None:
         return "Pass the text to append to -a, not as a second argument as well."
-    if not clear and not editor and append is None and note is None:
-        return (
-            "Give a note to set, -a TEXT to add to the current one, "
-            "-e to edit it, or -c to clear."
-        )
     return None
 
 
@@ -2040,7 +2039,10 @@ def _do_set_notes(
     if err := _notes_usage_error(note, append, clear, editor):
         console.print(f"[red]{err}[/red]")
         raise SystemExit(1)
-    if editor:
+    # Widened only after the checks above, which are phrased around the flag
+    # the user actually typed: `-c` alone must still read as "-c takes no
+    # note", not as a clash with an editor they never asked for.
+    if editor or (note is None and append is None and not clear):
         _do_edit_notes(name)
         return
     appending = append is not None
@@ -2055,11 +2057,12 @@ def _do_set_notes(
 # in `--help` can only ever be the limit the server enforces.
 _NOTES_HELP = (
     "Write the note shown beside a task in ilan ls / ilan dashboard. "
-    "The note replaces whatever the task carried before, so correcting one is "
-    'just writing it again. Pass an empty note ("") or -c to clear it, -a '
-    "TEXT to add to the note already there, or -e to open the current note in "
-    "your editor. Leading and trailing whitespace is always stripped, and a "
-    f"note longer than {MAX_NOTES_LENGTH} characters is cut down to its first "
+    "With no note and no flag, the task's current note opens in your editor, "
+    "the same as -e. Give a note to replace what the task carried before, so "
+    'correcting one is just writing it again; an empty note ("") or -c clears '
+    "it, and -a TEXT adds to the note already there. Leading and trailing "
+    "whitespace is always stripped, and a note longer than "
+    f"{MAX_NOTES_LENGTH} characters is cut down to its first "
     f"{MAX_NOTES_LENGTH}."
 )
 _APPEND_HELP = (
@@ -2069,7 +2072,8 @@ _APPEND_HELP = (
 _CLEAR_HELP = "Clear the task's note. Takes no text of its own."
 _EDITOR_HELP = (
     "Edit the task's note in the `editor` from your config, prefilled with "
-    "the note it already has. Takes no text of its own."
+    "the note it already has. Takes no text of its own, and is what a bare "
+    "`ilan notes NAME` already does."
 )
 
 
@@ -2800,9 +2804,10 @@ def shortcut_alias(name: str, new_alias: str) -> None:
 @main.command(
     "notes",
     help=(
-        "Shorthand for 'ilan task notes'. Pass -a TEXT to add to the current "
-        "note, -e to edit it in your editor, or -c to clear it. A note longer "
-        f"than {MAX_NOTES_LENGTH} characters is cut down to its first "
+        "Shorthand for 'ilan task notes'. With no note and no flag it opens "
+        "the current note in your editor. Pass -a TEXT to add to it instead, "
+        "or -c to clear it. A note longer than "
+        f"{MAX_NOTES_LENGTH} characters is cut down to its first "
         f"{MAX_NOTES_LENGTH}."
     ),
 )
