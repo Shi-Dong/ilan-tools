@@ -63,12 +63,19 @@ class Store:
         return self.load_tasks().get(name)
 
     def get_task_by_name_or_alias(self, name_or_alias: str) -> Task | None:
-        """Look up a task by name first, then by alias."""
+        """Look up a task by name first, then by alias.
+
+        The alias comparison ignores case. Aliases are stored in lowercase,
+        but the listings print a maxed task's alias in capitals (``[GK]``),
+        so an alias copied from there has to resolve as typed. Names are
+        matched exactly, as before.
+        """
         tasks = self.load_tasks()
         if name_or_alias in tasks:
             return tasks[name_or_alias]
+        alias = name_or_alias.lower()
         for task in tasks.values():
-            if task.alias == name_or_alias:
+            if task.alias == alias:
                 return task
         return None
 

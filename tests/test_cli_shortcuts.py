@@ -9,18 +9,19 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
-from rich.color import Color
-from rich.color_triplet import ColorTriplet
-from rich.style import Style
 
 from ilan.cli import (
+    ALIAS_STYLE,
     NUMBER_STYLE,
     PIN_MARKER,
+    _TreeNode,
     _build_concise_task_line,
     _build_name_cell,
+    _build_tree_label,
+    _format_alias,
+    _is_maxed,
+    _resolve_row,
     main,
-    ALIAS_STYLE,
-    ALIAS_MAXED_STYLE,
 )
 from ilan.models import ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_NAME_STYLE
 
@@ -249,8 +250,9 @@ class TestLsNoArgs:
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["ls", "-c"])
         assert result.exit_code == 0
+        # The row is maxed (Fable on claude), so its alias is bracketed capitals.
         assert _strip_ansi(result.output) == (
-            "→ (as) a-very-long-task-name !! AGENT_FINISHED\n"
+            "→ [AS] a-very-long-task-name !! AGENT_FINISHED\n"
         )
         client.list_tasks.assert_called_once_with(show_all=False)
         client.get_config.assert_not_called()
@@ -1637,109 +1639,118 @@ class TestReplyMaxFlags:
         client.reply.assert_called_once_with("my-task", "go on")
 
 
-# ── a maxed task is marked by its alias colour ──────────────────────
+# ── a maxed task is marked by its alias shape ───────────────────────
 
 
-def _alias_span_style(cell) -> str:
-    """The style of the ``(alias) `` span in a name cell or concise line."""
-    span = next(sp for sp in cell.spans if cell.plain[sp.start:sp.end].startswith("("))
-    return str(span.style)
+def _alias_span(cell) -> tuple[str, str]:
+    """The ``(alias) `` / ``[ALIAS] `` span of a name cell or concise line.
+
+    Returns ``(text, style)``. The alias is the first span that opens with a
+    bracket; the pin marker and task number that may precede it do not.
+    """
+    span = next(sp for sp in cell.spans if cell.plain[sp.start:sp.end][:1] in "([")
+    return cell.plain[span.start:span.end], str(span.style)
 
 
-def _truecolor(style: str) -> ColorTriplet:
-    """The (r, g, b) the foreground of a Rich style string renders as."""
-    return Style.parse(style).color.get_truecolor()
+class TestMaxedAliasMark:
+    """Every alias is pink; a maxed task's is written ``[GK]`` instead of ``(gk)``.
 
-
-class TestMaxedAliasColour:
-    """The alias is pink, or red once the task is maxed.
-
-    That colour is the only mark a maxed task carries in `ilan ls` and
-    `ilan dashboard`; the FABLE / ASTRA line under the name is gone. What
-    counts as maxed is `max_tag`'s call — the same predicate the web app's
-    tag uses — so the two views cannot disagree about which tasks are maxed.
+    The shape is the only mark a maxed task carries in `ilan ls`,
+    `ilan dashboard`, the concise line and `ilan tree`: no FABLE / ASTRA word
+    and no second colour (a dark red and then a lighter red were both tried
+    and read badly on some terminal themes). What counts as maxed is
+    `max_tag`'s call — the same predicate the web app's tag uses — so the two
+    views cannot disagree about which tasks are maxed.
     """
 
     def _row(self, **extra) -> dict:
-        row = {"name": "the-task", "alias": "aa", "status": "WORKING",
+        row = {"name": "the-task", "alias": "gk", "status": "WORKING",
                "needs_review": False, "model": None}
         row.update(extra)
         return row
 
-    def test_a_default_task_has_a_pink_alias(self) -> None:
-        assert _alias_span_style(_build_name_cell(self._row())) == ALIAS_STYLE
-        assert ALIAS_STYLE == "bold pink1"
+    def _maxed(self, **extra) -> dict:
+        return self._row(model="claude-fable-5-1", engine="claude", **extra)
 
-    def test_a_fable_task_on_claude_has_a_red_alias(self) -> None:
-        cell = _build_name_cell(self._row(model="claude-fable-5-1", engine="claude"))
-        assert _alias_span_style(cell) == ALIAS_MAXED_STYLE
-        assert ALIAS_MAXED_STYLE == "bold red3"
+    def test_an_ordinary_alias_is_lowercase_in_parentheses(self) -> None:
+        assert not _is_maxed(self._row())
+        assert _format_alias(self._row()) == "(gk)"
 
-    def test_an_astra_task_on_codex_has_a_red_alias(self) -> None:
+    def test_a_fable_task_on_claude_is_capitals_in_brackets(self) -> None:
+        assert _is_maxed(self._maxed())
+        assert _format_alias(self._maxed()) == "[GK]"
+
+    def test_an_astra_task_on_codex_gets_the_same_mark(self) -> None:
         """Both backends' max models get the same mark."""
-        cell = _build_name_cell(self._row(model="gpt-6-astra", engine="codex"))
-        assert _alias_span_style(cell) == ALIAS_MAXED_STYLE
+        row = self._row(model="gpt-6-astra", engine="codex")
+        assert _is_maxed(row)
+        assert _format_alias(row) == "[GK]"
 
-    def test_the_maxed_colour_is_legible_on_a_dark_background(self) -> None:
-        """`dark_red` (135,0,0) read at about 2:1 on black and was sent back
-        as too dark; `red3` (215,0,0) roughly doubles that. Pinned as a
-        contrast floor on the constant itself, so a future shade cannot
-        slide back down.
-        """
-        t = _truecolor(ALIAS_MAXED_STYLE)
-        lum = 0.2126 * (t.red / 255) ** 2.2 + 0.7152 * (t.green / 255) ** 2.2 + 0.0722 * (t.blue / 255) ** 2.2
-        assert (lum + 0.05) / 0.05 >= 3.5
-        assert t > Color.parse("dark_red").get_truecolor()  # lighter than what it replaced
-
-    def test_the_maxed_colour_is_still_a_pure_red(self) -> None:
-        """Lighter, but not drifting toward the pink: no blue, no green."""
-        t = _truecolor(ALIAS_MAXED_STYLE)
-        assert t.green == 0 and t.blue == 0 and t.red > 200
-
-    def test_pink_and_red_differ_in_hue_not_just_shade(self) -> None:
-        """Distinct by hue, so they survive a dim or unusual terminal palette."""
-        pink = _truecolor(ALIAS_STYLE)
-        red = _truecolor(ALIAS_MAXED_STYLE)
-        assert pink.blue > 150 and red.blue == 0  # pink carries blue; red none
+    def test_both_shapes_share_one_pink_style(self) -> None:
+        """The mark is the shape; the colour no longer changes with it."""
+        plain_text, plain_style = _alias_span(_build_name_cell(self._row()))
+        maxed_text, maxed_style = _alias_span(_build_name_cell(self._maxed()))
+        assert (plain_text, maxed_text) == ("(gk) ", "[GK] ")
+        assert plain_style == maxed_style == ALIAS_STYLE == "bold pink1"
 
     def test_a_stale_fable_pin_after_a_switch_to_codex_is_not_maxed(self) -> None:
         """Fable is Claude-only: once the task is on Codex the stored Fable id
-        is a foreign pin the backend ignores, so the alias goes back to pink —
-        exactly as the tag used to disappear.
+        is a foreign pin the backend ignores, so the alias goes back to
+        ``(gk)`` — exactly as the tag used to disappear.
         """
-        cell = _build_name_cell(self._row(model="claude-fable-5-1", engine="codex"))
-        assert _alias_span_style(cell) == ALIAS_STYLE
+        assert _format_alias(self._row(model="claude-fable-5-1", engine="codex")) == "(gk)"
 
     def test_a_legacy_fable_id_still_counts_as_maxed(self) -> None:
         """A task maxed before the model bump still runs Fable."""
-        cell = _build_name_cell(self._row(model="claude-fable-5", engine="claude"))
-        assert _alias_span_style(cell) == ALIAS_MAXED_STYLE
+        assert _format_alias(self._row(model="claude-fable-5", engine="claude")) == "[GK]"
 
     def test_an_unknown_engine_falls_back_to_claude_and_honours_fable(self) -> None:
-        cell = _build_name_cell(
-            self._row(model="claude-fable-5-1", engine="some-future-engine"),
-        )
-        assert _alias_span_style(cell) == ALIAS_MAXED_STYLE
+        row = self._row(model="claude-fable-5-1", engine="some-future-engine")
+        assert _format_alias(row) == "[GK]"
 
-    def test_the_word_fable_is_gone_from_the_name_cell(self) -> None:
-        cell = _build_name_cell(self._row(model="claude-fable-5-1", engine="claude"))
-        assert cell.plain == "(aa) the-task"
+    def test_the_name_cell_carries_the_mark_and_nothing_else(self) -> None:
+        cell = _build_name_cell(self._maxed())
+        assert cell.plain == "[GK] the-task"
         assert "FABLE" not in cell.plain and "\n" not in cell.plain
 
-    def test_the_concise_line_uses_the_same_alias_colour(self) -> None:
-        maxed = _build_concise_task_line(self._row(model="claude-fable-5-1", engine="claude"))
-        plain = _build_concise_task_line(self._row())
-        assert _alias_span_style(maxed) == ALIAS_MAXED_STYLE
-        assert _alias_span_style(plain) == ALIAS_STYLE
+    def test_the_mark_sits_above_the_note_line(self) -> None:
+        cell = _build_name_cell(self._maxed(notes="the reminder"))
+        assert cell.plain.splitlines() == ["[GK] the-task", "the reminder"]
 
-    def test_the_tree_label_uses_the_same_alias_colour(self) -> None:
-        from ilan.cli import _TreeNode, _build_tree_label
+    def test_the_concise_line_carries_the_same_mark(self) -> None:
+        maxed = _build_concise_task_line(self._maxed(status="NEEDS_ATTENTION"))
+        plain = _build_concise_task_line(self._row(status="NEEDS_ATTENTION"))
+        assert maxed.plain == "[GK] the-task NEEDS_ATTENTION"
+        assert plain.plain == "(gk) the-task NEEDS_ATTENTION"
+        assert _alias_span(maxed)[1] == _alias_span(plain)[1] == ALIAS_STYLE
 
-        row = self._row(model="claude-fable-5-1", engine="claude")
-        label = _build_tree_label(_TreeNode(name="the-task", row=row), focus_name="x")
-        assert _alias_span_style(label) == ALIAS_MAXED_STYLE
+    def test_the_tree_label_carries_the_same_mark(self) -> None:
+        node = _TreeNode(name="the-task", row=self._maxed())
+        label = _build_tree_label(node, focus_name="x")
+        assert label.plain.startswith("[GK] the-task")
+        assert _alias_span(label)[1] == ALIAS_STYLE
 
-    def test_ls_output_never_prints_the_tag(
+    def test_resolve_row_accepts_the_alias_as_the_listing_prints_it(self) -> None:
+        """`ilan tree GK`, copied from a maxed row, must find the task."""
+        rows = [self._maxed(), self._row(name="other-task", alias="zz")]
+        assert _resolve_row(rows, "GK") is rows[0]
+        assert _resolve_row(rows, "gk") is rows[0]
+        assert _resolve_row(rows, "ZZ") is rows[1]
+        assert _resolve_row(rows, "the-task") is rows[0]
+        assert _resolve_row(rows, "THE-TASK") is None  # names stay exact
+
+    def test_search_still_finds_a_maxed_task_by_its_lowercase_alias(
+        self, runner: CliRunner, tmp_config,
+    ) -> None:
+        """`ilan search` lowercases the whole concise line, so `gk` matches `[GK]`."""
+        client = _make_client()
+        client.list_tasks.return_value = {"tasks": [self._maxed()]}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["search", "gk"])
+        assert result.exit_code == 0
+        assert "[GK] the-task" in _strip_ansi(result.output)
+
+    def test_ls_output_prints_the_mark_and_never_the_tag(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import ilan.cli as cli_mod
@@ -1750,24 +1761,30 @@ class TestMaxedAliasColour:
         monkeypatch.setattr(cli_mod, "console", Console(
             width=120, force_terminal=True, color_system="256", no_color=False,
         ))
+        stamps = {"created_at": "2026-04-13T00:00:00+00:00",
+                  "status_changed_at": "2026-04-13T01:00:00+00:00"}
         client = _make_client()
         client.list_tasks.return_value = {"tasks": [
-            {"name": "maxed-task", "alias": "aa", "status": "WORKING",
-             "created_at": "2026-04-13T00:00:00+00:00",
-             "status_changed_at": "2026-04-13T01:00:00+00:00",
-             "needs_review": False, "model": "claude-fable-5-1", "engine": "claude"},
-            {"name": "astra-task", "alias": "as", "status": "WORKING",
-             "created_at": "2026-04-13T00:00:00+00:00",
-             "status_changed_at": "2026-04-13T01:00:00+00:00",
-             "needs_review": False, "model": "gpt-6-astra", "engine": "codex"},
+            {"name": "maxed-task", "alias": "aa", "status": "WORKING", "needs_review": False,
+             "model": "claude-fable-5-1", "engine": "claude", **stamps},
+            {"name": "astra-task", "alias": "as", "status": "WORKING", "needs_review": False,
+             "model": "gpt-6-astra", "engine": "codex", **stamps},
+            {"name": "plain-task", "alias": "pp", "status": "WORKING", "needs_review": False,
+             "model": None, "engine": "claude", **stamps},
         ]}
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["ls"])
         assert result.exit_code == 0
         out = _strip_ansi(result.output)
         assert "FABLE" not in out and "ASTRA" not in out
-        # red3 is 256-colour 160; both maxed aliases open that run.
-        assert result.output.count("\x1b[1;38;5;160m(") == 2
+        assert "[AA] maxed-task" in out and "[AS] astra-task" in out
+        assert "(pp) plain-task" in out
+        # One pink run (256-colour 218) opens every alias whatever its shape;
+        # the reds that marked a maxed task before (160, and 88 before that)
+        # are gone.
+        assert result.output.count("\x1b[1;38;5;218m[") == 2
+        assert result.output.count("\x1b[1;38;5;218m(") == 1
+        assert "38;5;160" not in result.output and "38;5;88m" not in result.output
 
 
 # ── task numbers in listings ────────────────────────────────────────

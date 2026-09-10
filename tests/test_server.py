@@ -697,6 +697,16 @@ class TestTasksCRUD:
             resp2 = _get(ilan_server, f"/tasks/{alias}")
             assert resp2["task"]["name"] == "alias-test"
 
+    def test_get_task_by_alias_ignores_case(self, ilan_server: IlanServer) -> None:
+        """The listings print a maxed task's alias as ``[GK]``; the same
+        letters typed back in either case must reach the task.
+        """
+        _post(ilan_server, "/tasks", {"name": "alias-case", "prompt": "P"})
+        alias = _get(ilan_server, "/tasks/alias-case")["task"]["alias"]
+        assert alias  # a fresh server has the whole pool to hand out
+        resp = _get(ilan_server, f"/tasks/{alias.upper()}")
+        assert resp["task"]["name"] == "alias-case"
+
     def test_get_task_not_found(self, ilan_server: IlanServer) -> None:
         resp = _get(ilan_server, "/tasks/nonexistent")
         assert "error" in resp
