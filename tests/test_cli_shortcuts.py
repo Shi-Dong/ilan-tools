@@ -9,12 +9,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
+from rich.color_triplet import ColorTriplet
+from rich.style import Style
 
 from ilan.cli import (
+    ALIAS_MAXED_STYLE,
     ALIAS_STYLE,
     NUMBER_STYLE,
     PIN_MARKER,
     _TreeNode,
+    _alias_style,
     _build_concise_task_line,
     _build_name_cell,
     _build_tree_label,
@@ -1652,13 +1656,23 @@ def _alias_span(cell) -> tuple[str, str]:
     return cell.plain[span.start:span.end], str(span.style)
 
 
-class TestMaxedAliasMark:
-    """Every alias is pink; a maxed task's is written ``[GK]`` instead of ``(gk)``.
+def _truecolor(style: str) -> ColorTriplet:
+    """The (r, g, b) the foreground of a Rich style string renders as."""
+    return Style.parse(style).color.get_truecolor()
 
-    The shape is the only mark a maxed task carries in `ilan ls`,
-    `ilan dashboard`, the concise line and `ilan tree`: no FABLE / ASTRA word
-    and no second colour (a dark red and then a lighter red were both tried
-    and read badly on some terminal themes). What counts as maxed is
+
+def _luminance(t: ColorTriplet) -> float:
+    """Relative luminance under a gamma-2.2 approximation; enough to compare shades."""
+    return 0.2126 * (t.red / 255) ** 2.2 + 0.7152 * (t.green / 255) ** 2.2 + 0.0722 * (t.blue / 255) ** 2.2
+
+
+class TestMaxedAliasMark:
+    """A maxed task's alias is ``[GK]`` in a slightly deeper pink; an ordinary one is ``(gk)`` in pink.
+
+    Shape and shade together are the only mark a maxed task carries in
+    `ilan ls`, `ilan dashboard`, the concise line and `ilan tree`: no FABLE /
+    ASTRA word, and no red (a dark red and then a lighter red were both tried
+    and read as a different mark altogether). What counts as maxed is
     `max_tag`'s call — the same predicate the web app's tag uses — so the two
     views cannot disagree about which tasks are maxed.
     """
@@ -1686,12 +1700,26 @@ class TestMaxedAliasMark:
         assert _is_maxed(row)
         assert _format_alias(row) == "[GK]"
 
-    def test_both_shapes_share_one_pink_style(self) -> None:
-        """The mark is the shape; the colour no longer changes with it."""
+    def test_the_maxed_alias_is_the_shape_in_a_deeper_pink(self) -> None:
         plain_text, plain_style = _alias_span(_build_name_cell(self._row()))
         maxed_text, maxed_style = _alias_span(_build_name_cell(self._maxed()))
         assert (plain_text, maxed_text) == ("(gk) ", "[GK] ")
-        assert plain_style == maxed_style == ALIAS_STYLE == "bold pink1"
+        assert plain_style == ALIAS_STYLE == "bold pink1"
+        assert maxed_style == ALIAS_MAXED_STYLE == "bold orchid2"
+        assert _alias_style(self._row()) == ALIAS_STYLE
+        assert _alias_style(self._maxed()) == ALIAS_MAXED_STYLE
+
+    def test_the_deeper_pink_is_the_same_pink_one_step_down(self) -> None:
+        """Read off the constants, not a colour name, so the check guards
+        whatever shade is configured: the same red and blue as the ordinary
+        pink, less green, and only somewhat less light — the two must read
+        as one pink in two shades, not as two colours.
+        """
+        pink = _truecolor(ALIAS_STYLE)
+        deeper = _truecolor(ALIAS_MAXED_STYLE)
+        assert (deeper.red, deeper.blue) == (pink.red, pink.blue)
+        assert deeper.green < pink.green
+        assert 0.6 <= _luminance(deeper) / _luminance(pink) <= 0.9
 
     def test_a_stale_fable_pin_after_a_switch_to_codex_is_not_maxed(self) -> None:
         """Fable is Claude-only: once the task is on Codex the stored Fable id
@@ -1722,13 +1750,14 @@ class TestMaxedAliasMark:
         plain = _build_concise_task_line(self._row(status="NEEDS_ATTENTION"))
         assert maxed.plain == "[GK] the-task NEEDS_ATTENTION"
         assert plain.plain == "(gk) the-task NEEDS_ATTENTION"
-        assert _alias_span(maxed)[1] == _alias_span(plain)[1] == ALIAS_STYLE
+        assert _alias_span(maxed)[1] == ALIAS_MAXED_STYLE
+        assert _alias_span(plain)[1] == ALIAS_STYLE
 
     def test_the_tree_label_carries_the_same_mark(self) -> None:
         node = _TreeNode(name="the-task", row=self._maxed())
         label = _build_tree_label(node, focus_name="x")
         assert label.plain.startswith("[GK] the-task")
-        assert _alias_span(label)[1] == ALIAS_STYLE
+        assert _alias_span(label)[1] == ALIAS_MAXED_STYLE
 
     def test_resolve_row_accepts_the_alias_as_the_listing_prints_it(self) -> None:
         """`ilan tree GK`, copied from a maxed row, must find the task."""
@@ -1779,10 +1808,10 @@ class TestMaxedAliasMark:
         assert "FABLE" not in out and "ASTRA" not in out
         assert "[AA] maxed-task" in out and "[AS] astra-task" in out
         assert "(pp) plain-task" in out
-        # One pink run (256-colour 218) opens every alias whatever its shape;
-        # the reds that marked a maxed task before (160, and 88 before that)
-        # are gone.
-        assert result.output.count("\x1b[1;38;5;218m[") == 2
+        # The maxed aliases open in the deeper pink (256-colour 212), the
+        # ordinary one in pink1 (218); the reds that marked a maxed task
+        # before (160, and 88 before that) are gone.
+        assert result.output.count("\x1b[1;38;5;212m[") == 2
         assert result.output.count("\x1b[1;38;5;218m(") == 1
         assert "38;5;160" not in result.output and "38;5;88m" not in result.output
 

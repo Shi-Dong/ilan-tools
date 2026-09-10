@@ -602,12 +602,17 @@ def task_add(
 # ── task ls ──────────────────────────────────────────────────────────
 
 # The alias is the handle you type, so it is bold pink in every listing. A
-# maxed task is not marked by a different colour but by the alias's *shape*:
-# `[GK]` — capitals inside square brackets — where an ordinary task shows
-# `(gk)`. Colour was tried twice for this (a dark red, then a lighter one)
-# and neither read well on every terminal theme; a shape survives any
-# palette, `NO_COLOR`, and a plain-text paste. See :func:`_format_alias`.
+# maxed task is marked twice over: by the alias's *shape* — `[GK]`, capitals
+# inside square brackets, where an ordinary task shows `(gk)` — and by a pink
+# one step deeper than the ordinary one. `orchid2` is `pink1` with the green
+# channel one palette step down (255,135,215 against 255,175,215): the same
+# red and blue, so it reads as the same pink only a little darker, rather
+# than the red that was tried before it and looked like a different mark
+# altogether. The shape carries the fact on its own where colour is lost
+# (`NO_COLOR`, a plain-text paste); the shade makes it quicker to spot where
+# colour is there. See :func:`_format_alias` and :func:`_alias_style`.
 ALIAS_STYLE = "bold pink1"
+ALIAS_MAXED_STYLE = "bold orchid2"
 NUMBER_STYLE = "dim"
 PIN_STYLE = "bold yellow"
 PIN_MARKER = "→ "
@@ -686,16 +691,26 @@ def _is_maxed(row: dict) -> bool:
 def _format_alias(row: dict) -> str:
     """The alias as the listings print it: ``(gk)``, or ``[GK]`` once maxed.
 
-    The shape is the only mark a maxed task carries in ``ilan ls``,
-    ``ilan dashboard``, the concise line and ``ilan tree``; the ``FABLE`` /
-    ``ASTRA`` line it used to get beneath its name is gone, since a whole
-    extra line for one word cost every row height for a fact the alias can
-    carry itself. Capitals *and* brackets, so the mark holds even where case
-    is easy to miss; the lookup accepts either case, so an alias copied from
-    the listing resolves as typed.
+    The shape, with the deeper pink of :func:`_alias_style`, is all the mark
+    a maxed task carries in ``ilan ls``, ``ilan dashboard``, the concise line
+    and ``ilan tree``; the ``FABLE`` / ``ASTRA`` line it used to get beneath
+    its name is gone, since a whole extra line for one word cost every row
+    height for a fact the alias can carry itself. Capitals *and* brackets, so
+    the mark holds even where case is easy to miss; the lookup accepts either
+    case, so an alias copied from the listing resolves as typed.
     """
     alias = row["alias"]
     return f"[{alias.upper()}]" if _is_maxed(row) else f"({alias})"
+
+
+def _alias_style(row: dict) -> str:
+    """Style for a task's alias: pink, or a slightly deeper pink once maxed.
+
+    Same pink either way — see the note on :data:`ALIAS_MAXED_STYLE` — so the
+    shade reinforces the ``[GK]`` shape without turning the alias into a
+    different kind of thing.
+    """
+    return ALIAS_MAXED_STYLE if _is_maxed(row) else ALIAS_STYLE
 
 
 def _build_name_cell(row: dict) -> Text:
@@ -708,11 +723,12 @@ def _build_name_cell(row: dict) -> Text:
     a pushpin emoji would be the obvious marker but has the same width
     problem, whereas a bare arrow glyph occupies a single cell.
 
-    A maxed task is told apart by its alias shape alone, ``[GK]`` rather
-    than ``(gk)`` — see :func:`_format_alias`. The task's note, if it has
-    one, is the cell's last line, in :data:`NOTES_STYLE`: it belongs with the
-    name because it says what the task is *for*, where the Status cell says
-    what the agent just did.
+    A maxed task is told apart by its alias: ``[GK]`` in a slightly deeper
+    pink, rather than ``(gk)`` — see :func:`_format_alias` and
+    :func:`_alias_style`. The task's note, if it has one, is the cell's last
+    line, in :data:`NOTES_STYLE`: it belongs with the name because it says
+    what the task is *for*, where the Status cell says what the agent just
+    did.
 
     The name itself links to the task's Gist conversation mirror — see
     :func:`_name_style`.
@@ -723,7 +739,7 @@ def _build_name_cell(row: dict) -> Text:
         cell.append(PIN_MARKER, style=PIN_STYLE)
     _append_task_number(cell, row)
     if row.get("alias"):
-        cell.append(f"{_format_alias(row)} ", style=ALIAS_STYLE)
+        cell.append(f"{_format_alias(row)} ", style=_alias_style(row))
     cell.append(row["name"], style=_name_style(row))
     if row.get("needs_review"):
         cell.append(f" {UNREAD_MARKER}", style=UNREAD_STYLE)
@@ -782,7 +798,7 @@ def _build_concise_task_line(row: dict) -> Text:
         line.append(PIN_MARKER, style=PIN_STYLE)
     _append_task_number(line, row)
     if row.get("alias"):
-        line.append(f"{_format_alias(row)} ", style=ALIAS_STYLE)
+        line.append(f"{_format_alias(row)} ", style=_alias_style(row))
     line.append(row["name"], style=_name_style(row))
     if row.get("needs_review"):
         line.append(f" {UNREAD_MARKER}", style=UNREAD_STYLE)
@@ -1007,7 +1023,7 @@ def _build_tree_label(node: _TreeNode, focus_name: str) -> Text:
     row = node.row
     label = Text()
     if row.get("alias"):
-        label.append(f"{_format_alias(row)} ", style=ALIAS_STYLE)
+        label.append(f"{_format_alias(row)} ", style=_alias_style(row))
     engine = row.get("engine") or DEFAULT_ENGINE
     name_style = ENGINE_NAME_STYLE.get(engine, "")
     label.append(row["name"], style=f"bold {name_style}".strip())
