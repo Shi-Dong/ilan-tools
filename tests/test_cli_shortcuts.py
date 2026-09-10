@@ -1733,7 +1733,11 @@ class TestMaxedAliasColour:
         import ilan.cli as cli_mod
         from rich.console import Console
 
-        monkeypatch.setattr(cli_mod, "console", Console(width=120, force_terminal=True))
+        # no_color=False + an explicit colour system: CI sets NO_COLOR, under
+        # which Rich keeps bold but drops the colour codes this test counts.
+        monkeypatch.setattr(cli_mod, "console", Console(
+            width=120, force_terminal=True, color_system="256", no_color=False,
+        ))
         client = _make_client()
         client.list_tasks.return_value = {"tasks": [
             {"name": "maxed-task", "alias": "aa", "status": "WORKING",
