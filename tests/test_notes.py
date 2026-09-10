@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import re
 import signal
@@ -18,15 +19,13 @@ from rich.console import Console
 
 import ilan.cli as cli_mod
 from ilan.cli import (
-    NOTES_COLUMN_WIDTH,
+    NAME_TO_STATUS,
     NOTES_STYLE,
-    NAME_TO_PAIR,
-    NAME_TO_PAIR_PLAIN,
-    STATUS_MAX_WIDTH,
-    STATUS_TO_NOTES,
+    PROSE_MAX_WIDTH,
     TIMESTAMP_COLUMN_WIDTH,
+    _build_concise_task_line,
     _build_dashboard_table,
-    _build_notes_cell,
+    _build_name_cell,
     _build_status_cell,
     main,
 )
@@ -1308,10 +1307,10 @@ class TestClientSetNotes:
         post.assert_called_once_with("/tasks/alpha/notes", {"notes": "n"})
 
 
-# ── cell rendering ──────────────────────────────────────────────────────
+# ── the note under the name ─────────────────────────────────────────────
 
 
-def _row(name: str = "alpha", *, notes: str | None = None) -> dict:
+def _row(name: str = "alpha", *, notes: str | None = None, **extra) -> dict:
     row = {
         "name": name,
         "alias": None,
@@ -1323,222 +1322,204 @@ def _row(name: str = "alpha", *, notes: str | None = None) -> dict:
     }
     if notes is not None:
         row["notes"] = notes
+    row.update(extra)
     return row
 
 
-class TestNotesCell:
-    def test_note_is_light_red(self) -> None:
-        cell = _build_notes_cell(_row(notes="remember this"))
-        assert cell.plain == "remember this"
-        assert len(cell.spans) == 1
-        assert str(cell.spans[0].style) == NOTES_STYLE
+class TestNoteUnderTheName:
+    """The note is the last line of the Name cell, not a column of its own.
 
-    def test_light_red_is_a_real_rich_color(self) -> None:
-        """``light_red`` is not a Rich color name; ``light_coral`` is the light red."""
-        from rich.color import Color
-
-        assert Color.parse(NOTES_STYLE).get_truecolor() == (255, 135, 135)
-
-    def test_style_lives_on_a_span_not_the_base_text(self) -> None:
-        """A base style is emitted across the cell's right padding too."""
-        cell = _build_notes_cell(_row(notes="remember this"))
-        assert str(cell.style) in ("", "none")
-
-    def test_missing_note_renders_empty(self) -> None:
-        assert _build_notes_cell(_row()).plain == ""
-
-    def test_blank_note_renders_empty(self) -> None:
-        assert _build_notes_cell(_row(notes="   ")).plain == ""
-
-    def test_row_without_the_field_renders(self) -> None:
-        # A newer client talking to an older server still renders.
-        assert _build_notes_cell({"name": "alpha"}).plain == ""
-
-
-# ── the Notes column ────────────────────────────────────────────────────
-
-
-def _pair_total(table) -> int:
-    """Total width of the Status and Notes columns of a wide dashboard."""
-    return sum(c.width for c in table.columns[1:3])
-
-
-def _name_width(table, terminal_width: int) -> int:
-    """What Rich actually gives Name, the only ratio column."""
-    fixed = sum(c.width for c in table.columns[1:])
-    chrome = 3 * len(table.columns) + 1
-    return terminal_width - chrome - fixed
-
-
-class TestWideningNotesCostsOnlyStatus:
-    """The point of sizing the pair together: nothing else moves.
-
-    These numbers are what the dashboard rendered before Status and Notes
-    were sized as a pair. Name and the two timestamp columns must come out
-    identical, Status must be no wider, and Notes no narrower — otherwise the
-    trade has come out of the wrong column.
+    It belongs with the name because it says what the task is *for*, where
+    the Status cell beside it says what the agent just did.
     """
 
-    # width: (Name, Status, Notes, Created, Last Changed) as it was before.
-    _BEFORE = {
-        140: (30, 38, 26, 15, 15),
-        150: (34, 44, 26, 15, 15),
-        180: (47, 61, 26, 15, 15),
-        200: (56, 72, 26, 15, 15),
-        240: (73, 95, 26, 15, 15),
-    }
+    def test_it_is_the_last_line_of_the_name_cell(self) -> None:
+        cell = _build_name_cell(_row("alpha", alias="aa", notes="the reminder"))
+        assert cell.plain.splitlines() == ["(aa) alpha", "the reminder"]
 
-    def _now(self, width: int) -> tuple[int, ...]:
-        table = _build_dashboard_table([], _TZ, width=width)
-        name = _name_width(table, width)
-        return (name, *(c.width for c in table.columns[1:]))
+    def test_it_follows_the_markers_and_suffixes(self) -> None:
+        """Everything about the name stays on the first line; the note is last."""
+        row = _row("alpha", alias="aa", notes="the reminder", pinned=True,
+                   needs_review=True, reply_every_seconds=3600)
+        first, *rest = _build_name_cell(row).plain.splitlines()
+        assert first.startswith("→ (aa) alpha !!")
+        assert "responding every" in first
+        assert rest == ["the reminder"]
 
-    @pytest.mark.parametrize("width", sorted(_BEFORE))
-    def test_name_is_untouched(self, width: int) -> None:
-        assert self._now(width)[0] == self._BEFORE[width][0]
+    def test_it_is_italic_light_green_and_not_bold(self) -> None:
+        """Lighter than the name it hangs under, and a different kind of text.
 
-    @pytest.mark.parametrize("width", sorted(_BEFORE))
-    def test_the_timestamp_columns_are_untouched(self, width: int) -> None:
-        assert self._now(width)[3:] == self._BEFORE[width][3:]
+        The whole Name column is bold, so without `not bold` the note would
+        inherit it and shout as loudly as the name.
+        """
+        cell = _build_name_cell(_row("alpha", notes="the reminder"))
+        span = next(sp for sp in cell.spans if cell.plain[sp.start:sp.end] == "the reminder")
+        style = str(span.style)
+        assert style == NOTES_STYLE
+        assert "italic" in style and "light_green" in style and "not bold" in style
 
-    @pytest.mark.parametrize("width", sorted(_BEFORE))
-    def test_status_never_grows(self, width: int) -> None:
-        assert self._now(width)[1] <= self._BEFORE[width][1]
+    def test_rendered_note_has_italic_and_light_green_but_no_bold(self) -> None:
+        """Checked in the bytes, since `not bold` only matters once the column's
+        bold base style is composed in — the span alone cannot show it.
+        """
+        from rich.table import Table
 
-    @pytest.mark.parametrize("width", sorted(_BEFORE))
-    def test_notes_never_shrinks(self, width: int) -> None:
-        assert self._now(width)[2] >= self._BEFORE[width][2]
+        table = Table()
+        table.add_column("(Alias) Name", style="bold")
+        table.add_row(_build_name_cell(_row("alpha", notes="NOTELINE")))
+        buf = io.StringIO()
+        Console(file=buf, force_terminal=True, width=60, color_system="256",
+                no_color=False).print(table)
+        out = buf.getvalue()
+        run = re.search(r"\x1b\[([0-9;]*)mNOTELINE", out)
+        assert run, out
+        codes = run.group(1).split(";")
+        assert "3" in codes                      # italic
+        assert codes[-3:] == ["38", "5", "120"]  # light_green
+        assert "1" not in codes                  # not bold
+        name_run = re.search(r"\x1b\[([0-9;]*)malpha", out)
+        assert name_run and "1" in name_run.group(1).split(";")  # the name stays bold
 
-    @pytest.mark.parametrize("width", [150, 180, 200, 240])
-    def test_the_trade_is_real_above_the_narrowest_window(
-        self, width: int,
-    ) -> None:
-        """At 140 the pair was already 3:2, so only wider windows move."""
-        now, before = self._now(width), self._BEFORE[width]
-        assert now[1] < before[1]  # Status narrower
-        assert now[2] > before[2]  # Notes wider
+    def test_no_note_means_a_single_line(self) -> None:
+        assert "\n" not in _build_name_cell(_row("alpha", alias="aa")).plain
 
-    @pytest.mark.parametrize("width", sorted(_BEFORE))
-    def test_the_pair_total_is_conserved(self, width: int) -> None:
-        """Which is *why* nothing else moves."""
-        now, before = self._now(width), self._BEFORE[width]
-        assert now[1] + now[2] == before[1] + before[2]
+    def test_a_blank_note_means_a_single_line(self) -> None:
+        assert "\n" not in _build_name_cell(_row("alpha", notes="   ")).plain
+
+    def test_a_row_without_the_field_renders(self) -> None:
+        # A newer client talking to an older server still renders.
+        assert _build_name_cell({"name": "alpha", "status": "WORKING"}).plain == "alpha"
+
+    def test_the_reply_every_fill_stops_before_the_note(self) -> None:
+        """The grey fill marks the cycling *label*; the note stays unfilled,
+        the way the old max-model line did.
+        """
+        row = _row("alpha", notes="the reminder", reply_every_seconds=3600)
+        cell = _build_name_cell(row)
+        note_start = cell.plain.index("the reminder")
+        filled = [sp for sp in cell.spans if "on grey27" in str(sp.style)]
+        assert filled, "the cycling label is no longer filled"
+        assert all(sp.end <= note_start for sp in filled)
+
+    def test_the_dashboard_puts_it_in_the_name_column(self) -> None:
+        table = _build_dashboard_table([_row("alpha", notes="the reminder")], _TZ)
+        assert table.columns[0]._cells[0].plain.splitlines()[-1] == "the reminder"
+
+    def test_the_status_cell_no_longer_carries_it(self) -> None:
+        """There is one place for the note now, and it is not the summary's."""
+        row = _row("alpha", notes="THENOTE")
+        row["summary_one_liner"] = "THESUMMARY"
+        cell = _build_status_cell(row, show_one_liner=True)
+        assert "THENOTE" not in cell.plain
+        assert "THESUMMARY" in cell.plain
+
+    def test_the_status_cell_has_no_inline_switch_left(self) -> None:
+        import inspect
+
+        assert "inline_note" not in inspect.signature(_build_status_cell).parameters
+
+    def test_the_concise_line_still_has_no_note(self) -> None:
+        """``-c`` is one greppable line per task; prose would break its shape."""
+        line = _build_concise_task_line(_row("alpha", notes="the reminder"))
+        assert "the reminder" not in line.plain
+        assert "\n" not in line.plain
 
 
-class TestDashboardNotesColumn:
-    _WIDE = ["(Alias) Name", "Status", "Notes", "Created", "Last Changed"]
+# ── no Notes column anywhere ────────────────────────────────────────────
+
+
+def _rendered_widths(table, width: int) -> list[int]:
+    """Content width of each column, read off the top border rule."""
+    buf = io.StringIO()
+    Console(file=buf, width=width).print(table)
+    rule = next(l for l in buf.getvalue().splitlines() if l.startswith("┏"))
+    return [len(seg) - 2 for seg in rule.strip("┏┓").split("┳")]
+
+
+class TestNoNotesColumn:
+    _WIDE = ["(Alias) Name", "Status", "Created", "Last Changed"]
     _NARROW = ["(Alias) Name", "Status", "Last Changed"]
 
-    def test_column_is_present_even_when_nobody_has_a_note(self) -> None:
-        """The column is unconditional, so the layout never shifts under you."""
-        table = _build_dashboard_table([_row("a")], _TZ)
-        assert [c.header for c in table.columns] == self._WIDE
-
-    def test_column_present_with_a_note(self) -> None:
+    def test_dashboard_wide(self) -> None:
         table = _build_dashboard_table([_row("a", notes="x")], _TZ)
         assert [c.header for c in table.columns] == self._WIDE
 
-    def test_notes_sits_beside_status(self) -> None:
-        """The agent's summary and the user's note answer the same question.
-
-        Reading one after the other should not mean crossing two timestamp
-        columns to get there.
-        """
-        table = _build_dashboard_table([_row("a", notes="x")], _TZ)
-        headers = [c.header for c in table.columns]
-        assert headers[headers.index("Status") + 1] == "Notes"
-
-    def test_cell_holds_the_note(self) -> None:
-        table = _build_dashboard_table([_row("a", notes="the reminder")], _TZ)
-        assert table.columns[2]._cells[0].plain == "the reminder"
-
-    def test_annotated_and_bare_rows_share_the_column(self) -> None:
-        rows = [_row("a", notes="only mine"), _row("b")]
-        table = _build_dashboard_table(rows, _TZ)
-        assert [c.plain for c in table.columns[2]._cells] == ["only mine", ""]
-
-    def test_narrow_drops_the_notes_column_entirely(self) -> None:
-        """Too narrow for both, so the note moves into the Status cell."""
+    def test_dashboard_narrow(self) -> None:
         table = _build_dashboard_table([_row("a", notes="x")], _TZ, narrow=True)
         assert [c.header for c in table.columns] == self._NARROW
-        assert "Notes" not in self._NARROW
 
-    @pytest.mark.parametrize("width", [140, 150, 180, 200, 240])
-    @pytest.mark.parametrize("one_liner", [True, False])
-    def test_status_and_notes_are_held_near_three_to_two(
-        self, width: int, one_liner: bool,
-    ) -> None:
-        """They carry the two answers to "what is this task about".
-
-        "Roughly": the pair's total is whatever room the two of them already
-        had, and an integer total rarely splits 3:2 exactly, so the realised
-        quotient is checked against a tenth either side of 1.5.
-        """
-        status, notes = _build_dashboard_table(
-            [_row("a", notes="x")], _TZ, show_one_liner=one_liner, width=width,
-        ).columns[1:3]
-        assert (status.header, notes.header) == ("Status", "Notes")
-        wanted, per = STATUS_TO_NOTES
-        assert abs(status.width / notes.width - wanted / per) < 0.1
-
-    def test_the_pair_gets_explicit_widths_not_ratios(self) -> None:
-        """A ratio would put Notes in competition with Name for space."""
-        status, notes = _build_dashboard_table(
-            [_row("a", notes="x")], _TZ, width=200,
-        ).columns[1:3]
-        assert status.ratio is notes.ratio is None
-        assert status.width and notes.width
-
-    def test_status_is_a_plain_ratio_when_narrow(self) -> None:
-        """With no Notes column there is no pair to split."""
-        columns = _build_dashboard_table(
-            [_row("a")], _TZ, narrow=True, width=100,
-        ).columns
-        assert columns[1].header == "Status"
-        assert columns[1].ratio == NAME_TO_PAIR[1]
-        assert columns[0].ratio == NAME_TO_PAIR[0]  # Name is untouched
-
-    def test_timestamp_columns_are_fixed_too(self) -> None:
-        """Pinning these is what pays for Notes — see the module constants."""
-        table = _build_dashboard_table([_row("a", notes="x")], _TZ)
-        created, changed = table.columns[3], table.columns[4]
-        assert (created.header, changed.header) == ("Created", "Last Changed")
-        assert created.width == changed.width == TIMESTAMP_COLUMN_WIDTH
-        assert created.ratio is changed.ratio is None
-
-    def test_only_name_flexes(self) -> None:
-        table = _build_dashboard_table([_row("a", notes="x")], _TZ, width=200)
-        assert [c.ratio for c in table.columns] == [10, None, None, None, None]
-
-    def test_the_pair_leads_only_while_it_holds_a_summary(self) -> None:
-        """With the one-liner off, Status holds a label and a duration, so
-        Name takes the bulk instead.
-
-        Asserted on the shares rather than the realised widths: the pair also
-        absorbs the room Notes was pinned at, so at some terminal widths the
-        two come out level even though the shares differ.
-        """
-        assert NAME_TO_PAIR[0] < NAME_TO_PAIR[1]
-        assert NAME_TO_PAIR_PLAIN[0] > NAME_TO_PAIR_PLAIN[1]
-
-    @pytest.mark.parametrize("width", [150, 180, 200, 240])
-    def test_name_is_never_squeezed_out_by_the_pair(self, width: int) -> None:
-        """Whatever the pair takes, Name keeps a workable slice of the table."""
-        for one_liner in (True, False):
-            table = _build_dashboard_table(
-                [], _TZ, show_one_liner=one_liner, width=width,
-            )
-            assert _name_width(table, width) >= 20
-
-    def test_empty_listing_keeps_the_placeholder_row_aligned(self) -> None:
+    def test_the_placeholder_row_still_fills_every_column(self) -> None:
         table = _build_dashboard_table([], _TZ)
-        assert [c.header for c in table.columns] == self._WIDE
         assert all(len(c._cells) == 1 for c in table.columns)
 
-    def test_timestamp_width_fits_the_common_stamp_on_one_line(self) -> None:
-        """15 fits "Today 13:30 PDT" and "09-05 13:30 PDT" without folding."""
-        assert len("Today 13:30 PDT") == TIMESTAMP_COLUMN_WIDTH
-        assert len("09-05 13:30 PDT") == TIMESTAMP_COLUMN_WIDTH
+
+class TestDashboardWidths:
+    """Name and Status split the flexible space; the timestamps are pinned."""
+
+    def test_only_name_and_status_flex(self) -> None:
+        table = _build_dashboard_table([_row("a")], _TZ)
+        ratios = [c.ratio for c in table.columns]
+        widths = [c.width for c in table.columns]
+        assert ratios == [*NAME_TO_STATUS, None, None]
+        assert widths[2:] == [TIMESTAMP_COLUMN_WIDTH] * 2
+
+    def test_name_and_status_are_equal(self) -> None:
+        """Both are prose columns — the note under the name, the summary
+        under the status label — so neither has a claim on more room.
+        """
+        assert NAME_TO_STATUS == (1, 1)
+
+    def test_the_split_ignores_the_one_liner(self) -> None:
+        on = _build_dashboard_table([], _TZ, show_one_liner=True).columns
+        off = _build_dashboard_table([], _TZ, show_one_liner=False).columns
+        assert [c.ratio for c in on[:2]] == [c.ratio for c in off[:2]] == [1, 1]
+
+    @pytest.mark.parametrize("width", [140, 150, 180, 200, 240])
+    def test_name_and_status_render_within_a_character_of_each_other(
+        self, width: int,
+    ) -> None:
+        """Rich hands an odd remainder to the first ratio column; that is the
+        only difference an equal split can leave.
+        """
+        name, status = _rendered_widths(_build_dashboard_table([_row("a")], _TZ), width)[:2]
+        assert 0 <= name - status <= 1
+
+    def test_no_timestamp_ever_folds(self) -> None:
+        """The longest stamp in any common zone is nine for the day word, a
+        space, five for the time, a space, and a four-letter zone.
+        """
+        assert len("Yesterday 21:38 CEST") <= TIMESTAMP_COLUMN_WIDTH
+        assert TIMESTAMP_COLUMN_WIDTH == 20
+
+    # Measured when the Notes column was folded into Name and the timestamps
+    # widened to 20. Pinned so a later change to the geometry has to be a
+    # deliberate one.
+    _EXPECTED = {
+        140: (44, 43, 20, 20),
+        150: (49, 48, 20, 20),
+        180: (64, 63, 20, 20),
+        200: (74, 73, 20, 20),
+        240: (94, 93, 20, 20),
+    }
+
+    @pytest.mark.parametrize("width", sorted(_EXPECTED))
+    def test_rendered_widths(self, width: int) -> None:
+        table = _build_dashboard_table([_row("a", notes="x")], _TZ)
+        assert tuple(_rendered_widths(table, width)) == self._EXPECTED[width]
+
+    @pytest.mark.parametrize("width", sorted(_EXPECTED))
+    def test_the_timestamps_never_move(self, width: int) -> None:
+        table = _build_dashboard_table([_row("a", notes="x")], _TZ)
+        assert _rendered_widths(table, width)[2:] == [TIMESTAMP_COLUMN_WIDTH] * 2
+
+    @pytest.mark.parametrize("width", sorted(_EXPECTED))
+    def test_a_long_note_does_not_change_the_geometry(self, width: int) -> None:
+        """Ratios resolve from the terminal, not the contents, so writing a
+        note never shifts the columns — the dashboard redraws once a second.
+        """
+        short = _build_dashboard_table([_row("a", notes="hi")], _TZ)
+        long = _build_dashboard_table([_row("a", notes="hi " * 80)], _TZ)
+        assert _rendered_widths(short, width) == _rendered_widths(long, width)
 
 
 def _invoke_ls(
@@ -1556,249 +1537,94 @@ def _invoke_ls(
         return runner.invoke(main, ["ls"])
 
 
-class TestLsNotesColumn:
-    def test_header_present_even_when_nobody_has_a_note(
-        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        result = _invoke_ls(runner, [_row("a"), _row("b")], monkeypatch)
-        assert result.exit_code == 0
-        assert "Notes" in _strip_ansi(result.output)
-
-    def test_header_and_note_shown(
-        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        result = _invoke_ls(
-            runner, [_row("a", notes="do not forget"), _row("b")], monkeypatch,
-        )
-        assert result.exit_code == 0
-        out = _strip_ansi(result.output)
-        assert "Notes" in out
-        assert "do not forget" in out
-
-    def test_column_keeps_its_width_whether_or_not_a_note_is_set(
-        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """The point of the fixed width: the table does not move under you.
-
-        Rendering the same tasks with and without notes must produce rules of
-        exactly the same shape, so writing a note never shifts the columns to
-        its left.
-        """
-        bare = _invoke_ls(runner, [_row("a"), _row("b")], monkeypatch)
-        annotated = _invoke_ls(
-            runner, [_row("a", notes="a note"), _row("b")], monkeypatch,
-        )
-        def rule(out: str) -> str:
-            return next(l for l in _strip_ansi(out).splitlines() if l.startswith("┏"))
-        assert rule(bare.output) == rule(annotated.output)
-
-    def test_a_long_note_does_not_widen_the_column(
-        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        short = _invoke_ls(runner, [_row("a", notes="hi")], monkeypatch)
-        long = _invoke_ls(
-            runner, [_row("a", notes="hi " * 60)], monkeypatch,
-        )
-        def rule(out: str) -> str:
-            return next(l for l in _strip_ansi(out).splitlines() if l.startswith("┏"))
-        assert rule(short.output) == rule(long.output)
-
-    def test_note_renders_in_light_red(
-        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        monkeypatch.setattr(
-            cli_mod, "console",
-            Console(width=200, force_terminal=True, color_system="256", no_color=False),
-        )
-        client = MagicMock()
-        client.ensure_server.return_value = {}
-        client.version_mismatch = None
-        client.is_remote = False
-        client.get_config.return_value = {"config": {"api-key-codex": "sk-x"}}
-        client.list_tasks.return_value = {"tasks": [_row("a", notes="in red")]}
-        with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["ls"])
-        assert result.exit_code == 0
-        # light_coral is 256-colour 210, so the note opens an SGR 38;5;210 run.
-        assert "\x1b[38;5;210min red\x1b[0m" in result.output
-
-    def test_concise_view_has_no_notes(
-        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """``-c`` is one greppable line per task; a note would break that shape."""
-        monkeypatch.setattr(cli_mod, "console", Console(width=200, force_terminal=False))
-        client = MagicMock()
-        client.ensure_server.return_value = {}
-        client.version_mismatch = None
-        client.is_remote = False
-        client.list_tasks.return_value = {"tasks": [_row("a", notes="hidden here")]}
-        with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["ls", "-c"])
-        assert result.exit_code == 0
-        assert _strip_ansi(result.output) == "a WORKING\n"
-
-
 def _ls_headers(out: str) -> list[str]:
-    """The header row of a rendered ``ilan ls`` table, cell by cell."""
     header = next(l for l in _strip_ansi(out).splitlines() if "(Alias) Name" in l)
     return [cell.strip() for cell in header.strip("┃").split("┃")]
 
 
 def _ls_column_widths(out: str) -> list[int]:
-    """Content width of each column, read off the top border rule."""
     rule = next(l for l in _strip_ansi(out).splitlines() if l.startswith("┏"))
-    # Each segment is the column plus its one-space padding on either side.
     return [len(seg) - 2 for seg in rule.strip("┏┓").split("┳")]
 
 
-class TestLsColumnLayout:
-    """Column order and widths in ``ilan ls``."""
-
-    def test_notes_sits_beside_status(
+class TestLsLayout:
+    def test_headers_wide(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         out = _invoke_ls(runner, [_row("a", notes="x")], monkeypatch).output
-        assert _ls_headers(out) == [
-            "(Alias) Name", "Status", "Notes", "Created", "Last Changed",
-        ]
+        assert _ls_headers(out) == ["(Alias) Name", "Status", "Created", "Last Changed"]
 
-    def test_narrow_drops_the_notes_column(
+    def test_headers_narrow(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        out = _invoke_ls(
-            runner, [_row("a", notes="x")], monkeypatch, width=100,
-        ).output
+        out = _invoke_ls(runner, [_row("a", notes="x")], monkeypatch, width=100).output
         assert _ls_headers(out) == ["(Alias) Name", "Status", "Last Changed"]
 
-    def test_status_is_capped(
+    def test_the_note_shows_under_the_name(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """A one-line summary used to grow Status past every other column."""
-        row = _row("a", notes="x")
-        row["summary_one_liner"] = (
-            "Rewrote the tokenizer's lookahead, split the parser, and moved "
-            "the whole grammar over to the new dispatch table."
-        )
+        out = _strip_ansi(_invoke_ls(
+            runner, [_row("alpha", alias="aa", notes="do not forget")], monkeypatch,
+        ).output)
+        rows = [l for l in out.splitlines() if l.startswith("│")]
+        assert "(aa) alpha" in rows[0]
+        assert "do not forget" in rows[1]
+        # and in the Name column, i.e. before the first inner rule
+        assert rows[1].index("do not forget") < rows[1].index("│", 1)
+
+    def test_it_still_shows_with_the_one_liner_off(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """`-a` suppresses the summary; the note is the user's own text."""
+        monkeypatch.setattr(cli_mod, "console", Console(width=200, force_terminal=False))
+        client = MagicMock()
+        client.ensure_server.return_value = {}
+        client.version_mismatch = None
+        client.is_remote = False
+        client.list_tasks.return_value = {"tasks": [_row("alpha", notes="do not forget")]}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["ls", "-a"])
+        assert "do not forget" in _strip_ansi(result.output)
+
+    def test_a_long_note_is_capped_by_the_name_column(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A 256-character note must fold, not push the table off the edge."""
+        out = _invoke_ls(runner, [_row("a", notes="word " * 50)], monkeypatch).output
+        headers, widths = _ls_headers(out), _ls_column_widths(out)
+        assert widths[headers.index("(Alias) Name")] == PROSE_MAX_WIDTH
+
+    def test_a_short_listing_does_not_reserve_the_cap(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Capped, not pinned: short names and no notes stay compact."""
+        out = _invoke_ls(runner, [_row("a")], monkeypatch).output
+        headers, widths = _ls_headers(out), _ls_column_widths(out)
+        assert widths[headers.index("(Alias) Name")] < PROSE_MAX_WIDTH
+
+    def test_status_is_still_capped(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        row = _row("a")
+        row["summary_one_liner"] = "words " * 30
         out = _invoke_ls(runner, [row], monkeypatch).output
-        headers = _ls_headers(out)
-        widths = _ls_column_widths(out)
-        assert widths[headers.index("Status")] == STATUS_MAX_WIDTH
+        headers, widths = _ls_headers(out), _ls_column_widths(out)
+        assert widths[headers.index("Status")] == PROSE_MAX_WIDTH
 
-    def test_a_short_status_does_not_reserve_the_cap(
+    def test_the_two_prose_columns_share_one_cap(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Capped, not pinned: a listing of short statuses stays compact.
+        """With both full, Name and Status come out equal."""
+        row = _row("a", notes="word " * 50)
+        row["summary_one_liner"] = "words " * 30
+        out = _invoke_ls(runner, [row], monkeypatch).output
+        headers, widths = _ls_headers(out), _ls_column_widths(out)
+        assert widths[headers.index("(Alias) Name")] == widths[headers.index("Status")] == PROSE_MAX_WIDTH
 
-        This is the one column that is still content-sized, because `-a`
-        suppresses the summary and reserving room for one would waste it.
-        """
-        out = _invoke_ls(runner, [_row("a", notes="x")], monkeypatch).output
-        headers = _ls_headers(out)
-        widths = _ls_column_widths(out)
-        assert widths[headers.index("Status")] < STATUS_MAX_WIDTH
-
-    def test_notes_uses_the_wide_tier_on_a_wide_window(
+    def test_the_full_table_width_is_the_caps_plus_the_stamps(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        out = _invoke_ls(runner, [_row("a", notes="x")], monkeypatch).output
-        headers = _ls_headers(out)
-        widths = _ls_column_widths(out)
-        assert widths[headers.index("Notes")] == NOTES_COLUMN_WIDTH
-
-    def test_status_and_notes_are_already_near_three_to_two(self) -> None:
-        """``ls`` needed no trade: 38:26 is 1.46, within a character of 3:2.
-
-        It is the dashboard that ran away from the ratio, because there
-        Status grew with the terminal while Notes stayed pinned.
-        """
-        wanted, per = STATUS_TO_NOTES
-        assert abs(STATUS_MAX_WIDTH * per - NOTES_COLUMN_WIDTH * wanted) <= per
-
-    def test_the_note_column_still_does_not_move_with_its_contents(
-        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Widening the column must not have cost it its fixed width."""
-        short = _invoke_ls(runner, [_row("a", notes="hi")], monkeypatch).output
-        long = _invoke_ls(runner, [_row("a", notes="hi " * 40)], monkeypatch).output
-        assert _ls_column_widths(short) == _ls_column_widths(long)
-
-
-class TestNarrowWindowInlinesTheNote:
-    """Below the threshold there is no Notes column; the note moves inside
-    the Status cell, beneath the one-line summary.
-
-    That removes the old constraint entirely: the Notes column used to have
-    to be narrow enough to sit beside a task name on a 70-column window, and
-    now it simply is not there.
-    """
-
-    _NARROW_WINDOW = 70
-
-    def _render(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> str:
-        row = _row("narrow-task", notes="the reminder")
-        row["status_changed_at"] = "2026-04-13T01:00:00+00:00"
-        result = _invoke_ls(runner, [row], monkeypatch, width=self._NARROW_WINDOW)
-        assert result.exit_code == 0
-        return _strip_ansi(result.output)
-
-    def test_the_note_is_shown_without_a_column(
-        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        out = self._render(runner, monkeypatch)
-        assert "Notes" not in _ls_headers(out)
-        assert "the reminder" in out
-
-    def test_the_task_name_survives(
-        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """The point of dropping the column: the name is readable again."""
-        assert "narrow-task" in self._render(runner, monkeypatch)
-
-    def test_the_note_sits_under_the_summary_in_the_status_cell(self) -> None:
-        row = _row("a", notes="THENOTE")
-        row["summary_one_liner"] = "THESUMMARY"
-        cell = _build_status_cell(row, show_one_liner=True, inline_note=True)
-        lines = cell.plain.splitlines()
-        assert lines[0].startswith("WORKING")
-        assert lines[1] == "THESUMMARY"
-        assert lines[2] == "THENOTE"
-
-    def test_the_note_keeps_its_own_colour_inline(self) -> None:
-        """So it reads as a note rather than more of the summary."""
-        row = _row("a", notes="THENOTE")
-        row["summary_one_liner"] = "THESUMMARY"
-        cell = _build_status_cell(row, show_one_liner=True, inline_note=True)
-        note_span = next(
-            sp for sp in cell.spans if cell.plain[sp.start:sp.end] == "THENOTE"
-        )
-        assert str(note_span.style) == NOTES_STYLE
-
-    def test_no_summary_puts_the_note_straight_under_the_status(self) -> None:
-        cell = _build_status_cell(
-            _row("a", notes="THENOTE"), show_one_liner=True, inline_note=True,
-        )
-        assert cell.plain.splitlines()[1] == "THENOTE"
-
-    def test_it_still_shows_with_the_one_liner_off(self) -> None:
-        """`-a` suppresses the summary, but the note is the user's own text."""
-        row = _row("a", notes="THENOTE")
-        row["summary_one_liner"] = "THESUMMARY"
-        cell = _build_status_cell(row, show_one_liner=False, inline_note=True)
-        assert "THESUMMARY" not in cell.plain
-        assert cell.plain.splitlines()[1] == "THENOTE"
-
-    def test_a_task_with_no_note_gains_no_line(self) -> None:
-        cell = _build_status_cell(_row("a"), show_one_liner=True, inline_note=True)
-        assert "\n" not in cell.plain
-
-    def test_a_blank_note_gains_no_line(self) -> None:
-        cell = _build_status_cell(
-            _row("a", notes="   "), show_one_liner=True, inline_note=True,
-        )
-        assert "\n" not in cell.plain
-
-    def test_the_wide_layout_leaves_the_status_cell_alone(self) -> None:
-        """With a Notes column present the note must not appear twice."""
-        row = _row("a", notes="THENOTE")
-        cell = _build_status_cell(row, show_one_liner=True, inline_note=False)
-        assert "THENOTE" not in cell.plain
+        row = _row("a", notes="word " * 50)
+        row["summary_one_liner"] = "words " * 30
+        out = _invoke_ls(runner, [row], monkeypatch).output
+        assert sum(_ls_column_widths(out)) == 2 * PROSE_MAX_WIDTH + 2 * TIMESTAMP_COLUMN_WIDTH

@@ -16,6 +16,8 @@ from ilan.cli import (
     _build_concise_task_line,
     _build_name_cell,
     main,
+    ALIAS_STYLE,
+    ALIAS_MAXED_STYLE,
 )
 from ilan.models import ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_NAME_STYLE
 
@@ -313,7 +315,7 @@ class TestLsNoArgs:
             for span in line.spans
         ] == [
             ("→ ", "bold yellow"),
-            ("(as) ", "bold magenta"),
+            ("(as) ", "bold pink1"),
             ("styled-task", "bold orange1"),
             (" !!", "bold yellow"),
             ("AGENT_FINISHED", "green"),
@@ -1632,112 +1634,128 @@ class TestReplyMaxFlags:
         client.reply.assert_called_once_with("my-task", "go on")
 
 
-# ── FABLE rendering in ilan ls ──────────────────────────────────────
+# ── a maxed task is marked by its alias colour ──────────────────────
 
 
-class TestFableRendering:
-    def test_ls_shows_fable_for_maxed_task(
+def _alias_span_style(cell) -> str:
+    """The style of the ``(alias) `` span in a name cell or concise line."""
+    span = next(sp for sp in cell.spans if cell.plain[sp.start:sp.end].startswith("("))
+    return str(span.style)
+
+
+class TestMaxedAliasColour:
+    """The alias is pink, or dark red once the task is maxed.
+
+    That colour is the only mark a maxed task carries in `ilan ls` and
+    `ilan dashboard`; the FABLE / ASTRA line under the name is gone. What
+    counts as maxed is `max_tag`'s call — the same predicate the web app's
+    tag uses — so the two views cannot disagree about which tasks are maxed.
+    """
+
+    def _row(self, **extra) -> dict:
+        row = {"name": "the-task", "alias": "aa", "status": "WORKING",
+               "needs_review": False, "model": None}
+        row.update(extra)
+        return row
+
+    def test_a_default_task_has_a_pink_alias(self) -> None:
+        assert _alias_span_style(_build_name_cell(self._row())) == ALIAS_STYLE
+        assert ALIAS_STYLE == "bold pink1"
+
+    def test_a_fable_task_on_claude_has_a_dark_red_alias(self) -> None:
+        cell = _build_name_cell(self._row(model="claude-fable-5-1", engine="claude"))
+        assert _alias_span_style(cell) == ALIAS_MAXED_STYLE
+        assert ALIAS_MAXED_STYLE == "bold dark_red"
+
+    def test_an_astra_task_on_codex_has_a_dark_red_alias(self) -> None:
+        """Both backends' max models get the same mark."""
+        cell = _build_name_cell(self._row(model="gpt-6-astra", engine="codex"))
+        assert _alias_span_style(cell) == ALIAS_MAXED_STYLE
+
+    def test_the_maxed_colour_is_darker_than_the_old_tag(self) -> None:
+        """Shi asked for darker than the `bold red` FABLE used to be drawn in."""
+        from rich.color import Color
+
+        old_tag = Color.parse("red").get_truecolor()
+        maxed = Color.parse("dark_red").get_truecolor()
+        # Rich's own palette puts them a hair apart; the real test is against
+        # a terminal theme, where ANSI red renders far brighter than (135,0,0).
+        assert sum(maxed) <= sum(old_tag) + 8
+
+    def test_pink_and_dark_red_differ_in_hue_not_just_shade(self) -> None:
+        """Distinct by hue, so they survive a dim or unusual terminal palette."""
+        from rich.color import Color
+
+        pink = Color.parse("pink1").get_truecolor()
+        red = Color.parse("dark_red").get_truecolor()
+        assert pink.blue > 150 and red.blue == 0  # pink carries blue; red none
+
+    def test_a_stale_fable_pin_after_a_switch_to_codex_is_not_maxed(self) -> None:
+        """Fable is Claude-only: once the task is on Codex the stored Fable id
+        is a foreign pin the backend ignores, so the alias goes back to pink —
+        exactly as the tag used to disappear.
+        """
+        cell = _build_name_cell(self._row(model="claude-fable-5-1", engine="codex"))
+        assert _alias_span_style(cell) == ALIAS_STYLE
+
+    def test_a_legacy_fable_id_still_counts_as_maxed(self) -> None:
+        """A task maxed before the model bump still runs Fable."""
+        cell = _build_name_cell(self._row(model="claude-fable-5", engine="claude"))
+        assert _alias_span_style(cell) == ALIAS_MAXED_STYLE
+
+    def test_an_unknown_engine_falls_back_to_claude_and_honours_fable(self) -> None:
+        cell = _build_name_cell(
+            self._row(model="claude-fable-5-1", engine="some-future-engine"),
+        )
+        assert _alias_span_style(cell) == ALIAS_MAXED_STYLE
+
+    def test_the_word_fable_is_gone_from_the_name_cell(self) -> None:
+        cell = _build_name_cell(self._row(model="claude-fable-5-1", engine="claude"))
+        assert cell.plain == "(aa) the-task"
+        assert "FABLE" not in cell.plain and "\n" not in cell.plain
+
+    def test_the_concise_line_uses_the_same_alias_colour(self) -> None:
+        maxed = _build_concise_task_line(self._row(model="claude-fable-5-1", engine="claude"))
+        plain = _build_concise_task_line(self._row())
+        assert _alias_span_style(maxed) == ALIAS_MAXED_STYLE
+        assert _alias_span_style(plain) == ALIAS_STYLE
+
+    def test_the_tree_label_uses_the_same_alias_colour(self) -> None:
+        from ilan.cli import _TreeNode, _build_tree_label
+
+        row = self._row(model="claude-fable-5-1", engine="claude")
+        label = _build_tree_label(_TreeNode(name="the-task", row=row), focus_name="x")
+        assert _alias_span_style(label) == ALIAS_MAXED_STYLE
+
+    def test_ls_output_never_prints_the_tag(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        # The FABLE note lives in the Name column, which is always shown —
-        # even on a narrow terminal. Force a narrow console to prove it.
         import ilan.cli as cli_mod
         from rich.console import Console
 
-        monkeypatch.setattr(cli_mod, "console", Console(width=70, force_terminal=True))
+        # no_color=False + an explicit colour system: CI sets NO_COLOR, under
+        # which Rich keeps bold but drops the colour codes this test counts.
+        monkeypatch.setattr(cli_mod, "console", Console(
+            width=120, force_terminal=True, color_system="256", no_color=False,
+        ))
         client = _make_client()
-        client.list_tasks.return_value = {
-            "tasks": [
-                {
-                    "name": "maxed-task",
-                    "alias": "aa",
-                    "status": "WORKING",
-                    "created_at": "2026-04-13T00:00:00+00:00",
-                    "status_changed_at": "2026-04-13T01:00:00+00:00",
-                    "needs_review": False,
-                    "model": "claude-fable-5-1",
-                },
-            ],
-        }
+        client.list_tasks.return_value = {"tasks": [
+            {"name": "maxed-task", "alias": "aa", "status": "WORKING",
+             "created_at": "2026-04-13T00:00:00+00:00",
+             "status_changed_at": "2026-04-13T01:00:00+00:00",
+             "needs_review": False, "model": "claude-fable-5-1", "engine": "claude"},
+            {"name": "astra-task", "alias": "as", "status": "WORKING",
+             "created_at": "2026-04-13T00:00:00+00:00",
+             "status_changed_at": "2026-04-13T01:00:00+00:00",
+             "needs_review": False, "model": "gpt-6-astra", "engine": "codex"},
+        ]}
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["ls"])
         assert result.exit_code == 0
-        assert "FABLE" in result.output
-
-    def test_ls_no_fable_for_default_task(self, runner: CliRunner, tmp_config) -> None:
-        client = _make_client()
-        client.list_tasks.return_value = {
-            "tasks": [
-                {
-                    "name": "plain-task",
-                    "alias": "aa",
-                    "status": "WORKING",
-                    "created_at": "2026-04-13T00:00:00+00:00",
-                    "status_changed_at": "2026-04-13T01:00:00+00:00",
-                    "needs_review": False,
-                    "model": None,
-                },
-            ],
-        }
-        with patch("ilan.cli._client", return_value=client):
-            result = runner.invoke(main, ["ls"])
-        assert result.exit_code == 0
-        assert "FABLE" not in result.output
-
-    def test_fable_note_is_in_name_cell(self) -> None:
-        """The FABLE note lives in the Name cell, on its own line."""
-        row = {
-            "name": "maxed-task",
-            "alias": "aa",
-            "status": "WORKING",
-            "needs_review": False,
-            "model": "claude-fable-5-1",
-        }
-        name_cell = _build_name_cell(row)
-        assert "FABLE" in name_cell.plain
-        # The note sits on a separate line beneath the "(alias) name".
-        assert name_cell.plain.splitlines() == ["(aa) maxed-task", "FABLE"]
-
-    def test_name_cell_no_fable_for_default_task(self) -> None:
-        row = {"name": "plain-task", "alias": "", "status": "WORKING",
-               "needs_review": False, "model": None}
-        name_cell = _build_name_cell(row)
-        assert "FABLE" not in name_cell.plain
-
-    def test_name_cell_fable_shown_on_claude_engine(self) -> None:
-        """A Fable task still driven by Claude keeps the FABLE note."""
-        row = {"name": "maxed-task", "alias": "", "status": "WORKING",
-               "needs_review": False, "model": "claude-fable-5-1",
-               "engine": "claude"}
-        name_cell = _build_name_cell(row)
-        assert "FABLE" in name_cell.plain
-
-    def test_name_cell_no_fable_after_switch_to_codex(self) -> None:
-        """Fable is Claude-only: once the task is switched to Codex the note is
-        dropped even though the stored model is still Fable."""
-        row = {"name": "maxed-task", "alias": "", "status": "WORKING",
-               "needs_review": False, "model": "claude-fable-5-1",
-               "engine": "codex"}
-        name_cell = _build_name_cell(row)
-        assert "FABLE" not in name_cell.plain
-
-    def test_name_cell_fable_shown_for_legacy_model(self) -> None:
-        """A task maxed before the model bump still holds the older Fable id,
-        and is still running Fable — so it keeps the tag."""
-        row = {"name": "maxed-task", "alias": "", "status": "WORKING",
-               "needs_review": False, "model": "claude-fable-5",
-               "engine": "claude"}
-        name_cell = _build_name_cell(row)
-        assert "FABLE" in name_cell.plain
-
-    def test_name_cell_fable_shown_for_unknown_engine(self) -> None:
-        """An unrecognized engine runs on the Claude backend (Runner._backend_for
-        falls back to it), which honors the Fable override — so the tag shows."""
-        row = {"name": "maxed-task", "alias": "", "status": "WORKING",
-               "needs_review": False, "model": "claude-fable-5-1",
-               "engine": "some-future-engine"}
-        name_cell = _build_name_cell(row)
-        assert "FABLE" in name_cell.plain
+        out = _strip_ansi(result.output)
+        assert "FABLE" not in out and "ASTRA" not in out
+        # dark_red is 256-colour 88; both maxed aliases open that run.
+        assert result.output.count("\x1b[1;38;5;88m(") == 2
 
 
 # ── task numbers in listings ────────────────────────────────────────
