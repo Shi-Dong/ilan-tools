@@ -135,7 +135,7 @@ Notes:
 | `ilan task unread NAME [NAME...]` | Restore the unread marker on task(s) |
 | `ilan task pin NAME` | Pin a task to the top of `ilan ls` / `ilan dashboard`; the row is marked with a `→` before its `(Alias) Name`. A pinned `DONE` / `DISCARDED` task stays visible without `-a` |
 | `ilan task unpin NAME` | Remove the pin, returning the task to its place in [activation order](#listing-order) (and hiding it again if it is `DONE` / `DISCARDED`) |
-| `ilan task max NAME` | Run this task on its backend's max model instead of the default — Fable (`claude-fable-5-1`) on `claude`, Astra (`gpt-6-astra`) on `codex`. In `ilan ls` / `ilan dashboard` a maxed task is told apart by its alias, which turns red (an ordinary task's alias is pink) — no tag is printed there. The web app still shows a red tag naming the model (`FABLE`, `ASTRA`) beside the status on its task list, and beside the status on the task's own page. Takes effect on the task's next agent spawn. Switching backends translates the pin and tag to the destination's max model. |
+| `ilan task max NAME` | Run this task on its backend's max model instead of the default — Fable (`claude-fable-5-1`) on `claude`, Astra (`gpt-6-astra`) on `codex`. In `ilan ls` / `ilan dashboard` a maxed task is told apart by its alias, which is written `[GK]` — capitals inside square brackets — where an ordinary task shows `(gk)`; no tag is printed there. The web app still shows a red tag naming the model (`FABLE`, `ASTRA`) beside the status on its task list, and beside the status on the task's own page. Takes effect on the task's next agent spawn. Switching backends translates the pin and tag to the destination's max model. |
 | `ilan task unmax NAME` | Reset the task's model back to the `model-claude` / `model-codex` config default |
 | `ilan task switch-backend NAME` | Toggle the task's agent backend (`claude` ↔ `codex`). Maxed tasks stay maxed (`FABLE` ↔ `ASTRA`). Lazy: takes effect on the task's next spawn, and the new backend catches up on its next turn. Not allowed on a `WORKING` task (warns and does nothing) — wait for the agent to finish or kill it first. See [Agent backends](#agent-backends) |
 | `ilan task rm NAME [NAME...]` | Delete task(s) and all their data; surviving descendants remain and are re-parented |
@@ -188,11 +188,11 @@ Each row's `Status` cell carries a `gpt-5.6-luna`-generated one-line summary of 
 
 Both `ilan ls` and `ilan dashboard` adapt to the terminal width: on a window narrower than 120 columns they drop the `Created` column, leaving `Name` / `Status` / `Last Changed`.
 
-The column order is `Name` / `Status` / `Created` / `Last Changed`. A task's note has no column of its own: it is rendered in light-green italics on its own line **beneath the alias and name**, in the `Name` cell — it belongs with the name because it says what the task is *for*, where the `Status` cell beside it says what the agent just did. The alias carries one more fact: it is pink for an ordinary task and **red once the task is maxed** (see [Max models](#max-models-ilan-max--ilan-unmax)); no `FABLE` / `ASTRA` word is printed in the listing any more.
+The column order is `Name` / `Status` / `Created` / `Last Changed`. A task's note has no column of its own: it is rendered in light-green italics on its own line **beneath the alias and name**, in the `Name` cell — it belongs with the name because it says what the task is *for*, where the `Status` cell beside it says what the agent just did. The alias carries one more fact: an ordinary task's is written `(gk)`, and **once the task is maxed it is written `[GK]`** — capitals inside square brackets, in the same pink (see [Max models](#max-models-ilan-max--ilan-unmax)); no `FABLE` / `ASTRA` word is printed in the listing any more.
 
 `Created` and `Last Changed` are pinned to 20 characters, wide enough that no stamp they render ever folds — `Yesterday 21:38 CEST` is the longest form in any common zone — and `Name` and `Status` share the rest **equally**. Both are prose columns now, the note under the name and the summary under the status label, so neither has a claim on more room; because the split is proportional, writing or lengthening a note never moves a column, which matters on a view that redraws once a second. In `ilan ls` both prose columns are sized to their contents and share one cap of 42 characters, so a long note or summary folds within its cell instead of pushing the table off the right edge, the two come out equal whenever both are full, and a listing of short names and short statuses stays compact. `ilan ls --concise` does not show notes — that view is one greppable line per task, and free-form prose would break its shape.
 
-Use `ilan ls --concise` (or `ilan ls -c`) for a headerless, one-task-per-line view containing only the colored pin marker (when pinned), alias, task name, unread `!!` marker (when unread), and status: `→ (as) task-name !! AGENT_FINISHED`. Tasks with an active `reply -t` cycle additionally show the highlighted `(responding every 1h)` suffix and the `AGENT_IN_LOOP` status, just like the full table. Pinned tasks remain at the top. Combine concise mode with `-a` to include `DONE` and `DISCARDED` tasks. An empty concise listing prints nothing.
+Use `ilan ls --concise` (or `ilan ls -c`) for a headerless, one-task-per-line view containing only the colored pin marker (when pinned), alias, task name, unread `!!` marker (when unread), and status: `→ (as) task-name !! AGENT_FINISHED` (a maxed task's alias reads `[AS]`, as in the full table). Tasks with an active `reply -t` cycle additionally show the highlighted `(responding every 1h)` suffix and the `AGENT_IN_LOOP` status, just like the full table. Pinned tasks remain at the top. Combine concise mode with `-a` to include `DONE` and `DISCARDED` tasks. An empty concise listing prints nothing.
 
 ### Listing order
 
@@ -455,9 +455,11 @@ backend it is on, leaving every other task on the configured default.
 | `claude` | Anthropic's Fable (`claude-fable-5-1`) | `FABLE` |
 | `codex` | OpenAI's GPT-6 Astra (`gpt-6-astra`) | `ASTRA` |
 
-While a task is maxed, its alias is drawn in red in `ilan ls` and
-`ilan dashboard` — an ordinary task's alias is pink — and that colour is the
-only mark the listing gives it; the tag itself is not printed there. On the web
+While a task is maxed, its alias is printed in capitals inside square brackets
+in `ilan ls` and `ilan dashboard` — `[GK]` where an ordinary task shows `(gk)`,
+in the same pink — and that shape is the only mark the listing gives it; the
+tag itself is not printed there. Type the alias either way: `ilan notes GK` and
+`ilan notes gk` name the same task. On the web
 app the red tag is rendered beside the status on the task list, where it stays
 visible on a collapsed card, and beside the status on the task's own page. The
 override is per task and persists across replies until you run `ilan unmax`,

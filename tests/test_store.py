@@ -102,6 +102,20 @@ class TestGetByNameOrAlias:
         assert t is not None
         assert t.name == "lookup"
 
+    def test_lookup_by_alias_ignores_case(self, store: Store) -> None:
+        """The listings print a maxed task's alias as ``[GG]``, and what you
+        copy from there has to resolve, so the alias comparison ignores case.
+        """
+        store.put_task(Task(name="lookup", prompt="p", alias="gg"))
+        t = store.get_task_by_name_or_alias("GG")
+        assert t is not None
+        assert t.name == "lookup"
+
+    def test_lookup_by_name_stays_exact(self, store: Store) -> None:
+        """Only the alias fallback is case-insensitive; a name must match as written."""
+        store.put_task(Task(name="Lookup", prompt="p", alias="gg"))
+        assert store.get_task_by_name_or_alias("lookup") is None
+
     def test_name_takes_priority(self, store: Store) -> None:
         """If a task name equals another task's alias, name wins."""
         store.put_task(Task(name="aa", prompt="p1", alias="bb"))

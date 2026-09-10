@@ -601,16 +601,13 @@ def task_add(
 
 # ── task ls ──────────────────────────────────────────────────────────
 
-# The alias is the handle you type, so it is bold either way; only the hue
-# changes, and that hue is the whole mark a maxed task carries in a listing.
-# Pink for an ordinary task, and red once the task is pinned to its backend's
-# max model, so the two aliases tell apart at a glance without a word beside
-# them. `red3` rather than `dark_red`: the darker shade read at about 2:1
-# against a black background, and `red3` roughly doubles that while keeping
-# no blue in it, so it stays a different *hue* from the pink rather than a
-# different shade of it. See :func:`_alias_style` for what counts as maxed.
+# The alias is the handle you type, so it is bold pink in every listing. A
+# maxed task is not marked by a different colour but by the alias's *shape*:
+# `[GK]` — capitals inside square brackets — where an ordinary task shows
+# `(gk)`. Colour was tried twice for this (a dark red, then a lighter one)
+# and neither read well on every terminal theme; a shape survives any
+# palette, `NO_COLOR`, and a plain-text paste. See :func:`_format_alias`.
 ALIAS_STYLE = "bold pink1"
-ALIAS_MAXED_STYLE = "bold red3"
 NUMBER_STYLE = "dim"
 PIN_STYLE = "bold yellow"
 PIN_MARKER = "→ "
@@ -674,19 +671,31 @@ def _name_style(row: dict) -> str:
     return style
 
 
-def _alias_style(row: dict) -> str:
-    """Style for a task's alias: pink, or red once the task is maxed.
+def _is_maxed(row: dict) -> bool:
+    """Whether the task is pinned to the max model of the backend it is on.
 
-    The colour is the only mark a maxed task carries in the listings; the
-    ``FABLE`` / ``ASTRA`` line it used to get beneath its name is gone, since
-    a whole extra line for one word cost every row height for a fact a hue
-    can carry. What counts as maxed is :func:`max_tag`'s call — the task must
-    be pinned to the max model of the backend it is *currently* on — so a
-    stale foreign pin left over from before a backend switch does not colour
-    the alias, just as it never earned the tag.
+    This is :func:`max_tag`'s call — the same predicate the web app's tag
+    uses, so the two views cannot disagree about which tasks are maxed. A
+    stale foreign pin left over from before a backend switch does not count,
+    just as it never earned the tag.
     """
     engine = row.get("engine") or DEFAULT_ENGINE
-    return ALIAS_MAXED_STYLE if max_tag(engine, row.get("model")) else ALIAS_STYLE
+    return bool(max_tag(engine, row.get("model")))
+
+
+def _format_alias(row: dict) -> str:
+    """The alias as the listings print it: ``(gk)``, or ``[GK]`` once maxed.
+
+    The shape is the only mark a maxed task carries in ``ilan ls``,
+    ``ilan dashboard``, the concise line and ``ilan tree``; the ``FABLE`` /
+    ``ASTRA`` line it used to get beneath its name is gone, since a whole
+    extra line for one word cost every row height for a fact the alias can
+    carry itself. Capitals *and* brackets, so the mark holds even where case
+    is easy to miss; the lookup accepts either case, so an alias copied from
+    the listing resolves as typed.
+    """
+    alias = row["alias"]
+    return f"[{alias.upper()}]" if _is_maxed(row) else f"({alias})"
 
 
 def _build_name_cell(row: dict) -> Text:
@@ -699,11 +708,11 @@ def _build_name_cell(row: dict) -> Text:
     a pushpin emoji would be the obvious marker but has the same width
     problem, whereas a bare arrow glyph occupies a single cell.
 
-    A maxed task is told apart by its alias colour alone — see
-    :func:`_alias_style`. The task's note, if it has one, is the cell's last
-    line, in :data:`NOTES_STYLE`: it belongs with the name because it says
-    what the task is *for*, where the Status cell says what the agent just
-    did.
+    A maxed task is told apart by its alias shape alone, ``[GK]`` rather
+    than ``(gk)`` — see :func:`_format_alias`. The task's note, if it has
+    one, is the cell's last line, in :data:`NOTES_STYLE`: it belongs with the
+    name because it says what the task is *for*, where the Status cell says
+    what the agent just did.
 
     The name itself links to the task's Gist conversation mirror — see
     :func:`_name_style`.
@@ -713,8 +722,8 @@ def _build_name_cell(row: dict) -> Text:
     if row.get("pinned"):
         cell.append(PIN_MARKER, style=PIN_STYLE)
     _append_task_number(cell, row)
-    if alias := row.get("alias"):
-        cell.append(f"({alias}) ", style=_alias_style(row))
+    if row.get("alias"):
+        cell.append(f"{_format_alias(row)} ", style=ALIAS_STYLE)
     cell.append(row["name"], style=_name_style(row))
     if row.get("needs_review"):
         cell.append(f" {UNREAD_MARKER}", style=UNREAD_STYLE)
@@ -767,14 +776,13 @@ def _build_concise_task_line(row: dict) -> Text:
     The name links to the task's Gist conversation mirror, same as in the full
     table — see :func:`_name_style`.
     """
-    alias = row.get("alias") or ""
     status = TaskStatus(row["status"])
     line = Text()
     if row.get("pinned"):
         line.append(PIN_MARKER, style=PIN_STYLE)
     _append_task_number(line, row)
-    if alias:
-        line.append(f"({alias}) ", style=_alias_style(row))
+    if row.get("alias"):
+        line.append(f"{_format_alias(row)} ", style=ALIAS_STYLE)
     line.append(row["name"], style=_name_style(row))
     if row.get("needs_review"):
         line.append(f" {UNREAD_MARKER}", style=UNREAD_STYLE)
@@ -998,8 +1006,8 @@ def _build_tree_label(node: _TreeNode, focus_name: str) -> Text:
 
     row = node.row
     label = Text()
-    if alias := row.get("alias"):
-        label.append(f"({alias}) ", style=_alias_style(row))
+    if row.get("alias"):
+        label.append(f"{_format_alias(row)} ", style=ALIAS_STYLE)
     engine = row.get("engine") or DEFAULT_ENGINE
     name_style = ENGINE_NAME_STYLE.get(engine, "")
     label.append(row["name"], style=f"bold {name_style}".strip())
@@ -1026,12 +1034,17 @@ def _render_branch_tree(root: _TreeNode, focus_name: str) -> Tree:
 
 
 def _resolve_row(rows: list[dict], name_or_alias: str) -> dict | None:
-    """Find a row by task name, falling back to alias (as the server does)."""
+    """Find a row by task name, falling back to alias (as the server does).
+
+    The alias match ignores case, as the server's does: the listings print
+    a maxed task's alias as ``[GK]``, and what you copy from there must
+    resolve too.
+    """
     for row in rows:
         if row["name"] == name_or_alias:
             return row
     for row in rows:
-        if row.get("alias") == name_or_alias:
+        if row.get("alias") == name_or_alias.lower():
             return row
     return None
 
