@@ -9,6 +9,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
+from rich.color import Color
+from rich.color_triplet import ColorTriplet
+from rich.style import Style
 
 from ilan.cli import (
     NUMBER_STYLE,
@@ -1643,8 +1646,13 @@ def _alias_span_style(cell) -> str:
     return str(span.style)
 
 
+def _truecolor(style: str) -> ColorTriplet:
+    """The (r, g, b) the foreground of a Rich style string renders as."""
+    return Style.parse(style).color.get_truecolor()
+
+
 class TestMaxedAliasColour:
-    """The alias is pink, or dark red once the task is maxed.
+    """The alias is pink, or red once the task is maxed.
 
     That colour is the only mark a maxed task carries in `ilan ls` and
     `ilan dashboard`; the FABLE / ASTRA line under the name is gone. What
@@ -1662,32 +1670,36 @@ class TestMaxedAliasColour:
         assert _alias_span_style(_build_name_cell(self._row())) == ALIAS_STYLE
         assert ALIAS_STYLE == "bold pink1"
 
-    def test_a_fable_task_on_claude_has_a_dark_red_alias(self) -> None:
+    def test_a_fable_task_on_claude_has_a_red_alias(self) -> None:
         cell = _build_name_cell(self._row(model="claude-fable-5-1", engine="claude"))
         assert _alias_span_style(cell) == ALIAS_MAXED_STYLE
-        assert ALIAS_MAXED_STYLE == "bold dark_red"
+        assert ALIAS_MAXED_STYLE == "bold red3"
 
-    def test_an_astra_task_on_codex_has_a_dark_red_alias(self) -> None:
+    def test_an_astra_task_on_codex_has_a_red_alias(self) -> None:
         """Both backends' max models get the same mark."""
         cell = _build_name_cell(self._row(model="gpt-6-astra", engine="codex"))
         assert _alias_span_style(cell) == ALIAS_MAXED_STYLE
 
-    def test_the_maxed_colour_is_darker_than_the_old_tag(self) -> None:
-        """Shi asked for darker than the `bold red` FABLE used to be drawn in."""
-        from rich.color import Color
+    def test_the_maxed_colour_is_legible_on_a_dark_background(self) -> None:
+        """`dark_red` (135,0,0) read at about 2:1 on black and was sent back
+        as too dark; `red3` (215,0,0) roughly doubles that. Pinned as a
+        contrast floor on the constant itself, so a future shade cannot
+        slide back down.
+        """
+        t = _truecolor(ALIAS_MAXED_STYLE)
+        lum = 0.2126 * (t.red / 255) ** 2.2 + 0.7152 * (t.green / 255) ** 2.2 + 0.0722 * (t.blue / 255) ** 2.2
+        assert (lum + 0.05) / 0.05 >= 3.5
+        assert t > Color.parse("dark_red").get_truecolor()  # lighter than what it replaced
 
-        old_tag = Color.parse("red").get_truecolor()
-        maxed = Color.parse("dark_red").get_truecolor()
-        # Rich's own palette puts them a hair apart; the real test is against
-        # a terminal theme, where ANSI red renders far brighter than (135,0,0).
-        assert sum(maxed) <= sum(old_tag) + 8
+    def test_the_maxed_colour_is_still_a_pure_red(self) -> None:
+        """Lighter, but not drifting toward the pink: no blue, no green."""
+        t = _truecolor(ALIAS_MAXED_STYLE)
+        assert t.green == 0 and t.blue == 0 and t.red > 200
 
-    def test_pink_and_dark_red_differ_in_hue_not_just_shade(self) -> None:
+    def test_pink_and_red_differ_in_hue_not_just_shade(self) -> None:
         """Distinct by hue, so they survive a dim or unusual terminal palette."""
-        from rich.color import Color
-
-        pink = Color.parse("pink1").get_truecolor()
-        red = Color.parse("dark_red").get_truecolor()
+        pink = _truecolor(ALIAS_STYLE)
+        red = _truecolor(ALIAS_MAXED_STYLE)
         assert pink.blue > 150 and red.blue == 0  # pink carries blue; red none
 
     def test_a_stale_fable_pin_after_a_switch_to_codex_is_not_maxed(self) -> None:
@@ -1754,8 +1766,8 @@ class TestMaxedAliasColour:
         assert result.exit_code == 0
         out = _strip_ansi(result.output)
         assert "FABLE" not in out and "ASTRA" not in out
-        # dark_red is 256-colour 88; both maxed aliases open that run.
-        assert result.output.count("\x1b[1;38;5;88m(") == 2
+        # red3 is 256-colour 160; both maxed aliases open that run.
+        assert result.output.count("\x1b[1;38;5;160m(") == 2
 
 
 # ── task numbers in listings ────────────────────────────────────────

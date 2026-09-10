@@ -603,12 +603,14 @@ def task_add(
 
 # The alias is the handle you type, so it is bold either way; only the hue
 # changes, and that hue is the whole mark a maxed task carries in a listing.
-# Pink for an ordinary task, and a dark red once the task is pinned to its
-# backend's max model — darker than the plain `red` the old FABLE / ASTRA line
-# used, so the two aliases tell apart at a glance without a word beside them.
-# See :func:`_alias_style` for what counts as maxed.
+# Pink for an ordinary task, and red once the task is pinned to its backend's
+# max model, so the two aliases tell apart at a glance without a word beside
+# them. `red3` rather than `dark_red`: the darker shade read at about 2:1
+# against a black background, and `red3` roughly doubles that while keeping
+# no blue in it, so it stays a different *hue* from the pink rather than a
+# different shade of it. See :func:`_alias_style` for what counts as maxed.
 ALIAS_STYLE = "bold pink1"
-ALIAS_MAXED_STYLE = "bold dark_red"
+ALIAS_MAXED_STYLE = "bold red3"
 NUMBER_STYLE = "dim"
 PIN_STYLE = "bold yellow"
 PIN_MARKER = "→ "
@@ -673,7 +675,7 @@ def _name_style(row: dict) -> str:
 
 
 def _alias_style(row: dict) -> str:
-    """Style for a task's alias: pink, or a dark red once the task is maxed.
+    """Style for a task's alias: pink, or red once the task is maxed.
 
     The colour is the only mark a maxed task carries in the listings; the
     ``FABLE`` / ``ASTRA`` line it used to get beneath its name is gone, since
