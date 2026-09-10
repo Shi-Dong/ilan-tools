@@ -117,7 +117,7 @@ Every task command has a top-level shorthand, so `ilan task reply` is just `ilan
 |---|---|
 | `ilan rename OLD NEW [-d "msg"]` | Rename a task, optionally sending `msg` right after. |
 | `ilan alias NAME XY` | Choose the task's two-letter alias (letters from `asdfghjkl`). |
-| `ilan notes NAME [["note"] \| -a TEXT \| -c \| -e]` | Write a reminder of what the task is about, shown in a light-red `Notes` column in `ilan ls` and `ilan dashboard` — or, on a window too narrow for that column, under the summary in the `Status` cell — and, rendered as Markdown, on the web app's task list. `-a` adds to the note already there (separated by a space), `-c` clears it, and `-e` — or just `ilan notes NAME` on its own — edits it in your configured editor. The note stays with the task after it is closed; anything past 256 characters is cut to fit. `ilan note` is the same command. |
+| `ilan notes NAME [["note"] \| -a TEXT \| -c \| -e]` | Write a reminder of what the task is about, shown in light-green italics beneath the task's name in `ilan ls` and `ilan dashboard`, and, rendered as Markdown, on the web app's task list. `-a` adds to the note already there (separated by a space), `-c` clears it, and `-e` — or just `ilan notes NAME` on its own — edits it in your configured editor. The note stays with the task after it is closed; anything past 256 characters is cut to fit. `ilan note` is the same command. |
 | `ilan pin NAME` / `ilan unpin NAME` | Keep a task at the top of every listing, even after it is closed. |
 | `ilan unread NAME…` | Put the `!!` marker back on tasks. |
 
@@ -125,7 +125,7 @@ Every task command has a top-level shorthand, so `ilan task reply` is just `ilan
 
 | Command | What it does |
 |---|---|
-| `ilan max NAME` / `ilan unmax NAME` | Run the task on its backend's max model — Fable (`claude-fable-5-1`) on `claude`, Astra (`gpt-6-astra`) on `codex` — or return to the configured default. Takes effect on the next reply. |
+| `ilan max NAME` / `ilan unmax NAME` | Run the task on its backend's max model — Fable (`claude-fable-5-1`) on `claude`, Astra (`gpt-6-astra`) on `codex` — or return to the configured default. A maxed task's alias turns dark red in `ilan ls` and `ilan dashboard` (an ordinary one's is pink). Takes effect on the next reply. |
 | `ilan switch-backend NAME` | Move an idle task between Claude Code and Codex. Maxed tasks stay maxed (FABLE ↔ ASTRA). The new backend catches up on its first turn. |
 | `ilan task kill NAME` | Stop a `WORKING` agent. The task moves to `ERROR` until you reply. |
 
