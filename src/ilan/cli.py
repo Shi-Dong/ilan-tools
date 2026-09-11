@@ -566,7 +566,7 @@ def _do_add(
     if max_model and (tag := tag_for_max_model(model)):
         console.print(
             f"[green]Task [bold]{task_name}[/bold] added on "
-            f"[bold red]{tag}[/bold red] ([cyan]{model}[/cyan]).[/green]"
+            f"[{MAX_TAG_STYLE}]{tag}[/{MAX_TAG_STYLE}] ([cyan]{model}[/cyan]).[/green]"
         )
     else:
         console.print(f"[green]Task [bold]{task_name}[/bold] added.[/green]")
@@ -601,18 +601,20 @@ def task_add(
 
 # ── task ls ──────────────────────────────────────────────────────────
 
-# The alias is the handle you type, so it is bold pink in every listing. A
-# maxed task is marked twice over: by the alias's *shape* — `[GK]`, capitals
-# inside square brackets, where an ordinary task shows `(gk)` — and by a pink
-# one step deeper than the ordinary one. `orchid2` is `pink1` with the green
-# channel one palette step down (255,135,215 against 255,175,215): the same
-# red and blue, so it reads as the same pink only a little darker, rather
-# than the red that was tried before it and looked like a different mark
-# altogether. The shape carries the fact on its own where colour is lost
-# (`NO_COLOR`, a plain-text paste); the shade makes it quicker to spot where
-# colour is there. See :func:`_format_alias` and :func:`_alias_style`.
+# The style the `FABLE` / `ASTRA` tag is drawn in: the `ilan max` and
+# `ilan add --max` confirmations print the tag in it, and it is what the tag
+# looked like on its own line beneath the name while it was still part of the
+# listings. `red` is the terminal theme's own red (ANSI colour 1) rather than
+# a fixed palette entry, so it follows the theme like the confirmation does.
+MAX_TAG_STYLE = "bold red"
+# The alias is the handle you type, so it is bold either way. A maxed task is
+# marked twice over: by the alias's *shape* — `[GK]`, capitals inside square
+# brackets, where an ordinary task shows `(gk)` — and by its colour, the tag's
+# red in place of pink, so the alias carries the mark the tag used to. The
+# shape holds the fact on its own where colour is lost (`NO_COLOR`, a
+# plain-text paste). See :func:`_format_alias` and :func:`_alias_style`.
 ALIAS_STYLE = "bold pink1"
-ALIAS_MAXED_STYLE = "bold orchid2"
+ALIAS_MAXED_STYLE = MAX_TAG_STYLE
 NUMBER_STYLE = "dim"
 PIN_STYLE = "bold yellow"
 PIN_MARKER = "→ "
@@ -691,8 +693,8 @@ def _is_maxed(row: dict) -> bool:
 def _format_alias(row: dict) -> str:
     """The alias as the listings print it: ``(gk)``, or ``[GK]`` once maxed.
 
-    The shape, with the deeper pink of :func:`_alias_style`, is all the mark
-    a maxed task carries in ``ilan ls``, ``ilan dashboard``, the concise line
+    The shape, with the red of :func:`_alias_style`, is all the mark a
+    maxed task carries in ``ilan ls``, ``ilan dashboard``, the concise line
     and ``ilan tree``; the ``FABLE`` / ``ASTRA`` line it used to get beneath
     its name is gone, since a whole extra line for one word cost every row
     height for a fact the alias can carry itself. Capitals *and* brackets, so
@@ -704,11 +706,11 @@ def _format_alias(row: dict) -> str:
 
 
 def _alias_style(row: dict) -> str:
-    """Style for a task's alias: pink, or a slightly deeper pink once maxed.
+    """Style for a task's alias: pink, or the tag's red once maxed.
 
-    Same pink either way — see the note on :data:`ALIAS_MAXED_STYLE` — so the
-    shade reinforces the ``[GK]`` shape without turning the alias into a
-    different kind of thing.
+    The red is :data:`MAX_TAG_STYLE`, the style the ``FABLE`` / ``ASTRA`` tag
+    is drawn in — see the note on :data:`ALIAS_MAXED_STYLE` — so the alias
+    inherits the mark the tag carried, on top of its ``[GK]`` shape.
     """
     return ALIAS_MAXED_STYLE if _is_maxed(row) else ALIAS_STYLE
 
@@ -723,8 +725,8 @@ def _build_name_cell(row: dict) -> Text:
     a pushpin emoji would be the obvious marker but has the same width
     problem, whereas a bare arrow glyph occupies a single cell.
 
-    A maxed task is told apart by its alias: ``[GK]`` in a slightly deeper
-    pink, rather than ``(gk)`` — see :func:`_format_alias` and
+    A maxed task is told apart by its alias: ``[GK]`` in the red the tag
+    used, rather than ``(gk)`` in pink — see :func:`_format_alias` and
     :func:`_alias_style`. The task's note, if it has one, is the cell's last
     line, in :data:`NOTES_STYLE`: it belongs with the name because it says
     what the task is *for*, where the Status cell says what the agent just
@@ -2489,7 +2491,7 @@ def _do_max(name: str) -> None:
     # never heard of; report the switch rather than mislabelling the model.
     tag = tag_for_max_model(model) or "MAX"
     console.print(
-        f"[green]Task [bold]{task_name}[/bold] set to [bold red]{tag}[/bold red] "
+        f"[green]Task [bold]{task_name}[/bold] set to [{MAX_TAG_STYLE}]{tag}[/{MAX_TAG_STYLE}] "
         f"([cyan]{model}[/cyan]).[/green]"
     )
 

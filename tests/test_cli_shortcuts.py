@@ -9,12 +9,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
-from rich.color_triplet import ColorTriplet
+from rich.color import Color, ColorType
 from rich.style import Style
 
 from ilan.cli import (
     ALIAS_MAXED_STYLE,
     ALIAS_STYLE,
+    MAX_TAG_STYLE,
     NUMBER_STYLE,
     PIN_MARKER,
     _TreeNode,
@@ -1656,23 +1657,14 @@ def _alias_span(cell) -> tuple[str, str]:
     return cell.plain[span.start:span.end], str(span.style)
 
 
-def _truecolor(style: str) -> ColorTriplet:
-    """The (r, g, b) the foreground of a Rich style string renders as."""
-    return Style.parse(style).color.get_truecolor()
-
-
-def _luminance(t: ColorTriplet) -> float:
-    """Relative luminance under a gamma-2.2 approximation; enough to compare shades."""
-    return 0.2126 * (t.red / 255) ** 2.2 + 0.7152 * (t.green / 255) ** 2.2 + 0.0722 * (t.blue / 255) ** 2.2
-
-
 class TestMaxedAliasMark:
-    """A maxed task's alias is ``[GK]`` in a slightly deeper pink; an ordinary one is ``(gk)`` in pink.
+    """A maxed task's alias is ``[GK]`` in red; an ordinary one is ``(gk)`` in pink.
 
-    Shape and shade together are the only mark a maxed task carries in
+    Shape and colour together are the only mark a maxed task carries in
     `ilan ls`, `ilan dashboard`, the concise line and `ilan tree`: no FABLE /
-    ASTRA word, and no red (a dark red and then a lighter red were both tried
-    and read as a different mark altogether). What counts as maxed is
+    ASTRA word. The red is the `bold red` the tag itself used to be drawn in,
+    and the `ilan max` confirmation still prints the tag in, so the alias took
+    over the tag's colour along with its job. What counts as maxed is
     `max_tag`'s call — the same predicate the web app's tag uses — so the two
     views cannot disagree about which tasks are maxed.
     """
@@ -1700,26 +1692,44 @@ class TestMaxedAliasMark:
         assert _is_maxed(row)
         assert _format_alias(row) == "[GK]"
 
-    def test_the_maxed_alias_is_the_shape_in_a_deeper_pink(self) -> None:
+    def test_the_maxed_alias_is_the_shape_in_the_tags_red(self) -> None:
         plain_text, plain_style = _alias_span(_build_name_cell(self._row()))
         maxed_text, maxed_style = _alias_span(_build_name_cell(self._maxed()))
         assert (plain_text, maxed_text) == ("(gk) ", "[GK] ")
         assert plain_style == ALIAS_STYLE == "bold pink1"
-        assert maxed_style == ALIAS_MAXED_STYLE == "bold orchid2"
+        assert maxed_style == ALIAS_MAXED_STYLE == MAX_TAG_STYLE == "bold red"
         assert _alias_style(self._row()) == ALIAS_STYLE
         assert _alias_style(self._maxed()) == ALIAS_MAXED_STYLE
 
-    def test_the_deeper_pink_is_the_same_pink_one_step_down(self) -> None:
-        """Read off the constants, not a colour name, so the check guards
-        whatever shade is configured: the same red and blue as the ordinary
-        pink, less green, and only somewhat less light — the two must read
-        as one pink in two shades, not as two colours.
+    def test_the_maxed_colour_is_the_terminal_red_the_tag_used(self) -> None:
+        """Read off the constants, not a colour name. `red` is the terminal
+        theme's own red (ANSI colour 1), not a fixed palette entry, so the
+        alias matches the `ilan max` confirmation's tag on any theme.
         """
-        pink = _truecolor(ALIAS_STYLE)
-        deeper = _truecolor(ALIAS_MAXED_STYLE)
-        assert (deeper.red, deeper.blue) == (pink.red, pink.blue)
-        assert deeper.green < pink.green
-        assert 0.6 <= _luminance(deeper) / _luminance(pink) <= 0.9
+        maxed = Style.parse(ALIAS_MAXED_STYLE)
+        assert maxed.color == Color.parse("red")
+        assert maxed.color.type is ColorType.STANDARD and maxed.color.number == 1
+        assert maxed.bold
+        assert Style.parse(ALIAS_STYLE).color != maxed.color  # pink stays pink
+
+    def test_the_max_confirmation_prints_the_tag_in_the_same_style(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """`ilan max` names the model in the tag's style; the alias now uses
+        the same constant, so the two cannot drift apart.
+        """
+        import ilan.cli as cli_mod
+        from rich.console import Console
+
+        monkeypatch.setattr(cli_mod, "console", Console(
+            width=120, force_terminal=True, color_system="256", no_color=False,
+        ))
+        client = _make_client()
+        client.max_task.return_value = {"name": "the-task", "model": "claude-fable-5-1"}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["max", "the-task"])
+        assert result.exit_code == 0, result.output
+        assert "\x1b[1;31mFABLE" in result.output
 
     def test_a_stale_fable_pin_after_a_switch_to_codex_is_not_maxed(self) -> None:
         """Fable is Claude-only: once the task is on Codex the stored Fable id
@@ -1808,12 +1818,13 @@ class TestMaxedAliasMark:
         assert "FABLE" not in out and "ASTRA" not in out
         assert "[AA] maxed-task" in out and "[AS] astra-task" in out
         assert "(pp) plain-task" in out
-        # The maxed aliases open in the deeper pink (256-colour 212), the
-        # ordinary one in pink1 (218); the reds that marked a maxed task
-        # before (160, and 88 before that) are gone.
-        assert result.output.count("\x1b[1;38;5;212m[") == 2
+        # The maxed aliases open in the tag's bold red (ANSI 31), the ordinary
+        # one in pink1 (256-colour 218); the palette reds and the deeper pink
+        # tried before (160, 88, 212) are gone.
+        assert result.output.count("\x1b[1;31m[") == 2
         assert result.output.count("\x1b[1;38;5;218m(") == 1
-        assert "38;5;160" not in result.output and "38;5;88m" not in result.output
+        for gone in ("38;5;160", "38;5;88m", "38;5;212"):
+            assert gone not in result.output
 
 
 # ── task numbers in listings ────────────────────────────────────────
