@@ -104,7 +104,7 @@ Every task command has a top-level shorthand, so `ilan task reply` is just `ilan
 
 | Command | What it does |
 |---|---|
-| `ilan reply NAME ["msg"] [--max \| --unmax] [-t DURATION]` | Send a message; `ilan re` is the same. Without a message it shows the tail. `-t 1h` re-sends the message every hour until you write to the task again. |
+| `ilan reply NAME ["msg"] [--max \| --unmax] [-t DURATION] [-e]` | Send a message; `ilan re` is the same. Without a message it shows the tail. `-t 1h` re-sends the message every hour until you write to the task again. `-e` writes the message in your configured editor instead of on the command line, and sends nothing if you leave the buffer empty. |
 | `ilan tap NAME` | Ask the agent for a status update. |
 | `ilan cancel NAME` | Retract your last message and tell the agent to stop acting on it. |
 | `ilan sleep NAME DURATION` | Tell an idle agent to wait (`300`, `5m`, `1.5h`) and then report back. |

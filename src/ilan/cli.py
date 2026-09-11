@@ -1436,6 +1436,83 @@ def task_tail(name: str, num: int | None, markdown: bool, line_number: bool | No
     _do_tail(name, n=num, markdown=markdown or None, line_number=line_number)
 
 
+# ── editor ───────────────────────────────────────────────────────────
+
+# Shared by `ilan notes -e`, which edits the note a task already carries,
+# and `ilan reply -e`, which writes a message the task does not have yet.
+
+_SET_EDITOR_HINT = "Set one with `ilan config set editor <name>`."
+
+
+def _resolve_editor() -> str | None:
+    """Return a runnable editor command, or ``None`` after saying what is wrong.
+
+    Checked before anything else happens, so a user without a usable editor
+    gets one clear message instead of a temp file and whatever their shell
+    makes of an unknown command. ``editor`` always has a value because it is
+    in the config DEFAULTS, so "not configured" means blank or not on PATH —
+    the default of ``emacs`` is only a guess on a machine that may not have it.
+    """
+    editor = str(cfg.load().get("editor", "")).strip()
+    if not editor:
+        console.print(f"[red]No editor configured. {_SET_EDITOR_HINT}[/red]")
+        return None
+    if shutil.which(editor) is None:
+        console.print(
+            f"[red]The configured editor {editor!r} is not installed, or not "
+            f"on your PATH. {_SET_EDITOR_HINT}[/red]"
+        )
+        return None
+    return editor
+
+
+def _edit_text_in_editor(
+    editor: str, task_name: str, current: str, *, kind: str, abandoned: str,
+) -> str | None:
+    """Open *current* in *editor* and return what came back.
+
+    *kind* names what is being written (``note``, ``reply``) and labels the
+    temp file; *abandoned* says what became of it when the editor exits
+    non-zero.
+
+    Returns ``None`` when what came back must not be used: the editor could
+    not be launched, or it exited non-zero. A non-zero exit is how an editor
+    says the edit was abandoned (``:cq`` in vim), so it must not be read as
+    "the user emptied the buffer" — that would clear a note, or send an empty
+    reply, on a crash.
+
+    The temp file holds nothing but the text. No instruction header, so there
+    is no comment syntax to strip and no way for a line that legitimately
+    starts with ``#`` to be swallowed.
+    """
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=f"-{task_name}-{kind}.txt", delete=False,
+    ) as tmp:
+        tmp.write(current)
+        tmp_path = tmp.name
+    try:
+        try:
+            completed = subprocess.run([editor, tmp_path])
+        except OSError as exc:
+            # `shutil.which` said it was there, so this is a race or a
+            # permission problem rather than a missing editor.
+            console.print(
+                f"[red]Cannot run the configured editor {editor!r}: {exc}. "
+                f"{_SET_EDITOR_HINT}[/red]"
+            )
+            return None
+        if completed.returncode != 0:
+            console.print(
+                f"[yellow]{editor} exited with {completed.returncode}; "
+                f"{abandoned}[/yellow]"
+            )
+            return None
+        return Path(tmp_path).read_text()
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)
+
+
 # ── task reply ───────────────────────────────────────────────────────
 
 def _model_switch_needed(name: str, max_: bool) -> bool:
@@ -1531,13 +1608,17 @@ def _do_reply(
 
 
 def _check_reply_model_flags(
-    message: str | None, max_: bool, unmax: bool
+    message: str | None, max_: bool, unmax: bool, editor: bool = False
 ) -> None:
-    """Validate the ``--max``/``--unmax`` reply flags, exiting on misuse."""
+    """Validate the ``--max``/``--unmax`` reply flags, exiting on misuse.
+
+    ``-e`` counts as a message: the text is written after this runs, but the
+    command is still a reply rather than the bare tail these flags reject.
+    """
     if max_ and unmax:
         console.print("[red]--max and --unmax cannot be used together.[/red]")
         raise SystemExit(1)
-    if (max_ or unmax) and message is None:
+    if (max_ or unmax) and message is None and not editor:
         console.print(
             "[red]--max/--unmax require a response message (to only switch "
             "the model, use ilan max / ilan unmax).[/red]"
@@ -1564,14 +1645,53 @@ def _parse_reply_every(every: str | None) -> int | None:
     return every_seconds
 
 
+def _collect_editor_reply(name: str) -> str:
+    """Write a reply in the configured editor and return it.
+
+    The buffer starts empty: a reply is new text, not an edit of something
+    the task already carries. Everything that can be rejected is rejected
+    before the editor opens — a usable editor, a real task, a parsable
+    ``-t`` — so a typed reply is never thrown away by a mistake that was
+    knowable beforehand.
+
+    Exits rather than returning on an abandoned edit, so
+    ``ilan re t -e && …`` cannot run on as though a reply had been sent.
+    """
+    editor = _resolve_editor()
+    if editor is None:
+        raise SystemExit(1)  # _resolve_editor said what was wrong
+    resp = _client().get_task(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    written = _edit_text_in_editor(
+        editor, resp["task"]["name"], "",
+        kind="reply", abandoned="nothing was sent.",
+    )
+    if written is None:
+        raise SystemExit(1)  # _edit_text_in_editor has already said which it was
+    written = written.strip()
+    if not written:
+        # Leaving the buffer empty is how you back out once the editor is
+        # already open, so it is not an error worth a red line — but nothing
+        # was sent, so it must not exit 0 either.
+        console.print("[yellow]Empty reply; nothing sent.[/yellow]")
+        raise SystemExit(1)
+    return written
+
+
 def _do_reply_command(
     name: str, message: str | None, num: int | None, markdown: bool,
     line_number: bool | None, max_: bool, unmax: bool,
-    every: str | None = None,
+    every: str | None = None, editor: bool = False,
 ) -> None:
     """Shared body of ``ilan task reply``, ``ilan reply`` and ``ilan re``."""
-    _check_reply_model_flags(message, max_, unmax)
-    if message is None:
+    if editor and message is not None:
+        console.print(
+            "[red]-e takes no message: it opens your editor to write one.[/red]"
+        )
+        raise SystemExit(1)
+    _check_reply_model_flags(message, max_, unmax, editor)
+    if message is None and not editor:
         if every is not None:
             console.print("[red]-t/--every requires a response message.[/red]")
             raise SystemExit(1)
@@ -1583,8 +1703,20 @@ def _do_reply_command(
                 "response message is provided.[/red]"
             )
             raise SystemExit(1)
+        # Parsed before the editor opens so a bad duration costs nothing
+        # more than a re-run.
         every_seconds = _parse_reply_every(every)
+        if editor:
+            message = _collect_editor_reply(name)
+        assert message is not None
         _do_reply(name, message, max_=max_, unmax=unmax, every_seconds=every_seconds)
+
+
+_REPLY_EDITOR_HELP = (
+    "Write the response in the `editor` from your config instead of typing it "
+    "on the command line. Takes no message of its own; leaving the buffer "
+    "empty sends nothing."
+)
 
 
 @task_group.command("reply")
@@ -1607,12 +1739,17 @@ def _do_reply_command(
 @click.option("-t", "--every", "every", default=None,
               help="Re-send MESSAGE every DURATION (min 20m; e.g. 30m, 1.5h; "
                    "same format as ilan sleep) until the next human reply.")
+@click.option("-e", "--editor", "editor", is_flag=True,
+              help=_REPLY_EDITOR_HELP)
 def task_reply(
     name: str, message: str | None, num: int | None, markdown: bool,
     line_number: bool | None, max_: bool, unmax: bool, every: str | None,
+    editor: bool,
 ) -> None:
     """Send a response to a task. If no message is given, show the tail instead."""
-    _do_reply_command(name, message, num, markdown, line_number, max_, unmax, every)
+    _do_reply_command(
+        name, message, num, markdown, line_number, max_, unmax, every, editor,
+    )
 
 
 # ── canned replies ───────────────────────────────────────────────────
@@ -1888,71 +2025,6 @@ def _notes_usage_error(
     return None
 
 
-_SET_EDITOR_HINT = "Set one with `ilan config set editor <name>`."
-
-
-def _resolve_editor() -> str | None:
-    """Return a runnable editor command, or ``None`` after saying what is wrong.
-
-    Checked before anything else happens, so a user without a usable editor
-    gets one clear message instead of a temp file and whatever their shell
-    makes of an unknown command. ``editor`` always has a value because it is
-    in the config DEFAULTS, so "not configured" means blank or not on PATH —
-    the default of ``emacs`` is only a guess on a machine that may not have it.
-    """
-    editor = str(cfg.load().get("editor", "")).strip()
-    if not editor:
-        console.print(f"[red]No editor configured. {_SET_EDITOR_HINT}[/red]")
-        return None
-    if shutil.which(editor) is None:
-        console.print(
-            f"[red]The configured editor {editor!r} is not installed, or not "
-            f"on your PATH. {_SET_EDITOR_HINT}[/red]"
-        )
-        return None
-    return editor
-
-
-def _edit_text_in_editor(editor: str, task_name: str, current: str) -> str | None:
-    """Open *current* in *editor* and return what came back.
-
-    Returns ``None`` when the note should be left alone: the editor could not
-    be launched, or it exited non-zero. A non-zero exit is how an editor says
-    the edit was abandoned (``:cq`` in vim), so it must not be read as "the
-    user emptied the note" — that would clear it on a crash.
-
-    The temp file holds nothing but the note. No instruction header, so there
-    is no comment syntax to strip and no way for a note that legitimately
-    starts with ``#`` to be swallowed.
-    """
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=f"-{task_name}-note.txt", delete=False,
-    ) as tmp:
-        tmp.write(current)
-        tmp_path = tmp.name
-    try:
-        try:
-            completed = subprocess.run([editor, tmp_path])
-        except OSError as exc:
-            # `shutil.which` said it was there, so this is a race or a
-            # permission problem rather than a missing editor.
-            console.print(
-                f"[red]Cannot run the configured editor {editor!r}: {exc}. "
-                f"{_SET_EDITOR_HINT}[/red]"
-            )
-            return None
-        if completed.returncode != 0:
-            console.print(
-                f"[yellow]{editor} exited with {completed.returncode}; "
-                "the note is unchanged.[/yellow]"
-            )
-            return None
-        return Path(tmp_path).read_text()
-    finally:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp_path)
-
-
 def _do_edit_notes(name: str) -> None:
     """Edit a task's note in the configured editor, prefilled with it."""
     editor = _resolve_editor()
@@ -1963,7 +2035,10 @@ def _do_edit_notes(name: str) -> None:
         raise SystemExit(1)
     current = (resp["task"].get("notes") or "").strip()
 
-    edited = _edit_text_in_editor(editor, resp["task"]["name"], current)
+    edited = _edit_text_in_editor(
+        editor, resp["task"]["name"], current,
+        kind="note", abandoned="the note is unchanged.",
+    )
     if edited is None:
         # The editor could not run or reported an abandoned edit. Nothing was
         # saved, so exiting 0 here would let `ilan notes t -e && …` claim the
@@ -2647,12 +2722,17 @@ def shortcut_tail(
 @click.option("-t", "--every", "every", default=None,
               help="Re-send MESSAGE every DURATION (min 20m; e.g. 30m, 1.5h; "
                    "same format as ilan sleep) until the next human reply.")
+@click.option("-e", "--editor", "editor", is_flag=True,
+              help=_REPLY_EDITOR_HELP)
 def shortcut_reply(
     name: str, message: str | None, num: int | None, markdown: bool,
     line_number: bool | None, max_: bool, unmax: bool, every: str | None,
+    editor: bool,
 ) -> None:
     """Shorthand for 'ilan task reply'."""
-    _do_reply_command(name, message, num, markdown, line_number, max_, unmax, every)
+    _do_reply_command(
+        name, message, num, markdown, line_number, max_, unmax, every, editor,
+    )
 
 
 @main.command("re")
@@ -2675,12 +2755,17 @@ def shortcut_reply(
 @click.option("-t", "--every", "every", default=None,
               help="Re-send MESSAGE every DURATION (min 20m; e.g. 30m, 1.5h; "
                    "same format as ilan sleep) until the next human reply.")
+@click.option("-e", "--editor", "editor", is_flag=True,
+              help=_REPLY_EDITOR_HELP)
 def shortcut_re(
     name: str, message: str | None, num: int | None, markdown: bool,
     line_number: bool | None, max_: bool, unmax: bool, every: str | None,
+    editor: bool,
 ) -> None:
     """Shorthand for 'ilan task reply'."""
-    _do_reply_command(name, message, num, markdown, line_number, max_, unmax, every)
+    _do_reply_command(
+        name, message, num, markdown, line_number, max_, unmax, every, editor,
+    )
 
 
 @main.command("done")
