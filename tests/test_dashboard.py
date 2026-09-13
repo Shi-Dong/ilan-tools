@@ -15,12 +15,17 @@ from rich.text import Span, Text
 
 from ilan.cli import (
     ALIAS_STYLE,
+    NAME_TO_STATUS,
+    PROSE_MAX_WIDTH,
+    PROSE_MAX_WIDTH_NARROW,
+    TIMESTAMP_COLUMN_WIDTH,
     _NARROW_TERMINAL_WIDTH,
     _build_dashboard_table,
     _build_name_cell,
     _format_ts,
     _maybe_warn_one_liner_unconfigured,
     _name_style,
+    _prose_max_width,
     _terminal_is_narrow,
     main,
 )
@@ -86,6 +91,14 @@ def _render_narrow(table) -> str:
     buf = io.StringIO()
     Console(file=buf, width=80, force_terminal=True).print(table)
     return buf.getvalue()
+
+
+def _rendered_widths(table: Table, width: int) -> list[int]:
+    """Content width of each column as drawn, read off the top border rule."""
+    buf = io.StringIO()
+    Console(file=buf, width=width).print(table)
+    rule = next(l for l in buf.getvalue().splitlines() if l.startswith("┏"))
+    return [len(seg) - 2 for seg in rule.strip("┏┓").split("┳")]
 
 
 # ── _build_dashboard_table unit tests ────────────────────────────────
@@ -527,6 +540,49 @@ class TestNarrowDashboardColumns:
         text = _render_narrow(table)
         assert "keep-me" in text
         assert "WORKING" in text
+
+
+class TestNarrowReclaimsTheCreatedWidth:
+    """Dropping ``Created`` hands its room to Name and Status.
+
+    The width has to land somewhere: without this it is simply left as blank
+    terminal to the right of the table, which is the worst of both worlds —
+    a column gone *and* no more room for the prose that replaced it.
+    """
+
+    def test_the_ls_cap_widens_when_narrow(self) -> None:
+        assert _prose_max_width(True) == PROSE_MAX_WIDTH_NARROW
+        assert _prose_max_width(True) > _prose_max_width(False)
+
+    def test_the_ls_cap_is_untouched_when_wide(self) -> None:
+        """A wide window keeps `Created`, so there is nothing to hand over."""
+        assert _prose_max_width(False) == PROSE_MAX_WIDTH
+
+    def test_the_prose_columns_split_the_whole_dropped_column(self) -> None:
+        """Half of `Created` each, so together they reclaim all of it.
+
+        Asserted as arithmetic rather than a literal, so retuning either
+        constant cannot quietly leave part of the column unclaimed.
+        """
+        gain = PROSE_MAX_WIDTH_NARROW - PROSE_MAX_WIDTH
+        assert gain * len(NAME_TO_STATUS) == TIMESTAMP_COLUMN_WIDTH
+
+    def test_one_cap_for_both_columns_means_an_equal_split(self) -> None:
+        """`ls` gives Name and Status the same cap, so the halves are only
+        the right shares while the dashboard's own split is equal too.
+        """
+        assert NAME_TO_STATUS == (1, 1)
+
+    @pytest.mark.parametrize("width", [119, 115, 110, 100, 90, 80])
+    def test_the_dashboard_needs_no_cap_of_its_own(self, width: int) -> None:
+        """Its prose columns are ratios under ``expand=True``, so whatever a
+        pinned column stops taking is already theirs — no code required.
+        """
+        row = _task_row(name="a-task", status="WORKING")
+        kept = _rendered_widths(_build_dashboard_table([row], _TZ, narrow=False), width)
+        dropped = _rendered_widths(_build_dashboard_table([row], _TZ, narrow=True), width)
+        assert dropped[0] > kept[0]
+        assert dropped[1] > kept[1]
 
 
 # ── task name as Gist hyperlink ──────────────────────────────────────

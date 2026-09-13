@@ -644,6 +644,16 @@ PROSE_MAX_WIDTH = 42
 # zone. Pinned, because under `expand=True` a ratio share grew with the
 # terminal, far past anything a timestamp needs.
 TIMESTAMP_COLUMN_WIDTH = 20
+# On a narrow window `Created` is dropped (see `_terminal_is_narrow`), and the
+# room it held has to go somewhere. The dashboard hands it over by itself —
+# its prose columns are ratios, so a pinned column leaving the table widens
+# them — but `ilan ls` sizes to content, where a cap that does not move means
+# the freed characters are simply left as blank terminal to the right of the
+# table. Raising the cap by half the dropped column each gives the two prose
+# columns exactly the 20 characters `Created` gave up, split the same way the
+# dashboard splits its flexible space (`NAME_TO_STATUS`). Still a cap, not a
+# pin: short names and short statuses stay compact, as on a wide window.
+PROSE_MAX_WIDTH_NARROW = PROSE_MAX_WIDTH + TIMESTAMP_COLUMN_WIDTH // 2
 
 
 def _append_task_number(text: Text, row: dict) -> None:
@@ -855,6 +865,15 @@ def _terminal_is_narrow(width: int | None = None) -> bool:
     return width < _NARROW_TERMINAL_WIDTH
 
 
+def _prose_max_width(narrow: bool) -> int:
+    """The `ilan ls` cap for the Name and Status columns.
+
+    Wider when ``narrow``, because the dropped ``Created`` column's width is
+    shared out between the two — see :data:`PROSE_MAX_WIDTH_NARROW`.
+    """
+    return PROSE_MAX_WIDTH_NARROW if narrow else PROSE_MAX_WIDTH
+
+
 def _do_ls(show_all: bool, concise: bool = False) -> None:
     client = _client()
     if not show_all and not concise:
@@ -877,9 +896,10 @@ def _do_ls(show_all: bool, concise: bool = False) -> None:
     # one-liner column would make it even noisier.
     show_one_liner = _one_liner_enabled() and not show_all
     narrow = _terminal_is_narrow()
+    prose_max = _prose_max_width(narrow)
     table = Table(show_lines=True)
-    table.add_column("(Alias) Name", style="bold", max_width=PROSE_MAX_WIDTH)
-    table.add_column("Status", max_width=PROSE_MAX_WIDTH)
+    table.add_column("(Alias) Name", style="bold", max_width=prose_max)
+    table.add_column("Status", max_width=prose_max)
     if not narrow:
         table.add_column("Created", width=TIMESTAMP_COLUMN_WIDTH)
     table.add_column("Last Changed", width=TIMESTAMP_COLUMN_WIDTH)
@@ -3181,8 +3201,14 @@ def _build_dashboard_table(
     """Build a Rich Table from task rows, reusing the _do_ls format.
 
     When ``narrow`` is set (terminal below ``_NARROW_TERMINAL_WIDTH``), the
-    ``Created`` column is dropped so the remaining columns stay legible. A
-    task's note rides inside the ``Name`` cell, so it is never dropped and
+    ``Created`` column is dropped so the remaining columns stay legible, and
+    the room it held goes to ``Name`` and ``Status``. That hand-over needs no
+    code of its own here: this table is ``expand=True`` with the two prose
+    columns as ratios, so whatever a pinned column stops taking is already
+    theirs to share. ``ilan ls`` sizes to content instead and has to widen its
+    cap by hand — see :func:`_prose_max_width`.
+
+    A task's note rides inside the ``Name`` cell, so it is never dropped and
     never needs a column of its own.
     """
     now = datetime.now(tz)

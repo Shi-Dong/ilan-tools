@@ -18,6 +18,8 @@ from ilan.cli import (
     MAX_TAG_STYLE,
     NUMBER_STYLE,
     PIN_MARKER,
+    PROSE_MAX_WIDTH,
+    _NARROW_TERMINAL_WIDTH,
     _TreeNode,
     _alias_style,
     _build_concise_task_line,
@@ -199,6 +201,60 @@ class TestLsNoArgs:
         assert "Last Changed" in out
         assert "Cost" not in out
         assert "Created" not in out
+
+    @pytest.mark.parametrize(
+        "width, narrow", [(_NARROW_TERMINAL_WIDTH - 1, True), (200, False)],
+    )
+    def test_ls_prose_columns_take_over_the_dropped_created_width(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+        width: int, narrow: bool,
+    ) -> None:
+        """`ls` sizes to content, so the cap is what has to move.
+
+        Just under the threshold, Name and Status must grow past the width
+        they are held to while `Created` is on screen — otherwise the room
+        the dropped column gave up is left blank to the right of the table.
+        The control is a window wide enough that the cap, rather than the
+        window, is what binds: nothing was dropped, so it must not budge.
+        """
+        import ilan.cli as cli_mod
+        from rich.console import Console
+
+        monkeypatch.setattr(cli_mod, "console", Console(width=width, force_terminal=True))
+        client = _make_client()
+        client.list_tasks.return_value = {
+            "tasks": [
+                {
+                    "name": "a-task-whose-name-runs-past-the-wide-window-cap",
+                    "alias": None,
+                    "status": "WORKING",
+                    "created_at": "2026-04-13T00:00:00+00:00",
+                    "status_changed_at": "2026-04-13T01:00:00+00:00",
+                    "needs_review": False,
+                    "summary_one_liner": (
+                        "A summary long enough that the Status column also "
+                        "wants more room than the cap allows it"
+                    ),
+                },
+            ],
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["ls"])
+        assert result.exit_code == 0
+        rule = next(
+            l for l in _strip_ansi(result.output).splitlines() if l.startswith("┏")
+        )
+        name_width, status_width = (
+            len(seg) - 2 for seg in rule.strip("┏┓").split("┳")[:2]
+        )
+        if narrow:
+            assert name_width > PROSE_MAX_WIDTH
+            assert status_width > PROSE_MAX_WIDTH
+            # Nothing left over: the table now reaches the right edge.
+            assert len(rule) == width
+        else:
+            assert name_width == PROSE_MAX_WIDTH
+            assert status_width == PROSE_MAX_WIDTH
 
     def test_task_ls_shows_table(self, runner: CliRunner, tmp_config) -> None:
         client = _make_client()
