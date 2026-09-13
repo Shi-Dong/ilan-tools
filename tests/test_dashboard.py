@@ -17,16 +17,12 @@ from ilan.cli import (
     ALIAS_STYLE,
     NAME_TO_STATUS,
     PROSE_MAX_WIDTH,
-    PROSE_MAX_WIDTH_NARROW,
     TIMESTAMP_COLUMN_WIDTH,
-    _NARROW_TERMINAL_WIDTH,
     _build_dashboard_table,
     _build_name_cell,
     _format_ts,
     _maybe_warn_one_liner_unconfigured,
     _name_style,
-    _prose_max_width,
-    _terminal_is_narrow,
     main,
 )
 from ilan.models import (
@@ -86,8 +82,16 @@ def _render_table_text(rows: list[dict]) -> str:
     return buf.getvalue()
 
 
-def _render_narrow(table) -> str:
-    """Render an already-built table at a narrow width for assertion."""
+def _rendered_widths(table, width: int) -> list[int]:
+    """Content width of each column, read off the rendered top border rule."""
+    buf = io.StringIO()
+    Console(file=buf, width=width).print(table)
+    rule = next(l for l in buf.getvalue().splitlines() if l.startswith("┏"))
+    return [len(seg) - 2 for seg in rule.strip("┏┓").split("┳")]
+
+
+def _render_small(table) -> str:
+    """Render an already-built table on a small window for assertion."""
     buf = io.StringIO()
     Console(file=buf, width=80, force_terminal=True).print(table)
     return buf.getvalue()
@@ -157,9 +161,7 @@ class TestBuildDashboardTable:
     def test_table_has_correct_columns(self) -> None:
         table = _build_dashboard_table([], _TZ)
         col_names = [c.header for c in table.columns]
-        assert col_names == [
-            "(Alias) Name", "Status", "Created", "Last Changed",
-        ]
+        assert col_names == ["(Alias) Name", "Status", "Last Changed"]
 
 
 # ── needs_review / ⚠️ marker ────────────────────────────────────────
@@ -364,8 +366,8 @@ class TestDashboardTimezone:
 
         Otherwise, editing ``time-zone`` while the dashboard is running leaves
         the header stuck on whatever zone was loaded at startup, even though
-        the per-row ``Created`` / ``Last Changed`` cells (rendered via
-        ``_format_ts``) follow the new value because they reload on each call.
+        the per-row ``Last Changed`` cell (rendered via ``_format_ts``)
+        follows the new value because it reloads on each call.
         """
         import sys as _sys
 
@@ -465,7 +467,7 @@ class TestFormatTsSeconds:
 
 class TestDashboardTableProperties:
     def test_table_expands_with_name_and_status_as_equal_ratio_columns(self) -> None:
-        """Name and Status flex equally; the timestamp columns are pinned.
+        """Name and Status flex equally; ``Last Changed`` is pinned.
 
         Both are prose columns now — the note under the name, the summary
         under the status label — so neither has a claim on more room.
@@ -473,7 +475,7 @@ class TestDashboardTableProperties:
         table = _build_dashboard_table([], _TZ, show_one_liner=True)
         assert table.expand is True
         ratios = [c.ratio for c in table.columns]
-        assert ratios == [1, 1, None, None]
+        assert ratios == [1, 1, None]
 
     def test_the_split_does_not_depend_on_the_one_liner(self) -> None:
         on = _build_dashboard_table([], _TZ, show_one_liner=True)
@@ -486,103 +488,80 @@ class TestDashboardTableProperties:
         assert table.show_lines is True
 
 
-# ── narrow-terminal column dropping ──────────────────────────────────
+# ── the Created column is gone ───────────────────────────────────────
 
 
-class TestTerminalIsNarrow:
-    def test_below_threshold_is_narrow(self) -> None:
-        assert _terminal_is_narrow(_NARROW_TERMINAL_WIDTH - 1) is True
+class TestNoCreatedColumn:
+    """``Created`` is not a column of either listing at any terminal width."""
 
-    def test_at_threshold_is_not_narrow(self) -> None:
-        assert _terminal_is_narrow(_NARROW_TERMINAL_WIDTH) is False
-
-    def test_above_threshold_is_not_narrow(self) -> None:
-        assert _terminal_is_narrow(_NARROW_TERMINAL_WIDTH + 40) is False
-
-
-class TestNarrowDashboardColumns:
-    """When ``narrow`` is set, the dashboard drops Created."""
-
-    def test_narrow_drops_created_one_liner_on(self) -> None:
-        table = _build_dashboard_table([], _TZ, show_one_liner=True, narrow=True)
-        col_names = [c.header for c in table.columns]
-        assert col_names == ["(Alias) Name", "Status", "Last Changed"]
-
-    def test_narrow_drops_created_one_liner_off(self) -> None:
-        table = _build_dashboard_table([], _TZ, show_one_liner=False, narrow=True)
-        col_names = [c.header for c in table.columns]
-        assert col_names == ["(Alias) Name", "Status", "Last Changed"]
-
-    def test_wide_keeps_all_columns(self) -> None:
-        table = _build_dashboard_table([], _TZ, narrow=False)
-        col_names = [c.header for c in table.columns]
-        assert col_names == [
-            "(Alias) Name", "Status", "Created", "Last Changed",
+    @pytest.mark.parametrize("show_one_liner", [True, False])
+    def test_the_dashboard_never_builds_one(self, show_one_liner: bool) -> None:
+        table = _build_dashboard_table([], _TZ, show_one_liner=show_one_liner)
+        assert [c.header for c in table.columns] == [
+            "(Alias) Name", "Status", "Last Changed",
         ]
 
-    def test_narrow_empty_row_matches_column_count(self) -> None:
-        """The 'No active tasks.' placeholder row must not over/under-fill cells."""
-        table = _build_dashboard_table([], _TZ, narrow=True)
+    def test_the_placeholder_row_fills_every_column(self) -> None:
+        """The 'No active tasks.' row must not over- or under-fill cells."""
+        table = _build_dashboard_table([], _TZ)
         assert len(table.columns) == 3
-        # Each column has exactly one placeholder cell.
         assert all(len(c._cells) == 1 for c in table.columns)
 
-    def test_narrow_task_row_drops_created(self) -> None:
-        row = _task_row(name="narrow-task", status="WORKING")
-        table = _build_dashboard_table([row], _TZ, narrow=True)
+    def test_a_task_row_fills_every_column(self) -> None:
+        table = _build_dashboard_table([_task_row(name="a-task")], _TZ)
         assert len(table.columns) == 3
-        col_names = [c.header for c in table.columns]
-        assert "Created" not in col_names
+        assert all(len(c._cells) == 1 for c in table.columns)
 
-    def test_narrow_still_shows_name_and_status(self) -> None:
-        row = _task_row(name="keep-me", status="WORKING")
-        table = _build_dashboard_table([row], _TZ, narrow=True)
-        text = _render_narrow(table)
+    def test_no_creation_stamp_reaches_the_table(self) -> None:
+        """The row still carries ``created_at``; nothing renders it."""
+        row = _task_row(name="a-task", status="WORKING")
+        row["created_at"] = "2026-01-02T03:04:05+00:00"
+        table = _build_dashboard_table([row], _TZ)
+        rendered = _render_table_text([row])
+        assert _format_ts(row["created_at"], seconds=False) not in rendered
+        assert len(table.columns) == 3
+
+    def test_a_small_window_still_shows_name_and_status(self) -> None:
+        table = _build_dashboard_table([_task_row(name="keep-me")], _TZ)
+        text = _render_small(table)
         assert "keep-me" in text
         assert "WORKING" in text
 
 
-class TestNarrowReclaimsTheCreatedWidth:
-    """Dropping ``Created`` hands its room to Name and Status.
+class TestTheProseColumnsTookTheCreatedWidth:
+    """The 20 characters ``Created`` held belong to Name and Status now.
 
-    The width has to land somewhere: without this it is simply left as blank
+    The width has to land somewhere: left unclaimed it is simply blank
     terminal to the right of the table, which is the worst of both worlds —
     a column gone *and* no more room for the prose that replaced it.
     """
 
-    def test_the_ls_cap_widens_when_narrow(self) -> None:
-        assert _prose_max_width(True) == PROSE_MAX_WIDTH_NARROW
-        assert _prose_max_width(True) > _prose_max_width(False)
-
-    def test_the_ls_cap_is_untouched_when_wide(self) -> None:
-        """A wide window keeps `Created`, so there is nothing to hand over."""
-        assert _prose_max_width(False) == PROSE_MAX_WIDTH
-
-    def test_the_prose_columns_split_the_whole_dropped_column(self) -> None:
-        """Half of `Created` each, so together they reclaim all of it.
-
-        Asserted as arithmetic rather than a literal, so retuning either
-        constant cannot quietly leave part of the column unclaimed.
+    def test_the_ls_cap_is_the_old_cap_plus_half_the_dropped_column(self) -> None:
+        """Asserted as arithmetic, so retuning either constant cannot quietly
+        leave part of the dropped column unclaimed.
         """
-        gain = PROSE_MAX_WIDTH_NARROW - PROSE_MAX_WIDTH
+        cap_while_created_was_a_column = 42
+        gain = PROSE_MAX_WIDTH - cap_while_created_was_a_column
         assert gain * len(NAME_TO_STATUS) == TIMESTAMP_COLUMN_WIDTH
 
     def test_one_cap_for_both_columns_means_an_equal_split(self) -> None:
-        """`ls` gives Name and Status the same cap, so the halves are only
-        the right shares while the dashboard's own split is equal too.
+        """`ls` gives Name and Status the same cap, so half each is only the
+        right share while the dashboard's own split is equal too.
         """
         assert NAME_TO_STATUS == (1, 1)
 
-    @pytest.mark.parametrize("width", [119, 115, 110, 100, 90, 80])
-    def test_the_dashboard_needs_no_cap_of_its_own(self, width: int) -> None:
-        """Its prose columns are ratios under ``expand=True``, so whatever a
-        pinned column stops taking is already theirs — no code required.
+    @pytest.mark.parametrize("width", [140, 160, 200, 240])
+    def test_the_dashboard_fills_the_window(self, width: int) -> None:
+        """Its prose columns are ratios under ``expand=True``, so what the
+        dropped column stopped taking is already theirs — no code required.
         """
-        row = _task_row(name="a-task", status="WORKING")
-        kept = _rendered_widths(_build_dashboard_table([row], _TZ, narrow=False), width)
-        dropped = _rendered_widths(_build_dashboard_table([row], _TZ, narrow=True), width)
-        assert dropped[0] > kept[0]
-        assert dropped[1] > kept[1]
+        name, status, changed = _rendered_widths(
+            _build_dashboard_table([_task_row(name="a-task")], _TZ), width,
+        )
+        assert changed == TIMESTAMP_COLUMN_WIDTH
+        # Three columns of Rich chrome, then a closing rule.
+        assert name + status + changed == width - (3 * 3 + 1)
+        assert abs(name - status) <= 1
 
 
 # ── task name as Gist hyperlink ──────────────────────────────────────

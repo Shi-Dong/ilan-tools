@@ -19,7 +19,7 @@ from ilan.cli import (
     NUMBER_STYLE,
     PIN_MARKER,
     PROSE_MAX_WIDTH,
-    _NARROW_TERMINAL_WIDTH,
+    TIMESTAMP_COLUMN_WIDTH,
     _TreeNode,
     _alias_style,
     _build_concise_task_line,
@@ -147,7 +147,7 @@ class TestLsNoArgs:
     def test_ls_never_shows_cost_column(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """The Cost column is gone; a wide terminal still keeps Created."""
+        """Neither Cost nor Created is a column, however wide the window."""
         import ilan.cli as cli_mod
         from rich.console import Console
 
@@ -170,12 +170,12 @@ class TestLsNoArgs:
         assert result.exit_code == 0
         out = _strip_ansi(result.output)
         assert "Cost" not in out
-        assert "Created" in out
+        assert "Created" not in out
 
-    def test_ls_narrow_drops_created(
+    def test_ls_on_a_small_window_keeps_the_rest(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """A narrow terminal drops the Created column from ``ls``."""
+        """A 70-column window still shows the name, status and stamp."""
         import ilan.cli as cli_mod
         from rich.console import Console
 
@@ -202,20 +202,17 @@ class TestLsNoArgs:
         assert "Cost" not in out
         assert "Created" not in out
 
-    @pytest.mark.parametrize(
-        "width, narrow", [(_NARROW_TERMINAL_WIDTH - 1, True), (200, False)],
-    )
-    def test_ls_prose_columns_take_over_the_dropped_created_width(
+    @pytest.mark.parametrize("width", [119, 140, 200])
+    def test_ls_prose_columns_hold_the_dropped_created_width(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
-        width: int, narrow: bool,
+        width: int,
     ) -> None:
-        """`ls` sizes to content, so the cap is what has to move.
+        """`ls` sizes to content, so the cap is what carries the hand-over.
 
-        Just under the threshold, Name and Status must grow past the width
-        they are held to while `Created` is on screen — otherwise the room
-        the dropped column gave up is left blank to the right of the table.
-        The control is a window wide enough that the cap, rather than the
-        window, is what binds: nothing was dropped, so it must not budge.
+        Given prose that wants more room than either column can have, the
+        table must reach either the cap (which now includes half the dropped
+        column each) or the right edge of the window, whichever comes first.
+        Anything less leaves the room `Created` gave up blank beside it.
         """
         import ilan.cli as cli_mod
         from rich.console import Console
@@ -225,7 +222,8 @@ class TestLsNoArgs:
         client.list_tasks.return_value = {
             "tasks": [
                 {
-                    "name": "a-task-whose-name-runs-past-the-wide-window-cap",
+                    "name": "a-task-whose-name-runs-a-very-long-way-past-any-cap-"
+                            "this-column-could-plausibly-be-given",
                     "alias": None,
                     "status": "WORKING",
                     "created_at": "2026-04-13T00:00:00+00:00",
@@ -233,7 +231,8 @@ class TestLsNoArgs:
                     "needs_review": False,
                     "summary_one_liner": (
                         "A summary long enough that the Status column also "
-                        "wants more room than the cap allows it"
+                        "wants more room than the cap allows it, and then "
+                        "quite a lot more on top of that"
                     ),
                 },
             ],
@@ -244,17 +243,17 @@ class TestLsNoArgs:
         rule = next(
             l for l in _strip_ansi(result.output).splitlines() if l.startswith("┏")
         )
-        name_width, status_width = (
-            len(seg) - 2 for seg in rule.strip("┏┓").split("┳")[:2]
+        widths = [len(seg) - 2 for seg in rule.strip("┏┓").split("┳")]
+        name_width, status_width, changed_width = widths
+        assert changed_width == TIMESTAMP_COLUMN_WIDTH
+        # Three columns of Rich chrome, then a closing rule.
+        chrome = 3 * 3 + 1
+        assert len(rule) == min(
+            width, 2 * PROSE_MAX_WIDTH + TIMESTAMP_COLUMN_WIDTH + chrome,
         )
-        if narrow:
-            assert name_width > PROSE_MAX_WIDTH
-            assert status_width > PROSE_MAX_WIDTH
-            # Nothing left over: the table now reaches the right edge.
-            assert len(rule) == width
-        else:
-            assert name_width == PROSE_MAX_WIDTH
-            assert status_width == PROSE_MAX_WIDTH
+        # Rich hands an odd remainder to one of them; that is the only
+        # difference an equal share can leave.
+        assert abs(name_width - status_width) <= 1
 
     def test_task_ls_shows_table(self, runner: CliRunner, tmp_config) -> None:
         client = _make_client()
