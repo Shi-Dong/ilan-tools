@@ -1626,7 +1626,7 @@ class TestReplyEvery:
         self._make_task_in_status(ilan_server, "edit-empty", TaskStatus.AGENT_FINISHED)
         self._set_cycle(ilan_server, "edit-empty", message="old prompt")
         resp = _post(ilan_server, "/tasks/edit-empty/reply-every", body)
-        assert "message is required" in resp["error"]
+        assert "is required" in resp["error"]
         task = _get(ilan_server, "/tasks/edit-empty")["task"]
         assert task["reply_every_message"] == "old prompt"
 
@@ -1634,6 +1634,120 @@ class TestReplyEvery:
         self, ilan_server: IlanServer
     ) -> None:
         resp = _post(ilan_server, "/tasks/nope/reply-every", {"message": "x"})
+        assert "not found" in resp["error"]
+
+    # ── re-timing a cycle ───────────────────────────────────────────
+
+    def test_retime_changes_the_cadence_and_delivers_the_message_now(
+        self, ilan_server: IlanServer
+    ) -> None:
+        self._make_task_in_status(ilan_server, "rt-na", TaskStatus.AGENT_FINISHED)
+        self._set_cycle(ilan_server, "rt-na", seconds=3600, message="keep going")
+        logs_before = len(ilan_server.store.read_logs("rt-na"))
+        before = datetime.now(timezone.utc)
+        resp = _post(ilan_server, "/tasks/rt-na/reply-every", {"every_seconds": 1800})
+        after = datetime.now(timezone.utc)
+        assert resp.get("ok") is True, resp
+        assert resp["name"] == "rt-na"
+        assert resp["reply_every_seconds"] == 1800
+        assert resp["previous_every_seconds"] == 3600
+        assert resp["message"] == "Sent the looping prompt to rt-na. Agent resumed."
+        task = _get(ilan_server, "/tasks/rt-na")["task"]
+        assert task["status"] == "WORKING"
+        assert task["cached_replies"][-1] == "keep going"
+        assert task["needs_review"] is False
+        assert task["reply_every_seconds"] == 1800
+        assert task["reply_every_message"] == "keep going"
+        next_at = datetime.fromisoformat(task["reply_every_next_at"])
+        assert before + timedelta(seconds=1800) <= next_at
+        assert next_at <= after + timedelta(seconds=1800)
+        logs = ilan_server.store.read_logs("rt-na")
+        assert len(logs) == logs_before + 1
+        assert logs[-1].role == "user"
+        assert logs[-1].content == "keep going"
+
+    def test_retime_on_a_working_task_interrupts_it_with_the_message(
+        self, ilan_server: IlanServer
+    ) -> None:
+        _post(ilan_server, "/tasks", {"name": "rt-wk", "prompt": "P"})
+        self._set_cycle(ilan_server, "rt-wk", seconds=3600, message="keep going")
+        with patch.object(ilan_server.runner, "reply_to_working") as m:
+            m.side_effect = lambda task, message: ilan_server.store.put_task(task)
+            resp = _post(
+                ilan_server, "/tasks/rt-wk/reply-every", {"every_seconds": 1200}
+            )
+        assert resp.get("ok") is True, resp
+        assert resp["message"] == (
+            "Interrupted rt-wk and resumed it with the looping prompt."
+        )
+        m.assert_called_once()
+        _, message = m.call_args[0]
+        assert message == "keep going"
+        task = _get(ilan_server, "/tasks/rt-wk")["task"]
+        assert task["reply_every_seconds"] == 1200
+        assert task["reply_every_message"] == "keep going"
+        next_at = datetime.fromisoformat(task["reply_every_next_at"])
+        assert next_at <= datetime.now(timezone.utc) + timedelta(seconds=1200)
+
+    def test_retime_to_the_same_cadence_still_delivers_now(
+        self, ilan_server: IlanServer
+    ) -> None:
+        self._make_task_in_status(ilan_server, "rt-same", TaskStatus.NEEDS_ATTENTION)
+        self._set_cycle(ilan_server, "rt-same", seconds=1800, message="keep going")
+        resp = _post(
+            ilan_server, "/tasks/rt-same/reply-every", {"every_seconds": 1800}
+        )
+        assert resp.get("ok") is True, resp
+        assert resp["previous_every_seconds"] == 1800
+        task = _get(ilan_server, "/tasks/rt-same")["task"]
+        assert task["status"] == "WORKING"
+        assert task["cached_replies"][-1] == "keep going"
+
+    def test_retime_refuses_a_task_that_is_not_looping(
+        self, ilan_server: IlanServer
+    ) -> None:
+        """No cycle means no message to re-send; a cycle is started with one."""
+        self._make_task_in_status(ilan_server, "rt-none", TaskStatus.AGENT_FINISHED)
+        resp = _post(
+            ilan_server, "/tasks/rt-none/reply-every", {"every_seconds": 1800}
+        )
+        assert "not looping" in resp["error"]
+        task = _get(ilan_server, "/tasks/rt-none")["task"]
+        assert task["status"] == "AGENT_FINISHED"
+        assert task["reply_every_seconds"] is None
+        assert task["cached_replies"] == []
+
+    @pytest.mark.parametrize("bad", [0, -5, "1h", 1.5, 1199])
+    def test_retime_rejects_bad_every_seconds(
+        self, ilan_server: IlanServer, bad
+    ) -> None:
+        self._make_task_in_status(ilan_server, "rt-bad", TaskStatus.AGENT_FINISHED)
+        self._set_cycle(ilan_server, "rt-bad", seconds=3600, message="keep going")
+        resp = _post(ilan_server, "/tasks/rt-bad/reply-every", {"every_seconds": bad})
+        assert "every_seconds must be an integer" in resp["error"]
+        task = _get(ilan_server, "/tasks/rt-bad")["task"]
+        assert task["reply_every_seconds"] == 3600
+        assert task["status"] == "AGENT_FINISHED"
+
+    def test_message_and_cadence_are_not_accepted_together(
+        self, ilan_server: IlanServer
+    ) -> None:
+        self._make_task_in_status(ilan_server, "rt-both", TaskStatus.AGENT_FINISHED)
+        self._set_cycle(ilan_server, "rt-both", seconds=3600, message="keep going")
+        resp = _post(
+            ilan_server, "/tasks/rt-both/reply-every",
+            {"message": "new", "every_seconds": 1800},
+        )
+        assert "not both" in resp["error"]
+        task = _get(ilan_server, "/tasks/rt-both")["task"]
+        assert task["reply_every_seconds"] == 3600
+        assert task["reply_every_message"] == "keep going"
+        assert task["status"] == "AGENT_FINISHED"
+
+    def test_retime_on_an_unknown_task_is_not_found(
+        self, ilan_server: IlanServer
+    ) -> None:
+        resp = _post(ilan_server, "/tasks/nope/reply-every", {"every_seconds": 1800})
         assert "not found" in resp["error"]
 
 

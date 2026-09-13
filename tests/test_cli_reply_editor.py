@@ -280,15 +280,16 @@ class TestBareReplyIsUnchanged:
         run.assert_not_called()
         client.reply.assert_not_called()
 
-    def test_every_without_a_message_or_editor_is_still_rejected(
+    def test_every_without_a_message_or_editor_needs_a_looping_task(
         self, runner: CliRunner
     ) -> None:
+        """`-t` alone re-times a cycle; this mock task has none to re-time."""
         client = _make_client()
         with patch("ilan.cli._client", return_value=client), \
                 patch("ilan.cli.cfg.load", return_value={"editor": "vim"}):
             result = runner.invoke(main, ["re", "my-task", "-t", "1h"])
         assert result.exit_code == 1
-        assert "-t/--every requires a response message." in _squash(result.output)
+        assert "is not looping" in _squash(result.output)
         client.reply.assert_not_called()
 
     def test_a_command_line_message_still_sends(self, runner: CliRunner) -> None:
