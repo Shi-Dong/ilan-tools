@@ -110,17 +110,56 @@ class TestExpandAtRefs:
     def test_replaces_in_range(self) -> None:
         lines = ["first", "second", "third"]
         out = _expand_at_refs("see @2 please", lines)
-        assert out == 'see "second" please'
+        assert out == "see\n\n> second\n\nplease"
+
+    def test_a_lone_ref_is_just_the_blockquote(self) -> None:
+        assert _expand_at_refs("@1", ["only"]) == "> only"
+
+    def test_a_trailing_ref_ends_the_message(self) -> None:
+        out = _expand_at_refs("what about @1", ["only"])
+        assert out == "what about\n\n> only"
+
+    def test_a_leading_ref_opens_the_message(self) -> None:
+        out = _expand_at_refs("@1 why?", ["only"])
+        assert out == "> only\n\nwhy?"
 
     def test_multiple_refs(self) -> None:
         lines = ["a", "b", "c"]
         out = _expand_at_refs("@1 and @3", lines)
-        assert out == '"a" and "c"'
+        assert out == "> a\n\nand\n\n> c"
+
+    def test_adjacent_refs_stay_separate_quotes(self) -> None:
+        """Nothing but a space between two refs is still two blocks, not a
+        blockquote whose second line ran into the first."""
+        out = _expand_at_refs("@1 @2", ["a", "b"])
+        assert out == "> a\n\n> b"
+
+    def test_every_quoted_line_stands_alone(self) -> None:
+        out = _expand_at_refs("compare @1 with @2 now", ["a", "b"])
+        assert out.splitlines() == ["compare", "", "> a", "", "with", "", "> b", "", "now"]
+
+    def test_an_empty_cached_line_has_no_trailing_space(self) -> None:
+        assert _expand_at_refs("@2", ["a", ""]) == ">"
+
+    def test_the_rest_of_the_message_keeps_its_layout(self) -> None:
+        """Only the whitespace at the seam is rewritten; the user's own
+        paragraph breaks and indentation survive."""
+        out = _expand_at_refs("@1\n\nrun it:\n\n    ilan ls\n", ["a"])
+        assert out == "> a\n\nrun it:\n\n    ilan ls\n"
 
     def test_out_of_range_left_alone(self) -> None:
         lines = ["only"]
         out = _expand_at_refs("@5 doesn't exist", lines)
         assert out == "@5 doesn't exist"
+
+    def test_a_message_with_nothing_to_expand_is_untouched(self) -> None:
+        """No substitution means no reflow: whitespace the user typed is
+        still theirs."""
+        assert _expand_at_refs("  @5 spaced  ", ["only"]) == "  @5 spaced  "
+
+    def test_out_of_range_ref_survives_alongside_a_good_one(self) -> None:
+        out = _expand_at_refs("@1 not @9", ["a"])
+        assert out == "> a\n\nnot @9"
 
     def test_no_cache_passes_through(self) -> None:
         assert _expand_at_refs("@1 x", []) == "@1 x"
@@ -154,7 +193,7 @@ class TestReplyExpansion:
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["reply", "my-task", "clarify @2"])
         assert result.exit_code == 0
-        client.reply.assert_called_once_with("my-task", 'clarify "second line"')
+        client.reply.assert_called_once_with("my-task", "clarify\n\n> second line")
 
     def test_on_but_no_cache_passthrough(self, runner: CliRunner, tmp_config: Path) -> None:
         _enable_line_number(tmp_config)
@@ -173,7 +212,7 @@ class TestReplyExpansion:
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["re", "t", "re: @1"])
         assert result.exit_code == 0
-        client.reply.assert_called_once_with("t", 're: "foo"')
+        client.reply.assert_called_once_with("t", "re:\n\n> foo")
 
 
 class TestBranchExpansion:
@@ -205,7 +244,7 @@ class TestBranchExpansion:
             )
         assert result.exit_code == 0
         client.branch_task.assert_called_once_with(
-            "parent", "child", 'redo "first line" and "second line"'
+            "parent", "child", "redo\n\n> first line\n\nand\n\n> second line"
         )
 
     def test_file_input_expands_refs(
@@ -224,7 +263,7 @@ class TestBranchExpansion:
             )
         assert result.exit_code == 0
         client.branch_task.assert_called_once_with(
-            "parent", "child", 'dig into "beta" please'
+            "parent", "child", "dig into\n\n> beta\n\nplease"
         )
 
     def test_no_message_is_refused(self, runner: CliRunner, tmp_config: Path) -> None:
@@ -253,7 +292,7 @@ class TestBranchExpansion:
             )
         assert result.exit_code == 0
         client.branch_task.assert_called_once_with(
-            "parent", "child", 'fix "only-line"'
+            "parent", "child", "fix\n\n> only-line"
         )
 
     def test_uses_parent_tail_not_child(
@@ -271,7 +310,7 @@ class TestBranchExpansion:
             )
         assert result.exit_code == 0
         client.branch_task.assert_called_once_with(
-            "parent", "child", 'see "from-parent"'
+            "parent", "child", "see\n\n> from-parent"
         )
 
 
