@@ -19,7 +19,7 @@ _REPLY_PREFIXES = [["task", "reply"], ["reply"], ["re"]]
 # Every flag the command takes, as Click lists it under Options.
 _REPLY_FLAGS = [
     "-n, --num",
-    "-m, --md",
+    "-m, --md / --no-md",
     "--line-number / --no-line-number",
     "--max",
     "--unmax",
@@ -80,6 +80,10 @@ class TestWhatTheHelpSays:
         out = " ".join(_help(runner, [*prefix, "-h"]).split())
         # Sending, reading, looping (both -t forms and -u), the editor, the model.
         assert "Without MESSAGE, nothing is sent and the task's tail is shown" in out
+        assert "-m (or --md) renders the agent's messages as Markdown" in out
+        assert "--no-md prints them as plain text" in out
+        assert "left out, the markdown config key decides" in out
+        assert "there is no tail, so the two pairs are refused" in out
         assert "-t DURATION together with MESSAGE sends it now and again" in out
         assert "-t DURATION on its own switches it to that cadence" in out
         assert "-u opens that message in your editor" in out
@@ -96,6 +100,7 @@ class TestWhatTheHelpSays:
         for snippet in (
             "ilan re fix-bug ",
             "-n 3 -m",
+            "--no-md",
             '"Use the OAuth2 flow"',
             "-e ",
             '"Status?" -t 1h',
@@ -113,8 +118,22 @@ class TestWhatTheHelpSays:
         out = _help(runner, [*prefix, "-h"])
         examples = out[out.index("Examples:"):].splitlines()[1:]
         commands = [line for line in examples if line.strip()]
-        assert len(commands) == 8
+        assert len(commands) == 9
         assert all(line.lstrip().startswith("ilan re fix-bug") for line in commands)
+
+    @pytest.mark.parametrize("prefix", _REPLY_PREFIXES)
+    def test_no_flag_name_is_split_across_lines(
+        self, runner: CliRunner, prefix: list[str]
+    ) -> None:
+        """Click breaks on hyphens when wrapping, which would turn --no-md into
+        `--no-` at one line end and `md` at the next; the prose and the
+        examples are worded so no flag lands there at the default width.
+        (The Options column is Click's own layout and is not checked.)"""
+        out = _help(runner, [*prefix, "-h"])
+        prose = out[:out.index("Options:")]
+        examples = out[out.index("Examples:"):]
+        for line in (prose + examples).splitlines():
+            assert not line.rstrip().endswith("-"), line
 
     @pytest.mark.parametrize("prefix", _REPLY_PREFIXES)
     def test_it_fits_in_eighty_columns(
