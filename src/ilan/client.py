@@ -246,6 +246,14 @@ class Client:
             body["override_reply_every"] = True
         return self.post(f"/tasks/{name}/reply", body)
 
+    def set_reply_every_message(self, name: str, message: str) -> dict:
+        """Replace the message a task's ``reply -t`` cycle re-sends.
+
+        The cadence and the next firing time are left as they are, and
+        nothing is sent now. Refused by the server if the task is not looping.
+        """
+        return self.post(f"/tasks/{name}/reply-every", {"message": message})
+
     def sleep_task(
         self, name: str, seconds: int, override_reply_every: bool = False,
     ) -> dict:
