@@ -18,7 +18,7 @@ Ilan turns a to-do list into a fleet of autonomous coding agents. Describe a tas
 - **Every task is a conversation.** Agents report back and stop when they are done or blocked. Reply to unblock them, `tap` a busy one for a progress report, `cancel` a message you regret, or tell an idle agent to `sleep` and check in later.
 - **Two backends, one workflow.** Run Claude Code and Codex tasks side by side, and move a task between them at any time. Each backend keeps its own session and is caught up on whatever it missed.
 - **Handles you can type.** Active tasks get a two-letter alias (`ilan re sd "try v2"`), closed tasks get a permanent number, and unnamed `xxx-` tasks delete themselves when closed.
-- **Branch instead of repeating yourself.** Fork a task into a child that inherits the whole conversation, try two approaches in parallel, and draw the family tree with `ilan tree`.
+- **Branch instead of repeating yourself.** Fork a task into a child that inherits the whole conversation, try two approaches in parallel, and read the family tree off `ilan info`.
 - **Everything at a glance.** `ilan ls` and a live `ilan dashboard` show each task's status, an unread marker, and a one-line AI summary of the agent's latest reply.
 - **Wherever you are.** A phone-first web app ships with the server, and every conversation can be mirrored to a secret GitHub Gist for a clean, shareable read.
 - **More brain when it matters.** Pin a hard task to the biggest model its backend has with `ilan max` — Claude's Fable, Codex's Astra — and drop back to the default with `ilan unmax`.
@@ -97,8 +97,7 @@ Every task command has a top-level shorthand, so `ilan task reply` is just `ilan
 | `ilan check-model NAME` | Print the model that wrote the last reply. |
 | `ilan log NAME [-p]` | Open the whole conversation in your editor; `-p` prints the log path instead. |
 | `ilan open NAME` | Open the task's Gist history in the browser. |
-| `ilan info NAME` | Everything about one task on a screen: names it has had, alias, status, summary, note, timestamps, and its branch tree. |
-| `ilan tree NAME` | Draw the branch tree the task belongs to. |
+| `ilan info NAME` | Everything about one task on a screen: names it has had, alias, status, summary, note, timestamps, and the branch tree it sits in. |
 | `ilan dashboard` | Live full-screen table, refreshed every second. `q` quits, `r` refreshes. |
 
 ### Talk to the agent

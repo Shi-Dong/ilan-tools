@@ -367,7 +367,7 @@ class Task:
     # Names of already-deleted tasks that used to sit between this task and its
     # current ``parent_name``, nearest ancestor first. Deleting a task re-parents
     # its children onto their grandparent, which would silently collapse the
-    # branch topology; recording the removed link lets ``ilan task tree`` draw a
+    # branch topology; recording the removed link lets ``ilan info`` draw a
     # tombstone where the task used to be instead of pretending the child was
     # branched off the grandparent directly.
     deleted_ancestors: list[str] = field(default_factory=list)
