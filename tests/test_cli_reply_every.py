@@ -92,15 +92,20 @@ class TestEveryFlag:
         assert result.exit_code == 0
         assert "every 1h" in result.output
 
-    def test_every_without_message_rejected(
+    def test_every_without_message_on_a_non_looping_task_rejected(
         self, runner: CliRunner, tmp_config
     ) -> None:
+        """With no cycle there is nothing to re-send; a message starts one."""
         client = _make_client()
+        client.get_task.return_value = {
+            "task": {"name": "my-task", "reply_every_seconds": None}
+        }
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["re", "my-task", "-t", "1h"])
         assert result.exit_code == 1
-        assert "requires a response message" in result.output
+        assert "is not looping" in result.output
         client.reply.assert_not_called()
+        client.retime_reply_every.assert_not_called()
 
     @pytest.mark.parametrize("arg", ["0", "abc", "5d", "5 m", "-5m"])
     def test_every_rejects_bad_duration(

@@ -254,6 +254,16 @@ class Client:
         """
         return self.post(f"/tasks/{name}/reply-every", {"message": message})
 
+    def retime_reply_every(self, name: str, every_seconds: int) -> dict:
+        """Change the cadence of a task's ``reply -t`` cycle and re-send its message now.
+
+        The next re-send is *every_seconds* from now. Refused by the server if
+        the task is not looping.
+        """
+        return self.post(
+            f"/tasks/{name}/reply-every", {"every_seconds": every_seconds}
+        )
+
     def sleep_task(
         self, name: str, seconds: int, override_reply_every: bool = False,
     ) -> dict:

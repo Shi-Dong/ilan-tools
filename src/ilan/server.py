@@ -301,13 +301,31 @@ class IlanServer:
                 self.push.notify_finished(task)
             self._stop_event.wait(POLL_INTERVAL)
 
+    def deliver_cycle_message(self, task: Task, message: str) -> None:
+        """Send a ``reply -t`` cycle's *message* to *task*. Caller must hold the lock.
+
+        Behaves like a human reply — a WORKING agent is interrupted and
+        resumed with the message, any other live task is restarted with it —
+        except that the cycle is left running. The timer uses this for every
+        firing, and ``reply -t DURATION`` with no message uses it to re-send
+        the cycle's message the moment the cadence changes.
+        """
+        if task.status == TaskStatus.WORKING:
+            self.runner.reply_to_working(task, message)
+            return
+        # NEEDS_ATTENTION / AGENT_FINISHED / ERROR
+        task.cached_replies.append(message)
+        task.needs_review = False
+        self.store.append_log(task.name, "user", message)
+        self.store.put_task(task)
+        self.runner.start(task)
+
     def _fire_due_replies(self) -> None:
         """Deliver due ``reply -t`` messages. Caller must hold the lock.
 
-        Each firing behaves like a human reply — a WORKING agent is
-        interrupted and resumed with the message, any other live task is
-        restarted with it — except that it does not end the cycle: the same
-        message is rescheduled ``reply_every_seconds`` later.
+        A due cycle is rescheduled ``reply_every_seconds`` later and its
+        message handed to ``deliver_cycle_message``; the cycle itself
+        goes on.
         """
         now = datetime.now(timezone.utc)
         for task in self.store.load_tasks().values():
@@ -333,15 +351,7 @@ class IlanServer:
             task.reply_every_next_at = (
                 now + timedelta(seconds=task.reply_every_seconds)
             ).isoformat()
-            if task.status == TaskStatus.WORKING:
-                self.runner.reply_to_working(task, message)
-                continue
-            # NEEDS_ATTENTION / AGENT_FINISHED / ERROR
-            task.cached_replies.append(message)
-            task.needs_review = False
-            self.store.append_log(task.name, "user", message)
-            self.store.put_task(task)
-            self.runner.start(task)
+            self.deliver_cycle_message(task, message)
 
 
 # ── Request handler (built via closure to capture IlanServer) ────────
@@ -868,22 +878,48 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             })
 
         def handle_task_set_reply_every(self, name: str):
-            """Change the message a task's ``reply -t`` cycle re-sends, in place.
+            """Change a task's ``reply -t`` cycle in place: its message or its cadence.
 
-            Only the message changes. The cycle keeps its cadence and the
-            time of its next firing, and nothing is sent now: the new text
-            goes out when the timer next fires, and every time after that.
-            Nothing is logged either, because the agent has not been told
-            anything yet; the log gets the new text when it is delivered.
+            With ``message``, only the message changes. The cycle keeps its
+            cadence and the time of its next firing, and nothing is sent
+            now: the new text goes out when the timer next fires, and every
+            time after that. Nothing is logged either, because the agent has
+            not been told anything yet; the log gets the new text when it is
+            delivered.
 
-            A task with no cycle is refused rather than given one. Starting
-            a cycle is ``reply -t``'s job, and it needs a cadence this
-            request does not carry.
+            With ``every_seconds``, the cadence changes and the cycle's
+            message is delivered at once, as if the timer had just fired,
+            with the next re-send ``every_seconds`` later. That is what
+            ``reply -t DURATION`` with no message does. The two are separate
+            edits and are not accepted together.
+
+            A task with no cycle is refused either way rather than given
+            one. Starting a cycle is ``reply -t MESSAGE``'s job: it needs
+            both a message and a cadence, and a request here carries only
+            one of them.
             """
             body = self._body()
             message = str(body.get("message") or "").strip()
-            if not message:
-                self._json({"error": "message is required"}, 400)
+            every_seconds = body.get("every_seconds")
+            if every_seconds is not None and message:
+                self._json(
+                    {"error": "give either message or every_seconds, not both"}, 400
+                )
+                return
+            if every_seconds is None and not message:
+                self._json({"error": "message or every_seconds is required"}, 400)
+                return
+            if every_seconds is not None and (
+                not isinstance(every_seconds, int)
+                or every_seconds < REPLY_EVERY_MIN_SECONDS
+            ):
+                self._json(
+                    {
+                        "error": "every_seconds must be an integer >= "
+                        f"{REPLY_EVERY_MIN_SECONDS} (20 minutes)"
+                    },
+                    400,
+                )
                 return
             with self._ilan.lock:
                 task = self._get_task_or_404(name)
@@ -893,18 +929,41 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     self._json(
                         {
                             "error": f"Task {task.name} is not looping: there is "
-                            "no reply -t cycle whose message could be changed."
+                            "no reply -t cycle to change."
                         },
                         409,
                     )
                     return
-                task.reply_every_message = message
-                self._ilan.store.put_task(task)
+                if every_seconds is None:
+                    task.reply_every_message = message
+                    self._ilan.store.put_task(task)
+                    self._json({
+                        "ok": True,
+                        "name": task.name,
+                        "reply_every_message": task.reply_every_message,
+                        "reply_every_seconds": task.reply_every_seconds,
+                        "reply_every_next_at": task.reply_every_next_at,
+                    })
+                    return
+                previous = task.reply_every_seconds
+                was_working = task.status == TaskStatus.WORKING
+                task.reply_every_seconds = every_seconds
+                # Reschedule before delivering, as the timer does, so a crash
+                # mid-send cannot fire the same message twice on recovery.
+                task.reply_every_next_at = (
+                    datetime.now(timezone.utc) + timedelta(seconds=every_seconds)
+                ).isoformat()
+                self._ilan.deliver_cycle_message(task, task.reply_every_message or "")
+            if was_working:
+                outcome = f"Interrupted {task.name} and resumed it with the looping prompt."
+            else:
+                outcome = f"Sent the looping prompt to {task.name}. Agent resumed."
             self._json({
                 "ok": True,
                 "name": task.name,
-                "reply_every_message": task.reply_every_message,
+                "message": outcome,
                 "reply_every_seconds": task.reply_every_seconds,
+                "previous_every_seconds": previous,
                 "reply_every_next_at": task.reply_every_next_at,
             })
 

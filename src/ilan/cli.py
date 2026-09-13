@@ -1758,6 +1758,47 @@ def _do_update_loop_prompt(name: str) -> None:
     console.print(line)
 
 
+def _do_retime_loop(name: str, every: str) -> None:
+    """Change how often a looping task is prompted, and prompt it now.
+
+    ``reply -t DURATION`` with no message: the cycle's own message is what
+    gets sent, so nothing has to be retyped to change how often an agent
+    hears it. The message goes out at once, as if the timer had just fired,
+    and the next re-send is DURATION later. Only a looping task qualifies —
+    with no cycle there is no message to re-send, and starting a cycle
+    needs one — so the task is checked before anything is sent, and the
+    server checks again when the request lands.
+    """
+    every_seconds = _parse_reply_every(every)
+    assert every_seconds is not None
+    resp = _client().get_task(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    task = resp["task"]
+    if not task.get("reply_every_seconds"):
+        console.print(
+            f"[red]Task {task['name']} is not looping: -t on its own re-times a "
+            "reply -t cycle, and this task has no cycle. Give a message to start "
+            "one.[/red]"
+        )
+        raise SystemExit(1)
+    resp = _client().retime_reply_every(name, every_seconds)
+    if _check_error(resp):
+        raise SystemExit(1)
+    if resp.get("message"):
+        _print_reply_confirmation(resp["message"], resp.get("name"))
+    previous = resp.get("previous_every_seconds") or task.get("reply_every_seconds")
+    was = (
+        f" (was {_format_compact_duration(previous)})"
+        if previous and previous != every_seconds else ""
+    )
+    console.print(
+        f"[{REPLY_EVERY_STYLE}]Will re-send it every "
+        f"{_format_compact_duration(every_seconds)}{was} until the next human "
+        f"reply.[/{REPLY_EVERY_STYLE}]"
+    )
+
+
 def _do_reply_command(
     name: str, message: str | None, num: int | None, markdown: bool,
     line_number: bool | None, max_: bool, unmax: bool,
@@ -1789,10 +1830,18 @@ def _do_reply_command(
         raise SystemExit(1)
     _check_reply_model_flags(message, max_, unmax, editor)
     if message is None and not editor:
-        if every is not None:
-            console.print("[red]-t/--every requires a response message.[/red]")
+        if every is None:
+            _do_tail(name, n=num, markdown=markdown or None, line_number=line_number)
+            return
+        # `-t` on its own re-times the task's cycle and re-sends its message
+        # now. There is no tail to show, so the tail's flags are refused.
+        if line_number is not None:
+            console.print(
+                "[red]--line-number/--no-line-number apply to the tail, which "
+                "-t without a message does not show.[/red]"
+            )
             raise SystemExit(1)
-        _do_tail(name, n=num, markdown=markdown or None, line_number=line_number)
+        _do_retime_loop(name, every)
     else:
         if line_number is not None:
             console.print(
@@ -1808,6 +1857,12 @@ def _do_reply_command(
         assert message is not None
         _do_reply(name, message, max_=max_, unmax=unmax, every_seconds=every_seconds)
 
+
+_REPLY_EVERY_HELP = (
+    "Re-send MESSAGE every DURATION (min 20m; e.g. 30m, 1.5h; same format as "
+    "ilan sleep) until the next human reply. Without a message, on a looping "
+    "task: switch it to every DURATION and re-send its looping prompt now."
+)
 
 _REPLY_EDITOR_HELP = (
     "Write the response in the `editor` from your config instead of typing it "
@@ -1840,9 +1895,7 @@ _REPLY_UPDATE_HELP = (
 @click.option("--unmax", "unmax", is_flag=True, default=False,
               help="Reset the task's model to the config default before "
                    "posting the reply.")
-@click.option("-t", "--every", "every", default=None,
-              help="Re-send MESSAGE every DURATION (min 20m; e.g. 30m, 1.5h; "
-                   "same format as ilan sleep) until the next human reply.")
+@click.option("-t", "--every", "every", default=None, help=_REPLY_EVERY_HELP)
 @click.option("-e", "--editor", "editor", is_flag=True,
               help=_REPLY_EDITOR_HELP)
 @click.option("-u", "--update", "update", is_flag=True,
@@ -2826,9 +2879,7 @@ def shortcut_tail(
 @click.option("--unmax", "unmax", is_flag=True, default=False,
               help="Reset the task's model to the config default before "
                    "posting the reply.")
-@click.option("-t", "--every", "every", default=None,
-              help="Re-send MESSAGE every DURATION (min 20m; e.g. 30m, 1.5h; "
-                   "same format as ilan sleep) until the next human reply.")
+@click.option("-t", "--every", "every", default=None, help=_REPLY_EVERY_HELP)
 @click.option("-e", "--editor", "editor", is_flag=True,
               help=_REPLY_EDITOR_HELP)
 @click.option("-u", "--update", "update", is_flag=True,
@@ -2862,9 +2913,7 @@ def shortcut_reply(
 @click.option("--unmax", "unmax", is_flag=True, default=False,
               help="Reset the task's model to the config default before "
                    "posting the reply.")
-@click.option("-t", "--every", "every", default=None,
-              help="Re-send MESSAGE every DURATION (min 20m; e.g. 30m, 1.5h; "
-                   "same format as ilan sleep) until the next human reply.")
+@click.option("-t", "--every", "every", default=None, help=_REPLY_EVERY_HELP)
 @click.option("-e", "--editor", "editor", is_flag=True,
               help=_REPLY_EDITOR_HELP)
 @click.option("-u", "--update", "update", is_flag=True,
