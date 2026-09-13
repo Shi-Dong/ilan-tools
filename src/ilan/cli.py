@@ -129,6 +129,20 @@ def _line_number_enabled() -> bool:
     return cfg.parse_bool(cfg.load().get("line-number", False))
 
 
+# `-m/--md` forces the Markdown rendering of a tail on and `--no-md` forces it
+# off, for that one view; left out, the ``markdown`` config key decides.
+_TAIL_MARKDOWN_HELP = (
+    "Render assistant messages as Markdown (-m/--md) or as plain text "
+    "(--no-md) for this invocation, overriding the ``markdown`` config key."
+)
+_REPLY_MARKDOWN_HELP = (
+    "When no message is given, show the tail with assistant messages rendered "
+    "as Markdown (-m/--md) or as plain text (--no-md), overriding the "
+    "``markdown`` config key for this invocation. Refused when a message is "
+    "sent, since there is no tail then."
+)
+
+
 def _markdown_enabled() -> bool:
     return cfg.parse_bool(cfg.load().get("markdown", False))
 
@@ -1442,18 +1456,19 @@ def _do_tail(
 @click.argument("name", shell_complete=_complete_task_names)
 @click.option("-n", "--num", "num", type=int, default=None,
               help="Show history for the final N assistant messages.")
-@click.option("-m", "--md", "markdown", is_flag=True, default=False,
-              help="Render assistant messages as Markdown (overrides the "
-                   "``markdown`` config key for this invocation).")
+@click.option("-m", "--md/--no-md", "markdown", default=None,
+              help=_TAIL_MARKDOWN_HELP)
 @click.option("--line-number/--no-line-number", "line_number", default=None,
               help="Override the ``line-number`` config for this invocation.")
-def task_tail(name: str, num: int | None, markdown: bool, line_number: bool | None) -> None:
+def task_tail(
+    name: str, num: int | None, markdown: bool | None, line_number: bool | None,
+) -> None:
     """Show the last assistant message, the user prompt that elicited it,
     and any user messages after it.
 
     With -n N, show history containing the final N assistant messages.
     """
-    _do_tail(name, n=num, markdown=markdown or None, line_number=line_number)
+    _do_tail(name, n=num, markdown=markdown, line_number=line_number)
 
 
 # ── editor ───────────────────────────────────────────────────────────
@@ -1820,7 +1835,7 @@ def _do_retime_loop(name: str, every: str) -> None:
 
 
 def _do_reply_command(
-    name: str, message: str | None, num: int | None, markdown: bool,
+    name: str, message: str | None, num: int | None, markdown: bool | None,
     line_number: bool | None, max_: bool, unmax: bool,
     every: str | None = None, editor: bool = False, update: bool = False,
 ) -> None:
@@ -1835,10 +1850,13 @@ def _do_reply_command(
                 "task's looping prompt.[/red]"
             )
             raise SystemExit(1)
-        if editor or every is not None or max_ or unmax or line_number is not None:
+        if (
+            editor or every is not None or max_ or unmax
+            or markdown is not None or line_number is not None
+        ):
             console.print(
                 "[red]-u only edits the looping prompt; it cannot be combined "
-                "with -e, -t, --max, --unmax or --line-number.[/red]"
+                "with -e, -t, --max, --unmax, --md/--no-md or --line-number.[/red]"
             )
             raise SystemExit(1)
         _do_update_loop_prompt(name)
@@ -1851,22 +1869,22 @@ def _do_reply_command(
     _check_reply_model_flags(message, max_, unmax, editor)
     if message is None and not editor:
         if every is None:
-            _do_tail(name, n=num, markdown=markdown or None, line_number=line_number)
+            _do_tail(name, n=num, markdown=markdown, line_number=line_number)
             return
         # `-t` on its own re-times the task's cycle and re-sends its message
         # now. There is no tail to show, so the tail's flags are refused.
-        if line_number is not None:
+        if markdown is not None or line_number is not None:
             console.print(
-                "[red]--line-number/--no-line-number apply to the tail, which "
-                "-t without a message does not show.[/red]"
+                "[red]--md/--no-md and --line-number/--no-line-number apply to "
+                "the tail, which -t without a message does not show.[/red]"
             )
             raise SystemExit(1)
         _do_retime_loop(name, every)
     else:
-        if line_number is not None:
+        if markdown is not None or line_number is not None:
             console.print(
-                "[red]--line-number/--no-line-number cannot be used when a "
-                "response message is provided.[/red]"
+                "[red]--md/--no-md and --line-number/--no-line-number cannot be "
+                "used when a response message is provided.[/red]"
             )
             raise SystemExit(1)
         # Parsed before the editor opens so a bad duration costs nothing
@@ -1908,8 +1926,15 @@ Send a message to a task's agent, or read its latest reply.
 
 With MESSAGE, the agent receives it at once: an idle task is restarted with
 it, and a WORKING one is interrupted and resumed with it. Without MESSAGE,
-nothing is sent and the task's tail is shown instead, shaped by -n, -m and
---line-number. NAME may be a task's alias.
+nothing is sent and the task's tail is shown instead. NAME may be a task's
+alias.
+
+Reading the tail: -n picks how many replies to show. -m (or --md) renders
+the agent's messages as Markdown and --no-md prints them as plain text, each
+for this one view only; left out, the markdown config key decides. The same
+goes for line numbers with --line-number and --no-line-number. These flags
+only mean something when no message is given: with a message, or with -e, -t
+or -u, there is no tail, so the two pairs are refused.
 
 Looping: -t DURATION together with MESSAGE sends it now and again every
 DURATION (at least 20m; 30m, 1.5h, or plain seconds as in ilan sleep) until
@@ -1929,6 +1954,7 @@ _REPLY_EPILOG = """\
 Examples:
   ilan re fix-bug                        show the latest reply
   ilan re fix-bug -n 3 -m                the last three, as Markdown
+  ilan re fix-bug --no-md                the latest reply as plain text
   ilan re fix-bug "Use the OAuth2 flow"  send a message
   ilan re fix-bug -e                     write the message in your editor
   ilan re fix-bug "Status?" -t 1h        send now, then every hour
@@ -1947,8 +1973,8 @@ Examples:
 @click.argument("message", required=False, default=None)
 @click.option("-n", "--num", "num", type=int, default=None,
               help="With no message, show the final N assistant messages.")
-@click.option("-m", "--md", "markdown", is_flag=True, default=False,
-              help="When no message is given, render assistant messages as Markdown.")
+@click.option("-m", "--md/--no-md", "markdown", default=None,
+              help=_REPLY_MARKDOWN_HELP)
 @click.option("--line-number/--no-line-number", "line_number", default=None,
               help="When no message is given, override the ``line-number`` "
                    "config for this invocation.")
@@ -1965,7 +1991,7 @@ Examples:
 @click.option("-u", "--update", "update", is_flag=True,
               help=_REPLY_UPDATE_HELP)
 def task_reply(
-    name: str, message: str | None, num: int | None, markdown: bool,
+    name: str, message: str | None, num: int | None, markdown: bool | None,
     line_number: bool | None, max_: bool, unmax: bool, every: str | None,
     editor: bool, update: bool,
 ) -> None:
@@ -2914,16 +2940,15 @@ def shortcut_tree(name: str) -> None:
 @click.argument("name", shell_complete=_complete_task_names)
 @click.option("-n", "--num", "num", type=int, default=None,
               help="Show history for the final N assistant messages.")
-@click.option("-m", "--md", "markdown", is_flag=True, default=False,
-              help="Render assistant messages as Markdown (overrides the "
-                   "``markdown`` config key for this invocation).")
+@click.option("-m", "--md/--no-md", "markdown", default=None,
+              help=_TAIL_MARKDOWN_HELP)
 @click.option("--line-number/--no-line-number", "line_number", default=None,
               help="Override the ``line-number`` config for this invocation.")
 def shortcut_tail(
-    name: str, num: int | None, markdown: bool, line_number: bool | None,
+    name: str, num: int | None, markdown: bool | None, line_number: bool | None,
 ) -> None:
     """Shorthand for 'ilan task tail'."""
-    _do_tail(name, n=num, markdown=markdown or None, line_number=line_number)
+    _do_tail(name, n=num, markdown=markdown, line_number=line_number)
 
 
 @main.command(
@@ -2934,8 +2959,8 @@ def shortcut_tail(
 @click.argument("message", required=False, default=None)
 @click.option("-n", "--num", "num", type=int, default=None,
               help="With no message, show the final N assistant messages.")
-@click.option("-m", "--md", "markdown", is_flag=True, default=False,
-              help="When no message is given, render assistant messages as Markdown.")
+@click.option("-m", "--md/--no-md", "markdown", default=None,
+              help=_REPLY_MARKDOWN_HELP)
 @click.option("--line-number/--no-line-number", "line_number", default=None,
               help="When no message is given, override the ``line-number`` "
                    "config for this invocation.")
@@ -2952,7 +2977,7 @@ def shortcut_tail(
 @click.option("-u", "--update", "update", is_flag=True,
               help=_REPLY_UPDATE_HELP)
 def shortcut_reply(
-    name: str, message: str | None, num: int | None, markdown: bool,
+    name: str, message: str | None, num: int | None, markdown: bool | None,
     line_number: bool | None, max_: bool, unmax: bool, every: str | None,
     editor: bool, update: bool,
 ) -> None:
@@ -2971,8 +2996,8 @@ def shortcut_reply(
 @click.argument("message", required=False, default=None)
 @click.option("-n", "--num", "num", type=int, default=None,
               help="With no message, show the final N assistant messages.")
-@click.option("-m", "--md", "markdown", is_flag=True, default=False,
-              help="When no message is given, render assistant messages as Markdown.")
+@click.option("-m", "--md/--no-md", "markdown", default=None,
+              help=_REPLY_MARKDOWN_HELP)
 @click.option("--line-number/--no-line-number", "line_number", default=None,
               help="When no message is given, override the ``line-number`` "
                    "config for this invocation.")
@@ -2989,7 +3014,7 @@ def shortcut_reply(
 @click.option("-u", "--update", "update", is_flag=True,
               help=_REPLY_UPDATE_HELP)
 def shortcut_re(
-    name: str, message: str | None, num: int | None, markdown: bool,
+    name: str, message: str | None, num: int | None, markdown: bool | None,
     line_number: bool | None, max_: bool, unmax: bool, every: str | None,
     editor: bool, update: bool,
 ) -> None:
