@@ -1877,8 +1877,52 @@ _REPLY_UPDATE_HELP = (
     "from the next re-send on."
 )
 
+# `reply` is the one command with enough flags to need a map of how they
+# combine, so it answers `-h` as well as the `--help` every command has.
+_REPLY_HELP_FLAGS = {"help_option_names": ["-h", "--help"]}
 
-@task_group.command("reply")
+# Shared by `ilan task reply`, `ilan reply` and `ilan re`. Click rewraps each
+# paragraph to the terminal; the flags themselves are listed under Options.
+_REPLY_HELP = """\
+Send a message to a task's agent, or read its latest reply.
+
+With MESSAGE, the agent receives it at once: an idle task is restarted with
+it, and a WORKING one is interrupted and resumed with it. Without MESSAGE,
+nothing is sent and the task's tail is shown instead, shaped by -n, -m and
+--line-number. NAME may be a task's alias.
+
+Looping: -t DURATION together with MESSAGE sends it now and again every
+DURATION (at least 20m; 30m, 1.5h, or plain seconds as in ilan sleep) until
+your next reply to the task, which asks [y/n] before ending the cycle. On a
+task that is already looping, -t DURATION on its own switches it to that
+cadence and re-sends its looping message right away, and -u opens that
+message in your editor so you can change it, leaving the cadence alone.
+
+-e writes MESSAGE in the editor from your config instead of on the command
+line. --max and --unmax switch the task's model before the message is
+posted. When line-number mode is on, @N in a message quotes line N of the
+last tail.
+"""
+
+_REPLY_EPILOG = """\
+\b
+Examples:
+  ilan re fix-bug                        show the latest reply
+  ilan re fix-bug -n 3 -m                the last three, as Markdown
+  ilan re fix-bug "Use the OAuth2 flow"  send a message
+  ilan re fix-bug -e                     write the message in your editor
+  ilan re fix-bug "Status?" -t 1h        send now, then every hour
+  ilan re fix-bug -t 30m                 looping task: now, then every 30m
+  ilan re fix-bug -u                     looping task: edit its message
+  ilan re fix-bug "Try again" --max      switch to the max model, then send
+"""
+
+
+@task_group.command(
+    "reply", context_settings=_REPLY_HELP_FLAGS, help=_REPLY_HELP,
+    epilog=_REPLY_EPILOG,
+    short_help="Send a response to a task.",
+)
 @click.argument("name", shell_complete=_complete_task_names)
 @click.argument("message", required=False, default=None)
 @click.option("-n", "--num", "num", type=int, default=None,
@@ -2862,7 +2906,10 @@ def shortcut_tail(
     _do_tail(name, n=num, markdown=markdown or None, line_number=line_number)
 
 
-@main.command("reply")
+@main.command(
+    "reply", context_settings=_REPLY_HELP_FLAGS, help=_REPLY_HELP,
+    epilog=_REPLY_EPILOG, short_help="Shorthand for 'ilan task reply'.",
+)
 @click.argument("name", shell_complete=_complete_task_names)
 @click.argument("message", required=False, default=None)
 @click.option("-n", "--num", "num", type=int, default=None,
@@ -2896,7 +2943,10 @@ def shortcut_reply(
     )
 
 
-@main.command("re")
+@main.command(
+    "re", context_settings=_REPLY_HELP_FLAGS, help=_REPLY_HELP,
+    epilog=_REPLY_EPILOG, short_help="Shorthand for 'ilan task reply'.",
+)
 @click.argument("name", shell_complete=_complete_task_names)
 @click.argument("message", required=False, default=None)
 @click.option("-n", "--num", "num", type=int, default=None,
