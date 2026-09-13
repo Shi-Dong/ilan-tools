@@ -111,6 +111,7 @@ Notes:
 | `ilan task add [-n NAME] -d "prompt"` | Add a task (or use `-f file`; name must be ≥ 3 chars, letters/digits/`-`/`_` only, and not all digits). Omit `-n` and the task is given a generated [burnable](#burnable-tasks-xxx-) name such as `xxx-cat-likes-fin`, which makes `done`/`discard` delete it. Pass `--claude` or `--codex` to pick the backend for this task (default: the `default-backend` config value) — see [Agent backends](#agent-backends). Pass `--max` to create the task already on its backend's [max model](#max-models-ilan-max--ilan-unmax) |
 | `ilan task ls [-a] [-c] [NAME]` | List active tasks (`-a` includes `DONE`/`DISCARDED`, each shown with its [number](#task-numbers); `-c` prints only the pin marker, number, alias, name, and status, one task per line); if `NAME` is given, show its tail instead |
 | `ilan search PATTERN` | Print the `ilan ls -a -c` lines that contain `PATTERN`, keeping their colors. `PATTERN` is matched case-insensitively as a plain substring (not a regex) against the whole line, so it also matches on a number, an alias, or a status; `DONE` / `DISCARDED` tasks are always searched |
+| `ilan task info NAME` | Everything known about one task on a single screen: its current name, alias and rename history, its status, the agent's one-line summary, your note, when it was created and last changed, and the branch tree it sits in — see [Task info](#task-info) |
 | `ilan task show NAME` | Print the full prompt of a task |
 | `ilan task path NAME` | Print the Claude Code session log path for a task |
 | `ilan task check-model NAME` | Print the model name (e.g. `claude-opus-4-7`) that generated the last assistant message in the task's Claude Code session log |
@@ -148,6 +149,7 @@ Frequently used task commands have top-level aliases to save typing:
 |---|---|
 | `ilan add [-n NAME]` | `ilan task add [-n NAME]` |
 | `ilan ls [-a] [-c] [NAME]` | `ilan task ls [-a] [-c] [NAME]` |
+| `ilan info NAME` | `ilan task info NAME` |
 | `ilan tail NAME` | `ilan task tail NAME` |
 | `ilan reply NAME ["msg"]` | `ilan task reply NAME ["msg"]` |
 | `ilan re NAME ["msg"]` | `ilan task reply NAME ["msg"]` |
@@ -201,6 +203,39 @@ Both listings are flat and ordered by **activation time**, least recently activa
 A task's activation time is the last moment it became something you were working on: when it was created, and again each time [`undone`](#commands) or [`undiscard`](#commands) brought it back. For a task that was never closed and revived the two are the same stamp, so this is plain creation order until you revive something. Reviving is where the two part, and that is the whole point of ordering on activation rather than creation: `ilan undone 12` puts task 12 at the **bottom** of the listing, beside the work you are actually holding, instead of back at the spot it occupied months ago where you would never scroll to it. That is a guarantee and not just a consequence of the clock — a revived task is stamped past every activation already on record, so it lands last even if the machine's clock has moved backwards or the store came over from a machine that was running ahead. Closing a task does **not** move it, so a `DONE` row seen with `-a` still sits where it did while it was open. Neither does renaming, replying, or anything else a task does while it is open: only creation and revival are activations. The `Created` column keeps showing creation time throughout, so on a revived task it no longer explains the row's position — `Last Changed` is the stamp that does.
 
 Pinned tasks (`ilan pin`) break that order: they lead the table as a block, each marked with a `→` before its `(Alias) Name`, and are ordered among themselves by activation time on the same rule. A pin is a standing instruction to keep a task on top, so it outranks activation: reviving a pinned task moves it to the bottom of the pinned block rather than to the bottom of the table. A pin also overrides the default filter — a pinned `DONE` / `DISCARDED` task keeps showing without `-a`, and unpinning it is what drops it back out of the listing.
+
+### Task info
+
+```bash
+ilan info oom-retry-a-fix   # or the task's alias, e.g. ilan info ff
+```
+
+One task's whole record, for when a name in a listing is no longer enough. `DONE` and `DISCARDED` tasks are included, so this works on a closed task as well as a live one.
+
+```
+(ff) oom-retry-a-fix
+
+Name history  oom-fix → oom-retry-fix → oom-retry-a-fix
+Status        WORKING (for 18h52m18s)
+Summary       Reproduced the OOM and narrowed it to the tokenizer cache
+Notes         check the CI matrix before closing this
+Created       Yesterday 20:04:05 PDT
+Last Changed  Yesterday 21:31:09 PDT
+
+Branch tree
+(aa) investigate-oom  NEEDS_ATTENTION
+├── (ss) oom-retry-a  DONE
+│   └── (ff) oom-retry-a-fix  WORKING  ← this task
+└── (dd) oom-retry-b  DISCARDED
+```
+
+The heading is the task as the listings draw it — the pin marker, the number of a closed task, the alias in the shape that says whether it is [maxed](#max-models-ilan-max--ilan-unmax), the name linked to its [Gist](#gist-conversation-mirroring), the unread `!!` marker, and any sleep or `reply -t` suffix. The note is **not** repeated under it as it is in `ilan ls`, because here it has a field of its own.
+
+**`Name history`** is the chain of names the task has worn, oldest first and the current one last. It is only shown when there is one: for a task that has never been renamed the row would restate the heading, which is not the same as saying the task has no former names. The chain is only ever appended to, so renaming a task back to something it used to be called records the round trip (`alpha → beta → alpha`) rather than hiding it. Tasks renamed before this was recorded show no history — the names they lost were never written down.
+
+**`Status`** carries the same `(for 18h52m18s)` hint the listings show on a `WORKING` task, and reads `AGENT_IN_LOOP` on a task with a live [`reply -t`](#commands) cycle, exactly as in `ilan ls`. **`Summary`** is the agent's generated one-line summary — the line that normally sits under the status label in a listing — and **`Notes`** is what you wrote with [`ilan notes`](#commands). Either renders as `—` when the task has none. **`Created`** and **`Last Changed`** are in the configured `time-zone`, with seconds, which the listings drop only to save column width.
+
+**`Branch tree`** is the full tree the task belongs to, drawn from its outermost ancestor down with this task marked `← this task` — see [Branch tree](#branch-tree) for tombstones and the rest of the rules. A task that has never been branched, and was never branched from, is a tree of one; the section is still drawn, so the view has the same shape for every task.
 
 ### Branch tree
 

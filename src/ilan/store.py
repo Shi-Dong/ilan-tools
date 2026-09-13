@@ -275,9 +275,16 @@ class Store:
         return result
 
     def rename_task(self, old_name: str, new_name: str) -> Task:
-        """Rename a task, updating the tasks dict, log file, and output file."""
+        """Rename a task, updating the tasks dict, log file, and output file.
+
+        The outgoing name is appended to ``former_names`` so ``ilan info`` can
+        show what the task used to be called. The list is only ever appended
+        to: renaming a task back to a name it held before records the round
+        trip rather than collapsing it.
+        """
         tasks = self.load_tasks()
         task = tasks.pop(old_name)
+        task.former_names = task.former_names + [old_name]
         task.name = new_name
         tasks[new_name] = task
         for other in tasks.values():

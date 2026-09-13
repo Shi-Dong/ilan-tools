@@ -332,6 +332,15 @@ class Task:
     pid: int | None = None
     cached_replies: list[str] = field(default_factory=list)
     alias: str | None = None
+    # Every name this task has carried before its current one, oldest first.
+    # ``Store.rename_task`` appends the outgoing name and never rewrites the
+    # list, so renaming back to an earlier name records the round trip instead
+    # of collapsing it. ``ilan info`` prints the chain: a task renamed
+    # mid-flight is still recognisable by what you used to call it, and a name
+    # you remember from an older Gist comment still leads to the task holding
+    # it now. Not inherited by a branched child, which starts its own history
+    # under its own name.
+    former_names: list[str] = field(default_factory=list)
     # Stable handle minted the first time the task reaches DONE or DISCARDED,
     # so it can be revived as ``undone 12`` / ``undiscard 12`` without typing
     # the full name (a closed task has no alias to fall back on). Unlike the
@@ -491,6 +500,7 @@ class Task:
             "pid": self.pid,
             "cached_replies": self.cached_replies,
             "alias": self.alias,
+            "former_names": self.former_names,
             "number": self.number,
             "task_hash": self.task_hash,
             "needs_review": self.needs_review,
@@ -543,6 +553,7 @@ class Task:
             pid=d.get("pid"),
             cached_replies=d.get("cached_replies", []),
             alias=d.get("alias"),
+            former_names=list(d.get("former_names") or []),
             number=d.get("number"),
             task_hash=d.get("task_hash"),
             needs_review=d.get("needs_review", False),
