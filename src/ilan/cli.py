@@ -1679,12 +1679,109 @@ def _collect_editor_reply(name: str) -> str:
     return written
 
 
+def _seconds_until(iso: str | None) -> int | None:
+    """Seconds from now until the ISO timestamp *iso*; ``None`` if unreadable."""
+    if not iso:
+        return None
+    try:
+        due = datetime.fromisoformat(iso)
+        return int((due - datetime.now(timezone.utc)).total_seconds())
+    except (TypeError, ValueError):
+        return None
+
+
+def _do_update_loop_prompt(name: str) -> None:
+    """Edit the message a looping task re-sends, in the configured editor.
+
+    The buffer is prefilled with the current message, because this is an
+    edit of something the task already carries — the one way it differs from
+    ``reply -e``, whose buffer starts empty. What is saved replaces the
+    message from the next re-send on. The cadence and the time of the next
+    re-send are untouched, and nothing is sent now.
+
+    As on the other editor paths, everything knowable beforehand is checked
+    first — a usable editor, a real task, and that the task is looping at
+    all — so a mistake never costs an edit that has already been typed. The
+    server checks the last of those again when the edit lands, since the
+    cycle may have ended while the editor was open.
+    """
+    editor = _resolve_editor()
+    if editor is None:
+        raise SystemExit(1)  # _resolve_editor said what was wrong
+    resp = _client().get_task(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    task = resp["task"]
+    if not task.get("reply_every_seconds"):
+        console.print(
+            f"[red]Task {task['name']} is not looping: -u edits the message a "
+            "reply -t cycle re-sends, and this task has no cycle.[/red]"
+        )
+        raise SystemExit(1)
+    current = (task.get("reply_every_message") or "").strip()
+    edited = _edit_text_in_editor(
+        editor, task["name"], current,
+        kind="loop-prompt", abandoned="the looping prompt is unchanged.",
+    )
+    if edited is None:
+        raise SystemExit(1)  # _edit_text_in_editor has already said which it was
+    edited = edited.strip()
+    if edited == current:
+        console.print(f"[dim]Looping prompt for {task['name']} unchanged.[/dim]")
+        return
+    if not edited:
+        # A cycle with nothing to send is not a cycle, and ending one is what
+        # a human reply does. Nothing was written, so exit 1 like the other
+        # abandoned edits.
+        console.print("[yellow]Empty looping prompt; the current one is kept.[/yellow]")
+        raise SystemExit(1)
+    resp = _client().set_reply_every_message(name, edited)
+    if _check_error(resp):
+        raise SystemExit(1)
+
+    cadence_seconds = resp.get("reply_every_seconds") or task.get("reply_every_seconds")
+    cadence = _format_compact_duration(cadence_seconds)
+    remaining = _seconds_until(resp.get("reply_every_next_at"))
+    if remaining is None:
+        when = f"It goes out with the next re-send, every {cadence} as before."
+    elif remaining <= 30:
+        when = f"The next re-send is due now, then every {cadence} as before."
+    else:
+        # Rounded to the minute: a timer read a moment after it was set
+        # should say 12m, not 11.9m.
+        in_ = _format_compact_duration(max(60, 60 * round(remaining / 60)))
+        when = f"Next re-send in {in_}, then every {cadence} as before."
+    line = Text()
+    line.append("Looping prompt for ", style="green")
+    line.append(resp.get("name") or task["name"], style="bold green")
+    line.append(f" updated. {when}", style="green")
+    console.print(line)
+
+
 def _do_reply_command(
     name: str, message: str | None, num: int | None, markdown: bool,
     line_number: bool | None, max_: bool, unmax: bool,
-    every: str | None = None, editor: bool = False,
+    every: str | None = None, editor: bool = False, update: bool = False,
 ) -> None:
     """Shared body of ``ilan task reply``, ``ilan reply`` and ``ilan re``."""
+    if update:
+        # `-u` is not a reply: nothing is sent, so the flags that shape a
+        # reply or the tail have nothing to act on and are refused rather
+        # than ignored.
+        if message is not None:
+            console.print(
+                "[red]-u takes no message: it opens your editor on the "
+                "task's looping prompt.[/red]"
+            )
+            raise SystemExit(1)
+        if editor or every is not None or max_ or unmax or line_number is not None:
+            console.print(
+                "[red]-u only edits the looping prompt; it cannot be combined "
+                "with -e, -t, --max, --unmax or --line-number.[/red]"
+            )
+            raise SystemExit(1)
+        _do_update_loop_prompt(name)
+        return
     if editor and message is not None:
         console.print(
             "[red]-e takes no message: it opens your editor to write one.[/red]"
@@ -1718,6 +1815,13 @@ _REPLY_EDITOR_HELP = (
     "empty sends nothing."
 )
 
+_REPLY_UPDATE_HELP = (
+    "Edit the message a looping task (one on a reply -t cycle) re-sends, in "
+    "the `editor` from your config, prefilled with the current one. Takes no "
+    "message of its own and leaves the cadence alone; the new text goes out "
+    "from the next re-send on."
+)
+
 
 @task_group.command("reply")
 @click.argument("name", shell_complete=_complete_task_names)
@@ -1741,14 +1845,17 @@ _REPLY_EDITOR_HELP = (
                    "same format as ilan sleep) until the next human reply.")
 @click.option("-e", "--editor", "editor", is_flag=True,
               help=_REPLY_EDITOR_HELP)
+@click.option("-u", "--update", "update", is_flag=True,
+              help=_REPLY_UPDATE_HELP)
 def task_reply(
     name: str, message: str | None, num: int | None, markdown: bool,
     line_number: bool | None, max_: bool, unmax: bool, every: str | None,
-    editor: bool,
+    editor: bool, update: bool,
 ) -> None:
     """Send a response to a task. If no message is given, show the tail instead."""
     _do_reply_command(
         name, message, num, markdown, line_number, max_, unmax, every, editor,
+        update,
     )
 
 
@@ -2724,14 +2831,17 @@ def shortcut_tail(
                    "same format as ilan sleep) until the next human reply.")
 @click.option("-e", "--editor", "editor", is_flag=True,
               help=_REPLY_EDITOR_HELP)
+@click.option("-u", "--update", "update", is_flag=True,
+              help=_REPLY_UPDATE_HELP)
 def shortcut_reply(
     name: str, message: str | None, num: int | None, markdown: bool,
     line_number: bool | None, max_: bool, unmax: bool, every: str | None,
-    editor: bool,
+    editor: bool, update: bool,
 ) -> None:
     """Shorthand for 'ilan task reply'."""
     _do_reply_command(
         name, message, num, markdown, line_number, max_, unmax, every, editor,
+        update,
     )
 
 
@@ -2757,14 +2867,17 @@ def shortcut_reply(
                    "same format as ilan sleep) until the next human reply.")
 @click.option("-e", "--editor", "editor", is_flag=True,
               help=_REPLY_EDITOR_HELP)
+@click.option("-u", "--update", "update", is_flag=True,
+              help=_REPLY_UPDATE_HELP)
 def shortcut_re(
     name: str, message: str | None, num: int | None, markdown: bool,
     line_number: bool | None, max_: bool, unmax: bool, every: str | None,
-    editor: bool,
+    editor: bool, update: bool,
 ) -> None:
     """Shorthand for 'ilan task reply'."""
     _do_reply_command(
         name, message, num, markdown, line_number, max_, unmax, every, editor,
+        update,
     )
 
 

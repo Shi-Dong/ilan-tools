@@ -131,6 +131,7 @@ ROUTES: list[tuple[str, str, str]] = [
     ("POST",   r"^/tasks/([^/]+)/pin$",        "handle_task_pin"),
     ("POST",   r"^/tasks/([^/]+)/unpin$",      "handle_task_unpin"),
     ("POST",   r"^/tasks/([^/]+)/reply$",      "handle_task_reply"),
+    ("POST",   r"^/tasks/([^/]+)/reply-every$", "handle_task_set_reply_every"),
     ("POST",   r"^/tasks/([^/]+)/sleep$",      "handle_task_sleep"),
     ("POST",   r"^/tasks/([^/]+)/kill$",       "handle_task_kill"),
     ("POST",   r"^/tasks/([^/]+)/rename$",     "handle_task_rename"),
@@ -864,6 +865,47 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 "ok": True,
                 "name": task.name,
                 "message": f"Reply sent to {task.name}. Agent resumed.",
+            })
+
+        def handle_task_set_reply_every(self, name: str):
+            """Change the message a task's ``reply -t`` cycle re-sends, in place.
+
+            Only the message changes. The cycle keeps its cadence and the
+            time of its next firing, and nothing is sent now: the new text
+            goes out when the timer next fires, and every time after that.
+            Nothing is logged either, because the agent has not been told
+            anything yet; the log gets the new text when it is delivered.
+
+            A task with no cycle is refused rather than given one. Starting
+            a cycle is ``reply -t``'s job, and it needs a cadence this
+            request does not carry.
+            """
+            body = self._body()
+            message = str(body.get("message") or "").strip()
+            if not message:
+                self._json({"error": "message is required"}, 400)
+                return
+            with self._ilan.lock:
+                task = self._get_task_or_404(name)
+                if task is None:
+                    return
+                if not task.reply_every_seconds:
+                    self._json(
+                        {
+                            "error": f"Task {task.name} is not looping: there is "
+                            "no reply -t cycle whose message could be changed."
+                        },
+                        409,
+                    )
+                    return
+                task.reply_every_message = message
+                self._ilan.store.put_task(task)
+            self._json({
+                "ok": True,
+                "name": task.name,
+                "reply_every_message": task.reply_every_message,
+                "reply_every_seconds": task.reply_every_seconds,
+                "reply_every_next_at": task.reply_every_next_at,
             })
 
         def handle_task_sleep(self, name: str):

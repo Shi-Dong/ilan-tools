@@ -1501,6 +1501,141 @@ class TestReplyEvery:
         assert task["status"] == "DONE"
         assert task["reply_every_seconds"] is None
 
+    # ── changing a cycle's message in place ─────────────────────────
+
+    def test_set_message_replaces_the_prompt_and_keeps_the_timer(
+        self, ilan_server: IlanServer
+    ) -> None:
+        self._make_task_in_status(ilan_server, "edit-p", TaskStatus.AGENT_FINISHED)
+        self._set_cycle(ilan_server, "edit-p", seconds=1200, message="old prompt")
+        before = _get(ilan_server, "/tasks/edit-p")["task"]
+        resp = _post(
+            ilan_server, "/tasks/edit-p/reply-every", {"message": "new prompt"}
+        )
+        assert resp.get("ok") is True
+        assert resp["name"] == "edit-p"
+        assert resp["reply_every_message"] == "new prompt"
+        assert resp["reply_every_seconds"] == 1200
+        assert resp["reply_every_next_at"] == before["reply_every_next_at"]
+        after = _get(ilan_server, "/tasks/edit-p")["task"]
+        assert after["reply_every_message"] == "new prompt"
+        assert after["reply_every_seconds"] == 1200
+        assert after["reply_every_next_at"] == before["reply_every_next_at"]
+
+    def test_set_message_sends_nothing_and_logs_nothing(
+        self, ilan_server: IlanServer
+    ) -> None:
+        """The agent has not been told anything yet; the timer will tell it."""
+        self._make_task_in_status(ilan_server, "edit-q", TaskStatus.AGENT_FINISHED)
+        self._set_cycle(ilan_server, "edit-q", message="old prompt")
+        logs_before = len(ilan_server.store.read_logs("edit-q"))
+        with patch.object(ilan_server.runner, "reply_to_working") as m:
+            _post(ilan_server, "/tasks/edit-q/reply-every", {"message": "new prompt"})
+        m.assert_not_called()
+        task = _get(ilan_server, "/tasks/edit-q")["task"]
+        assert task["status"] == "AGENT_FINISHED"
+        assert "new prompt" not in task["cached_replies"]
+        assert len(ilan_server.store.read_logs("edit-q")) == logs_before
+
+    def test_the_next_firing_delivers_the_new_prompt(
+        self, ilan_server: IlanServer
+    ) -> None:
+        self._make_task_in_status(ilan_server, "edit-f", TaskStatus.NEEDS_ATTENTION)
+        self._set_cycle(ilan_server, "edit-f", seconds=60, message="old prompt")
+        _post(ilan_server, "/tasks/edit-f/reply-every", {"message": "new prompt"})
+        # Make the timer due and fire it in one lock hold, so the background
+        # reaper cannot deliver it first.
+        with ilan_server.lock:
+            task = ilan_server.store.get_task("edit-f")
+            task.reply_every_next_at = (
+                datetime.now(timezone.utc) - timedelta(seconds=1)
+            ).isoformat()
+            ilan_server.store.put_task(task)
+            ilan_server._fire_due_replies()
+        task = _get(ilan_server, "/tasks/edit-f")["task"]
+        assert task["status"] == "WORKING"
+        assert task["cached_replies"][-1] == "new prompt"
+        assert "old prompt" not in task["cached_replies"]
+        assert task["reply_every_message"] == "new prompt"
+
+    def test_set_message_on_a_working_task_is_allowed(
+        self, ilan_server: IlanServer
+    ) -> None:
+        """Looping is about the cycle, not the status the agent is in."""
+        _post(ilan_server, "/tasks", {"name": "edit-wk", "prompt": "P"})
+        self._set_cycle(ilan_server, "edit-wk", message="old prompt")
+        with patch.object(ilan_server.runner, "reply_to_working") as m:
+            resp = _post(
+                ilan_server, "/tasks/edit-wk/reply-every", {"message": "new prompt"}
+            )
+        assert resp.get("ok") is True
+        m.assert_not_called()
+        task = _get(ilan_server, "/tasks/edit-wk")["task"]
+        assert task["status"] == "WORKING"
+        assert task["reply_every_message"] == "new prompt"
+
+    def test_set_message_resolves_an_alias(self, ilan_server: IlanServer) -> None:
+        self._make_task_in_status(ilan_server, "edit-al", TaskStatus.AGENT_FINISHED)
+        self._set_cycle(ilan_server, "edit-al", message="old prompt")
+        alias = _get(ilan_server, "/tasks/edit-al")["task"]["alias"]
+        resp = _post(ilan_server, f"/tasks/{alias}/reply-every", {"message": "new"})
+        assert resp.get("ok") is True
+        assert resp["name"] == "edit-al"
+
+    def test_set_message_strips_surrounding_whitespace(
+        self, ilan_server: IlanServer
+    ) -> None:
+        self._make_task_in_status(ilan_server, "edit-ws", TaskStatus.AGENT_FINISHED)
+        self._set_cycle(ilan_server, "edit-ws", message="old prompt")
+        _post(ilan_server, "/tasks/edit-ws/reply-every", {"message": "  new\n"})
+        task = _get(ilan_server, "/tasks/edit-ws")["task"]
+        assert task["reply_every_message"] == "new"
+
+    def test_set_message_refuses_a_task_that_is_not_looping(
+        self, ilan_server: IlanServer
+    ) -> None:
+        """Starting a cycle is reply -t's job; this only edits one."""
+        self._make_task_in_status(ilan_server, "edit-none", TaskStatus.AGENT_FINISHED)
+        resp = _post(
+            ilan_server, "/tasks/edit-none/reply-every", {"message": "new prompt"}
+        )
+        assert "not looping" in resp["error"]
+        task = _get(ilan_server, "/tasks/edit-none")["task"]
+        assert task["reply_every_message"] is None
+        assert task["reply_every_seconds"] is None
+        assert task["status"] == "AGENT_FINISHED"
+
+    def test_set_message_refuses_a_closed_task(self, ilan_server: IlanServer) -> None:
+        """Closing cleared the cycle, so there is nothing left to edit."""
+        _post(ilan_server, "/tasks", {"name": "edit-done", "prompt": "P"})
+        self._set_cycle(ilan_server, "edit-done", message="old prompt")
+        _post(ilan_server, "/tasks/edit-done/done")
+        resp = _post(
+            ilan_server, "/tasks/edit-done/reply-every", {"message": "new prompt"}
+        )
+        assert "not looping" in resp["error"]
+        task = _get(ilan_server, "/tasks/edit-done")["task"]
+        assert task["status"] == "DONE"
+        assert task["reply_every_message"] is None
+
+    @pytest.mark.parametrize("body", [{}, {"message": ""}, {"message": "   "},
+                                      {"message": None}])
+    def test_set_message_requires_text(
+        self, ilan_server: IlanServer, body: dict
+    ) -> None:
+        self._make_task_in_status(ilan_server, "edit-empty", TaskStatus.AGENT_FINISHED)
+        self._set_cycle(ilan_server, "edit-empty", message="old prompt")
+        resp = _post(ilan_server, "/tasks/edit-empty/reply-every", body)
+        assert "message is required" in resp["error"]
+        task = _get(ilan_server, "/tasks/edit-empty")["task"]
+        assert task["reply_every_message"] == "old prompt"
+
+    def test_set_message_on_an_unknown_task_is_not_found(
+        self, ilan_server: IlanServer
+    ) -> None:
+        resp = _post(ilan_server, "/tasks/nope/reply-every", {"message": "x"})
+        assert "not found" in resp["error"]
+
 
 # ── Logs ────────────────────────────────────────────────────────────────
 
