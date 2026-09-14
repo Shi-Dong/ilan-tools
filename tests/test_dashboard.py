@@ -32,6 +32,7 @@ from ilan.task_display import (
     ALIAS_STYLE,
     SLEEP_PROGRESS_EMPTY_STYLE,
     SLEEP_PROGRESS_STYLE,
+    SLEEP_SUFFIX_STYLE,
     TIMESTAMP_COLUMN_WIDTH,
     _build_name_cell,
     _name_style,
@@ -349,8 +350,33 @@ class TestSleepingProgress:
         assert SLEEP_PROGRESS_STYLE in styles
         assert SLEEP_PROGRESS_EMPTY_STYLE in styles
 
-    def test_name_cell_no_longer_repeats_the_sleep_duration(self) -> None:
+    def test_name_cell_keeps_the_requested_sleep_duration(self) -> None:
         row = _task_row(status="SLEEPING", sleep_seconds=300)
+        table = _build_dashboard_table([row], _TZ)
+        cell = table.columns[0]._cells[0]
+        assert isinstance(cell, Text)
+        assert cell.plain == "my-task (sleeping for 5m)"
+
+    def test_name_suffix_uses_the_same_dark_blue_as_sleeping_status(self) -> None:
+        row = _task_row(status="SLEEPING", sleep_seconds=300)
+        cell = _build_name_cell(row)
+        suffix_start = cell.plain.index(" (sleeping for 5m)")
+        suffix_span = next(
+            span for span in cell.spans if span.start == suffix_start
+        )
+        assert suffix_span.style == SLEEP_SUFFIX_STYLE
+        assert SLEEP_SUFFIX_STYLE in STYLE_FOR_STATUS[TaskStatus.SLEEPING]
+
+    @pytest.mark.parametrize("status", ["WORKING", "AGENT_FINISHED"])
+    def test_stale_sleep_metadata_has_no_name_suffix(self, status: str) -> None:
+        row = _task_row(status=status, sleep_seconds=300)
+        assert "sleeping for" not in _build_name_cell(row).plain
+
+    @pytest.mark.parametrize("seconds", [None, 0, -5])
+    def test_invalid_sleep_duration_has_no_name_suffix(
+        self, seconds: int | None,
+    ) -> None:
+        row = _task_row(status="SLEEPING", sleep_seconds=seconds)
         assert "sleeping for" not in _build_name_cell(row).plain
 
 

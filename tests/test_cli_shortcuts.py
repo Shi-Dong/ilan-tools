@@ -10,8 +10,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 from rich.color import Color, ColorType
+from rich.console import Console
 from rich.style import Style
 
+import ilan.cli as cli_mod
 from ilan.cli import (
     _TreeNode,
     _build_tree_label,
@@ -100,6 +102,29 @@ class TestLsNoArgs:
         assert result.exit_code == 0
         assert "my-task" in result.output
         client.list_tasks.assert_called_once_with(show_all=False)
+
+    def test_ls_keeps_sleep_duration_beside_the_name(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(cli_mod, "console", Console(width=200))
+        client = _make_client()
+        client.list_tasks.return_value = {
+            "tasks": [
+                {
+                    "name": "my-task",
+                    "alias": "aa",
+                    "status": "SLEEPING",
+                    "created_at": "2026-04-13T00:00:00+00:00",
+                    "status_changed_at": "2026-04-13T01:00:00+00:00",
+                    "needs_review": False,
+                    "sleep_seconds": 300,
+                },
+            ],
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["ls"])
+        assert result.exit_code == 0
+        assert "sleeping for 5m" in result.output
 
     def test_ls_is_flat_and_creation_ordered(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,

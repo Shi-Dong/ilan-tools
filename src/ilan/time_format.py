@@ -60,6 +60,13 @@ def _format_compact_duration(seconds: int) -> str:
     return f"{shown}{unit}"
 
 
+def _format_sleep_suffix(sleep_seconds: int | None) -> str | None:
+    """Return ``(sleeping for Xm)`` for a valid requested sleep duration."""
+    if not sleep_seconds or sleep_seconds <= 0:
+        return None
+    return f" (sleeping for {_format_compact_duration(sleep_seconds)})"
+
+
 def _format_progress_duration(seconds: int) -> str:
     """Render a running clock compactly: ``42s``, ``4m03s`` or ``2h38m``."""
     seconds = max(0, int(seconds))
