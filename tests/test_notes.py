@@ -1437,16 +1437,11 @@ def _rendered_widths(table, width: int) -> list[int]:
 
 
 class TestNoNotesColumn:
-    _WIDE = ["(Alias) Name", "Status", "Created", "Last Changed"]
-    _NARROW = ["(Alias) Name", "Status", "Last Changed"]
+    _COLUMNS = ["(Alias) Name", "Status", "Last Changed"]
 
-    def test_dashboard_wide(self) -> None:
+    def test_dashboard_columns(self) -> None:
         table = _build_dashboard_table([_row("a", notes="x")], _TZ)
-        assert [c.header for c in table.columns] == self._WIDE
-
-    def test_dashboard_narrow(self) -> None:
-        table = _build_dashboard_table([_row("a", notes="x")], _TZ, narrow=True)
-        assert [c.header for c in table.columns] == self._NARROW
+        assert [c.header for c in table.columns] == self._COLUMNS
 
     def test_the_placeholder_row_still_fills_every_column(self) -> None:
         table = _build_dashboard_table([], _TZ)
@@ -1454,14 +1449,14 @@ class TestNoNotesColumn:
 
 
 class TestDashboardWidths:
-    """Name and Status split the flexible space; the timestamps are pinned."""
+    """Name and Status split the flexible space; Last Changed is pinned."""
 
     def test_only_name_and_status_flex(self) -> None:
         table = _build_dashboard_table([_row("a")], _TZ)
         ratios = [c.ratio for c in table.columns]
         widths = [c.width for c in table.columns]
-        assert ratios == [*NAME_TO_STATUS, None, None]
-        assert widths[2:] == [TIMESTAMP_COLUMN_WIDTH] * 2
+        assert ratios == [*NAME_TO_STATUS, None]
+        assert widths[2:] == [TIMESTAMP_COLUMN_WIDTH]
 
     def test_name_and_status_are_equal(self) -> None:
         """Both are prose columns — the note under the name, the summary
@@ -1484,22 +1479,23 @@ class TestDashboardWidths:
         name, status = _rendered_widths(_build_dashboard_table([_row("a")], _TZ), width)[:2]
         assert 0 <= name - status <= 1
 
-    def test_no_timestamp_ever_folds(self) -> None:
+    def test_the_stamp_never_folds(self) -> None:
         """The longest stamp in any common zone is nine for the day word, a
         space, five for the time, a space, and a four-letter zone.
         """
         assert len("Yesterday 21:38 CEST") <= TIMESTAMP_COLUMN_WIDTH
         assert TIMESTAMP_COLUMN_WIDTH == 20
 
-    # Measured when the Notes column was folded into Name and the timestamps
-    # widened to 20. Pinned so a later change to the geometry has to be a
-    # deliberate one.
+    # Measured after `Created` left the table for good. Pinned so a later
+    # change to the geometry has to be a deliberate one. Each is 11 or 12
+    # wider than while `Created` was a column: half of its 20 characters,
+    # plus half of the three Rich spends on every column it draws.
     _EXPECTED = {
-        140: (44, 43, 20, 20),
-        150: (49, 48, 20, 20),
-        180: (64, 63, 20, 20),
-        200: (74, 73, 20, 20),
-        240: (94, 93, 20, 20),
+        140: (55, 55, 20),
+        150: (60, 60, 20),
+        180: (75, 75, 20),
+        200: (85, 85, 20),
+        240: (105, 105, 20),
     }
 
     @pytest.mark.parametrize("width", sorted(_EXPECTED))
@@ -1508,9 +1504,9 @@ class TestDashboardWidths:
         assert tuple(_rendered_widths(table, width)) == self._EXPECTED[width]
 
     @pytest.mark.parametrize("width", sorted(_EXPECTED))
-    def test_the_timestamps_never_move(self, width: int) -> None:
+    def test_the_stamp_never_moves(self, width: int) -> None:
         table = _build_dashboard_table([_row("a", notes="x")], _TZ)
-        assert _rendered_widths(table, width)[2:] == [TIMESTAMP_COLUMN_WIDTH] * 2
+        assert _rendered_widths(table, width)[2:] == [TIMESTAMP_COLUMN_WIDTH]
 
     @pytest.mark.parametrize("width", sorted(_EXPECTED))
     def test_a_long_note_does_not_change_the_geometry(self, width: int) -> None:
@@ -1548,16 +1544,12 @@ def _ls_column_widths(out: str) -> list[int]:
 
 
 class TestLsLayout:
-    def test_headers_wide(
+    @pytest.mark.parametrize("width", [200, 140, 120, 100, 80])
+    def test_headers_at_every_width(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+        width: int,
     ) -> None:
-        out = _invoke_ls(runner, [_row("a", notes="x")], monkeypatch).output
-        assert _ls_headers(out) == ["(Alias) Name", "Status", "Created", "Last Changed"]
-
-    def test_headers_narrow(
-        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        out = _invoke_ls(runner, [_row("a", notes="x")], monkeypatch, width=100).output
+        out = _invoke_ls(runner, [_row("a", notes="x")], monkeypatch, width=width).output
         assert _ls_headers(out) == ["(Alias) Name", "Status", "Last Changed"]
 
     def test_the_note_shows_under_the_name(
@@ -1621,10 +1613,25 @@ class TestLsLayout:
         headers, widths = _ls_headers(out), _ls_column_widths(out)
         assert widths[headers.index("(Alias) Name")] == widths[headers.index("Status")] == PROSE_MAX_WIDTH
 
-    def test_the_full_table_width_is_the_caps_plus_the_stamps(
+    def test_the_full_table_width_is_the_caps_plus_the_stamp(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         row = _row("a", notes="word " * 50)
         row["summary_one_liner"] = "words " * 30
         out = _invoke_ls(runner, [row], monkeypatch).output
-        assert sum(_ls_column_widths(out)) == 2 * PROSE_MAX_WIDTH + 2 * TIMESTAMP_COLUMN_WIDTH
+        assert sum(_ls_column_widths(out)) == 2 * PROSE_MAX_WIDTH + TIMESTAMP_COLUMN_WIDTH
+
+    def test_the_prose_columns_render_at_the_widened_cap(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The measured geometry, in literals rather than the constants.
+
+        Every other width assertion here is relative to ``PROSE_MAX_WIDTH``,
+        so retuning it would move them all together and say nothing. 52 is
+        the 42 the cap held while ``Created`` was a column plus half of that
+        column's 20 characters.
+        """
+        row = _row("a", notes="word " * 50)
+        row["summary_one_liner"] = "words " * 30
+        out = _invoke_ls(runner, [row], monkeypatch, width=200).output
+        assert _ls_column_widths(out) == [52, 52, 20]

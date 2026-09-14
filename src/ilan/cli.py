@@ -684,28 +684,26 @@ ONE_LINER_STYLE = "yellow italic"
 # the note beneath the alias and name, Status the one-line summary beneath
 # the label — and neither has a claim on more room than the other.
 NAME_TO_STATUS = (1, 1)
+# `_format_ts(..., seconds=False)` is longest as "Yesterday 21:38 CEST": nine
+# for the day word, a space, five for the time, a space, and up to four for a
+# zone abbreviation. At 20 no stamp folds onto a second line in any common
+# zone. Pinned, because under `expand=True` a ratio share grew with the
+# terminal, far past anything a timestamp needs. `Last Changed` is the only
+# column it applies to now — see `PROSE_MAX_WIDTH`.
+TIMESTAMP_COLUMN_WIDTH = 20
 # `ilan ls` sizes its columns to their contents. The two prose columns share
 # one cap, so a long note or summary folds within its cell instead of pushing
 # the table off the right edge, and the two come out equal whenever both are
 # full. Capped rather than pinned: a listing of short names and short
 # statuses should not reserve room prose would have needed.
-PROSE_MAX_WIDTH = 42
-# `_format_ts(..., seconds=False)` is longest as "Yesterday 21:38 CEST": nine
-# for the day word, a space, five for the time, a space, and up to four for a
-# zone abbreviation. At 20 no stamp folds onto a second line in any common
-# zone. Pinned, because under `expand=True` a ratio share grew with the
-# terminal, far past anything a timestamp needs.
-TIMESTAMP_COLUMN_WIDTH = 20
-# On a narrow window `Created` is dropped (see `_terminal_is_narrow`), and the
-# room it held has to go somewhere. The dashboard hands it over by itself —
-# its prose columns are ratios, so a pinned column leaving the table widens
-# them — but `ilan ls` sizes to content, where a cap that does not move means
-# the freed characters are simply left as blank terminal to the right of the
-# table. Raising the cap by half the dropped column each gives the two prose
-# columns exactly the 20 characters `Created` gave up, split the same way the
-# dashboard splits its flexible space (`NAME_TO_STATUS`). Still a cap, not a
-# pin: short names and short statuses stay compact, as on a wide window.
-PROSE_MAX_WIDTH_NARROW = PROSE_MAX_WIDTH + TIMESTAMP_COLUMN_WIDTH // 2
+#
+# 52 is the 42 the cap held while `Created` was still a column plus half of
+# that column's 20 characters — the same even split `NAME_TO_STATUS` gives
+# the dashboard's flexible space, so between them the two prose columns
+# reclaim all of it rather than leaving it blank to the right of the table.
+# The dashboard needs no cap of its own: its prose columns are ratios under
+# `expand=True`, so they absorbed `Created`'s width the moment it left.
+PROSE_MAX_WIDTH = 52
 
 
 def _append_task_number(text: Text, row: dict) -> None:
@@ -912,31 +910,6 @@ def _maybe_warn_one_liner_unconfigured(client: Client) -> None:
         console.print(_ONE_LINER_NO_API_KEY_WARNING)
 
 
-# Below this terminal width (in columns) the ``ls`` / ``dashboard`` tables
-# drop the lower-priority ``Created`` column, leaving ``Name`` / ``Status`` /
-# ``Last Changed`` legible instead of wrapping into an unreadable mess. The
-# note needs no such rule: it lives beneath the name inside the ``Name`` cell
-# (see :func:`_build_name_cell`), so it folds with that column rather than
-# competing with it for width.
-_NARROW_TERMINAL_WIDTH = 120
-
-
-def _terminal_is_narrow(width: int | None = None) -> bool:
-    """Whether the terminal is too narrow to show the Created column."""
-    if width is None:
-        width = console.width
-    return width < _NARROW_TERMINAL_WIDTH
-
-
-def _prose_max_width(narrow: bool) -> int:
-    """The `ilan ls` cap for the Name and Status columns.
-
-    Wider when ``narrow``, because the dropped ``Created`` column's width is
-    shared out between the two — see :data:`PROSE_MAX_WIDTH_NARROW`.
-    """
-    return PROSE_MAX_WIDTH_NARROW if narrow else PROSE_MAX_WIDTH
-
-
 def _do_ls(show_all: bool, concise: bool = False) -> None:
     client = _client()
     if not show_all and not concise:
@@ -958,24 +931,17 @@ def _do_ls(show_all: bool, concise: bool = False) -> None:
     # `-a` lists include DONE/DISCARDED tasks, so the table gets long; the
     # one-liner column would make it even noisier.
     show_one_liner = _one_liner_enabled() and not show_all
-    narrow = _terminal_is_narrow()
-    prose_max = _prose_max_width(narrow)
     table = Table(show_lines=True)
-    table.add_column("(Alias) Name", style="bold", max_width=prose_max)
-    table.add_column("Status", max_width=prose_max)
-    if not narrow:
-        table.add_column("Created", width=TIMESTAMP_COLUMN_WIDTH)
+    table.add_column("(Alias) Name", style="bold", max_width=PROSE_MAX_WIDTH)
+    table.add_column("Status", max_width=PROSE_MAX_WIDTH)
     table.add_column("Last Changed", width=TIMESTAMP_COLUMN_WIDTH)
     for row in rows:
         changed = _format_ts(row["status_changed_at"], seconds=False) if row.get("status_changed_at") else ""
-        cells = [
+        table.add_row(
             _build_name_cell(row),
             _build_status_cell(row, show_one_liner=show_one_liner),
-        ]
-        if not narrow:
-            cells.append(_format_ts(row["created_at"], seconds=False))
-        cells.append(changed)
-        table.add_row(*cells)
+            changed,
+        )
     console.print(table)
 
 
@@ -3377,17 +3343,8 @@ def shortcut_check_model(name: str) -> None:
 
 def _build_dashboard_table(
     rows: list[dict], tz: ZoneInfo, show_one_liner: bool = True,
-    narrow: bool = False,
 ) -> Table:
     """Build a Rich Table from task rows, reusing the _do_ls format.
-
-    When ``narrow`` is set (terminal below ``_NARROW_TERMINAL_WIDTH``), the
-    ``Created`` column is dropped so the remaining columns stay legible, and
-    the room it held goes to ``Name`` and ``Status``. That hand-over needs no
-    code of its own here: this table is ``expand=True`` with the two prose
-    columns as ratios, so whatever a pinned column stops taking is already
-    theirs to share. ``ilan ls`` sizes to content instead and has to widen its
-    cap by hand — see :func:`_prose_max_width`.
 
     A task's note rides inside the ``Name`` cell, so it is never dropped and
     never needs a column of its own.
@@ -3403,16 +3360,14 @@ def _build_dashboard_table(
     header.append("r", style="bold")
     header.append(" refresh", style="dim")
 
-    # The timestamp columns are pinned; Name and Status split what is left
-    # equally (``NAME_TO_STATUS``). Both hold prose — the note under the name,
-    # the summary under the status label — so neither is favoured, and
-    # overlong cells fold within their column instead of pushing it wider.
+    # ``Last Changed`` is pinned; Name and Status split what is left equally
+    # (``NAME_TO_STATUS``). Both hold prose — the note under the name, the
+    # summary under the status label — so neither is favoured, and overlong
+    # cells fold within their column instead of pushing it wider.
     name_share, status_share = NAME_TO_STATUS
     table = Table(title=header, expand=True, show_lines=True)
     table.add_column("(Alias) Name", style="bold", ratio=name_share)
     table.add_column("Status", ratio=status_share)
-    if not narrow:
-        table.add_column("Created", width=TIMESTAMP_COLUMN_WIDTH)
     table.add_column("Last Changed", width=TIMESTAMP_COLUMN_WIDTH)
 
     if not rows:
@@ -3422,14 +3377,11 @@ def _build_dashboard_table(
 
     for row in rows:
         changed = _format_ts(row["status_changed_at"], seconds=False) if row.get("status_changed_at") else ""
-        cells = [
+        table.add_row(
             _build_name_cell(row),
             _build_status_cell(row, show_one_liner=show_one_liner),
-        ]
-        if not narrow:
-            cells.append(_format_ts(row["created_at"], seconds=False))
-        cells.append(changed)
-        table.add_row(*cells)
+            changed,
+        )
     return table
 
 
@@ -3446,15 +3398,12 @@ def _do_dashboard() -> None:
         # dashboard is running leaves it stuck on the values loaded at startup.
         tz = ZoneInfo(str(cfg.load().get("time-zone", "US/Pacific")))
         show_one_liner = _one_liner_enabled()
-        narrow = _terminal_is_narrow()
         try:
             resp = client.list_tasks(show_all=False)
             rows = resp["tasks"]
         except Exception:
             rows = []
-        return _build_dashboard_table(
-            rows, tz, show_one_liner=show_one_liner, narrow=narrow,
-        )
+        return _build_dashboard_table(rows, tz, show_one_liner=show_one_liner)
 
     def _refresh(live: Live) -> None:
         live.update(fetch_and_render())
