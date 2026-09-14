@@ -15,8 +15,6 @@ from rich.text import Span, Text
 
 from ilan.cli import (
     ALIAS_STYLE,
-    NAME_TO_STATUS,
-    PROSE_MAX_WIDTH,
     TIMESTAMP_COLUMN_WIDTH,
     _build_dashboard_table,
     _build_name_cell,
@@ -528,27 +526,8 @@ class TestNoCreatedColumn:
         assert "WORKING" in text
 
 
-class TestTheProseColumnsTookTheCreatedWidth:
-    """The 20 characters ``Created`` held belong to Name and Status now.
-
-    The width has to land somewhere: left unclaimed it is simply blank
-    terminal to the right of the table, which is the worst of both worlds —
-    a column gone *and* no more room for the prose that replaced it.
-    """
-
-    def test_the_ls_cap_is_the_old_cap_plus_half_the_dropped_column(self) -> None:
-        """Asserted as arithmetic, so retuning either constant cannot quietly
-        leave part of the dropped column unclaimed.
-        """
-        cap_while_created_was_a_column = 42
-        gain = PROSE_MAX_WIDTH - cap_while_created_was_a_column
-        assert gain * len(NAME_TO_STATUS) == TIMESTAMP_COLUMN_WIDTH
-
-    def test_one_cap_for_both_columns_means_an_equal_split(self) -> None:
-        """`ls` gives Name and Status the same cap, so half each is only the
-        right share while the dashboard's own split is equal too.
-        """
-        assert NAME_TO_STATUS == (1, 1)
+class TestDashboardProseWidths:
+    """Name and Status share the space left by the fixed timestamp column."""
 
     @pytest.mark.parametrize("width", [140, 160, 200, 240])
     def test_the_dashboard_fills_the_window(self, width: int) -> None:
