@@ -7,7 +7,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from ilan.cli import _format_sleep_suffix, _parse_sleep_duration, main
+from ilan.cli import (
+    _parse_sleep_duration,
+    main,
+)
+from ilan.time_format import (
+    _format_sleep_suffix,
+)
 
 
 @pytest.fixture()

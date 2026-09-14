@@ -18,7 +18,6 @@ from ilan.cli import (
     TIMESTAMP_COLUMN_WIDTH,
     _build_dashboard_table,
     _build_name_cell,
-    _format_ts,
     _maybe_warn_one_liner_unconfigured,
     _name_style,
     main,
@@ -28,6 +27,9 @@ from ilan.models import (
     ENGINE_NAME_STYLE,
     STYLE_FOR_STATUS,
     TaskStatus,
+)
+from ilan.time_format import (
+    _format_ts,
 )
 
 
