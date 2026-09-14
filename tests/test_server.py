@@ -6,7 +6,6 @@ import os
 import subprocess
 import sys
 import json
-import signal
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -24,7 +23,7 @@ from ilan.models import ASTRA_MODEL, FABLE_MODEL, Task, TaskStatus
 from ilan.server import IlanServer, read_server_info, read_server_owner
 from ilan.store import Store
 
-from tests.helpers import SERVE_POLL_INTERVAL, wait_until_serving
+from tests.helpers import get_json as _get, post_json as _post, running_server
 
 
 def test_wait_until_serving_returns_only_after_recovery(
@@ -52,85 +51,10 @@ def test_wait_until_serving_returns_only_after_recovery(
     server.runner.recover = _slow_recover  # type: ignore[method-assign]
     server.runner.reap_finished = lambda: None  # type: ignore[method-assign]
 
-    with patch.object(signal, "signal"):
-        t = threading.Thread(
-            target=server.run,
-            kwargs={"host": "127.0.0.1", "port": 0, "poll_interval": SERVE_POLL_INTERVAL},
-            daemon=True,
+    with running_server(server):
+        assert recovery_done.is_set(), (
+            "wait_until_serving() returned while recover() was still running"
         )
-        t.start()
-        try:
-            wait_until_serving(server)
-            assert recovery_done.is_set(), (
-                "wait_until_serving() returned while recover() was still running"
-            )
-        finally:
-            server.shutdown()
-            t.join(timeout=3)
-
-
-@pytest.fixture()
-def ilan_server(tmp_workdir: Path, tmp_config: Path, env_with_mock_claude: None):
-    """Start an IlanServer on an ephemeral port and tear it down after the test.
-
-    The runner is patched to not spawn real agent processes: ``start`` mimics
-    a successful spawn (task flips to WORKING) and the reaper loop is a
-    no-op, so tests can exercise individual routes in isolation.
-    """
-    import ilan.config as cfg_mod
-
-    cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
-
-    server = IlanServer()
-
-    def _fake_start(task) -> bool:
-        task.set_status(TaskStatus.WORKING)
-        server.store.put_task(task)
-        return True
-
-    server.runner.start = _fake_start  # type: ignore[method-assign]
-    server.runner.reap_finished = lambda: None  # type: ignore[method-assign]
-
-    # Patch signal.signal to avoid "signal only works in main thread" error
-    with patch.object(signal, "signal"):
-        t = threading.Thread(
-            target=server.run,
-            kwargs={"host": "127.0.0.1", "port": 0, "poll_interval": SERVE_POLL_INTERVAL},
-            daemon=True,
-        )
-        t.start()
-
-        port = wait_until_serving(server)
-        server._test_port = port  # type: ignore[attr-defined]
-        server._test_url = f"http://127.0.0.1:{port}"  # type: ignore[attr-defined]
-
-        yield server
-
-        server.shutdown()
-        t.join(timeout=3)
-
-
-def _get(server: IlanServer, path: str) -> dict:
-    url = f"{server._test_url}{path}"  # type: ignore[attr-defined]
-    req = Request(url)
-    try:
-        with urlopen(req, timeout=5) as resp:
-            return json.loads(resp.read())
-    except HTTPError as exc:
-        return json.loads(exc.read())
-
-
-def _post(server: IlanServer, path: str, body: dict | None = None) -> dict:
-    url = f"{server._test_url}{path}"  # type: ignore[attr-defined]
-    data = json.dumps(body).encode() if body else None
-    req = Request(url, data=data, method="POST")
-    if data:
-        req.add_header("Content-Type", "application/json")
-    try:
-        with urlopen(req, timeout=5) as resp:
-            return json.loads(resp.read())
-    except HTTPError as exc:
-        return json.loads(exc.read())
 
 
 def _delete(server: IlanServer, path: str) -> dict:

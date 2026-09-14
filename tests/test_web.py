@@ -18,10 +18,6 @@ from ilan.models import (
 )
 from ilan.server import ROUTES, IlanServer
 
-# The web routes need a live server, and test_server.py already owns the
-# fixture that starts one with a stubbed-out runner.
-from tests.test_server import ilan_server  # noqa: F401
-
 
 def _raw(server: IlanServer, path: str) -> http.client.HTTPResponse:
     """GET *path* verbatim, without following redirects or normalising the path.

@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import signal
-import threading
 import uuid
 from pathlib import Path
 from unittest.mock import patch
@@ -18,7 +16,6 @@ from ilan.runner import Runner
 from ilan.server import IlanServer
 from ilan.store import Store
 
-from tests.helpers import SERVE_POLL_INTERVAL, wait_until_serving
 
 
 # ── Store.branch_task ───────────────────────────────────────────────────
@@ -281,40 +278,6 @@ class TestStoreBranch:
 
 
 # ── server /tasks/<name>/branch ─────────────────────────────────────────
-
-
-@pytest.fixture()
-def ilan_server(tmp_workdir: Path, tmp_config: Path, env_with_mock_claude: None):
-    import ilan.config as cfg_mod
-
-    cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
-
-    server = IlanServer()
-
-    def _fake_start(task) -> bool:
-        task.set_status(TaskStatus.WORKING)
-        server.store.put_task(task)
-        return True
-
-    server.runner.start = _fake_start  # type: ignore[method-assign]
-    server.runner.reap_finished = lambda: None  # type: ignore[method-assign]
-
-    with patch.object(signal, "signal"):
-        t = threading.Thread(
-            target=server.run,
-            kwargs={"host": "127.0.0.1", "port": 0, "poll_interval": SERVE_POLL_INTERVAL},
-            daemon=True,
-        )
-        t.start()
-
-        port = wait_until_serving(server)
-        server._test_port = port  # type: ignore[attr-defined]
-        server._test_url = f"http://127.0.0.1:{port}"  # type: ignore[attr-defined]
-
-        yield server
-
-        server.shutdown()
-        t.join(timeout=3)
 
 
 def _post(server: IlanServer, path: str, body: dict | None = None) -> tuple[int, dict]:

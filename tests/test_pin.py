@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-import signal
-import threading
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError
@@ -17,13 +16,12 @@ from rich.cells import cell_len
 from rich.console import Console
 
 import ilan.cli as cli_mod
+import ilan.config as cfg_mod
 from ilan.cli import PIN_MARKER, _build_name_cell, main
 from ilan.models import Task, TaskStatus
 from ilan.server import IlanServer
 from ilan.store import Store
-
-from tests.helpers import SERVE_POLL_INTERVAL, wait_until_serving
-
+from tests.helpers import running_server
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -69,30 +67,17 @@ class TestPinnedField:
 
 
 @pytest.fixture()
-def ilan_server(tmp_workdir: Path, tmp_config: Path, env_with_mock_claude: None):
-    import ilan.config as cfg_mod
-
+def ilan_server(
+    tmp_workdir: Path, tmp_config: Path, env_with_mock_claude: None,
+) -> Iterator[IlanServer]:
     cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
 
     server = IlanServer()
     server.runner.start = lambda task: True  # type: ignore[method-assign]
     server.runner.reap_finished = lambda: None  # type: ignore[method-assign]
 
-    with patch.object(signal, "signal"):
-        t = threading.Thread(
-            target=server.run,
-            kwargs={"host": "127.0.0.1", "port": 0, "poll_interval": SERVE_POLL_INTERVAL},
-            daemon=True,
-        )
-        t.start()
-
-        port = wait_until_serving(server)
-        server._test_url = f"http://127.0.0.1:{port}"  # type: ignore[attr-defined]
-
+    with running_server(server):
         yield server
-
-        server.shutdown()
-        t.join(timeout=3)
 
 
 def _post(server: IlanServer, path: str) -> tuple[int, dict]:
