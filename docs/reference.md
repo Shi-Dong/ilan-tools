@@ -277,7 +277,7 @@ before writing. Use `--yes` for non-interactive scripts.
 | `github-token` | _(empty)_ | GitHub personal-access token (needs the `gist` scope). Setting it turns on [Gist conversation mirroring](#gist-conversation-mirroring); leaving it empty keeps the feature off. Masked in `ilan config show` (only the last five characters are displayed, preceded by `**`) |
 | `push-contact` | `mailto:ilan@example.com` | Server-side: the VAPID contact sent with every web-app push notification. Apple rejects the token for a URL or a host without a dot, so a value that is not a `mailto:` falls back to the default |
 | `dashboard-interval` | `1` | Client-side: seconds between automatic refreshes in `ilan dashboard` |
-| `line-number` | `false` | Client-side: when `true`, `ilan tail` prefixes each assistant line with a yellow `[N]` marker and `ilan reply` / `ilan task branch` expand `@N` into the Nth line, double-quoted |
+| `line-number` | `false` | Client-side: when `true`, `ilan tail` prefixes each assistant line with a yellow `[N]` marker and `ilan reply` / `ilan task branch` expand `@N` into the Nth line as a Markdown blockquote on a line of its own |
 | `markdown` | `false` | Client-side: render assistant output as Markdown in `ilan tail`, `ilan reply`, and their task-command equivalents; `-m`/`--md` and `--no-md` override it for one invocation |
 | `one-line-summary` | `true` | Client-side: render the `gpt-5.6-luna`-generated one-line summary in the Status column of `ilan ls` and `ilan dashboard` (`ilan ls -a` never shows it, to keep the longer all-tasks listing compact). The summary is produced by the server: via OpenAI's API when `api-key-codex` is set, otherwise via the server's local `codex` CLI (`codex login` session). This flag only controls whether the client shows it. If on while the server has no `api-key-codex` set, the client prints a note about the CLI fallback. |
 
@@ -401,9 +401,23 @@ Then `ilan tail <task>` prints each line of every shown assistant message with
 a yellow `[N]` prefix; numbering is continuous across all assistant messages
 when `-n` surfaces more than one. `ilan reply` (and its `re` shorthand) then
 looks up the most recent tail for that task and replaces every `@N` in your
-reply with the Nth line wrapped in double quotes — so `ilan reply my-task "about @12, ..."`
-becomes `about "the 12th line ...", ...` before being sent. Out-of-range
-references pass through unchanged.
+reply with the Nth line as a Markdown blockquote on a line of its own — so
+`ilan reply my-task "about @12, what did you mean?"` becomes
+
+```text
+about
+
+> the 12th line ...
+
+what did you mean?
+```
+
+before being sent. Because the quote is its own block, the words around it are
+pushed onto their own lines, with a blank line at each seam; two `@N`
+references in one message therefore give you two separate blockquotes. This is
+the same shape the web app's "ask about this" button produces from a
+selection. Out-of-range references pass through unchanged, and a message where
+nothing was substituted is sent exactly as typed.
 
 `ilan task branch` (and its `branch` shorthand) does the same expansion on its
 first reply (`-d "..."` or `-f FILE`), looking up the cached tail of the parent
