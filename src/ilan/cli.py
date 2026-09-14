@@ -17,6 +17,7 @@ import termios
 import time
 import tty
 import webbrowser
+from copy import copy
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -2982,241 +2983,28 @@ def task_switch_backend(name: str) -> None:
 
 # ── top-level shorthands ─────────────────────────────────────────────
 
-@main.command("add")
-@click.option("-n", "--name", default=None,
-              help="Short name for the task. Omit it to get a generated "
-                   f"burnable {BURNABLE_PREFIX}… name.")
-@click.option("-f", "--file", "file_path", type=click.Path(exists=True), default=None,
-              help="Path to a file containing the task prompt.")
-@click.option("-d", "--description", default=None, help="Inline task prompt.")
-@click.option("--claude", "agent", flag_value="claude", default=None,
-              help="Run this task on the Claude backend (the default).")
-@click.option("--codex", "agent", flag_value="codex",
-              help="Run this task on the Codex backend.")
-@click.option("--max", "max_model", is_flag=True, default=False,
-              help="Create the task on its backend's max model.")
-def shortcut_add(
-    name: str | None, file_path: str | None, description: str | None,
-    agent: str | None, max_model: bool,
-) -> None:
-    """Shorthand for 'ilan task add'."""
-    _do_add(name, file_path, description, agent, max_model)
+def _register_task_shortcut(name: str, *, help: str | None = None) -> None:
+    """Reuse a task command's callback and options with top-level help text."""
+    command = copy(task_group.commands[name])
+    command.short_help = f"Shorthand for 'ilan task {name}'."
+    command.help = help if help is not None else command.short_help
+    main.add_command(command, name)
 
 
-@main.command("ls")
-@click.argument("name", required=False, default=None, shell_complete=_complete_task_names)
-@click.option("-a", "--all", "show_all", is_flag=True, help="Include DONE and DISCARDED tasks.")
-@click.option("-c", "--concise", is_flag=True,
-              help="Show pin, alias, task name, unread marker, and status.")
-@click.option("-n", "--num", "num", type=int, default=None,
-              help="With a task name, show the final N assistant messages.")
-@click.option("--line-number/--no-line-number", "line_number", default=None,
-              help="When a task name is given, override the ``line-number`` "
-                   "config for this invocation.")
-def shortcut_ls(
-    name: str | None, show_all: bool, concise: bool, num: int | None,
-    line_number: bool | None,
-) -> None:
-    """Shorthand for 'ilan task ls'. If a task name is given, acts as 'ilan tail'."""
-    if name is not None:
-        _do_tail(name, n=num, line_number=line_number)
-    else:
-        if line_number is not None:
-            console.print(
-                "[red]--line-number/--no-line-number requires a task name.[/red]"
-            )
-            raise SystemExit(1)
-        _do_ls(show_all, concise=concise)
+for _shortcut_name in (
+    "add", "info", "tail", "done", "discard", "undone", "undiscard", "unread",
+    "pin", "unpin", "max", "unmax", "switch-backend", "rename", "alias",
+    "branch", "tap", "cancel", "sleep", "attach", "log", "logs", "open",
+    "check-model",
+):
+    _register_task_shortcut(_shortcut_name)
 
-
-@main.command("info")
-@click.argument("name", shell_complete=_complete_task_names)
-def shortcut_info(name: str) -> None:
-    """Shorthand for 'ilan task info'."""
-    _do_info(name)
-
-
-@main.command("tail")
-@click.argument("name", shell_complete=_complete_task_names)
-@click.option("-n", "--num", "num", type=int, default=None,
-              help="Show history for the final N assistant messages.")
-@click.option("-m", "--md/--no-md", "markdown", default=None,
-              help=_TAIL_MARKDOWN_HELP)
-@click.option("--line-number/--no-line-number", "line_number", default=None,
-              help="Override the ``line-number`` config for this invocation.")
-def shortcut_tail(
-    name: str, num: int | None, markdown: bool | None, line_number: bool | None,
-) -> None:
-    """Shorthand for 'ilan task tail'."""
-    _do_tail(name, n=num, markdown=markdown, line_number=line_number)
-
-
-@main.command(
-    "reply", context_settings=_REPLY_HELP_FLAGS, help=_REPLY_HELP,
-    epilog=_REPLY_EPILOG, short_help="Shorthand for 'ilan task reply'.",
+_register_task_shortcut(
+    "ls",
+    help="Shorthand for 'ilan task ls'. If a task name is given, acts as 'ilan tail'.",
 )
-@click.argument("name", shell_complete=_complete_task_names)
-@click.argument("message", required=False, default=None)
-@click.option("-n", "--num", "num", type=int, default=None,
-              help="With no message, show the final N assistant messages.")
-@click.option("-m", "--md/--no-md", "markdown", default=None,
-              help=_REPLY_MARKDOWN_HELP)
-@click.option("--line-number/--no-line-number", "line_number", default=None,
-              help="When no message is given, override the ``line-number`` "
-                   "config for this invocation.")
-@click.option("--max", "max_", is_flag=True, default=False,
-              help="Switch the task to its backend's max model before posting "
-                   "the reply; the model persists for all subsequent "
-                   "messages.")
-@click.option("--unmax", "unmax", is_flag=True, default=False,
-              help="Reset the task's model to the config default before "
-                   "posting the reply.")
-@click.option("-t", "--every", "every", default=None, help=_REPLY_EVERY_HELP)
-@click.option("-e", "--editor", "editor", is_flag=True,
-              help=_REPLY_EDITOR_HELP)
-@click.option("-u", "--update", "update", is_flag=True,
-              help=_REPLY_UPDATE_HELP)
-def shortcut_reply(
-    name: str, message: str | None, num: int | None, markdown: bool | None,
-    line_number: bool | None, max_: bool, unmax: bool, every: str | None,
-    editor: bool, update: bool,
-) -> None:
-    """Shorthand for 'ilan task reply'."""
-    _do_reply_command(
-        name, message, num, markdown, line_number, max_, unmax, every, editor,
-        update,
-    )
-
-
-@main.command(
-    "re", context_settings=_REPLY_HELP_FLAGS, help=_REPLY_HELP,
-    epilog=_REPLY_EPILOG, short_help="Shorthand for 'ilan task reply'.",
-)
-@click.argument("name", shell_complete=_complete_task_names)
-@click.argument("message", required=False, default=None)
-@click.option("-n", "--num", "num", type=int, default=None,
-              help="With no message, show the final N assistant messages.")
-@click.option("-m", "--md/--no-md", "markdown", default=None,
-              help=_REPLY_MARKDOWN_HELP)
-@click.option("--line-number/--no-line-number", "line_number", default=None,
-              help="When no message is given, override the ``line-number`` "
-                   "config for this invocation.")
-@click.option("--max", "max_", is_flag=True, default=False,
-              help="Switch the task to its backend's max model before posting "
-                   "the reply; the model persists for all subsequent "
-                   "messages.")
-@click.option("--unmax", "unmax", is_flag=True, default=False,
-              help="Reset the task's model to the config default before "
-                   "posting the reply.")
-@click.option("-t", "--every", "every", default=None, help=_REPLY_EVERY_HELP)
-@click.option("-e", "--editor", "editor", is_flag=True,
-              help=_REPLY_EDITOR_HELP)
-@click.option("-u", "--update", "update", is_flag=True,
-              help=_REPLY_UPDATE_HELP)
-def shortcut_re(
-    name: str, message: str | None, num: int | None, markdown: bool | None,
-    line_number: bool | None, max_: bool, unmax: bool, every: str | None,
-    editor: bool, update: bool,
-) -> None:
-    """Shorthand for 'ilan task reply'."""
-    _do_reply_command(
-        name, message, num, markdown, line_number, max_, unmax, every, editor,
-        update,
-    )
-
-
-@main.command("done")
-@click.argument("names", nargs=-1, required=True, shell_complete=_complete_task_names)
-def shortcut_done(names: tuple[str, ...]) -> None:
-    """Shorthand for 'ilan task done'."""
-    _do_done(names)
-
-
-@main.command("discard")
-@click.argument("names", nargs=-1, required=True, shell_complete=_complete_task_names)
-def shortcut_discard(names: tuple[str, ...]) -> None:
-    """Shorthand for 'ilan task discard'."""
-    _do_discard(names)
-
-
-@main.command("undone")
-@click.argument("name", shell_complete=_complete_task_names)
-def shortcut_undone(name: str) -> None:
-    """Shorthand for 'ilan task undone'."""
-    _do_undone(name)
-
-
-@main.command("undiscard")
-@click.argument("name", shell_complete=_complete_task_names)
-def shortcut_undiscard(name: str) -> None:
-    """Shorthand for 'ilan task undiscard'."""
-    _do_undiscard(name)
-
-
-@main.command("unread")
-@click.argument("names", nargs=-1, required=True, shell_complete=_complete_task_names)
-def shortcut_unread(names: tuple[str, ...]) -> None:
-    """Shorthand for 'ilan task unread'."""
-    _do_unread(names)
-
-
-@main.command("pin")
-@click.argument("name", shell_complete=_complete_task_names)
-def shortcut_pin(name: str) -> None:
-    """Shorthand for 'ilan task pin'."""
-    _do_pin(name)
-
-
-@main.command("unpin")
-@click.argument("name", shell_complete=_complete_task_names)
-def shortcut_unpin(name: str) -> None:
-    """Shorthand for 'ilan task unpin'."""
-    _do_unpin(name)
-
-
-@main.command("max")
-@click.argument("name", shell_complete=_complete_task_names)
-def shortcut_max(name: str) -> None:
-    """Shorthand for 'ilan task max'."""
-    _do_max(name)
-
-
-@main.command("unmax")
-@click.argument("name", shell_complete=_complete_task_names)
-def shortcut_unmax(name: str) -> None:
-    """Shorthand for 'ilan task unmax'."""
-    _do_unmax(name)
-
-
-@main.command("switch-backend")
-@click.argument("name", shell_complete=_complete_task_names)
-def shortcut_switch_backend(name: str) -> None:
-    """Shorthand for 'ilan task switch-backend'."""
-    _do_switch_backend(name)
-
-
-@main.command("rename")
-@click.argument("old_name", shell_complete=_complete_task_names)
-@click.argument("new_name")
-@click.option("-d", "--description", default=None,
-              help="Reply to send to the task right after renaming.")
-def shortcut_rename(old_name: str, new_name: str, description: str | None) -> None:
-    """Shorthand for 'ilan task rename'."""
-    _do_rename(old_name, new_name, description)
-
-
-@main.command("alias")
-@click.argument("name", shell_complete=_complete_task_names)
-@click.argument("new_alias")
-def shortcut_alias(name: str, new_alias: str) -> None:
-    """Shorthand for 'ilan task alias'."""
-    _do_set_alias(name, new_alias)
-
-
-# The other shortcuts are a bare pointer at the canonical command, but this is
-# the spelling people actually type, so it carries the one rule they need at
-# the moment of typing.
-@main.command(
+_register_task_shortcut("reply", help=_REPLY_HELP)
+_register_task_shortcut(
     "notes",
     help=(
         "Shorthand for 'ilan task notes'. With no note and no flag it opens "
@@ -3226,95 +3014,8 @@ def shortcut_alias(name: str, new_alias: str) -> None:
         f"{MAX_NOTES_LENGTH}."
     ),
 )
-@click.argument("name", shell_complete=_complete_task_names)
-@click.argument("note", required=False, default=None)
-@click.option("-a", "--append", "append", default=None, metavar="TEXT",
-              help=_APPEND_HELP)
-@click.option("-c", "--clear", "clear", is_flag=True, help=_CLEAR_HELP)
-@click.option("-e", "--editor", "editor", is_flag=True, help=_EDITOR_HELP)
-def shortcut_notes(
-    name: str, note: str | None, append: str | None, clear: bool, editor: bool,
-) -> None:
-    """Shorthand for 'ilan task notes'."""
-    _do_set_notes(name, note, append=append, clear=clear, editor=editor)
-
-
-main.add_command(shortcut_notes, "note")
-
-
-@main.command("branch")
-@click.argument("old_name", shell_complete=_complete_task_names)
-@click.option("-n", "--name", "new_name", default=None,
-              help="Short name for the branched (new) task. Omit it to get a "
-                   f"generated burnable {BURNABLE_PREFIX}… name.")
-@click.option("-f", "--file", "file_path", type=click.Path(exists=True), default=None,
-              help="Path to a file containing the child task's first assignment.")
-@click.option("-d", "--description", default=None,
-              help="Inline first assignment for the child task.")
-def shortcut_branch(
-    old_name: str, new_name: str | None, file_path: str | None, description: str | None
-) -> None:
-    """Shorthand for 'ilan task branch'."""
-    _do_branch(old_name, new_name, file_path, description)
-
-
-@main.command("tap")
-@click.argument("name", shell_complete=_complete_task_names)
-def shortcut_tap(name: str) -> None:
-    """Shorthand for 'ilan task tap'."""
-    _do_tap(name)
-
-
-@main.command("cancel")
-@click.argument("name", shell_complete=_complete_task_names)
-def shortcut_cancel(name: str) -> None:
-    """Shorthand for 'ilan task cancel'."""
-    _do_cancel(name)
-
-
-@main.command("sleep")
-@click.argument("name", shell_complete=_complete_task_names)
-@click.argument("duration")
-def shortcut_sleep(name: str, duration: str) -> None:
-    """Shorthand for 'ilan task sleep'."""
-    _do_sleep(name, duration)
-
-
-@main.command("attach")
-@click.argument("name", shell_complete=_complete_task_names)
-def shortcut_attach(name: str) -> None:
-    """Shorthand for 'ilan task attach'."""
-    _do_attach(name)
-
-
-@main.command("log")
-@click.argument("name", shell_complete=_complete_task_names)
-@click.option("-p", "--path", is_flag=True, help="Print the log file path instead of opening it.")
-def shortcut_log(name: str, path: bool) -> None:
-    """Shorthand for 'ilan task log'."""
-    _open_log(name, path=path)
-
-
-@main.command("logs")
-@click.argument("name", shell_complete=_complete_task_names)
-@click.option("-p", "--path", is_flag=True, help="Print the log file path instead of opening it.")
-def shortcut_logs(name: str, path: bool) -> None:
-    """Shorthand for 'ilan task logs'."""
-    _open_log(name, path=path)
-
-
-@main.command("open")
-@click.argument("name", shell_complete=_complete_task_names)
-def shortcut_open(name: str) -> None:
-    """Shorthand for 'ilan task open'."""
-    _do_open(name)
-
-
-@main.command("check-model")
-@click.argument("name", shell_complete=_complete_task_names)
-def shortcut_check_model(name: str) -> None:
-    """Shorthand for 'ilan task check-model'."""
-    _do_check_model(name)
+main.add_command(main.commands["reply"], "re")
+main.add_command(main.commands["notes"], "note")
 
 
 # ── dashboard ────────────────────────────────────────────────────────
