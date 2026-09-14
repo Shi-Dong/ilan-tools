@@ -16,8 +16,10 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from ilan.time_format import (
+    _format_sleep_suffix,
+)
 
-from ilan.cli import _format_sleep_suffix
 
 HARNESS = Path(__file__).parent / "js" / "sleep_dump.mjs"
 

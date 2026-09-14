@@ -16,10 +16,12 @@ from ilan.cli import (
     _build_status_cell,
     _build_tree_label,
     _TreeNode,
-    _format_reply_every_suffix,
     main,
 )
 from ilan.models import AGENT_IN_LOOP_LABEL, AGENT_IN_LOOP_STYLE
+from ilan.time_format import (
+    _format_reply_every_suffix,
+)
 
 
 @pytest.fixture()

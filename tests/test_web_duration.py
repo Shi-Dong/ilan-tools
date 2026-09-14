@@ -18,12 +18,12 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
-from ilan.cli import (
+from ilan.time_format import (
     _format_compact_duration,
     _format_reply_every_suffix,
     _format_sleep_suffix,
 )
+
 
 HARNESS = Path(__file__).parent / "js" / "duration_dump.mjs"
 
