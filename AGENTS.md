@@ -18,6 +18,7 @@ reference.
 - `src/ilan/cli.py` — Click commands (client side).
 - `src/ilan/client.py` — thin HTTP client to the server.
 - `src/ilan/server.py` — HTTP routes + reaper loop.
+- `src/ilan/server_state.py` — PID/owner files used for local server discovery.
 - `src/ilan/runner.py` — spawns / kills / reaps agents; builds prompts.
 - `src/ilan/backends/` — one adapter per engine (`base.py`, `claude.py`, `codex.py`).
 - `src/ilan/models.py` — `Task`, `TaskStatus`, engine constants.

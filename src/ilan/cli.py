@@ -53,7 +53,7 @@ from ilan.models import (
     max_tag,
     tag_for_max_model,
 )
-from ilan.server import read_server_info
+from ilan.server_state import read_server_info
 from ilan.store import Store
 
 console = Console()

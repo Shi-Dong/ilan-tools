@@ -20,7 +20,8 @@ import ilan.server as srv_mod
 from ilan import __version__
 from ilan.client import Client
 from ilan.models import ASTRA_MODEL, FABLE_MODEL, Task, TaskStatus
-from ilan.server import IlanServer, read_server_info, read_server_owner
+from ilan.server import IlanServer
+from ilan.server_state import read_server_info, read_server_owner
 from ilan.store import Store
 
 from tests.helpers import get_json as _get, post_json as _post, running_server
@@ -77,7 +78,7 @@ class TestReadServerInfo:
 
     def _pid_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         pf = tmp_path / "server.pid"
-        monkeypatch.setattr("ilan.server.pid_file_path", lambda: pf)
+        monkeypatch.setattr("ilan.server_state.pid_file_path", lambda: pf)
         return pf
 
     def test_missing_pid_file_returns_none(
@@ -91,7 +92,7 @@ class TestReadServerInfo:
     ) -> None:
         pf = self._pid_file(tmp_path, monkeypatch)
         pf.write_text(json.dumps(self._INFO))
-        monkeypatch.setattr("ilan.server.os.kill", lambda pid, sig: None)
+        monkeypatch.setattr("ilan.server_state.os.kill", lambda pid, sig: None)
         assert read_server_info() == self._INFO
         assert pf.exists()
 
@@ -109,7 +110,7 @@ class TestReadServerInfo:
         def _kill(pid: int, sig: int) -> None:
             raise PermissionError
 
-        monkeypatch.setattr("ilan.server.os.kill", _kill)
+        monkeypatch.setattr("ilan.server_state.os.kill", _kill)
         assert read_server_info() == self._INFO
         assert pf.exists()
 
@@ -122,7 +123,7 @@ class TestReadServerInfo:
         def _kill(pid: int, sig: int) -> None:
             raise ProcessLookupError
 
-        monkeypatch.setattr("ilan.server.os.kill", _kill)
+        monkeypatch.setattr("ilan.server_state.os.kill", _kill)
         assert read_server_info() is None
         assert not pf.exists()
 
@@ -151,7 +152,7 @@ class TestServerOwnerPinning:
 
     def _owner_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         path = tmp_path / "server.owner"
-        monkeypatch.setattr("ilan.server.server_owner_path", lambda: path)
+        monkeypatch.setattr("ilan.server_state.server_owner_path", lambda: path)
         return path
 
     def test_missing_file_means_unpinned(
