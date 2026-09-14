@@ -96,15 +96,18 @@ def ilan_server(
     """Start an IlanServer on an ephemeral port and tear it down after the test.
 
     The runner is patched to not spawn real agent processes: ``start`` mimics
-    a successful spawn (task flips to WORKING) and the reaper loop is a
-    no-op, so tests can exercise individual routes in isolation.
+    a successful spawn (task flips to WORKING, or SLEEPING for a sleep prompt)
+    and the reaper loop is a no-op, so tests can exercise individual routes in
+    isolation.
     """
     cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
 
     server = IlanServer()
 
     def _fake_start(task: Task) -> bool:
-        task.set_status(TaskStatus.WORKING)
+        task.set_status(
+            TaskStatus.SLEEPING if task.sleep_seconds else TaskStatus.WORKING
+        )
         server.store.put_task(task)
         return True
 

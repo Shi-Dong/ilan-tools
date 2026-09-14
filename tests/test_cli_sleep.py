@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -12,7 +13,8 @@ from ilan.cli import (
     main,
 )
 from ilan.time_format import (
-    _format_sleep_suffix,
+    _format_progress_duration,
+    _sleep_progress,
 )
 
 
@@ -166,53 +168,45 @@ class TestParseSleepDuration:
             _parse_sleep_duration(value)
 
 
-class TestFormatSleepSuffix:
-    def test_none_returns_none(self) -> None:
-        assert _format_sleep_suffix(None) is None
+class TestSleepProgress:
+    NOW = datetime(2026, 9, 14, 12, tzinfo=timezone.utc)
 
-    def test_zero_returns_none(self) -> None:
-        assert _format_sleep_suffix(0) is None
+    def _progress(self, elapsed: int, total: int = 300) -> tuple[int, int] | None:
+        started = (self.NOW - timedelta(seconds=elapsed)).isoformat()
+        with patch("ilan.time_format.datetime", wraps=datetime) as clock:
+            clock.now.return_value = self.NOW
+            return _sleep_progress(started, total)
 
-    def test_negative_returns_none(self) -> None:
-        assert _format_sleep_suffix(-5) is None
+    def test_reports_elapsed_against_total(self) -> None:
+        assert self._progress(123) == (123, 300)
 
-    def test_positive_shows_fixed_string(self) -> None:
-        assert _format_sleep_suffix(300) == " (sleeping for 5m)"
+    def test_clamps_at_the_requested_sleep(self) -> None:
+        assert self._progress(600) == (300, 300)
+
+    def test_future_start_clamps_to_zero(self) -> None:
+        assert self._progress(-10) == (0, 300)
+
+    @pytest.mark.parametrize(
+        ("started_at", "seconds"),
+        [(None, 300), ("not-a-date", 300), (NOW.isoformat(), None),
+         (NOW.isoformat(), 0), (NOW.isoformat(), -1)],
+    )
+    def test_invalid_metadata_has_no_progress(
+        self, started_at: str | None, seconds: int | None
+    ) -> None:
+        assert _sleep_progress(started_at, seconds) is None
 
     @pytest.mark.parametrize(
         ("seconds", "expected"),
         [
-            (42, " (sleeping for 0.7m)"),
-            (60, " (sleeping for 1m)"),
-            (300, " (sleeping for 5m)"),
-            (630, " (sleeping for 10.5m)"),
-            (1799, " (sleeping for 29.9m)"),
-            (1800, " (sleeping for 0.5h)"),
-            (3599, " (sleeping for 0.9h)"),
-            (3600, " (sleeping for 1h)"),
-            (4680, " (sleeping for 1.3h)"),
-            (7199, " (sleeping for 1.9h)"),
-            (7200, " (sleeping for 2h)"),
-            (86400, " (sleeping for 24h)"),
+            (0, "0s"),
+            (42, "42s"),
+            (60, "1m"),
+            (63, "1m03s"),
+            (3599, "59m59s"),
+            (3600, "1h00m"),
+            (9480, "2h38m"),
         ],
     )
-    def test_unit_switches_at_threshold(self, seconds: int, expected: str) -> None:
-        assert _format_sleep_suffix(seconds) == expected
-
-    @pytest.mark.parametrize("seconds", range(1, 6))
-    def test_sub_tenth_sleeps_clamp_up(self, seconds: int) -> None:
-        assert _format_sleep_suffix(seconds) == " (sleeping for 0.1m)"
-
-    @pytest.mark.parametrize("seconds", range(6, 3 * 3600, 7))
-    def test_never_rounds_up(self, seconds: int) -> None:
-        suffix = _format_sleep_suffix(seconds)
-        assert suffix is not None
-        shown = float(suffix.removeprefix(" (sleeping for ").removesuffix(")")[:-1])
-        unit_seconds = 3600 if seconds >= 1800 else 60
-        assert shown <= seconds / unit_seconds
-
-    @pytest.mark.parametrize("seconds", range(1, 3 * 3600, 7))
-    def test_no_trailing_zero_decimal(self, seconds: int) -> None:
-        suffix = _format_sleep_suffix(seconds)
-        assert suffix is not None
-        assert not suffix.removesuffix(")").endswith((".0m", ".0h"))
+    def test_progress_duration_is_compact(self, seconds: int, expected: str) -> None:
+        assert _format_progress_duration(seconds) == expected

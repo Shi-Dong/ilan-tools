@@ -1,7 +1,7 @@
 /* Assertions for the line under a conversation's title.
  *
- * It answers "what is this task doing now" — the status, plus any sleep or
- * reply-every cycle. Three things are deliberately not on it, and each is
+ * It answers "what is this task doing now" — the status and its sleep progress
+ * or reply-every cycle. Three things are deliberately not on it, and each is
  * asserted as an absence with its neighbours checked alongside, since "X is
  * gone" would also be satisfied by the whole line disappearing:
  *
@@ -26,7 +26,7 @@ const BRANCHED = {
   engine: 'codex',
   model: 'gpt-5.6-sol',
   parent_name: 'the-original-investigation',
-  sleep_seconds: 300,
+  sleep_seconds: 0,
   reply_every_seconds: 3600,
   status_changed_at: new Date(Date.now() - 12 * 60 * 1000).toISOString(),
 };
@@ -107,8 +107,6 @@ check('the task name is still coloured by backend',
 // The model id is gone as well: a maxed task's tag names its model in a word,
 // and any other task is simply on the configured default.
 check('the model id is not shown', !sub().text.includes('gpt-5.6-sol'), sub().text);
-check('an active sleep is still shown', sub().meta.includes('sleeping for 5m'),
-  sub().meta);
 check('a reply-every cycle is still shown', sub().meta.includes('responding every 1h'),
   sub().meta);
 
@@ -145,6 +143,26 @@ check('the header carries no underscored status either',
   !subOf(sparse).text.includes('_'), subOf(sparse).text);
 check('its pill is coloured by its own status',
   subOf(sparse).classes.includes('rs-AGENT_FINISHED'), subOf(sparse).classes);
+
+// ── a sleep shows its clock beside its status ──────────────────────────
+const asleep = openTask({
+  ...BRANCHED,
+  name: 'sleeping-task',
+  status: 'SLEEPING',
+  sleep_seconds: 15 * 60,
+  reply_every_seconds: 0,
+  status_changed_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+});
+await asleep.renderDetail('sleeping-task');
+await settle();
+check('a sleeping detail uses the SLEEPING pill',
+  subOf(asleep).pill === 'SLEEPING', JSON.stringify(subOf(asleep).pill));
+check('sleep progress sits beside that pill',
+  subOf(asleep).html.includes('class="sleep-progress"'), subOf(asleep).html);
+check('the progress names elapsed and total time',
+  subOf(asleep).text.includes('5m / 15m'), subOf(asleep).text);
+check('the header is coloured by the sleeping status',
+  subOf(asleep).classes.includes('rs-SLEEPING'), subOf(asleep).classes);
 
 // ── a task with no parent renders the same way ──────────────────────────
 const plain = openTask({ ...BRANCHED, parent_name: null, name: 'standalone-task' });

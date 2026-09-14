@@ -134,6 +134,7 @@ def random_burnable_name() -> str:
 
 class TaskStatus(str, Enum):
     WORKING = "WORKING"
+    SLEEPING = "SLEEPING"
     NEEDS_ATTENTION = "NEEDS_ATTENTION"
     AGENT_FINISHED = "AGENT_FINISHED"
     DONE = "DONE"
@@ -143,6 +144,11 @@ class TaskStatus(str, Enum):
     @property
     def is_terminal(self) -> bool:
         return self in (TaskStatus.DONE, TaskStatus.DISCARDED)
+
+    @property
+    def is_running(self) -> bool:
+        """Whether an agent process is currently running for this task."""
+        return self in (TaskStatus.WORKING, TaskStatus.SLEEPING)
 
 
 # Shortest allowed ``reply -t`` interval (CLI and server both enforce it):
@@ -280,6 +286,7 @@ def foreign_max_model(engine: str | None, model: str | None) -> bool:
 
 STYLE_FOR_STATUS: dict[TaskStatus, str] = {
     TaskStatus.WORKING: "bold cyan",
+    TaskStatus.SLEEPING: "bold deep_sky_blue4",
     TaskStatus.NEEDS_ATTENTION: "bold red",
     TaskStatus.AGENT_FINISHED: "green",
     TaskStatus.DONE: "dim green",
@@ -475,14 +482,14 @@ class Task:
     def set_status(self, status: TaskStatus) -> None:
         """Set status and update the ``status_changed_at`` timestamp.
 
-        When the task leaves the sleep-visible ``WORKING`` state,
-        ``sleep_seconds`` is dropped so stale metadata doesn't leak into a
-        future non-sleep reply cycle. A terminal status additionally ends any
-        ``reply -t`` cycle: a closed task must not be revived by a timer.
+        ``sleep_seconds`` belongs only to ``SLEEPING``. Leaving that state
+        drops it so stale metadata cannot leak into a later ordinary reply.
+        A terminal status additionally ends any ``reply -t`` cycle: a closed
+        task must not be revived by a timer.
         """
         self.status = status
         self.status_changed_at = datetime.now(timezone.utc).isoformat()
-        if status is not TaskStatus.WORKING:
+        if status is not TaskStatus.SLEEPING:
             self.sleep_seconds = None
         if status.is_terminal:
             self.clear_reply_every()
@@ -544,7 +551,7 @@ class Task:
         return cls(
             name=d["name"],
             prompt=d["prompt"],
-            status=cls._migrate_status(d["status"]),
+            status=cls._migrate_status(d["status"], d.get("sleep_seconds")),
             created_at=d.get("created_at", ""),
             status_changed_at=d.get("status_changed_at", d.get("created_at", "")),
             activated_at=d.get("activated_at", ""),
@@ -593,13 +600,20 @@ class Task:
         )
 
     @staticmethod
-    def _migrate_status(value: str) -> TaskStatus:
-        """Map the retired ``UNCLAIMED`` status of persisted legacy tasks to
-        ``NEEDS_ATTENTION``: they were waiting to be scheduled, and now that
-        agents spawn immediately the user's next reply is what starts them.
+    def _migrate_status(
+        value: str, sleep_seconds: int | None = None
+    ) -> TaskStatus:
+        """Map persisted statuses retired or refined by newer releases.
+
+        ``UNCLAIMED`` tasks were waiting to be scheduled, and now that agents
+        spawn immediately the user's next reply is what starts them. Before
+        ``SLEEPING`` existed, an active sleep was stored as ``WORKING`` plus
+        ``sleep_seconds``; preserve those in-flight sleeps across an upgrade.
         """
         if value == "UNCLAIMED":
             return TaskStatus.NEEDS_ATTENTION
+        if value == "WORKING" and sleep_seconds:
+            return TaskStatus.SLEEPING
         return TaskStatus(value)
 
     @staticmethod

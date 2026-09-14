@@ -1855,6 +1855,7 @@ def task_reply(
 # agent; every other status either has a live agent or can be re-prompted.
 CANNED_REPLY_STATUSES = (
     TaskStatus.WORKING,
+    TaskStatus.SLEEPING,
     TaskStatus.AGENT_FINISHED,
     TaskStatus.NEEDS_ATTENTION,
     TaskStatus.ERROR,
@@ -1900,7 +1901,7 @@ def _do_tap(name: str) -> None:
 @task_group.command("tap")
 @click.argument("name", shell_complete=_complete_task_names)
 def task_tap(name: str) -> None:
-    """Ask a WORKING / AGENT_FINISHED / NEEDS_ATTENTION / ERROR agent for a status update."""
+    """Ask any live task's agent for a status update."""
     _do_tap(name)
 
 
@@ -2001,7 +2002,7 @@ def task_sleep(name: str, duration: str) -> None:
 @task_group.command("kill")
 @click.argument("name", shell_complete=_complete_task_names)
 def task_kill(name: str) -> None:
-    """Kill a WORKING agent and move its task to ERROR."""
+    """Kill a WORKING or SLEEPING agent and move its task to ERROR."""
     resp = _client().kill_task(name)
     if _check_error(resp):
         raise SystemExit(1)
@@ -2276,9 +2277,9 @@ def _do_attach(name: str) -> None:
         raise SystemExit(1)
 
     status = TaskStatus(t["status"])
-    if status == TaskStatus.WORKING:
+    if status.is_running:
         console.print(
-            f"[yellow]Task [bold]{t['name']}[/bold] is WORKING. "
+            f"[yellow]Task [bold]{t['name']}[/bold] is {status.value}. "
             f"Kill the agent first with [bold]ilan task kill {t['name']}[/bold].[/yellow]"
         )
         raise SystemExit(1)
@@ -2680,8 +2681,9 @@ def task_switch_backend(name: str) -> None:
     """Toggle a task's agent backend (claude <-> codex).
 
     The switch is lazy: it only rewires which backend the task uses on its
-    next spawn, and the task catches up on its next turn. A WORKING task
-    cannot be switched — wait for the agent to finish (or kill it) first.
+    next spawn, and the task catches up on its next turn. A running task
+    (WORKING or SLEEPING) cannot be switched — wait for the agent to finish
+    (or kill it) first.
     Maxed tasks stay maxed: FABLE switches to ASTRA, and ASTRA to FABLE.
     """
     _do_switch_backend(name)

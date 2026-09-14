@@ -49,11 +49,21 @@ class TestTaskStatus:
     def test_non_terminal_states(self) -> None:
         for status in (
             TaskStatus.WORKING,
+            TaskStatus.SLEEPING,
             TaskStatus.NEEDS_ATTENTION,
             TaskStatus.AGENT_FINISHED,
             TaskStatus.ERROR,
         ):
             assert not status.is_terminal
+
+    def test_running_states(self) -> None:
+        assert TaskStatus.WORKING.is_running
+        assert TaskStatus.SLEEPING.is_running
+
+    def test_non_running_states(self) -> None:
+        for status in TaskStatus:
+            if status not in (TaskStatus.WORKING, TaskStatus.SLEEPING):
+                assert not status.is_running
 
     def test_string_value_roundtrip(self) -> None:
         for status in TaskStatus:
@@ -101,6 +111,7 @@ class TestDisplayStatus:
         "status",
         [
             TaskStatus.WORKING,
+            TaskStatus.SLEEPING,
             TaskStatus.ERROR,
             TaskStatus.DONE,
             TaskStatus.DISCARDED,
@@ -124,6 +135,15 @@ class TestDisplayStatus:
         in_loop = _rgb(AGENT_IN_LOOP_STYLE)
         others = {_rgb(style) for style in STYLE_FOR_STATUS.values()}
         assert in_loop not in others
+
+    def test_sleeping_is_a_darker_blue_than_working(self) -> None:
+        sleeping = _rgb(STYLE_FOR_STATUS[TaskStatus.SLEEPING])
+        working = _rgb(STYLE_FOR_STATUS[TaskStatus.WORKING])
+        assert sleeping is not None and working is not None
+        red, green, blue = sleeping
+        assert blue > green > red
+        luminance = lambda rgb: 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]  # noqa: E731
+        assert luminance(sleeping) < luminance(working)
 
     def test_in_loop_style_is_not_reused_by_a_real_status(self) -> None:
         assert AGENT_IN_LOOP_STYLE not in STYLE_FOR_STATUS.values()
@@ -255,6 +275,13 @@ class TestTask:
         dt = datetime.fromisoformat(t.status_changed_at)
         assert dt.tzinfo is not None
 
+    def test_sleep_metadata_belongs_only_to_sleeping(self) -> None:
+        t = self._make_task(sleep_seconds=300)
+        t.set_status(TaskStatus.SLEEPING)
+        assert t.sleep_seconds == 300
+        t.set_status(TaskStatus.WORKING)
+        assert t.sleep_seconds is None
+
     def test_to_dict_roundtrip(self) -> None:
         t = self._make_task(
             session_id="sid-123",
@@ -319,6 +346,17 @@ class TestTask:
         d = {"name": "old", "prompt": "p", "status": "UNCLAIMED"}
         t = Task.from_dict(d)
         assert t.status == TaskStatus.NEEDS_ATTENTION
+
+    def test_from_dict_migrates_an_old_working_sleep(self) -> None:
+        d = {
+            "name": "old",
+            "prompt": "p",
+            "status": "WORKING",
+            "sleep_seconds": 300,
+        }
+        t = Task.from_dict(d)
+        assert t.status == TaskStatus.SLEEPING
+        assert t.sleep_seconds == 300
 
     def test_from_dict_status_changed_at_fallback(self) -> None:
         """status_changed_at falls back to created_at if missing."""

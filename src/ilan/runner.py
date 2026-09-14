@@ -238,7 +238,7 @@ class Runner:
     # ── public API ───────────────────────────────────────────────────
 
     def recover(self) -> list[str]:
-        """Reconcile WORKING tasks against actual process state.
+        """Reconcile tasks with running agents against actual process state.
 
         Called once at server startup.  We have no Popen objects from the
         previous server, so we rely on two signals:
@@ -250,7 +250,7 @@ class Runner:
         """
         recovered: list[str] = []
         for task in self.store.load_tasks().values():
-            if task.status != TaskStatus.WORKING:
+            if not task.status.is_running:
                 continue
             if (
                 task.pid is not None
@@ -281,7 +281,7 @@ class Runner:
         """
         reaped: list[Task] = []
         for task in self.store.load_tasks().values():
-            if task.status != TaskStatus.WORKING or task.pid is None:
+            if not task.status.is_running or task.pid is None:
                 continue
             proc = self._procs.get(task.name)
             if proc is not None:
@@ -331,7 +331,7 @@ class Runner:
         model ids) to the incoming backend's current max model.
 
         The caller is responsible for ensuring the task is not mid-flight:
-        the server rejects switching a WORKING task, so its in-flight output
+        the server rejects switching a running task, so its in-flight output
         is always parsed by the engine that produced it.
         """
         if target_engine == task.engine:
@@ -420,7 +420,9 @@ class Runner:
         # spawn just authenticated with, since a later credential config change
         # would affect the *next* spawn only.
         task.spawn_budget = budget.detect(task.engine, env)
-        task.set_status(TaskStatus.WORKING)
+        task.set_status(
+            TaskStatus.SLEEPING if task.sleep_seconds else TaskStatus.WORKING
+        )
         self.store.put_task(task)
         return True
 
@@ -625,7 +627,7 @@ class Runner:
         self.store.put_task(task)
 
     def _generate_one_liner(self, task: Task, assistant_response: str) -> str | None:
-        """Best-effort one-line summary of the WORKING→finished transition.
+        """Best-effort one-line summary of a running→finished transition.
 
         Reads the last user message from the task's log and feeds it +
         the assistant's new reply to Luna. Returns ``None`` if there is

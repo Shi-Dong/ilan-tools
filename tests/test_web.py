@@ -229,6 +229,20 @@ def _status_fills(css: str) -> dict[str, str]:
     ))
 
 
+def test_sleeping_is_darker_blue_than_working_in_both_schemes():
+    """SLEEPING is related to WORKING, but visually quieter than it."""
+    css = web.read_asset("app.css").decode()
+    light, dark = _scheme_values(css)
+    fills = _status_fills(css)
+
+    for scheme, values in (("light", light), ("dark", dark)):
+        sleeping = values[fills["SLEEPING"]]
+        working = values[fills["WORKING"]]
+        assert _relative_luminance(sleeping) < _relative_luminance(working), (
+            f"{scheme}: SLEEPING {sleeping} is not darker than WORKING {working}"
+        )
+
+
 def test_the_status_rail_reads_as_a_shape_in_both_schemes():
     """The leading edge is a block of colour, so it needs 3:1 against the card.
 
@@ -359,8 +373,11 @@ def test_the_conversation_header_does_not_name_the_backend():
     assert "task.model" not in sub.group(1), (
         "the model id is back on the sub-line; the max tag beside the status already names it"
     )
-    assert "sleepSuffix(" in sub.group(1) and "replyEverySuffix(" in sub.group(1), (
-        "the line should keep what is true of the task right now: a sleep, a cycle"
+    assert "sleepSuffix(" not in sub.group(1), (
+        "sleep progress belongs beside the SLEEPING status, not on the sub-line"
+    )
+    assert "replyEverySuffix(" in sub.group(1), (
+        "the line should keep the task's active reply cycle"
     )
 
     # The compensating signal, and the reason removing the word is not a loss.

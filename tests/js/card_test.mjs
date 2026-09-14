@@ -220,6 +220,18 @@ check('closing a WORKING task warns that the agent is stopped',
   /stops the agent/.test(killApp.modalTitle()),
   `title=${JSON.stringify(killApp.modalTitle())}`);
 
+const sleepingDoneApp = bootApp();
+sleepingDoneApp.state.tasks = [{
+  ...TASKS[0], status: 'SLEEPING', sleep_seconds: 900,
+  status_changed_at: new Date().toISOString(),
+}];
+sleepingDoneApp.renderList();
+sleepingDoneApp.doneBtn('alpha-task').onclick();
+await settle();
+check('closing a SLEEPING task warns that the agent is stopped',
+  /stops the agent/.test(sleepingDoneApp.modalTitle()),
+  `title=${JSON.stringify(sleepingDoneApp.modalTitle())}`);
+
 killApp.doneBtn('beta-task').onclick();
 await settle();
 check('closing a task with no agent running does not claim to stop one',

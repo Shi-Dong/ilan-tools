@@ -254,13 +254,13 @@ class IlanServer:
     def deliver_cycle_message(self, task: Task, message: str) -> None:
         """Send a ``reply -t`` cycle's *message* to *task*. Caller must hold the lock.
 
-        Behaves like a human reply — a WORKING agent is interrupted and
+        Behaves like a human reply — a running agent is interrupted and
         resumed with the message, any other live task is restarted with it —
         except that the cycle is left running. The timer uses this for every
         firing, and ``reply -t DURATION`` with no message uses it to re-send
         the cycle's message the moment the cadence changes.
         """
-        if task.status == TaskStatus.WORKING:
+        if task.status.is_running:
             self.runner.reply_to_working(task, message)
             return
         # NEEDS_ATTENTION / AGENT_FINISHED / ERROR
@@ -636,7 +636,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 if task is None:
                     return
                 task_hash = task.task_hash
-                if task.status == TaskStatus.WORKING:
+                if task.status.is_running:
                     self._ilan.runner.kill(task)
                 self._ilan.store.delete_task(task.name)
             if task_hash:
@@ -666,7 +666,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             """
             if not is_burnable_name(task.name):
                 return False
-            if task.status == TaskStatus.WORKING:
+            if task.status.is_running:
                 self._ilan.runner.kill(task)
             self._ilan.store.delete_task(task.name)
             return True
@@ -678,7 +678,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     return
                 burned = self._burn_task(task)
                 if not burned:
-                    if task.status == TaskStatus.WORKING:
+                    if task.status.is_running:
                         self._ilan.runner.kill(task)
                     task.set_status(TaskStatus.DONE)
                     task.alias = None
@@ -696,7 +696,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     return
                 burned = self._burn_task(task)
                 if not burned:
-                    if task.status == TaskStatus.WORKING:
+                    if task.status.is_running:
                         self._ilan.runner.kill(task)
                     task.set_status(TaskStatus.DISCARDED)
                     # Keep the alias: a DISCARDED task is a recycle-bin entry
@@ -799,7 +799,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 # A plain reply overrides any in-flight sleep: the agent is
                 # no longer sleeping on behalf of an earlier ``ilan sleep``,
                 # so drop ``sleep_seconds`` in every branch below to make
-                # the ``(sleeping for Ns)`` suffix disappear.
+                # the SLEEPING progress bar disappear.
                 task.sleep_seconds = None
                 # A human reply likewise ends the current ``reply -t`` cycle;
                 # a reply carrying ``every_seconds`` starts a fresh one.
@@ -811,7 +811,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                         datetime.now(timezone.utc) + timedelta(seconds=every_seconds)
                     ).isoformat()
 
-                if task.status == TaskStatus.WORKING:
+                if task.status.is_running:
                     runner.reply_to_working(task, message)
                     self._json({"ok": True, "message": "Interrupted agent and resumed with reply."})
                     return
@@ -897,7 +897,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     })
                     return
                 previous = task.reply_every_seconds
-                was_working = task.status == TaskStatus.WORKING
+                was_running = task.status.is_running
                 task.reply_every_seconds = every_seconds
                 # Reschedule before delivering, as the timer does, so a crash
                 # mid-send cannot fire the same message twice on recovery.
@@ -905,7 +905,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     datetime.now(timezone.utc) + timedelta(seconds=every_seconds)
                 ).isoformat()
                 self._ilan.deliver_cycle_message(task, task.reply_every_message or "")
-            if was_working:
+            if was_running:
                 outcome = f"Interrupted {task.name} and resumed it with the looping prompt."
             else:
                 outcome = f"Sent the looping prompt to {task.name}. Agent resumed."
@@ -964,8 +964,11 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task = self._get_task_or_404(name)
                 if task is None:
                     return
-                if task.status != TaskStatus.WORKING:
-                    self._json({"error": f"Task is {task.status.value}, not WORKING"}, 409)
+                if not task.status.is_running:
+                    self._json(
+                        {"error": f"Task is {task.status.value}, not running"},
+                        409,
+                    )
                     return
                 self._ilan.runner.kill(task)
                 task.set_status(TaskStatus.ERROR)
@@ -1200,13 +1203,13 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                         409,
                     )
                     return
-                # A WORKING task is mid-flight: killing it to flip the backend
+                # A running task is mid-flight: killing it to flip the backend
                 # would either discard the in-flight turn or misattribute its
                 # output. Refuse and let the user wait or kill explicitly.
-                if task.status == TaskStatus.WORKING:
+                if task.status.is_running:
                     self._json(
                         {"error": (
-                            f"Task {task.name} is WORKING; cannot switch its "
+                            f"Task {task.name} is {task.status.value}; cannot switch its "
                             "backend while the agent is running. Wait for it "
                             "to finish (or kill it) and try again."
                         )},
@@ -1411,7 +1414,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
         def handle_clear_everything(self):
             with self._ilan.lock:
                 for task in self._ilan.store.load_tasks().values():
-                    if task.status == TaskStatus.WORKING:
+                    if task.status.is_running:
                         self._ilan.runner.kill(task)
                 self._ilan.store.delete_all()
             self._json({"ok": True})

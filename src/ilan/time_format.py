@@ -60,11 +60,33 @@ def _format_compact_duration(seconds: int) -> str:
     return f"{shown}{unit}"
 
 
-def _format_sleep_suffix(sleep_seconds: int | None) -> str | None:
-    """Return ``(sleeping for Xm)`` / ``(sleeping for X.Yh)`` for an active sleep."""
-    if not sleep_seconds or sleep_seconds <= 0:
+def _format_progress_duration(seconds: int) -> str:
+    """Render a running clock compactly: ``42s``, ``4m03s`` or ``2h38m``."""
+    seconds = max(0, int(seconds))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m"
+    if minutes:
+        return f"{minutes}m{seconds:02d}s" if seconds else f"{minutes}m"
+    return f"{seconds}s"
+
+
+def _sleep_progress(
+    started_at: str | None, sleep_seconds: int | None
+) -> tuple[int, int] | None:
+    """Return elapsed and total seconds for an active sleep, clamped to total."""
+    if not started_at:
         return None
-    return f" (sleeping for {_format_compact_duration(sleep_seconds)})"
+    try:
+        total = int(sleep_seconds or 0)
+        if total <= 0:
+            return None
+        started = datetime.fromisoformat(started_at).astimezone(timezone.utc)
+        elapsed = int((datetime.now(timezone.utc) - started).total_seconds())
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return max(0, min(total, elapsed)), total
 
 
 def _format_reply_every_suffix(reply_every_seconds: int | None) -> str | None:

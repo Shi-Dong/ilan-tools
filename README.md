@@ -57,12 +57,13 @@ The first command starts a background server on port 4526. It stays up, spawns a
 | Status | Meaning |
 |---|---|
 | `WORKING` | An agent is on it. |
+| `SLEEPING` | The agent is waiting for a requested duration before reporting back. |
 | `AGENT_FINISHED` | The agent thinks it is done. Review the result. |
 | `NEEDS_ATTENTION` | The agent is blocked and waiting for you. |
 | `ERROR` | The agent process died or was killed. A reply revives it. |
 | `DONE` / `DISCARDED` | Closed by you. `undone` / `undiscard` bring a task back. |
 
-A task is `WORKING` from the second it is created, and any reply to a finished, blocked, or errored task re-spawns its agent at once. Agents report their own state: Ilan asks every prompt to end with a `[STATUS: DONE]` or `[STATUS: NEEDS_ATTENTION]` marker.
+A task is `WORKING` from the second it is created. `ilan sleep` moves an idle task to `SLEEPING`, where the full terminal listing and web app show elapsed time against the requested duration. Any reply to a finished, blocked, or errored task re-spawns its agent at once. Agents report their own state: Ilan asks every prompt to end with a `[STATUS: DONE]` or `[STATUS: NEEDS_ATTENTION]` marker.
 
 Listings are in activation order — when a task was created, or last revived with `undone` / `undiscard` — with pinned tasks first, and a task you have not read since its last reply carries a `!!` marker. `ilan ls -a -c` looks like this:
 
@@ -127,7 +128,7 @@ Every task command has a top-level shorthand, so `ilan task reply` is just `ilan
 |---|---|
 | `ilan max NAME` / `ilan unmax NAME` | Run the task on its backend's max model — Fable (`claude-fable-5-1`) on `claude`, Astra (`gpt-6-astra`) on `codex` — or return to the configured default. In `ilan ls` and `ilan dashboard` a maxed task's alias is written `[GK]` — capitals in square brackets, in red — where an ordinary task's is `(gk)` in pink. Takes effect on the next reply. |
 | `ilan switch-backend NAME` | Move an idle task between Claude Code and Codex. Maxed tasks stay maxed (FABLE ↔ ASTRA). The new backend catches up on its first turn. |
-| `ilan task kill NAME` | Stop a `WORKING` agent. The task moves to `ERROR` until you reply. |
+| `ilan task kill NAME` | Stop a `WORKING` or `SLEEPING` agent. The task moves to `ERROR` until you reply. |
 
 ### Close and clean up
 
@@ -184,7 +185,7 @@ Task names are tinted by backend in every listing: orange for Claude, light blue
 
 ## Web app
 
-The server serves a phone-first web app at `/app` (`http://127.0.0.1:4526/app/`), with nothing extra to install. It covers the everyday commands: the task list with search, reading and replying, tap, sleep, done, pin, max, switch-backend, branch, notes, and settings — and, once the app is on an iPhone's Home Screen, push notifications when a task finishes. Point a phone at the server over your LAN, a VPN, or an SSH tunnel, and on iOS use Share, then Add to Home Screen, to install it as an app.
+The server serves a phone-first web app at `/app` (`http://127.0.0.1:4526/app/`), with nothing extra to install. It covers the everyday commands: the task list with search, reading and replying, tap, sleep, done, pin, max, switch-backend, branch, notes, and settings. Sleeping tasks carry the same elapsed/total progress bar as the full terminal listing. Once the app is on an iPhone's Home Screen, it can also send push notifications when a task finishes. Point a phone at the server over your LAN, a VPN, or an SSH tunnel, and on iOS use Share, then Add to Home Screen, to install it as an app.
 
 The web app has the same access model as the server, which is none: anyone who can reach the port can drive your agents. Expose it only on a network you trust, or behind an authenticating proxy.
 

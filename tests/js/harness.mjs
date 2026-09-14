@@ -295,9 +295,10 @@ const TAIL = `;return {
   state, renderList, renderDetail, renderNew, renderConfig, route,
   // The pure helpers, so a test can exercise a formatter directly instead of
   // reading it back out of rendered markup.
-  ago, formatCompactDuration, formatHoursMinutes, statusLabel, sleepSuffix,
+  ago, formatCompactDuration, formatHoursMinutes, formatProgressDuration,
+  statusLabel, sleepProgress, sleepProgressHtml,
   replyEverySuffix, displayStatus, reviveAction, isVisible,
-  isLooping, isSleeping,
+  isLooping,
   sendReply, runAction, showActions, postConfirmingReplyEvery, refreshListAfterChange,
   pushSupport, pushState, enablePush, disablePush, updateBadge, urlBase64ToUint8Array,
   registerServiceWorker, push: __push, enablePushSupport: __enablePushSupport, notification: Notification,

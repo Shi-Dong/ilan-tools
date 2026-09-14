@@ -15,7 +15,6 @@ for (const s of SECONDS) {
   out[s] = {
     compact: app.formatCompactDuration(s),
     replyEvery: app.replyEverySuffix(s),
-    sleep: app.sleepSuffix(s),
     looping: app.isLooping({ reply_every_seconds: s }),
   };
 }

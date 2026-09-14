@@ -46,6 +46,11 @@ w.showActions({ ...OPEN, status: 'WORKING' });
 await settle();
 check('a WORKING task is offered Kill, as dangerous',
   w.modalOptions().some((o) => o.value === 'kill' && o.danger));
+const z = bootApp();
+z.showActions({ ...OPEN, status: 'SLEEPING', sleep_seconds: 900 });
+await settle();
+check('a SLEEPING task is also offered Kill, as dangerous',
+  z.modalOptions().some((o) => o.value === 'kill' && o.danger));
 const c = bootApp();
 c.showActions({ ...OPEN, status: 'DISCARDED' });
 await settle();

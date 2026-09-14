@@ -26,16 +26,17 @@
   --accent-contrast: #ffffff;
   --danger: #c62828;
 
-  /* Status hues mirror STYLE_FOR_STATUS in models.py. They are differentiated
-   * by hue rather than shade, so a glance separates them the way the terminal
-   * palette does. */
+  /* Status hues mirror STYLE_FOR_STATUS in models.py. Most are differentiated
+   * by hue; SLEEPING stays blue like WORKING but is deliberately darker. */
   --st-working: #0b7285;
+  --st-sleeping: #075985;
   --st-attention: #c62828;
   --st-finished: #2e7d32;
   --st-done: #6b8f6e;
   --st-discarded: #8e8e93;
   --st-error: #c62828;
   --st-loop: #7048c4;
+  --sleep-progress-track: #cbdce8;
 
   /* Task-name colour by backend, mirroring ENGINE_NAME_STYLE in models.py:
    * orange for Claude, light blue for Codex, so the running backend is legible
@@ -81,13 +82,6 @@
    * the orange is the binding constraint, at 4.60:1. */
   --loop-bg: #f0f0f4;
 
-  /* Sleep suffix, mirroring SLEEP_STYLE (plain "yellow") in cli.py. The
-   * terminal value resolves to #808000, which clears 4.5:1 on neither a white
-   * card (4.20) nor a dark one (4.06) — it is a terminal palette entry, not a
-   * web colour. These are the same hue taken to a legible lightness for each
-   * scheme: 5.94:1 here, 9.05:1 in dark mode below. */
-  --sleep-fg: #7a6100;
-
   --radius: 12px;
   --tap: 44px;
 }
@@ -109,12 +103,14 @@
     --danger: #ff6b6b;
 
     --st-working: #4dd0e1;
+    --st-sleeping: #2f75ad;
     --st-attention: #ff6b6b;
     --st-finished: #81c784;
     --st-done: #6f8f72;
     --st-discarded: #8e8e93;
     --st-error: #ff6b6b;
     --st-loop: #b79cff;
+    --sleep-progress-track: #1f4058;
 
     /* On a dark card these are the terminal's own colours, unchanged: 9.2:1
      * and 11.3:1. The web app and `ilan ls` render the same task name in the
@@ -125,7 +121,6 @@
     /* grey27 verbatim: on a dark card the terminal's own fill works unchanged,
      * and both name colours clear 5:1 on it. */
     --loop-bg: #444444;
-    --sleep-fg: #e0b93c;
 
     /* Both action inks lighten here, as --accent does. The rose was already a
      * light tint and carries straight over at 8.24:1.
@@ -385,6 +380,7 @@ textarea.field {
  * (the least is DISCARDED at 3.26), so the border is perceivable as the
  * non-text UI element it is — the neutral border it replaces was 1.42. */
 .rs-WORKING         { --row-status: var(--st-working); }
+.rs-SLEEPING        { --row-status: var(--st-sleeping); }
 .rs-NEEDS_ATTENTION { --row-status: var(--st-attention); }
 .rs-AGENT_FINISHED  { --row-status: var(--st-finished); }
 .rs-AGENT_IN_LOOP   { --row-status: var(--st-loop); }
@@ -570,8 +566,8 @@ textarea.field {
    * instead of stretching as a bar to wherever the pin sits. `min-width: 0`
    * keeps it able to shrink below its content so long names still ellipsise.
    * The free space is absorbed by .pin rather than here, so that anything
-   * sitting between the name and the pin — the sleep suffix — stays beside the
-   * name instead of being pushed to the far right with it. */
+   * sitting between the name and the pin stays beside the name instead of
+   * being pushed to the far right with it. */
   flex: 0 1 auto;
   min-width: 0;
 }
@@ -664,18 +660,6 @@ textarea.field {
  * right whatever sits between it and the task name. */
 .pin { flex: none; font-size: 13px; margin-left: auto; }
 
-/* "(sleeping for 5m)", appended after the name the way _build_name_cell does.
- * Non-bold and a size down so it reads as an annotation on the name rather
- * than part of it — which is also what keeps it distinct from the Claude
- * engine colour, whose hue is only a few degrees away. */
-.sleep {
-  flex: none;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--sleep-fg);
-  white-space: nowrap;
-}
-
 /* A task on a `reply -t` cycle gets its name filled, the way _build_name_cell
  * paints REPLY_EVERY_BG under the name cell in `ilan ls` / `ilan dashboard`. */
 .looping {
@@ -692,6 +676,47 @@ textarea.field {
   font-weight: 700;
   letter-spacing: .03em;
   flex: none;
+}
+
+/* The sleep clock is a real progress bar, followed by its elapsed/total values
+ * so the same information survives colour loss and is exact rather than only
+ * visual. It follows the status pill on both the list and conversation page. */
+.sleep-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+.sleep-progress-track {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 64px;
+  height: 8px;
+  overflow: hidden;
+  border: 0;
+  background: var(--sleep-progress-track);
+  border-radius: 999px;
+}
+
+.sleep-progress-track::-webkit-progress-bar {
+  background: var(--sleep-progress-track);
+  border-radius: 999px;
+}
+
+.sleep-progress-track::-webkit-progress-value {
+  background: var(--st-sleeping);
+  border-radius: 999px;
+}
+
+.sleep-progress-track::-moz-progress-bar {
+  background: var(--st-sleeping);
+  border-radius: 999px;
 }
 
 /* The max-model tag — FABLE on the Claude backend, ASTRA on Codex: a task
@@ -734,9 +759,8 @@ textarea.field {
  *
  * The label is the surface's own colour by default, which is the right choice
  * almost everywhere: in light mode that is white and the status fills are
- * dark, and in dark mode it is near-black and the fills are light. Twelve of
- * the fourteen fill/scheme pairs clear 4.5:1 that way; the two that do not are
- * overridden below. */
+ * dark, and in dark mode it is near-black and the fills are light. The few
+ * exceptions are overridden below. */
 .row-meta .status {
   background: var(--row-status, var(--border));
   color: var(--row-ink, var(--bg-elevated));
@@ -744,14 +768,19 @@ textarea.field {
   border-radius: 999px;
 }
 
-/* The muted pair, the only two that need saying. On a white card these fills
+/* The muted pair need dark ink. On a white card these fills
  * are pale enough that the default white label reaches just 3.63:1 and 3.26:1.
  * A near-black label gets 5.21:1 and 5.80:1 — and it also clears on their dark
  * scheme fills, at 5.27:1 and 5.80:1, so this is one rule for both schemes
  * rather than an override and a restore. */
 .rs-DONE, .rs-DISCARDED { --row-ink: #0d120e; }
 
+/* SLEEPING's deliberately dark blue needs white ink in dark mode; the same
+ * ink clears its still-darker light-mode fill too. */
+.rs-SLEEPING { --row-ink: #ffffff; }
+
 .st-WORKING { color: var(--st-working); }
+.st-SLEEPING { color: var(--st-sleeping); }
 .st-NEEDS_ATTENTION { color: var(--st-attention); }
 .st-AGENT_FINISHED { color: var(--st-finished); }
 .st-DONE { color: var(--st-done); }

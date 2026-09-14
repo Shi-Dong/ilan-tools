@@ -13,16 +13,19 @@ from ilan.models import (
 )
 from ilan.time_format import (
     _format_elapsed,
+    _format_progress_duration,
     _format_reply_every_suffix,
-    _format_sleep_suffix,
+    _sleep_progress,
 )
 
-
-SLEEP_STYLE = "yellow"
-# Same foreground as the sleep suffix, distinguished by the background fill,
-# which _build_name_cell also paints under the row's pin/alias/name.
+REPLY_EVERY_FG = "yellow"
+# The background fill distinguishes a reply-every cycle from the sleeping
+# progress indicator, which lives in the Status cell instead.
 REPLY_EVERY_BG = "grey27"
-REPLY_EVERY_STYLE = f"{SLEEP_STYLE} on {REPLY_EVERY_BG}"
+REPLY_EVERY_STYLE = f"{REPLY_EVERY_FG} on {REPLY_EVERY_BG}"
+SLEEP_PROGRESS_CELLS = 10
+SLEEP_PROGRESS_STYLE = "deep_sky_blue4"
+SLEEP_PROGRESS_EMPTY_STYLE = "grey37"
 
 # The style the `FABLE` / `ASTRA` tag is drawn in: the `ilan max` and
 # `ilan add --max` confirmations print the tag in it, and it is what the tag
@@ -170,7 +173,6 @@ def _build_name_label(row: dict) -> Text:
     Split out of :func:`_build_name_cell` for ``ilan info``, which gives the
     note a labelled field of its own and so wants the label alone.
     """
-    status = TaskStatus(row["status"])
     cell = Text()
     if row.get("pinned"):
         cell.append(PIN_MARKER, style=PIN_STYLE)
@@ -180,12 +182,7 @@ def _build_name_label(row: dict) -> Text:
     cell.append(row["name"], style=_name_style(row))
     if row.get("needs_review"):
         cell.append(f" {UNREAD_MARKER}", style=UNREAD_STYLE)
-    if status is TaskStatus.WORKING and (
-        sleep_suffix := _format_sleep_suffix(row.get("sleep_seconds"))
-    ):
-        cell.append(sleep_suffix, style=SLEEP_STYLE)
-    # No status filter: unlike a sleep (which only means anything while the
-    # agent is WORKING), a reply-every cycle re-fires from any live status.
+    # No status filter: a reply-every cycle re-fires from any live status.
     if reply_every_suffix := _format_reply_every_suffix(row.get("reply_every_seconds")):
         cell.append(reply_every_suffix, style=REPLY_EVERY_STYLE)
         # Extend the background under the pin/alias/name so the whole label is
@@ -220,6 +217,8 @@ def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
     # darker than the same spans on other rows.
     cell = Text()
     cell.append(label, style=style)
+    if status is TaskStatus.SLEEPING:
+        _append_sleep_progress(cell, row)
     if (
         status == TaskStatus.WORKING
         and row.get("status_changed_at")
@@ -232,6 +231,31 @@ def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
         cell.append("\n")
         cell.append(one_liner, style=ONE_LINER_STYLE)
     return cell
+
+
+def _append_sleep_progress(cell: Text, row: dict) -> None:
+    """Append a ten-cell elapsed/total sleep bar when its metadata is valid."""
+    progress = _sleep_progress(
+        row.get("status_changed_at"), row.get("sleep_seconds")
+    )
+    if progress is None:
+        return
+    elapsed, total = progress
+    filled = min(
+        SLEEP_PROGRESS_CELLS,
+        (elapsed * SLEEP_PROGRESS_CELLS + total // 2) // total,
+    )
+    cell.append(" ")
+    cell.append("█" * filled, style=SLEEP_PROGRESS_STYLE)
+    cell.append(
+        "░" * (SLEEP_PROGRESS_CELLS - filled),
+        style=SLEEP_PROGRESS_EMPTY_STYLE,
+    )
+    cell.append(
+        f" {_format_progress_duration(elapsed)} / "
+        f"{_format_progress_duration(total)}",
+        style="dim",
+    )
 
 
 def _build_concise_task_line(row: dict) -> Text:
