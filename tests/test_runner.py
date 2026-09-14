@@ -226,6 +226,38 @@ class TestStatusSuffix:
 # ── _try_reap ───────────────────────────────────────────────────────────
 
 
+@pytest.mark.parametrize("method_name", ["recover", "reap_finished"])
+def test_public_reapers_process_sleeping_tasks(
+    store: Store, runner: Runner, method_name: str
+) -> None:
+    """SLEEPING owns a live process and must be reaped just like WORKING."""
+    name = f"sleep-{method_name}"
+    task = Task(
+        name=name,
+        prompt="p",
+        status=TaskStatus.SLEEPING,
+        pid=99999,
+        sleep_seconds=300,
+    )
+    store.put_task(task)
+    store.output_path(name).write_text(
+        json.dumps(
+            {
+                "session_id": f"sid-{method_name}",
+                "result": "Awake\n[STATUS: DONE]",
+                "is_error": False,
+            }
+        )
+    )
+
+    getattr(runner, method_name)()
+
+    updated = store.get_task(name)
+    assert updated is not None
+    assert updated.status == TaskStatus.AGENT_FINISHED
+    assert updated.sleep_seconds is None
+
+
 class TestTryReap:
     def test_reap_done_output(self, store: Store, runner: Runner) -> None:
         t = Task(name="t1", prompt="p", status=TaskStatus.WORKING, pid=99999)
@@ -918,6 +950,24 @@ class TestSpawn:
 
         # Wait for mock claude to finish
         proc = runner._procs.get("spawn-test")
+        if proc:
+            proc.wait(timeout=5)
+
+    def test_spawn_with_sleep_metadata_sets_sleeping_status(
+        self, store: Store, tmp_workdir: Path, tmp_config: Path,
+        env_with_mock_claude: None,
+    ) -> None:
+        cfg.save({**cfg.DEFAULTS, "workdir": str(tmp_workdir)})
+
+        runner = Runner(store)
+        t = Task(name="sleep-spawn", prompt="wait", sleep_seconds=300)
+        store.put_task(t)
+
+        assert runner._spawn(t, "wait", resume=False) is True
+        assert t.status == TaskStatus.SLEEPING
+        assert t.sleep_seconds == 300
+
+        proc = runner._procs.get("sleep-spawn")
         if proc:
             proc.wait(timeout=5)
 

@@ -18,8 +18,8 @@ from ilan.time_format import (
 )
 from ilan.task_display import (
     REPLY_EVERY_BG,
+    REPLY_EVERY_FG,
     REPLY_EVERY_STYLE,
-    SLEEP_STYLE,
     _build_concise_task_line,
     _build_name_cell,
     _build_status_cell,
@@ -304,15 +304,12 @@ class TestNameCellReplyEvery:
             span.style == f"on {REPLY_EVERY_BG}" for span in cell.spans
         )
 
-    def test_style_differs_from_sleep_suffix(self) -> None:
-        cell = _build_name_cell(
-            self._row(sleep_seconds=300, reply_every_seconds=3600)
-        )
-        assert "(sleeping for 5m)" in cell.plain
+    def test_style_combines_its_foreground_and_background(self) -> None:
+        cell = _build_name_cell(self._row(reply_every_seconds=3600))
         assert "(responding every 1h)" in cell.plain
         styles = {span.style for span in cell.spans}
-        assert {SLEEP_STYLE, REPLY_EVERY_STYLE} <= styles
-        assert SLEEP_STYLE != REPLY_EVERY_STYLE
+        assert REPLY_EVERY_STYLE in styles
+        assert REPLY_EVERY_STYLE == f"{REPLY_EVERY_FG} on {REPLY_EVERY_BG}"
 
 
 class TestConciseLineReplyEvery:

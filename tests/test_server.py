@@ -1045,7 +1045,7 @@ class TestSleep:
         assert resp.get("ok") is True
 
         task = _get(ilan_server, "/tasks/sleep-na")["task"]
-        assert task["status"] == "WORKING"
+        assert task["status"] == "SLEEPING"
         assert task["sleep_seconds"] == 5
         assert (
             "Sleep 5 seconds and give me a quick report after the sleep finishes."
@@ -1060,7 +1060,7 @@ class TestSleep:
         assert resp.get("ok") is True
 
         task = _get(ilan_server, "/tasks/sleep-af")["task"]
-        assert task["status"] == "WORKING"
+        assert task["status"] == "SLEEPING"
         assert task["sleep_seconds"] == 5
 
     def test_sleep_on_working_rejected(self, ilan_server: IlanServer) -> None:
@@ -1087,7 +1087,7 @@ class TestSleep:
     ) -> None:
         self._make_task_in_status(ilan_server, "sleep-clear", TaskStatus.NEEDS_ATTENTION)
         _post(ilan_server, "/tasks/sleep-clear/sleep", {"seconds": 5})
-        # Task is now WORKING with sleep_seconds=5. Flip it to NEEDS_ATTENTION
+        # Task is now SLEEPING with sleep_seconds=5. Flip it to NEEDS_ATTENTION
         # via set_status and verify sleep_seconds is dropped.
         with ilan_server.lock:
             task = ilan_server.store.get_task("sleep-clear")
@@ -1120,16 +1120,14 @@ class TestSleep:
         assert task["status"] == "DISCARDED"
         assert task["sleep_seconds"] is None
 
-    def test_reply_on_working_sleeping_task_clears_sleep_seconds(
+    def test_reply_on_sleeping_task_resumes_working_and_clears_sleep_seconds(
         self, ilan_server: IlanServer
     ) -> None:
-        """``ilan re`` on a WORKING task that's executing a sleep should
-        drop sleep_seconds so the suffix disappears once the agent is
-        interrupted and resumed with the new reply."""
+        """``ilan re`` interrupts SLEEPING and resumes ordinary WORKING."""
         self._make_task_in_status(ilan_server, "sleep-re-wk", TaskStatus.NEEDS_ATTENTION)
         _post(ilan_server, "/tasks/sleep-re-wk/sleep", {"seconds": 5})
-        # Sleep restarted the agent: WORKING with sleep_seconds preserved,
-        # since WORKING is the sleep-visible status.
+        # Sleep restarted the agent in its explicit SLEEPING state.
+        assert _get(ilan_server, "/tasks/sleep-re-wk")["task"]["status"] == "SLEEPING"
         assert _get(ilan_server, "/tasks/sleep-re-wk")["task"]["sleep_seconds"] == 5
 
         # reply_to_working spawns ``claude`` which isn't available in the
@@ -2256,6 +2254,23 @@ class TestKill:
         resp = _post(ilan_server, "/tasks/kill-idle/kill")
         assert "error" in resp
 
+    def test_kill_sleeping_task(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "kill-sleep", "prompt": "P"})
+        with ilan_server.lock:
+            task = ilan_server.store.get_task("kill-sleep")
+            task.sleep_seconds = 300
+            task.set_status(TaskStatus.SLEEPING)
+            ilan_server.store.put_task(task)
+
+        with patch.object(ilan_server.runner, "kill") as kill:
+            resp = _post(ilan_server, "/tasks/kill-sleep/kill")
+
+        assert resp.get("ok") is True
+        kill.assert_called_once()
+        task = _get(ilan_server, "/tasks/kill-sleep")["task"]
+        assert task["status"] == "ERROR"
+        assert task["sleep_seconds"] is None
+
 
 # ── Max / Unmax (Fable model) ───────────────────────────────────────────
 
@@ -2434,6 +2449,22 @@ class TestSwitchBackend:
 
         task = _get(ilan_server, "/tasks/sw-working")["task"]
         assert task["status"] == "WORKING"
+        assert task["engine"] == "claude"
+
+    def test_rejects_sleeping_task(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "sw-sleeping", "prompt": "P"})
+        with ilan_server.lock:
+            task = ilan_server.store.get_task("sw-sleeping")
+            task.sleep_seconds = 300
+            task.set_status(TaskStatus.SLEEPING)
+            ilan_server.store.put_task(task)
+
+        resp = _post(ilan_server, "/tasks/sw-sleeping/switch-backend")
+        assert "error" in resp
+        assert "SLEEPING" in resp["error"]
+
+        task = _get(ilan_server, "/tasks/sw-sleeping")["task"]
+        assert task["status"] == "SLEEPING"
         assert task["engine"] == "claude"
 
 

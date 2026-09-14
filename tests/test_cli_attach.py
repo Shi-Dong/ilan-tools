@@ -114,6 +114,20 @@ class TestAttachWorkingRefused:
         assert "WORKING" in result.output
         assert "kill" in result.output.lower()
 
+    def test_sleeping_task_refused(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client({
+            "task": {
+                "name": "sleeping-task",
+                "status": "SLEEPING",
+                "session_id": "sess-123",
+            }
+        })
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["task", "attach", "sleeping-task"])
+        assert result.exit_code != 0
+        assert "SLEEPING" in result.output
+        assert "kill" in result.output.lower()
+
     def test_shorthand_working_refused(self, runner: CliRunner, tmp_config) -> None:
         client = _make_client({
             "task": {

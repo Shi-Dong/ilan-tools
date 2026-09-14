@@ -1,20 +1,18 @@
-/* Render task rows through the real renderList and report the sleep suffix
- * each one produced, as JSON, for cross-checking against the CLI's
- * _format_sleep_suffix and its WORKING-only rule.
- *
- * Reads its cases from argv so the Python side owns the list, and can build
- * the expectations from the CLI's own helper rather than from a literal.
+/* Render task rows through the real list and report each SLEEPING progress bar.
+ * Cases come from Python so its duration formatter can verify the visible text.
  */
 
 import { bootApp } from './harness.mjs';
 
 const app = bootApp();
 
-// [label, status, sleep_seconds]
+// [label, status, sleep_seconds, elapsed_seconds]
 const CASES = JSON.parse(process.argv[2]);
 
 const out = {};
-for (const [label, status, sleepSeconds] of CASES) {
+let oldSuffixPresent = false;
+for (const [label, status, sleepSeconds, elapsedSeconds] of CASES) {
+  const started = new Date(Date.now() - elapsedSeconds * 1000).toISOString();
   app.state.tasks = [{
     name: 'demo-task',
     alias: 'aa',
@@ -22,14 +20,24 @@ for (const [label, status, sleepSeconds] of CASES) {
     engine: 'claude',
     sleep_seconds: sleepSeconds,
     created_at: '2026-01-01T00:00:00+00:00',
-    status_changed_at: '2026-01-01T00:00:00+00:00',
+    status_changed_at: started,
   }];
-  // A closed task is filtered out of the default listing, and searching is
-  // what reaches one — the same route the phone takes.
-  app.state.query = status === 'DONE' || status === 'DISCARDED' ? 'demo-task' : '';
-  app.state.draft = app.state.query;
+  app.state.query = '';
+  app.state.draft = '';
   app.renderList();
-  const match = /<span class="sleep">([^<]*)<\/span>/.exec(app.html());
-  out[label] = match ? match[1] : null;
+
+  const html = app.html();
+  oldSuffixPresent ||= html.includes('sleeping for');
+  if (!html.includes('class="sleep-progress"')) {
+    out[label] = null;
+    continue;
+  }
+  out[label] = {
+    label: html.match(/class="sleep-progress-track"[^>]*aria-label="([^"]*)"/)?.[1] ?? null,
+    max: Number(html.match(/class="sleep-progress-track" max="(\d+)"/)?.[1]),
+    now: Number(html.match(/class="sleep-progress-track"[^>]*value="(\d+)"/)?.[1]),
+    time: html.match(/class="sleep-progress-time">([^<]*)</)?.[1] ?? null,
+  };
 }
+out._old_suffix_present = oldSuffixPresent;
 console.log(JSON.stringify(out));

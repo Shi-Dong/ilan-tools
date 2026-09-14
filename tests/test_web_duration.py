@@ -18,12 +18,11 @@ import subprocess
 from pathlib import Path
 
 import pytest
+
 from ilan.time_format import (
     _format_compact_duration,
     _format_reply_every_suffix,
-    _format_sleep_suffix,
 )
-
 
 HARNESS = Path(__file__).parent / "js" / "duration_dump.mjs"
 
@@ -43,6 +42,7 @@ def _render() -> dict:
         capture_output=True,
         text=True,
         timeout=120,
+        check=False,
     )
     assert result.returncode == 0, f"\n{result.stdout}{result.stderr}"
     return json.loads(result.stdout)
@@ -58,9 +58,7 @@ def test_web_duration_matches_the_cli() -> None:
         # The CLI wraps its suffix in " (...)" for the table cell; the web app
         # uses the same phrase without the parentheses.
         cli_reply = _format_reply_every_suffix(secs)
-        cli_sleep = _format_sleep_suffix(secs)
         assert got["replyEvery"] == (cli_reply.strip(" ()") if cli_reply else ""), secs
-        assert got["sleep"] == (cli_sleep.strip(" ()") if cli_sleep else ""), secs
 
         # The loop marker must appear exactly when the CLI would print the
         # reply-every suffix.

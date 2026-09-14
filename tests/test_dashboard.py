@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import re
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
@@ -29,6 +30,8 @@ from ilan.time_format import (
 )
 from ilan.task_display import (
     ALIAS_STYLE,
+    SLEEP_PROGRESS_EMPTY_STYLE,
+    SLEEP_PROGRESS_STYLE,
     TIMESTAMP_COLUMN_WIDTH,
     _build_name_cell,
     _name_style,
@@ -63,6 +66,7 @@ def _task_row(
     created_at: str = _EARLIER_ISO,
     status_changed_at: str = _NOW_ISO,
     summary_one_liner: str | None = None,
+    sleep_seconds: int | None = None,
 ) -> dict:
     return {
         "name": name,
@@ -72,6 +76,7 @@ def _task_row(
         "created_at": created_at,
         "status_changed_at": status_changed_at,
         "summary_one_liner": summary_one_liner,
+        "sleep_seconds": sleep_seconds,
     }
 
 
@@ -312,6 +317,41 @@ class TestWorkingElapsed:
         spans = status_cell._spans
         dim_spans = [s for s in spans if s.start <= elapsed_start < s.end or s.start >= elapsed_start]
         assert any(s.style == "dim" for s in dim_spans)
+
+
+class TestSleepingProgress:
+    NOW = datetime(2026, 9, 14, 12, tzinfo=timezone.utc)
+
+    def _cell(self, elapsed: int, total: int = 300) -> Text:
+        row = _task_row(
+            status="SLEEPING",
+            status_changed_at=(self.NOW - timedelta(seconds=elapsed)).isoformat(),
+            sleep_seconds=total,
+        )
+        with patch("ilan.time_format.datetime", wraps=datetime) as clock:
+            clock.now.return_value = self.NOW
+            table = _build_dashboard_table([row], _TZ)
+        cell = table.columns[1]._cells[0]
+        assert isinstance(cell, Text)
+        return cell
+
+    def test_status_column_shows_a_half_full_bar_and_elapsed_total(self) -> None:
+        cell = self._cell(150)
+        assert cell.plain == "SLEEPING █████░░░░░ 2m30s / 5m"
+
+    def test_progress_clamps_at_the_requested_duration(self) -> None:
+        cell = self._cell(600)
+        assert cell.plain == "SLEEPING ██████████ 5m / 5m"
+
+    def test_bar_has_distinct_filled_and_empty_styles(self) -> None:
+        cell = self._cell(150)
+        styles = {span.style for span in cell.spans}
+        assert SLEEP_PROGRESS_STYLE in styles
+        assert SLEEP_PROGRESS_EMPTY_STYLE in styles
+
+    def test_name_cell_no_longer_repeats_the_sleep_duration(self) -> None:
+        row = _task_row(status="SLEEPING", sleep_seconds=300)
+        assert "sleeping for" not in _build_name_cell(row).plain
 
 
 # ── CLI command registration ─────────────────────────────────────────

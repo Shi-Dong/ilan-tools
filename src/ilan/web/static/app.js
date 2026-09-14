@@ -103,10 +103,40 @@ function statusLabel(task) {
   return secs === null ? label : `${label} (for ${formatHoursMinutes(secs)})`;
 }
 
-/** "sleeping for 5m" for an active sleep, else ''. */
-function sleepSuffix(seconds) {
-  if (!seconds || seconds <= 0) return '';
-  return `sleeping for ${formatCompactDuration(seconds)}`;
+/** Render a running clock compactly: "42s", "4m03s" or "2h38m". */
+function formatProgressDuration(seconds) {
+  const total = Math.max(0, Math.trunc(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  if (hours) return `${hours}h${String(minutes).padStart(2, '0')}m`;
+  if (minutes) return secs
+    ? `${minutes}m${String(secs).padStart(2, '0')}s`
+    : `${minutes}m`;
+  return `${secs}s`;
+}
+
+/** Elapsed and total seconds for a SLEEPING task, clamped at completion. */
+function sleepProgress(task) {
+  if (task.status !== 'SLEEPING') return null;
+  const total = Math.trunc(Number(task.sleep_seconds));
+  const since = secondsSince(task.status_changed_at);
+  if (!Number.isFinite(total) || total <= 0 || since === null) return null;
+  return { elapsed: Math.min(total, Math.floor(since)), total };
+}
+
+/** The visible and accessible progress bar shown beside SLEEPING. */
+function sleepProgressHtml(task) {
+  const progress = sleepProgress(task);
+  if (!progress) return '';
+  const elapsed = formatProgressDuration(progress.elapsed);
+  const total = formatProgressDuration(progress.total);
+  return `<span class="sleep-progress">
+    <progress class="sleep-progress-track" max="${progress.total}"
+      value="${progress.elapsed}"
+      aria-label="${esc(`${elapsed} of ${total} slept`)}"></progress>
+    <span class="sleep-progress-time">${elapsed} / ${total}</span>
+  </span>`;
 }
 
 /** What the Sleep sheet offers, as [label, seconds], in the order shown.
@@ -301,6 +331,7 @@ function askChoice(title, options) {
 // AGENT_IN_LOOP rather than its stored status, because the timer re-prompts the
 // agent and no human is actually being waited on.
 const IN_LOOP_STATUSES = new Set(['AGENT_FINISHED', 'NEEDS_ATTENTION']);
+const RUNNING_STATUSES = new Set(['WORKING', 'SLEEPING']);
 
 // Backends whose task names carry a colour cue, mirroring ENGINE_NAME_STYLE in
 // models.py. A task with no engine recorded predates the field and runs on the
@@ -327,16 +358,6 @@ function displayStatus(task) {
 // behaviour.
 function isLooping(task) {
   return Boolean(task.reply_every_seconds && task.reply_every_seconds > 0);
-}
-
-// A sleep is only meaningful while the agent is actually WORKING — the value
-// lingers on the task after the agent stops, so showing it on a finished task
-// would claim something is asleep when nothing is running. _build_name_cell
-// guards on TaskStatus.WORKING for exactly that reason, and unlike the
-// reply-every cycle this one is genuinely status-dependent.
-function isSleeping(task) {
-  return task.status === 'WORKING'
-    && Boolean(task.sleep_seconds && task.sleep_seconds > 0);
 }
 
 /** The closed statuses, each with the endpoint that reopens it.
@@ -582,7 +603,8 @@ function icon(name) {
  */
 function statusPill(task) {
   const status = displayStatus(task);
-  return `<span class="status st-${esc(status)}">${esc(statusLabel(task))}</span>`;
+  return `<span class="status st-${esc(status)}">${esc(statusLabel(task))}</span>${
+    sleepProgressHtml(task)}`;
 }
 
 function taskRow(task) {
@@ -631,8 +653,6 @@ function taskRow(task) {
             isLooping(task)
               ? ` title="${esc(replyEverySuffix(task.reply_every_seconds))}"` : ''
             }>${esc(task.name)}</span>
-          ${isSleeping(task)
-            ? `<span class="sleep">(${esc(sleepSuffix(task.sleep_seconds))})</span>` : ''}
           ${task.pinned ? '<span class="pin">📌</span>' : ''}
         </span>
         ${task.summary_one_liner
@@ -853,7 +873,7 @@ async function reviveFromCard(name) {
 async function doneFromCard(name) {
   const task = state.tasks.find((t) => t.name === name);
   const ok = await askConfirm(
-    task && task.status === 'WORKING'
+    task && RUNNING_STATUSES.has(task.status)
       ? `Mark ${name} as done? This stops the agent that is running.`
       : `Mark ${name} as done?`,
     'Mark done',
@@ -1130,9 +1150,9 @@ async function renderDetail(name) {
   // status already says which model it is on, in a word rather than an id;
   // for any other task the model is the configured default, which is a
   // setting rather than something about this task. The line keeps what is
-  // true of this task right now: an active sleep, a reply-every cycle.
+  // true of this task right now: a reply-every cycle. A sleep is already
+  // visible as the progress bar beside SLEEPING, on this line itself.
   const sub = [
-    sleepSuffix(task.sleep_seconds),
     replyEverySuffix(task.reply_every_seconds),
   ].filter(Boolean).join(' · ');
 
@@ -1330,7 +1350,7 @@ function showActions(task) {
   options.push({ value: 'rename', label: 'Rename…' });
   options.push({ value: 'branch', label: 'Branch…' });
   if (task.gist_url) options.push({ value: 'gist', label: 'Open conversation Gist' });
-  if (task.status === 'WORKING') {
+  if (RUNNING_STATUSES.has(task.status)) {
     options.push({ value: 'kill', label: 'Kill running agent', danger: true });
   }
   options.push({ value: 'delete', label: 'Delete task', danger: true });
