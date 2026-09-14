@@ -197,6 +197,9 @@ class TestTailMarkdown:
         sent_msg = client.reply.call_args[0][1]
         assert "pod-0  Pending" in sent_msg
         assert "  pod-0" not in sent_msg  # i.e. no leading double-space pad
+        # The row comes through as a Markdown blockquote of its own, below the
+        # words that introduced it.
+        assert sent_msg.startswith("look at\n\n> pod-0")
         # And of course the literal `@3` should be gone after expansion.
         assert "@3" not in sent_msg
 

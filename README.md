@@ -169,7 +169,7 @@ Settings live in `~/.config/ilan/config.json`. Most are **server-side** and appl
 | `editor` | `emacs` | Editor used by `ilan log`. |
 | `push-contact` | `mailto:ilan@example.com` | Contact address a push service may use about this server's web-app notifications. Apple accepts only a `mailto:` with a dotted host. |
 | `dashboard-interval` | `1` | Seconds between dashboard refreshes. |
-| `line-number` | `false` | Number the lines of `ilan tail`, so a reply can quote line 12 as `@12`. |
+| `line-number` | `false` | Number the lines of `ilan tail`, so a reply can quote line 12 as `@12`, which expands to that line as a Markdown blockquote. |
 | `markdown` | `false` | Render replies as Markdown in the terminal. |
 | `one-line-summary` | `true` | Show the AI one-line summary of each latest reply in `ilan ls` and the dashboard. |
 
