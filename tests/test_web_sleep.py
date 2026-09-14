@@ -45,13 +45,12 @@ def test_sleep_progress_matches_the_terminal_duration_format() -> None:
         if status != "SLEEPING" or not total:
             assert progress is None, f"{label} unexpectedly rendered {progress}"
             continue
-        slept = min(total, elapsed)
         expected = (
-            f"{_format_progress_duration(slept)} / "
+            f"{_format_progress_duration(elapsed)} / "
             f"{_format_progress_duration(total)}"
         )
         assert progress["time"] == expected
-        assert progress["now"] == slept
+        assert progress["now"] == min(total, elapsed)
         assert progress["max"] == total
 
 
@@ -64,7 +63,8 @@ def test_sleep_progress_bar_has_the_right_fraction_and_accessible_label() -> Non
 
     overdue = rendered["sleeping_overdue"]
     assert overdue["now"] / overdue["max"] == 1.0
-    assert overdue["time"] == "5m / 5m"
+    assert overdue["time"] == "10m / 5m"
+    assert overdue["label"] == "10m of 5m slept"
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")

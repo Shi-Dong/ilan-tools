@@ -116,13 +116,14 @@ function formatProgressDuration(seconds) {
   return `${secs}s`;
 }
 
-/** Elapsed and total seconds for a SLEEPING task, clamped at completion. */
+/** Elapsed and total seconds for a SLEEPING task, with a capped bar value. */
 function sleepProgress(task) {
   if (task.status !== 'SLEEPING') return null;
   const total = Math.trunc(Number(task.sleep_seconds));
   const since = secondsSince(task.status_changed_at);
   if (!Number.isFinite(total) || total <= 0 || since === null) return null;
-  return { elapsed: Math.min(total, Math.floor(since)), total };
+  const elapsed = Math.floor(since);
+  return { elapsed, total, barValue: Math.min(total, elapsed) };
 }
 
 /** The visible and accessible progress bar shown beside SLEEPING. */
@@ -133,7 +134,7 @@ function sleepProgressHtml(task) {
   const total = formatProgressDuration(progress.total);
   return `<span class="sleep-progress">
     <progress class="sleep-progress-track" max="${progress.total}"
-      value="${progress.elapsed}"
+      value="${progress.barValue}"
       aria-label="${esc(`${elapsed} of ${total} slept`)}"></progress>
     <span class="sleep-progress-time">${elapsed} / ${total}</span>
   </span>`;

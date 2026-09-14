@@ -82,7 +82,7 @@ def _format_progress_duration(seconds: int) -> str:
 def _sleep_progress(
     started_at: str | None, sleep_seconds: int | None
 ) -> tuple[int, int] | None:
-    """Return elapsed and total seconds for an active sleep, clamped to total."""
+    """Return elapsed and total seconds for a sleep, allowing elapsed overruns."""
     if not started_at:
         return None
     try:
@@ -93,7 +93,7 @@ def _sleep_progress(
         elapsed = int((datetime.now(timezone.utc) - started).total_seconds())
     except (TypeError, ValueError, OverflowError):
         return None
-    return max(0, min(total, elapsed)), total
+    return max(0, elapsed), total
 
 
 def _format_reply_every_suffix(reply_every_seconds: int | None) -> str | None:

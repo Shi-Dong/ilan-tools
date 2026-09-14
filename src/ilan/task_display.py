@@ -240,7 +240,7 @@ def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
 
 
 def _append_sleep_progress(cell: Text, row: dict) -> None:
-    """Append a ten-cell elapsed/total sleep bar when its metadata is valid."""
+    """Append elapsed/total sleep progress with a bar capped at ten cells."""
     progress = _sleep_progress(
         row.get("status_changed_at"), row.get("sleep_seconds")
     )

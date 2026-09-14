@@ -180,8 +180,8 @@ class TestSleepProgress:
     def test_reports_elapsed_against_total(self) -> None:
         assert self._progress(123) == (123, 300)
 
-    def test_clamps_at_the_requested_sleep(self) -> None:
-        assert self._progress(600) == (300, 300)
+    def test_reports_elapsed_beyond_the_requested_sleep(self) -> None:
+        assert self._progress(600) == (600, 300)
 
     def test_future_start_clamps_to_zero(self) -> None:
         assert self._progress(-10) == (0, 300)

@@ -340,9 +340,9 @@ class TestSleepingProgress:
         cell = self._cell(150)
         assert cell.plain == "SLEEPING █████░░░░░ 2m30s / 5m"
 
-    def test_progress_clamps_at_the_requested_duration(self) -> None:
+    def test_full_bar_keeps_counting_elapsed_time(self) -> None:
         cell = self._cell(600)
-        assert cell.plain == "SLEEPING ██████████ 5m / 5m"
+        assert cell.plain == "SLEEPING ██████████ 10m / 5m"
 
     def test_bar_has_distinct_filled_and_empty_styles(self) -> None:
         cell = self._cell(150)
