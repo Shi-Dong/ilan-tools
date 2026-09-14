@@ -14,12 +14,8 @@ from rich.table import Table
 from rich.text import Span, Text
 
 from ilan.cli import (
-    ALIAS_STYLE,
-    TIMESTAMP_COLUMN_WIDTH,
     _build_dashboard_table,
-    _build_name_cell,
     _maybe_warn_one_liner_unconfigured,
-    _name_style,
     main,
 )
 from ilan.models import (
@@ -30,6 +26,12 @@ from ilan.models import (
 )
 from ilan.time_format import (
     _format_ts,
+)
+from ilan.task_display import (
+    ALIAS_STYLE,
+    TIMESTAMP_COLUMN_WIDTH,
+    _build_name_cell,
+    _name_style,
 )
 
 

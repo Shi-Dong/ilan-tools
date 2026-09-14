@@ -19,14 +19,7 @@ from rich.console import Console
 import ilan.cli as cli_mod
 import ilan.config as cfg_mod
 from ilan.cli import (
-    NAME_TO_STATUS,
-    NOTES_STYLE,
-    PROSE_MAX_WIDTH,
-    TIMESTAMP_COLUMN_WIDTH,
-    _build_concise_task_line,
     _build_dashboard_table,
-    _build_name_cell,
-    _build_status_cell,
     main,
 )
 from ilan.models import (
@@ -39,6 +32,15 @@ from ilan.models import (
 from ilan.server import IlanServer
 from ilan.store import Store
 from tests.helpers import running_server
+from ilan.task_display import (
+    NAME_TO_STATUS,
+    NOTES_STYLE,
+    PROSE_MAX_WIDTH,
+    TIMESTAMP_COLUMN_WIDTH,
+    _build_concise_task_line,
+    _build_name_cell,
+    _build_status_cell,
+)
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m|\x1b\]8;[^\x1b]*\x1b\\")
 

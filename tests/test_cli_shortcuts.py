@@ -13,6 +13,13 @@ from rich.color import Color, ColorType
 from rich.style import Style
 
 from ilan.cli import (
+    _TreeNode,
+    _build_tree_label,
+    _resolve_row,
+    main,
+)
+from ilan.models import ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_NAME_STYLE
+from ilan.task_display import (
     ALIAS_MAXED_STYLE,
     ALIAS_STYLE,
     MAX_TAG_STYLE,
@@ -20,17 +27,12 @@ from ilan.cli import (
     PIN_MARKER,
     PROSE_MAX_WIDTH,
     TIMESTAMP_COLUMN_WIDTH,
-    _TreeNode,
     _alias_style,
     _build_concise_task_line,
     _build_name_cell,
-    _build_tree_label,
     _format_alias,
     _is_maxed,
-    _resolve_row,
-    main,
 )
-from ilan.models import ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_NAME_STYLE
 
 
 # SGR color/attribute codes, plus the OSC 8 hyperlink sequences Rich emits

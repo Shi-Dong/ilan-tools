@@ -17,6 +17,7 @@ reference.
 
 - `src/ilan/cli.py` — Click commands (client side).
 - `src/ilan/time_format.py` — shared timestamp and duration formatting.
+- `src/ilan/task_display.py` — Rich task labels, cells and shared styles.
 - `src/ilan/client.py` — thin HTTP client to the server.
 - `src/ilan/server.py` — HTTP routes + reaper loop.
 - `src/ilan/server_state.py` — PID/owner files used for local server discovery.
