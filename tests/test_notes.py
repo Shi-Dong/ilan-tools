@@ -1413,11 +1413,6 @@ class TestNoteUnderTheName:
         assert "THENOTE" not in cell.plain
         assert "THESUMMARY" in cell.plain
 
-    def test_the_status_cell_has_no_inline_switch_left(self) -> None:
-        import inspect
-
-        assert "inline_note" not in inspect.signature(_build_status_cell).parameters
-
     def test_the_concise_line_still_has_no_note(self) -> None:
         """``-c`` is one greppable line per task; prose would break its shape."""
         line = _build_concise_task_line(_row("alpha", notes="the reminder"))

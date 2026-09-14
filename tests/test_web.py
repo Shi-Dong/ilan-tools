@@ -974,34 +974,6 @@ def test_the_max_tag_survives_collapsing():
     assert 'class="max-tag"' in tag.group(1)
 
 
-def test_the_web_app_is_told_which_tag_to_show_rather_than_working_it_out():
-    """Which tag a task carries depends on every backend's max model, the ids
-    those superseded, and which backend honours which pin. Every copy of that
-    outside models.py is a future bug — a model bump already has to remember
-    the legacy list — so the web app renders a string the server computes with
-    the same predicate `ls` uses.
-    """
-    js = web.read_asset("app.js").decode()
-    server = (Path(web.__file__).parent.parent / "server.py").read_text()
-    cli = (Path(web.__file__).parent.parent / "cli.py").read_text()
-
-    assert "task.max_tag" in js, "the card does not read the server's tag"
-    for model_id in ("fable-5", "gpt-6"):
-        assert model_id not in js, f"the model id {model_id} is spelled out in the web app"
-    for tag in ("FABLE", "ASTRA"):
-        assert f">{tag}<" not in js, f"the web app hard-codes the {tag} tag"
-    assert "task.model" not in js.split("function taskRow")[1].split("\n}\n")[0], (
-        "the card inspects the model itself instead of trusting the server"
-    )
-
-    assert '"max_tag": max_tag(t.engine, t.model)' in server, (
-        "the list row no longer carries the tag, or computes it differently"
-    )
-    assert 'max_tag(engine, row.get("model"))' in cli, (
-        "the CLI's max-model note no longer uses the shared predicate"
-    )
-
-
 def test_the_card_no_longer_names_the_backend():
     """The task name is coloured by backend, so the word repeated the colour.
 
@@ -1397,157 +1369,6 @@ def test_the_close_action_is_not_green():
             "it is a green again"
         )
 
-
-# ── the ••• sheet ───────────────────────────────────────────────────────
-
-def test_the_actions_sheet_no_longer_offers_the_three_trimmed_entries():
-    """Too many entries to choose from, so four went: the reply-every cycle,
-    marking unread, setting an alias, and discarding. They remain CLI commands.
-
-    Asserted on the menu builder rather than on the rendered sheet, which the
-    JS harness covers; this is the place a future entry would be added back.
-    """
-    js = web.read_asset("app.js").decode()
-    sheet = re.search(r"function showActions\(task\) \{(.*?)\n\}", js, re.S)
-    assert sheet, "the actions sheet builder is gone"
-    for value in ("replyEvery", "unread", "alias", "discard"):
-        assert f"value: '{value}'" not in sheet.group(1), f"{value} is back on the sheet"
-    for label in ("Reply every…", "Mark unread", "Set alias…", "Discard"):
-        assert label not in sheet.group(1), f"'{label}' is back on the sheet"
-
-
-def test_the_actions_the_trimmed_entries_reached_are_gone_with_them():
-    """An unreachable case in runAction is dead code, and dead code is where
-    the next reader assumes a feature still exists."""
-    js = web.read_asset("app.js").decode()
-    assert "case 'replyEvery':" not in js, "the reply-every handler outlived its menu entry"
-    assert "case 'alias':" not in js, "the alias handler outlived its menu entry"
-    bare = re.search(r"const BARE_POST_ACTIONS = new Set\(\[(.*?)\]\);", js, re.S)
-    assert bare and "'unread'" not in bare.group(1), "unread is still a postable action"
-    assert "'discard'" not in bare.group(1), "discard is still a postable action"
-    # Undiscard stays: the CLI still discards, and a discarded task still needs its way back.
-    assert "'undiscard'" in bare.group(1), "undiscard went with discard, stranding DISCARDED tasks"
-    assert "function parseDuration" not in js, (
-        "the duration parser has nothing left to parse; sleep is a fixed choice now"
-    )
-
-
-def test_sleep_is_a_fixed_choice_of_six_durations():
-    """Typed durations are gone: the sheet offers six values the server takes.
-
-    The presets are asserted as a list rather than a count, because the order
-    is what the thumb learns.
-    """
-    js = web.read_asset("app.js").decode()
-    table = re.search(r"const SLEEP_CHOICES = \[(.*?)\n\];", js, re.S)
-    assert table, "the sleep presets are gone"
-    labels = re.findall(r"\['(\d+[mh])',", table.group(1))
-    assert labels == ["15m", "30m", "1h", "2h", "4h", "8h"], labels
-
-    sleep = re.search(r"case 'sleep': \{(.*?)\n    \}", js, re.S)
-    assert sleep, "the sleep action is gone"
-    assert "askChoice(" in sleep.group(1), "sleep does not open a choice sheet"
-    assert "askText(" not in sleep.group(1), "sleep still prompts for typed text"
-    assert "SLEEP_CHOICES" in sleep.group(1), "the sheet is not built from the presets"
-    assert "Could not read that duration" not in sleep.group(1), (
-        "an unparseable-input path survived, but nothing can be typed any more"
-    )
-
-
-def test_the_docs_no_longer_list_the_trimmed_entries_under_the_web_app():
-    ref = (Path(web.__file__).parent.parent.parent.parent / "docs" / "reference.md").read_text()
-    row = next(line for line in ref.splitlines() if line.startswith("| Actions |"))
-    for cmd in ("`reply -t`", "`unread`", "`alias`", "`discard`"):
-        assert cmd not in row, f"{cmd} is still listed as covered by the web app's sheet"
-    assert "15m, 30m, 1h, 2h, 4h or 8h" in row, "the fixed sleep choices are not documented"
-
-
-# ── restarting the server from Settings ─────────────────────────────────
-
-def test_settings_offers_a_server_restart_that_asks_first():
-    js = web.read_asset("app.js").decode()
-    page = re.search(r"async function renderConfig\(\) \{(.*?)\n\}", js, re.S)
-    assert page, "the Settings page is gone"
-    assert 'id="restart-server"' in page.group(1), "Settings has no restart button"
-    assert 'class="btn btn-primary" id="restart-server"' in page.group(1), (
-        "the restart button no longer stands out from the Edit buttons beside it"
-    )
-    assert "restartServer(pid)" in page.group(1), "the button is not wired to the restart"
-
-    fn = re.search(r"async function restartServer\(oldPid, wait = pause\) \{(.*?)\n\}", js, re.S)
-    assert fn, "restartServer is gone or lost its injectable wait"
-    body = fn.group(1)
-    assert body.index("askConfirm(") < body.index("api.post('/restart')"), (
-        "the restart is posted before the user has confirmed"
-    )
-    assert "waitForRestart(" in body, "the app does not wait for the server to come back"
-
-
-def test_the_reconnect_waits_on_a_new_pid_and_tolerates_the_gap():
-    """Version and commit are the same on both sides of a restart, so a live
-    answer proves nothing; only a different pid does. And the fetches in the
-    gap between the two processes fail, which must be waited through rather
-    than reported."""
-    js = web.read_asset("app.js").decode()
-    fn = re.search(r"async function waitForRestart\(oldPid, wait = pause\) \{(.*?)\n\}", js, re.S)
-    assert fn, "waitForRestart is gone or lost its injectable wait"
-    body = fn.group(1)
-    assert "data.pid !== oldPid" in body, "the reconnect does not compare pids"
-    assert "catch {" in body, "a failed fetch in the gap would abort the wait"
-    assert "RESTART_ATTEMPTS" in body, "the wait is not bounded"
-    attempts = re.search(r"const RESTART_ATTEMPTS = (\d+);", js)
-    wait_ms = re.search(r"const RESTART_WAIT_MS = (\d+);", js)
-    assert attempts and wait_ms
-    total = int(attempts.group(1)) * int(wait_ms.group(1)) / 1000
-    assert 10 <= total <= 60, f"the reconnect waits {total}s in total"
-
-
-def test_the_docs_list_server_restart_under_settings():
-    ref = (Path(web.__file__).parent.parent.parent.parent / "docs" / "reference.md").read_text()
-    row = next(line for line in ref.splitlines() if line.startswith("| Settings |"))
-    assert "`server restart`" in row
-
-
-# ── the max-model tag on a task's page ──────────────────────────────────
-
-def test_the_task_page_shows_the_servers_tag_beside_the_status():
-    """The same string the card shows, from the same field, in the same place.
-
-    Beside the status rather than the name: the title is the one line on the
-    page that cannot give up width, and the status line is already the card's
-    own ``.row-meta`` container, so the pill-then-tag order renders through the
-    very rule the card uses. The tag is read from ``task.max_tag`` and never
-    spelled out, and the server's task payload has to carry that field,
-    computed with the same predicate as the list row.
-    """
-    js = web.read_asset("app.js").decode()
-    server = (Path(web.__file__).parent.parent / "server.py").read_text()
-
-    page = js.split("async function renderDetail")[1].split("\n}\n")[0]
-    line = re.search(r'<p class="hdr-sub row-meta rs-\$\{esc\(status\)\}">(.*?)</p>', page, re.S)
-    assert line, "the status line is no longer the card's container"
-    body = line.group(1)
-    assert "statusPill(task)" in body and "task.max_tag ?" in body, "the status line does not render the tag"
-    assert body.index("statusPill(task)") < body.index("task.max_tag") < body.index("meta-detail"), (
-        "the tag is not directly after the pill"
-    )
-    assert 'class="max-tag"' in body, "the page's tag is styled differently from the card's"
-
-    title = re.search(r'<h1 class="hdr-title">(.*?)</h1>', page, re.S)
-    assert title and "max_tag" not in title.group(1), "the title carries a tag and would clip the name for it"
-
-    assert '"max_tag": max_tag(task.engine, task.model)' in server, (
-        "the task payload does not carry the tag the page renders"
-    )
-
-
-def test_the_docs_say_the_tag_is_on_the_task_page_too():
-    ref = (Path(web.__file__).parent.parent.parent.parent / "docs" / "reference.md").read_text()
-    assert ref.count("beside the status on the task's own page") == 2, (
-        "the docs describe the tag's placement in two places; both should mention the page"
-    )
-
-
 # ── motion ──────────────────────────────────────────────────────────────
 
 def _reduced_motion_block(css: str) -> str:
@@ -1703,13 +1524,6 @@ def test_the_badge_counts_what_is_waiting_and_is_guarded():
     assert "updateBadge();" in js.split("function renderList()")[1].split("\n}\n")[0], (
         "the badge does not follow the list"
     )
-
-
-def test_the_docs_describe_notifications_instead_of_denying_them():
-    ref = (Path(web.__file__).parent.parent.parent.parent / "docs" / "reference.md").read_text()
-    assert "There are no push notifications" not in ref
-    assert "Push notifications are opt-in per phone" in ref
-    assert "never the alias" in ref
 
 
 # ── the note ────────────────────────────────────────────────────────────

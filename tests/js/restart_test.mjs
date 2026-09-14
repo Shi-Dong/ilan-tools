@@ -93,10 +93,14 @@ check('Settings is reloaded to show it', configLoads(trip) === before + 1,
 const stuck = settings([111]);
 await stuck.renderConfig();
 const stuckLooksBefore = versionLooks(stuck);
-const stuckRun = stuck.restartServer(111, noWait);
+const delays = [];
+const stuckRun = stuck.restartServer(111, async (ms) => { delays.push(ms); });
 await settle();
 clickModal(stuck, '#mo', 'the restart confirmation must be acceptable');
 await stuckRun;
+const waitSeconds = delays.reduce((total, ms) => total + ms, 0) / 1000;
+check('the retry budget stays between 10 and 60 seconds',
+  waitSeconds >= 10 && waitSeconds <= 60, `${waitSeconds}s`);
 check('it gives up after a bounded number of looks', versionLooks(stuck) - stuckLooksBefore === 40,
   `${versionLooks(stuck) - stuckLooksBefore} looks`);
 check('and says so, pointing at the host',
