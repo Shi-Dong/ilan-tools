@@ -46,3 +46,6 @@ reference.
   update `docs/reference.md` (always) and `README.md` (only if the overview,
   a command table row, or a config key is affected).
 - Don't add parallel shorthand commands for a canonical one.
+
+- Existing top-level task shortcuts reuse the canonical task command through
+  `_register_task_shortcut`; define options and callbacks on that task command.
