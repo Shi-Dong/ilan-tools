@@ -675,6 +675,10 @@ UNREAD_MARKER = "!!"
 # because the whole Name column is bold and the note would inherit it — a
 # reminder should sit quieter than the name it hangs under, not match it.
 NOTES_STYLE = "not bold italic light_green"
+# The agent's one-line summary, wherever it is shown: under the status label
+# in the listings, and in its own `ilan info` field. One constant so the two
+# cannot drift apart.
+ONE_LINER_STYLE = "yellow italic"
 # The dashboard splits its flexible space equally between Name and Status;
 # the timestamp columns are pinned. Both are prose columns now — Name carries
 # the note beneath the alias and name, Status the one-line summary beneath
@@ -773,8 +777,8 @@ def _alias_style(row: dict) -> str:
     return ALIAS_MAXED_STYLE if _is_maxed(row) else ALIAS_STYLE
 
 
-def _build_name_cell(row: dict) -> Text:
-    """Build the styled "number (alias) name" cell, with the note beneath.
+def _build_name_label(row: dict) -> Text:
+    """Build the styled "number (alias) name" label, without the note.
 
     ``needs_review`` rows are flagged with a ``!!`` ASCII marker rather
     than the \u26a0\ufe0f emoji, whose unpredictable terminal width breaks
@@ -785,13 +789,13 @@ def _build_name_cell(row: dict) -> Text:
 
     A maxed task is told apart by its alias: ``[GK]`` in the red the tag
     used, rather than ``(gk)`` in pink — see :func:`_format_alias` and
-    :func:`_alias_style`. The task's note, if it has one, is the cell's last
-    line, in :data:`NOTES_STYLE`: it belongs with the name because it says
-    what the task is *for*, where the Status cell says what the agent just
-    did.
+    :func:`_alias_style`.
 
     The name itself links to the task's Gist conversation mirror — see
     :func:`_name_style`.
+
+    Split out of :func:`_build_name_cell` for ``ilan info``, which gives the
+    note a labelled field of its own and so wants the label alone.
     """
     status = TaskStatus(row["status"])
     cell = Text()
@@ -814,6 +818,17 @@ def _build_name_cell(row: dict) -> Text:
         # Extend the background under the pin/alias/name so the whole label is
         # highlighted; the note line is appended later and stays unfilled.
         cell.stylize(f"on {REPLY_EVERY_BG}")
+    return cell
+
+
+def _build_name_cell(row: dict) -> Text:
+    """Build the Name cell: :func:`_build_name_label`, with the note beneath.
+
+    The task's note, if it has one, is the cell's last line, in
+    :data:`NOTES_STYLE`: it belongs with the name because it says what the
+    task is *for*, where the Status cell says what the agent just did.
+    """
+    cell = _build_name_label(row)
     if note := (row.get("notes") or "").strip():
         cell.append("\n")
         cell.append(note, style=NOTES_STYLE)
@@ -842,7 +857,7 @@ def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
         one_liner := (row.get("summary_one_liner") or "").strip()
     ):
         cell.append("\n")
-        cell.append(one_liner, style="yellow italic")
+        cell.append(one_liner, style=ONE_LINER_STYLE)
     return cell
 
 
@@ -1152,6 +1167,106 @@ def _do_tree(name: str) -> None:
 def task_tree(name: str) -> None:
     """Show the branch tree the task belongs to."""
     _do_tree(name)
+
+
+# ── task info ────────────────────────────────────────────────────────
+
+# Separates the names in the rename chain, matching the arrow `ilan rename`
+# prints when it confirms a rename, so the history reads as the sequence of
+# those confirmations.
+RENAME_ARROW = " → "
+# A name the task no longer answers to. Dim rather than
+# :data:`TOMBSTONE_STYLE`, which in the branch tree means *deleted*: a former
+# name is superseded, and the task wearing it is very much alive.
+FORMER_NAME_STYLE = "dim"
+INFO_LABEL_STYLE = "dim"
+# Printed for a field the task has nothing in, so "no note" is visibly an
+# answer rather than a line that failed to render.
+INFO_EMPTY = "—"
+# Two spaces between the labels and their values: enough to read as a column
+# without turning a handful of fields into a table with rules.
+INFO_FIELD_PADDING = (0, 2)
+
+
+def _info_value(text: str | None, style: str = "") -> Text:
+    """A field value for the info grid, or a dim dash when there is none."""
+    text = (text or "").strip()
+    if not text:
+        return Text(INFO_EMPTY, style="dim")
+    return Text(text, style=style)
+
+
+def _info_timestamp(iso: str | None) -> Text:
+    """A field value holding a timestamp, in the configured time-zone.
+
+    Seconds are kept, unlike in the listings: those drop them to buy column
+    width, and a single task's detail view has none of that pressure.
+    """
+    return _info_value(_format_ts(iso) if iso else None)
+
+
+def _build_name_history(row: dict) -> Text | None:
+    """The rename chain, oldest name first and the current one last.
+
+    ``None`` for a task that has never been renamed: with no history the row
+    would only restate the heading above it, which is not the same thing as
+    reporting that the task has no former names.
+    """
+    former = [name for name in (row.get("former_names") or []) if name]
+    if not former:
+        return None
+    history = Text()
+    for name in former:
+        history.append(name, style=FORMER_NAME_STYLE)
+        history.append(RENAME_ARROW, style="dim")
+    history.append(row["name"], style=_name_style(row))
+    return history
+
+
+def _build_info_grid(row: dict) -> Table:
+    """Build the labelled fields of ``ilan info``.
+
+    A borderless grid rather than a table: this is one task's facts, so the
+    rules and headers a listing needs to keep many rows apart would only be
+    noise.
+    """
+    grid = Table.grid(padding=INFO_FIELD_PADDING)
+    grid.add_column(style=INFO_LABEL_STYLE)
+    grid.add_column(overflow="fold")
+    if (history := _build_name_history(row)) is not None:
+        grid.add_row("Name history", history)
+    # The status carries its own "(for 00h12m34s)" hint, as in the listings;
+    # the one-line summary that normally sits under it has a field below.
+    grid.add_row("Status", _build_status_cell(row, show_one_liner=False))
+    grid.add_row("Summary", _info_value(row.get("summary_one_liner"), ONE_LINER_STYLE))
+    grid.add_row("Notes", _info_value(row.get("notes"), NOTES_STYLE))
+    grid.add_row("Created", _info_timestamp(row.get("created_at")))
+    grid.add_row("Last Changed", _info_timestamp(row.get("status_changed_at")))
+    return grid
+
+
+def _do_info(name: str) -> None:
+    rows = _client().list_tasks(show_all=True).get("tasks", [])
+    row = _resolve_row(rows, name)
+    if row is None:
+        console.print(f"[yellow]Task {name} not found[/yellow]")
+        raise SystemExit(1)
+    console.print(_build_name_label(row))
+    console.print()
+    console.print(_build_info_grid(row))
+    console.print()
+    console.print(Text("Branch tree", style=INFO_LABEL_STYLE))
+    # ``row`` came out of ``rows``, so exactly one root holds it.
+    roots = _build_branch_forest(rows)
+    root = next(r for r in roots if _subtree_has(r, row["name"]))
+    console.print(_render_branch_tree(root, row["name"]))
+
+
+@task_group.command("info")
+@click.argument("name", shell_complete=_complete_task_names)
+def task_info(name: str) -> None:
+    """Show everything known about a task on one screen."""
+    _do_info(name)
 
 
 # ── task show ────────────────────────────────────────────────────────
@@ -2968,6 +3083,13 @@ def shortcut_ls(
 def shortcut_tree(name: str) -> None:
     """Shorthand for 'ilan task tree'."""
     _do_tree(name)
+
+
+@main.command("info")
+@click.argument("name", shell_complete=_complete_task_names)
+def shortcut_info(name: str) -> None:
+    """Shorthand for 'ilan task info'."""
+    _do_info(name)
 
 
 @main.command("tail")

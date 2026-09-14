@@ -591,6 +591,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     "created_at": t.created_at,
                     "status_changed_at": t.status_changed_at,
                     "alias": t.alias,
+                    "former_names": t.former_names,
                     "number": t.number,
                     "needs_review": t.needs_review,
                     "pinned": t.pinned,
