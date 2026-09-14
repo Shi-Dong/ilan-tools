@@ -185,21 +185,55 @@ def _render_markdown_visual_lines(content: str, width: int | None = None) -> lis
     return lines
 
 
-def _expand_at_refs(message: str, lines: list[str]) -> str:
-    """Replace ``@N`` tokens with the Nth cached assistant line, double-quoted.
+def _join_blocks(before: str, after: str) -> str:
+    """Glue two chunks of a reply together across a blank line.
 
-    Out-of-range references are left untouched so the user can spot a typo.
+    Only the whitespace at the seam is rewritten; each side keeps the layout
+    it already had. An empty side means there is no seam, so the other side
+    comes back on its own rather than with a stray blank line attached.
+    """
+    before, after = before.rstrip(), after.lstrip()
+    if not before or not after:
+        return before or after
+    return f"{before}\n\n{after}"
+
+
+def _blockquote(line: str) -> str:
+    """Render one cached tail line as a Markdown blockquote."""
+    return f"> {line}".rstrip()
+
+
+def _expand_at_refs(message: str, lines: list[str]) -> str:
+    """Replace ``@N`` tokens with the Nth cached assistant line, blockquoted.
+
+    Each quoted line becomes a Markdown ``> `` blockquote on a line of its
+    own, with a blank line between it and whatever surrounds it — the same
+    shape the web composer's "ask about this" button produces. Quoting mid
+    sentence therefore splits the sentence around the quote.
+
+    Out-of-range references are left untouched so the user can spot a typo,
+    and a message where nothing was substituted comes back byte for byte
+    rather than reflowed.
     """
     if not lines:
         return message
 
-    def repl(m: re.Match) -> str:
+    out, pos, expanded = "", 0, False
+    for m in _AT_REF_RE.finditer(message):
         idx = int(m.group(1))
-        if 1 <= idx <= len(lines):
-            return f"\"{lines[idx - 1]}\""
-        return m.group(0)
+        if not 1 <= idx <= len(lines):
+            continue
+        expanded = True
+        # Two joins, not one: the words before the reference are their own
+        # block, so they must not be pasted onto the end of a blockquote line
+        # that `out` already ends with.
+        head = _join_blocks(out, message[pos:m.start()])
+        out = _join_blocks(head, _blockquote(lines[idx - 1]))
+        pos = m.end()
 
-    return _AT_REF_RE.sub(repl, message)
+    if not expanded:
+        return message
+    return _join_blocks(out, message[pos:])
 
 
 def _parse_duration(spec: str) -> timedelta:
@@ -2012,7 +2046,7 @@ message in your editor so you can change it, leaving the cadence alone.
 -e writes MESSAGE in the editor from your config instead of on the command
 line. --max and --unmax switch the task's model before the message is
 posted. When line-number mode is on, @N in a message quotes line N of the
-last tail.
+last tail as a Markdown blockquote on a line of its own.
 """
 
 _REPLY_EPILOG = """\
