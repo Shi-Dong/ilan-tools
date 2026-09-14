@@ -8,12 +8,6 @@ import pytest
 from click.testing import CliRunner
 
 from ilan.cli import (
-    REPLY_EVERY_BG,
-    REPLY_EVERY_STYLE,
-    SLEEP_STYLE,
-    _build_concise_task_line,
-    _build_name_cell,
-    _build_status_cell,
     _build_tree_label,
     _TreeNode,
     main,
@@ -21,6 +15,14 @@ from ilan.cli import (
 from ilan.models import AGENT_IN_LOOP_LABEL, AGENT_IN_LOOP_STYLE
 from ilan.time_format import (
     _format_reply_every_suffix,
+)
+from ilan.task_display import (
+    REPLY_EVERY_BG,
+    REPLY_EVERY_STYLE,
+    SLEEP_STYLE,
+    _build_concise_task_line,
+    _build_name_cell,
+    _build_status_cell,
 )
 
 

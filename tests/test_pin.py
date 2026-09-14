@@ -17,11 +17,17 @@ from rich.console import Console
 
 import ilan.cli as cli_mod
 import ilan.config as cfg_mod
-from ilan.cli import PIN_MARKER, _build_name_cell, main
+from ilan.cli import (
+    main,
+)
 from ilan.models import Task, TaskStatus
 from ilan.server import IlanServer
 from ilan.store import Store
 from tests.helpers import running_server
+from ilan.task_display import (
+    PIN_MARKER,
+    _build_name_cell,
+)
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 

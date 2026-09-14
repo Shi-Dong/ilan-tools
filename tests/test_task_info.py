@@ -19,13 +19,9 @@ import ilan.cli as cli_mod
 import ilan.config as cfg_mod
 from ilan.cli import (
     INFO_EMPTY,
-    NOTES_STYLE,
-    ONE_LINER_STYLE,
     RENAME_ARROW,
     _build_info_grid,
-    _build_name_cell,
     _build_name_history,
-    _build_name_label,
     _info_timestamp,
     _info_value,
     main,
@@ -34,6 +30,12 @@ from ilan.models import Task
 from ilan.server import IlanServer
 from ilan.store import Store
 from tests.helpers import running_server
+from ilan.task_display import (
+    NOTES_STYLE,
+    ONE_LINER_STYLE,
+    _build_name_cell,
+    _build_name_label,
+)
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
