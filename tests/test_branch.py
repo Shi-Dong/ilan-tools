@@ -215,7 +215,7 @@ class TestStoreBranch:
         assert child is not None
         assert child.parent_name == "grand"
         # The parent link is re-pointed, but the vanished task is remembered so
-        # ``ilan task tree`` can still draw a tombstone in its place.
+        # ``ilan info`` can still draw a tombstone in its place.
         assert child.deleted_ancestors == ["parent"]
         # Gist lineage still points at the task whose history was inherited.
         assert child.gist_branch_parent_name == "parent"

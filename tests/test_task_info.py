@@ -478,3 +478,30 @@ class TestInfoCommand:
         short_form, _ = _invoke(runner, rows, "info", "oom-retry-a-fix")
         assert short_form.exit_code == long_form.exit_code == 0
         assert short_form.output == long_form.output
+
+
+# ── the retired tree command ────────────────────────────────────────────
+
+
+class TestTreeCommandIsRetired:
+    """``ilan tree`` was folded into ``ilan info``; neither spelling remains."""
+
+    @pytest.mark.parametrize("argv", [["tree", "alpha"], ["task", "tree", "alpha"]])
+    def test_the_command_is_gone(
+        self, runner: CliRunner, tmp_config, argv: list[str],
+    ) -> None:
+        result, client = _invoke(runner, [_row("alpha", hour=1)], *argv)
+        assert result.exit_code == 2
+        assert "No such command" in result.output
+        # Click rejects it before any request is made.
+        client.list_tasks.assert_not_called()
+
+    @pytest.mark.parametrize("group", [["--help"], ["task", "--help"]])
+    def test_the_help_no_longer_lists_it(
+        self, runner: CliRunner, tmp_config, group: list[str],
+    ) -> None:
+        result, _ = _invoke(runner, [], *group)
+        assert result.exit_code == 0
+        commands = _strip_ansi(result.output).split("Commands:")[1]
+        assert "\n  tree" not in commands
+        assert "\n  info" in commands

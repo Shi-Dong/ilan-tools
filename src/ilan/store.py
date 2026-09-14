@@ -310,7 +310,7 @@ class Store:
         if removed is not None:
             # Re-parent surviving children onto their grandparent so the
             # branch tree stays connected after a mid-branch delete, and record
-            # the vanished link so ``ilan task tree`` can still show that the
+            # the vanished link so ``ilan info`` can still show that the
             # child was branched off *name* rather than off the grandparent.
             # The child's own tombstones stay nearest-first, then *name*, then
             # whatever *name* had already absorbed from earlier deletes.

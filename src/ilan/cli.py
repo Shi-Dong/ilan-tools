@@ -755,7 +755,7 @@ def _format_alias(row: dict) -> str:
 
     The shape, with the red of :func:`_alias_style`, is all the mark a
     maxed task carries in ``ilan ls``, ``ilan dashboard``, the concise line
-    and ``ilan tree``; the ``FABLE`` / ``ASTRA`` line it used to get beneath
+    and ``ilan info``; the ``FABLE`` / ``ASTRA`` line it used to get beneath
     its name is gone, since a whole extra line for one word cost every row
     height for a fact the alias can carry itself. Capitals *and* brackets, so
     the mark holds even where case is easy to miss; the lookup accepts either
@@ -1003,7 +1003,11 @@ def search(pattern: str) -> None:
     _do_search(pattern)
 
 
-# ── task tree ────────────────────────────────────────────────────────
+# ── branch tree ──────────────────────────────────────────────────────
+#
+# Built and drawn for the `Branch tree` section of `ilan info`. There is
+# no command of its own: a tree read on its own always led to the same
+# next question, which is what the rest of that view answers.
 
 TOMBSTONE_STYLE = "dim strike"
 FOCUS_STYLE = "bold cyan"
@@ -1114,25 +1118,6 @@ def _resolve_row(rows: list[dict], name_or_alias: str) -> dict | None:
         if row.get("alias") == name_or_alias.lower():
             return row
     return None
-
-
-def _do_tree(name: str) -> None:
-    rows = _client().list_tasks(show_all=True).get("tasks", [])
-    focus = _resolve_row(rows, name)
-    if focus is None:
-        console.print(f"[yellow]Task {name} not found[/yellow]")
-        raise SystemExit(1)
-    roots = _build_branch_forest(rows)
-    # ``focus`` came out of ``rows``, so exactly one root holds it.
-    root = next(r for r in roots if _subtree_has(r, focus["name"]))
-    console.print(_render_branch_tree(root, focus["name"]))
-
-
-@task_group.command("tree")
-@click.argument("name", shell_complete=_complete_task_names)
-def task_tree(name: str) -> None:
-    """Show the branch tree the task belongs to."""
-    _do_tree(name)
 
 
 # ── task info ────────────────────────────────────────────────────────
@@ -3042,13 +3027,6 @@ def shortcut_ls(
             )
             raise SystemExit(1)
         _do_ls(show_all, concise=concise)
-
-
-@main.command("tree")
-@click.argument("name", shell_complete=_complete_task_names)
-def shortcut_tree(name: str) -> None:
-    """Shorthand for 'ilan task tree'."""
-    _do_tree(name)
 
 
 @main.command("info")

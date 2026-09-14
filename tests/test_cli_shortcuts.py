@@ -1716,7 +1716,7 @@ class TestMaxedAliasMark:
     """A maxed task's alias is ``[GK]`` in red; an ordinary one is ``(gk)`` in pink.
 
     Shape and colour together are the only mark a maxed task carries in
-    `ilan ls`, `ilan dashboard`, the concise line and `ilan tree`: no FABLE /
+    `ilan ls`, `ilan dashboard`, the concise line and `ilan info`: no FABLE /
     ASTRA word. The red is the `bold red` the tag itself used to be drawn in,
     and the `ilan max` confirmation still prints the tag in, so the alias took
     over the tag's colour along with its job. What counts as maxed is
@@ -1825,7 +1825,7 @@ class TestMaxedAliasMark:
         assert _alias_span(label)[1] == ALIAS_MAXED_STYLE
 
     def test_resolve_row_accepts_the_alias_as_the_listing_prints_it(self) -> None:
-        """`ilan tree GK`, copied from a maxed row, must find the task."""
+        """`ilan info GK`, copied from a maxed row, must find the task."""
         rows = [self._maxed(), self._row(name="other-task", alias="zz")]
         assert _resolve_row(rows, "GK") is rows[0]
         assert _resolve_row(rows, "gk") is rows[0]
