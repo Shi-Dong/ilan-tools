@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterator
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError
@@ -461,8 +462,13 @@ class TestInfoCommand:
         self, runner: CliRunner, tmp_config, wide_console,
     ) -> None:
         rows = self._family()
-        long_form, _ = _invoke(runner, rows, "task", "info", "oom-retry-a-fix")
-        short_form, _ = _invoke(runner, rows, "info", "oom-retry-a-fix")
+        # Compare command spellings at one instant: elapsed seconds and
+        # Today/Yesterday labels can change between the two invocations.
+        instant = datetime(2026, 9, 13, 12, tzinfo=timezone.utc)
+        with patch("ilan.time_format.datetime", wraps=datetime) as clock:
+            clock.now.side_effect = lambda tz: instant.astimezone(tz)
+            long_form, _ = _invoke(runner, rows, "task", "info", "oom-retry-a-fix")
+            short_form, _ = _invoke(runner, rows, "info", "oom-retry-a-fix")
         assert short_form.exit_code == long_form.exit_code == 0
         assert short_form.output == long_form.output
 
