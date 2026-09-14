@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import json
+import signal
+import threading
 import time
-from urllib.error import URLError
-from urllib.request import urlopen
+from collections.abc import Iterator
+from contextlib import contextmanager
+from unittest.mock import patch
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from ilan.server import IlanServer
 
@@ -53,3 +59,50 @@ def wait_until_serving(server: IlanServer, timeout: float = 5.0) -> int:
                 return port
         except (URLError, OSError):
             time.sleep(0.001)
+
+
+@contextmanager
+def running_server(server: IlanServer) -> Iterator[IlanServer]:
+    """Serve a configured test server until the caller leaves the context.
+
+    Keep runner stubs in each fixture; this helper owns only the server
+    thread, readiness check, connection details, and shutdown.
+    """
+    with patch.object(signal, "signal"):
+        thread = threading.Thread(
+            target=server.run,
+            kwargs={"host": "127.0.0.1", "port": 0, "poll_interval": SERVE_POLL_INTERVAL},
+            daemon=True,
+        )
+        thread.start()
+        port = wait_until_serving(server)
+        server._test_port = port  # type: ignore[attr-defined]
+        server._test_url = f"http://127.0.0.1:{port}"  # type: ignore[attr-defined]
+        try:
+            yield server
+        finally:
+            server.shutdown()
+            thread.join(timeout=3)
+
+
+def get_json(server: IlanServer, path: str) -> dict:
+    url = f"{server._test_url}{path}"  # type: ignore[attr-defined]
+    req = Request(url)
+    try:
+        with urlopen(req, timeout=5) as resp:
+            return json.loads(resp.read())
+    except HTTPError as exc:
+        return json.loads(exc.read())
+
+
+def post_json(server: IlanServer, path: str, body: dict | None = None) -> dict:
+    url = f"{server._test_url}{path}"  # type: ignore[attr-defined]
+    data = json.dumps(body).encode() if body else None
+    req = Request(url, data=data, method="POST")
+    if data:
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urlopen(req, timeout=5) as resp:
+            return json.loads(resp.read())
+    except HTTPError as exc:
+        return json.loads(exc.read())

@@ -3,22 +3,19 @@
 from __future__ import annotations
 
 import json
-import signal
-import threading
+from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import click
 import pytest
 
+import ilan.config as cfg_mod
 from ilan.cli import _parse_duration
 from ilan.server import IlanServer
-
-from tests.helpers import SERVE_POLL_INTERVAL, wait_until_serving
-
+from tests.helpers import running_server
 
 # ── _parse_duration unit tests ─────────────────────────────────────────
 
@@ -58,31 +55,16 @@ class TestParseDuration:
 
 
 @pytest.fixture()
-def ilan_server(tmp_workdir: Path, tmp_config: Path, env_with_mock_claude: None):
+def ilan_server(
+    tmp_workdir: Path, tmp_config: Path, env_with_mock_claude: None,
+) -> Iterator[IlanServer]:
     """Start an IlanServer on an ephemeral port for testing."""
-    import ilan.config as cfg_mod
-
     cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
 
     server = IlanServer()
-    server.runner.schedule = lambda: None
 
-    with patch.object(signal, "signal"):
-        t = threading.Thread(
-            target=server.run,
-            kwargs={"host": "127.0.0.1", "port": 0, "poll_interval": SERVE_POLL_INTERVAL},
-            daemon=True,
-        )
-        t.start()
-
-        port = wait_until_serving(server)
-        server._test_port = port  # type: ignore[attr-defined]
-        server._test_url = f"http://127.0.0.1:{port}"  # type: ignore[attr-defined]
-
+    with running_server(server):
         yield server
-
-        server.shutdown()
-        t.join(timeout=3)
 
 
 def _get(server: IlanServer, path: str) -> dict:

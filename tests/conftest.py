@@ -5,11 +5,16 @@ from __future__ import annotations
 import os
 import stat
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
 from ilan import budget
+from ilan import config as cfg_mod
+from ilan.models import Task, TaskStatus
+from ilan.server import IlanServer
+from tests.helpers import running_server
 
 # A path no credential file can occupy, so budget lookups miss without any
 # filesystem setup.
@@ -37,8 +42,6 @@ def tmp_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     config_file = config_dir / "config.json"
-
-    import ilan.config as cfg_mod
 
     monkeypatch.setattr(cfg_mod, "_CONFIG_DIR", config_dir)
     monkeypatch.setattr(cfg_mod, "_CONFIG_FILE", config_file)
@@ -84,3 +87,29 @@ def isolated_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(budget, "_CODEX_AUTH_FILE", _NO_CREDENTIALS)
     for var in budget._CLAUDE_KEY_VARS + budget._CODEX_KEY_VARS:
         monkeypatch.delenv(var, raising=False)
+
+
+@pytest.fixture()
+def ilan_server(
+    tmp_workdir: Path, tmp_config: Path, env_with_mock_claude: None,
+) -> Iterator[IlanServer]:
+    """Start an IlanServer on an ephemeral port and tear it down after the test.
+
+    The runner is patched to not spawn real agent processes: ``start`` mimics
+    a successful spawn (task flips to WORKING) and the reaper loop is a
+    no-op, so tests can exercise individual routes in isolation.
+    """
+    cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
+
+    server = IlanServer()
+
+    def _fake_start(task: Task) -> bool:
+        task.set_status(TaskStatus.WORKING)
+        server.store.put_task(task)
+        return True
+
+    server.runner.start = _fake_start  # type: ignore[method-assign]
+    server.runner.reap_finished = lambda: None  # type: ignore[method-assign]
+
+    with running_server(server):
+        yield server

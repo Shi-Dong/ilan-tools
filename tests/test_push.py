@@ -33,9 +33,8 @@ from ilan.push import (
     validate_subscription,
 )
 from ilan.server import IlanServer
-# The server fixture and its request helpers live with the server tests; pytest
-# picks the fixture up from this module's namespace once it is imported here.
-from tests.test_server import _get, _post, ilan_server  # noqa: F401
+from tests.helpers import get_json as _get, post_json as _post
+
 
 SUB = {
     "endpoint": "https://web.push.apple.com/QAbc123",
