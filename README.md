@@ -63,7 +63,7 @@ The first command starts a background server on port 4526. It stays up, spawns a
 | `ERROR` | The agent process died or was killed. A reply revives it. |
 | `DONE` / `DISCARDED` | Closed by you. `undone` / `undiscard` bring a task back. |
 
-A task is `WORKING` from the second it is created. `ilan sleep` moves an idle task to `SLEEPING`, where the full terminal listing and web app show elapsed time against the requested duration. Any reply to a finished, blocked, or errored task re-spawns its agent at once. Agents report their own state: Ilan asks every prompt to end with a `[STATUS: DONE]` or `[STATUS: NEEDS_ATTENTION]` marker.
+A task is `WORKING` from the second it is created. `ilan sleep` moves an idle task to `SLEEPING`. The full terminal listing keeps `(sleeping for 5m)` beside its name and, like the web app, shows elapsed time against the requested duration; the clock keeps counting when the sleep runs long while the bar stays full. Any reply to a finished, blocked, or errored task re-spawns its agent at once. Agents report their own state: Ilan asks every prompt to end with a `[STATUS: DONE]` or `[STATUS: NEEDS_ATTENTION]` marker.
 
 Listings are in activation order — when a task was created, or last revived with `undone` / `undiscard` — with pinned tasks first, and a task you have not read since its last reply carries a `!!` marker. `ilan ls -a -c` looks like this:
 

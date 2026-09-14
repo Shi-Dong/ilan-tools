@@ -15,6 +15,7 @@ from ilan.time_format import (
     _format_elapsed,
     _format_progress_duration,
     _format_reply_every_suffix,
+    _format_sleep_suffix,
     _sleep_progress,
 )
 
@@ -26,6 +27,7 @@ REPLY_EVERY_STYLE = f"{REPLY_EVERY_FG} on {REPLY_EVERY_BG}"
 SLEEP_PROGRESS_CELLS = 10
 SLEEP_PROGRESS_STYLE = "deep_sky_blue4"
 SLEEP_PROGRESS_EMPTY_STYLE = "grey37"
+SLEEP_SUFFIX_STYLE = SLEEP_PROGRESS_STYLE
 
 # The style the `FABLE` / `ASTRA` tag is drawn in: the `ilan max` and
 # `ilan add --max` confirmations print the tag in it, and it is what the tag
@@ -192,13 +194,17 @@ def _build_name_label(row: dict) -> Text:
 
 
 def _build_name_cell(row: dict) -> Text:
-    """Build the Name cell: :func:`_build_name_label`, with the note beneath.
+    """Build the Name cell: label and sleep duration, with the note beneath.
 
     The task's note, if it has one, is the cell's last line, in
     :data:`NOTES_STYLE`: it belongs with the name because it says what the
     task is *for*, where the Status cell says what the agent just did.
     """
     cell = _build_name_label(row)
+    if TaskStatus(row["status"]) is TaskStatus.SLEEPING and (
+        sleep_suffix := _format_sleep_suffix(row.get("sleep_seconds"))
+    ):
+        cell.append(sleep_suffix, style=SLEEP_SUFFIX_STYLE)
     if note := (row.get("notes") or "").strip():
         cell.append("\n")
         cell.append(note, style=NOTES_STYLE)
@@ -234,7 +240,7 @@ def _build_status_cell(row: dict, show_one_liner: bool = True) -> Text:
 
 
 def _append_sleep_progress(cell: Text, row: dict) -> None:
-    """Append a ten-cell elapsed/total sleep bar when its metadata is valid."""
+    """Append elapsed/total sleep progress with a bar capped at ten cells."""
     progress = _sleep_progress(
         row.get("status_changed_at"), row.get("sleep_seconds")
     )

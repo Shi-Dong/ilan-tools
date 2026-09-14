@@ -5,6 +5,8 @@
 import { bootApp } from './harness.mjs';
 
 const app = bootApp();
+const now = Date.now();
+Date.now = () => now;
 
 // [label, status, sleep_seconds, elapsed_seconds]
 const CASES = JSON.parse(process.argv[2]);
@@ -12,7 +14,7 @@ const CASES = JSON.parse(process.argv[2]);
 const out = {};
 let oldSuffixPresent = false;
 for (const [label, status, sleepSeconds, elapsedSeconds] of CASES) {
-  const started = new Date(Date.now() - elapsedSeconds * 1000).toISOString();
+  const started = new Date(now - elapsedSeconds * 1000).toISOString();
   app.state.tasks = [{
     name: 'demo-task',
     alias: 'aa',
