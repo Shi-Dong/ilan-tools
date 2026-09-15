@@ -28,6 +28,25 @@ function openConversation(status = 'AGENT_FINISHED') {
 
 const app = openConversation();
 await app.renderDetail('demo-task');
+
+// ── the hint in the box names no task ───────────────────────────────────
+// It used to read "Reply to <name>", and a long name wrapped it onto a second
+// line, growing the box before a word was typed. The name is the page title
+// already; the hint only has to say what the box is for.
+check('the composer hint is a fixed phrase', app.html().includes('placeholder="Reply to this task"'),
+  app.html().match(/placeholder="[^"]*"/g));
+const longName = 'a-very-long-task-name-that-runs-well-past-the-width-of-the-box-on-a-phone';
+const wide = bootApp();
+wide.setFetch(async (path) => {
+  const json = (d) => ({ ok: true, status: 200, json: async () => d });
+  if (path.includes('/tail')) return json({ entries: CONVERSATION });
+  return json({ task: { name: longName, alias: 'ab', status: 'AGENT_FINISHED', engine: 'claude' } });
+});
+await wide.renderDetail(longName);
+check('a long task name stays out of the hint',
+  wide.html().includes('placeholder="Reply to this task"') && !wide.html().includes(`Reply to ${longName}`),
+  wide.html().match(/placeholder="[^"]*"/g));
+check('the name is still the page title', wide.html().includes(`>${longName}</span>`) || wide.html().includes(longName));
 await settle();
 
 const box = () => app.el('reply');

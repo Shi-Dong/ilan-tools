@@ -1174,8 +1174,11 @@ async function renderDetail(name) {
     </div>
     <div class="composer">
       <div class="composer-field">
+        <!-- A fixed hint rather than "Reply to <name>": the name is already
+             the page title, and a long one wrapped the hint onto a second
+             line, which grew the box before a word was typed. -->
         <textarea class="field" id="reply" rows="1"
-                  placeholder="Reply to ${esc(task.name)}"></textarea>
+                  placeholder="Reply to this task"></textarea>
         <button class="btn btn-ghost btn-clear" id="clear-reply"
                 aria-label="Clear the message" title="Clear the message" disabled>✕</button>
       </div>

@@ -1821,3 +1821,19 @@ def test_the_note_sheet_has_a_clear_button_that_empties_the_field():
     ref = (Path(web.__file__).parent.parent.parent.parent / "docs" / "reference.md").read_text()
     row = next(line for line in ref.splitlines() if line.startswith("| List |"))
     assert "Clear" in row, "the docs do not mention the sheet's Clear button"
+
+
+# ── the composer's hint ─────────────────────────────────────────────────
+
+def test_the_reply_box_hint_names_no_task():
+    """It read "Reply to <name>", and a long name wrapped the hint onto a
+    second line, which grew the box before a word was typed. The name is the
+    page title already; the hint only has to say what the box is for, so it is
+    the same fixed phrase for every task.
+    """
+    js = web.read_asset("app.js").decode()
+    page = js.split("async function renderDetail")[1].split("\n}\n")[0]
+    assert 'placeholder="Reply to this task"' in page, "the reply box has lost its fixed hint"
+    assert "Reply to ${" not in js, "a placeholder interpolates the task name again"
+    hints = re.findall(r'placeholder="([^"]*)"', page)
+    assert all("${" not in hint for hint in hints), f"a hint on the task page carries data: {hints}"
