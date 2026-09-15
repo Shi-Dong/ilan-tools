@@ -92,7 +92,7 @@ Every task command has a top-level shorthand, so `ilan task reply` is just `ilan
 | `ilan add [-n NAME] (-d "prompt" \| -f FILE) [--claude \| --codex] [--max]` | Add a task and start it. Omit `-n` for a burnable task; `--max` starts it on its backend's max model. |
 | `ilan ls [-a] [-c]` | List active tasks. `-a` includes closed ones, `-c` prints one plain line per task. |
 | `ilan search PATTERN` | Filter the `ilan ls -a -c` lines by a case-insensitive substring. |
-| `ilan latest [-n N]` | List the tasks most recently marked done, newest first: each row is the task's number, its name, and its note. `-n` sets how many to show (default 10). |
+| `ilan latest [-n N]` | List the tasks most recently marked done, newest first, one plain line per task: `284 some-task [Notes: …]`. `-n` sets how many to show (default 10). |
 | `ilan tail NAME [-n N]` | Show the latest reply with the prompt behind it, then which model wrote it, at what effort and cost, and the token counts. `-n` shows the last N replies. |
 | `ilan task show NAME` | Print the task's full prompt. |
 | `ilan task path NAME` | Print the path of the task's Claude Code session log. |

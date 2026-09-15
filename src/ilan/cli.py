@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 
 import click
 from click.shell_completion import get_completion_class
+from rich.cells import cell_len
 from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
@@ -58,7 +59,6 @@ from ilan.task_display import (
     MAX_TAG_STYLE,
     NAME_TO_STATUS,
     NOTES_STYLE,
-    NUMBER_STYLE,
     ONE_LINER_STYLE,
     PROSE_MAX_WIDTH,
     REPLY_EVERY_STYLE,
@@ -780,32 +780,61 @@ def _latest_done_rows(rows: list[dict], num: int) -> list[dict]:
     return done[:num]
 
 
-def _build_latest_table(rows: list[dict]) -> Table:
-    """Build the `ilan latest` table: number, name, and the user's note.
+# The note rides in a `[Notes: …]` bracket rather than after a bare separator:
+# the label says what the text is on a line whose other two fields are a number
+# and a name, and it holds where the colours are gone (`NO_COLOR`, a plain-text
+# paste), which a colour alone would not. `Notes` is the word `ilan info`
+# labels the same field with. Square brackets rather than round ones because a
+# note is prose and prose contains round brackets of its own, which would have
+# the reader matching the wrong pair.
+LATEST_NOTES_OPEN = " [Notes: "
+LATEST_NOTES_CLOSE = "]"
+# Dim, like every other piece of chrome the listings print around a value.
+LATEST_NOTES_LABEL_STYLE = "dim"
 
-    The note gets a column of its own rather than riding under the name as it
-    does in `ilan ls`: with the status and the summary gone there is nothing
-    for it to be confused with, and a column keeps the names in a single
-    scannable stack. Both prose columns share the listing's cap, so a note at
-    the 256-character limit folds inside its cell instead of pushing the table
-    off the right edge.
 
-    The number is drawn in the same dim `NUMBER_STYLE` the listings use, so
-    the one thing that is a task number looks the same wherever it is read,
-    and the name keeps its engine colour and its Gist link.
+def _build_latest_line(row: dict, width: int | None = None) -> Text:
+    """Build one `ilan latest` line: ``12 task-name [Notes: the note]``.
+
+    The number and name come from the listings' own label builder, so a row
+    here reads exactly as the same task does in `ilan ls -a -c`, minus two
+    things it has nothing to say with: the status, which every row in this
+    view shares, and the alias, which a closed task has already given up.
+
+    The note follows inside the brackets, in the listings' note style. It is
+    the one part of the line that can run long, so *width*, when given, is
+    what it has to fit: this view is one line per task, and a note at the
+    256-character limit would otherwise wrap into three. Whitespace inside
+    the note is collapsed first, since a note may legitimately contain
+    newlines and a line break would split the row just as surely.
+
+    What is cut is the note rather than the line, with room kept for the
+    label and the closing bracket, so a cut line still reads
+    ``[Notes: the beginning…]`` rather than trailing off after a bracket
+    nothing closes. A window with no room left for the note at all drops the
+    brackets instead of printing an empty pair. The note is never the only
+    copy — `ilan info NAME` prints it whole.
     """
-    table = Table(show_lines=True)
-    table.add_column("#", style=NUMBER_STYLE)
-    table.add_column("Name", max_width=PROSE_MAX_WIDTH)
-    table.add_column("Notes", max_width=PROSE_MAX_WIDTH)
-    for row in rows:
-        number = row.get("number")
-        table.add_row(
-            "" if number is None else str(number),
-            Text(row["name"], style=_name_style(row)),
-            Text((row.get("notes") or "").strip(), style=NOTES_STYLE),
+    line = _build_name_label(row)
+    if note := " ".join((row.get("notes") or "").split()):
+        room = None if width is None else (
+            width
+            - line.cell_len
+            - cell_len(LATEST_NOTES_OPEN)
+            - cell_len(LATEST_NOTES_CLOSE)
         )
-    return table
+        if room is None or room > 0:
+            text = Text(note, style=NOTES_STYLE)
+            if room is not None:
+                text.truncate(room, overflow="ellipsis")
+            line.append(LATEST_NOTES_OPEN, style=LATEST_NOTES_LABEL_STYLE)
+            line.append_text(text)
+            line.append(LATEST_NOTES_CLOSE, style=LATEST_NOTES_LABEL_STYLE)
+    if width is not None:
+        # Backstop for a name that fills the window on its own, which no
+        # amount of cutting the note can help with.
+        line.truncate(width, overflow="ellipsis")
+    return line
 
 
 def _do_latest(num: int) -> None:
@@ -815,7 +844,12 @@ def _do_latest(num: int) -> None:
     if not latest_rows:
         console.print("[dim]No tasks marked done yet.[/dim]")
         return
-    console.print(_build_latest_table(latest_rows))
+    # Cut to the window only when there is a window: piped into `grep` or a
+    # file there is no width to respect, and a note cut at someone else's
+    # default would be cut out of the only copy the pipe ever sees.
+    width = console.width if console.is_terminal else None
+    for row in latest_rows:
+        console.print(_build_latest_line(row, width), soft_wrap=True)
 
 
 @main.command("latest")
@@ -831,9 +865,13 @@ def _do_latest(num: int) -> None:
 def latest(num: int) -> None:
     """List the tasks most recently marked DONE, newest first.
 
-    Each row carries the task's number, its name, and the note you wrote with
-    'ilan notes'. The number is the handle 'ilan undone' takes, so a task you
-    closed too early is reopened with 'ilan undone 12'.
+    One line per task, in the shape 'ilan ls -c' prints: the task's number,
+    its name, and then the note you wrote with 'ilan notes', as
+    '284 some-task [Notes: …]'. The number is the handle 'ilan undone'
+    takes, so a task you closed too early is reopened with 'ilan undone 12'.
+
+    A note too long for the window is cut with an ellipsis so that a task is
+    always one line; 'ilan info NAME' prints it in full.
 
     DISCARDED tasks are not listed, and a burnable 'xxx-' task never appears
     at all, since 'ilan done' deletes it instead of closing it.
