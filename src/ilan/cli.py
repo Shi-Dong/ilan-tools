@@ -58,6 +58,7 @@ from ilan.task_display import (
     MAX_TAG_STYLE,
     NAME_TO_STATUS,
     NOTES_STYLE,
+    NUMBER_STYLE,
     ONE_LINER_STYLE,
     PROSE_MAX_WIDTH,
     REPLY_EVERY_STYLE,
@@ -748,6 +749,96 @@ def search(pattern: str) -> None:
     DONE and DISCARDED tasks are always searched.
     """
     _do_search(pattern)
+
+
+# ── latest ───────────────────────────────────────────────────────────
+
+# How many closed tasks `ilan latest` shows when no `-n` is given. Ten is
+# about as far back as "what did I just finish?" reaches: past that you are
+# not remembering the work, you are looking it up, which is what `ilan ls -a`
+# and `ilan search` are for.
+LATEST_COUNT_DEFAULT = 10
+
+
+def _latest_done_rows(rows: list[dict], num: int) -> list[dict]:
+    """Return the *num* most recently closed DONE rows, newest first.
+
+    ``status_changed_at`` is the stamp to sort on: for a DONE task it is the
+    moment it was marked done, since nothing rewrites it while the task sits
+    closed and the one thing that would — ``undone`` — takes the task out of
+    this listing. The stamps are compared as strings, as the server's own
+    listing order compares ``activated_at``: every one is written by
+    ``Task.set_status`` as a UTC ISO timestamp, so lexical order is time
+    order. A row carrying no stamp sorts last rather than being dropped.
+
+    DISCARDED rows are left out. The two closed states are reached by
+    different commands and mean different things — this view answers for
+    ``done``, and a number read off it is one ``undone`` will accept.
+    """
+    done = [row for row in rows if TaskStatus(row["status"]) is TaskStatus.DONE]
+    done.sort(key=lambda row: row.get("status_changed_at") or "", reverse=True)
+    return done[:num]
+
+
+def _build_latest_table(rows: list[dict]) -> Table:
+    """Build the `ilan latest` table: number, name, and the user's note.
+
+    The note gets a column of its own rather than riding under the name as it
+    does in `ilan ls`: with the status and the summary gone there is nothing
+    for it to be confused with, and a column keeps the names in a single
+    scannable stack. Both prose columns share the listing's cap, so a note at
+    the 256-character limit folds inside its cell instead of pushing the table
+    off the right edge.
+
+    The number is drawn in the same dim `NUMBER_STYLE` the listings use, so
+    the one thing that is a task number looks the same wherever it is read,
+    and the name keeps its engine colour and its Gist link.
+    """
+    table = Table(show_lines=True)
+    table.add_column("#", style=NUMBER_STYLE)
+    table.add_column("Name", max_width=PROSE_MAX_WIDTH)
+    table.add_column("Notes", max_width=PROSE_MAX_WIDTH)
+    for row in rows:
+        number = row.get("number")
+        table.add_row(
+            "" if number is None else str(number),
+            Text(row["name"], style=_name_style(row)),
+            Text((row.get("notes") or "").strip(), style=NOTES_STYLE),
+        )
+    return table
+
+
+def _do_latest(num: int) -> None:
+    client = _client()
+    rows = client.list_tasks(show_all=True)["tasks"]
+    latest_rows = _latest_done_rows(rows, num)
+    if not latest_rows:
+        console.print("[dim]No tasks marked done yet.[/dim]")
+        return
+    console.print(_build_latest_table(latest_rows))
+
+
+@main.command("latest")
+@click.option(
+    "-n",
+    "--num",
+    "num",
+    type=click.IntRange(min=1),
+    default=LATEST_COUNT_DEFAULT,
+    show_default=True,
+    help="How many tasks to show.",
+)
+def latest(num: int) -> None:
+    """List the tasks most recently marked DONE, newest first.
+
+    Each row carries the task's number, its name, and the note you wrote with
+    'ilan notes'. The number is the handle 'ilan undone' takes, so a task you
+    closed too early is reopened with 'ilan undone 12'.
+
+    DISCARDED tasks are not listed, and a burnable 'xxx-' task never appears
+    at all, since 'ilan done' deletes it instead of closing it.
+    """
+    _do_latest(num)
 
 
 # ── branch tree ──────────────────────────────────────────────────────
