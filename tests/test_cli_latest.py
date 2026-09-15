@@ -157,7 +157,7 @@ class TestLatestLine:
             runner, [_row("ship-the-fix", number=12, notes="follow up on the flake")],
         )
         assert _lines(result.output) == [
-            "12 ship-the-fix (Notes: follow up on the flake)",
+            "12 ship-the-fix [Notes: follow up on the flake]",
         ]
 
     def test_one_line_per_task_and_no_table_chrome(
@@ -191,7 +191,7 @@ class TestLatestLine:
     ) -> None:
         """A task saved before numbers existed is still something you finished."""
         result, _ = _invoke(runner, [_row("ancient", number=None, notes="old")])
-        assert _lines(result.output) == ["ancient (Notes: old)"]
+        assert _lines(result.output) == ["ancient [Notes: old]"]
 
     def test_a_multiline_note_is_flattened_onto_the_line(
         self, runner: CliRunner, tmp_config, wide_console,
@@ -201,7 +201,7 @@ class TestLatestLine:
             runner, [_row("wrapped", number=7, notes="first line\n\nsecond   line")],
         )
         assert _lines(result.output) == [
-            "7 wrapped (Notes: first line second line)",
+            "7 wrapped [Notes: first line second line]",
         ]
 
     def test_a_pinned_task_keeps_the_listings_marker(
@@ -230,7 +230,7 @@ class TestLatestWidth:
         assert len(lines) == 1
         assert len(lines[0]) <= 60
         # The note is what gets cut, so the bracket it opened still closes.
-        assert lines[0].startswith("3 long (Notes: word")
+        assert lines[0].startswith("3 long [Notes: word")
         assert lines[0].endswith(f"…{LATEST_NOTES_CLOSE}")
 
     def test_a_short_note_is_left_alone(
@@ -238,7 +238,7 @@ class TestLatestWidth:
     ) -> None:
         self._narrow(monkeypatch, terminal=True)
         result, _ = _invoke(runner, [_row("short", number=3, notes="fits")])
-        assert _lines(result.output) == ["3 short (Notes: fits)"]
+        assert _lines(result.output) == ["3 short [Notes: fits]"]
 
     def test_nothing_is_cut_when_there_is_no_window(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
@@ -249,12 +249,12 @@ class TestLatestWidth:
         assert self._LONG_NOTE.strip() in " ".join(_lines(result.output))
         assert "…" not in result.output
 
-    def test_no_room_for_the_note_drops_the_parenthetical(
+    def test_no_room_for_the_note_drops_the_brackets(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """An empty `(Notes: )` would be chrome reporting nothing.
+        """An empty `[Notes: ]` would be chrome reporting nothing.
 
-        The window is sized to exactly the name plus an empty parenthetical,
+        The window is sized to exactly the name plus an empty bracket pair,
         so the note itself has nowhere to go while the name still fits — the
         one width at which dropping the brackets and cutting the line apart
         look different.
@@ -321,7 +321,7 @@ class TestLatestStyles:
         line = _build_latest_line(_row("finished", number=12))
         assert self._style_of(line, "12 ") == NUMBER_STYLE
 
-    def test_the_parenthetical_is_chrome_not_note_text(self) -> None:
+    def test_the_brackets_are_chrome_not_note_text(self) -> None:
         """The label reads as chrome, so only the note carries the note style."""
         line = _build_latest_line(_row("finished", notes="do not forget"))
         assert self._style_of(line, LATEST_NOTES_OPEN) == LATEST_NOTES_LABEL_STYLE

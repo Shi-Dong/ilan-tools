@@ -780,38 +780,40 @@ def _latest_done_rows(rows: list[dict], num: int) -> list[dict]:
     return done[:num]
 
 
-# The note rides in a `(Notes: …)` parenthetical rather than after a bare
-# separator: the label says what the text is on a line whose other two fields
-# are a number and a name, and it holds where the colours are gone
-# (`NO_COLOR`, a plain-text paste), which a colour alone would not. `Notes` is
-# the word `ilan info` labels the same field with.
-LATEST_NOTES_OPEN = " (Notes: "
-LATEST_NOTES_CLOSE = ")"
+# The note rides in a `[Notes: …]` bracket rather than after a bare separator:
+# the label says what the text is on a line whose other two fields are a number
+# and a name, and it holds where the colours are gone (`NO_COLOR`, a plain-text
+# paste), which a colour alone would not. `Notes` is the word `ilan info`
+# labels the same field with. Square brackets rather than round ones because a
+# note is prose and prose contains round brackets of its own, which would have
+# the reader matching the wrong pair.
+LATEST_NOTES_OPEN = " [Notes: "
+LATEST_NOTES_CLOSE = "]"
 # Dim, like every other piece of chrome the listings print around a value.
 LATEST_NOTES_LABEL_STYLE = "dim"
 
 
 def _build_latest_line(row: dict, width: int | None = None) -> Text:
-    """Build one `ilan latest` line: ``12 task-name (Notes: the note)``.
+    """Build one `ilan latest` line: ``12 task-name [Notes: the note]``.
 
     The number and name come from the listings' own label builder, so a row
     here reads exactly as the same task does in `ilan ls -a -c`, minus two
     things it has nothing to say with: the status, which every row in this
     view shares, and the alias, which a closed task has already given up.
 
-    The note follows in the listings' note style, inside the parenthetical.
-    It is the one part of the line that can run long, so *width*, when given,
-    is what it has to fit: this view is one line per task, and a note at the
+    The note follows inside the brackets, in the listings' note style. It is
+    the one part of the line that can run long, so *width*, when given, is
+    what it has to fit: this view is one line per task, and a note at the
     256-character limit would otherwise wrap into three. Whitespace inside
     the note is collapsed first, since a note may legitimately contain
     newlines and a line break would split the row just as surely.
 
     What is cut is the note rather than the line, with room kept for the
     label and the closing bracket, so a cut line still reads
-    ``(Notes: the beginning…)`` rather than trailing off after a bracket
+    ``[Notes: the beginning…]`` rather than trailing off after a bracket
     nothing closes. A window with no room left for the note at all drops the
-    parenthetical instead of printing an empty one. The note is never the
-    only copy — `ilan info NAME` prints it whole.
+    brackets instead of printing an empty pair. The note is never the only
+    copy — `ilan info NAME` prints it whole.
     """
     line = _build_name_label(row)
     if note := " ".join((row.get("notes") or "").split()):
@@ -865,7 +867,7 @@ def latest(num: int) -> None:
 
     One line per task, in the shape 'ilan ls -c' prints: the task's number,
     its name, and then the note you wrote with 'ilan notes', as
-    '284 some-task (Notes: …)'. The number is the handle 'ilan undone'
+    '284 some-task [Notes: …]'. The number is the handle 'ilan undone'
     takes, so a task you closed too early is reopened with 'ilan undone 12'.
 
     A note too long for the window is cut with an ellipsis so that a task is
