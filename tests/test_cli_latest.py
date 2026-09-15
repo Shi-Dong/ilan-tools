@@ -252,17 +252,34 @@ class TestLatestWidth:
     def test_no_room_for_the_note_drops_the_parenthetical(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """An empty `(Notes: )` would be chrome reporting nothing."""
+        """An empty `(Notes: )` would be chrome reporting nothing.
+
+        The window is sized to exactly the name plus an empty parenthetical,
+        so the note itself has nowhere to go while the name still fits — the
+        one width at which dropping the brackets and cutting the line apart
+        look different.
+        """
+        width = len("3 short") + len(LATEST_NOTES_OPEN) + len(LATEST_NOTES_CLOSE)
+        monkeypatch.setattr(
+            cli_mod, "console", Console(width=width, force_terminal=True),
+        )
+        result, _ = _invoke(runner, [_row("short", number=3, notes="never fits")])
+        assert _lines(result.output) == ["3 short"]
+
+    def test_a_name_wider_than_the_window_is_cut_too(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The backstop: no amount of cutting the note helps a long name."""
         monkeypatch.setattr(
             cli_mod, "console", Console(width=20, force_terminal=True),
         )
         result, _ = _invoke(
-            runner, [_row("a-rather-long-name", number=3, notes="never fits")],
+            runner, [_row("a-very-long-task-name-indeed", number=3, notes="x")],
         )
         lines = _lines(result.output)
         assert len(lines) == 1
         assert len(lines[0]) <= 20
-        assert LATEST_NOTES_OPEN.strip() not in lines[0]
+        assert lines[0].endswith("…")
 
     def test_the_builder_leaves_the_line_whole_without_a_width(self) -> None:
         line = _build_latest_line(_row("long", number=3, notes=self._LONG_NOTE))
