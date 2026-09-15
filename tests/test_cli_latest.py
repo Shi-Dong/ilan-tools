@@ -13,12 +13,13 @@ from rich.text import Text
 import ilan.cli as cli_mod
 from ilan.cli import (
     LATEST_COUNT_DEFAULT,
+    LATEST_NOTE_SEPARATOR,
     main,
-    _build_latest_table,
+    _build_latest_line,
     _latest_done_rows,
 )
 from ilan.models import ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_NAME_STYLE
-from ilan.task_display import NOTES_STYLE, NUMBER_STYLE
+from ilan.task_display import NOTES_STYLE, NUMBER_STYLE, PIN_MARKER
 
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -35,7 +36,7 @@ def runner() -> CliRunner:
 
 @pytest.fixture()
 def wide_console(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Force a console wide enough that no cell folds onto a second line."""
+    """Force a terminal-like console wide enough that no line is cut."""
     monkeypatch.setattr(cli_mod, "console", Console(width=200, force_terminal=True))
 
 
@@ -47,6 +48,7 @@ def _row(
     number: int | None = 1,
     notes: str | None = None,
     engine: str = ENGINE_CLAUDE,
+    pinned: bool = False,
 ) -> dict:
     return {
         "name": name,
@@ -56,6 +58,7 @@ def _row(
         "number": number,
         "notes": notes,
         "engine": engine,
+        "pinned": pinned,
     }
 
 
@@ -75,26 +78,17 @@ def _invoke(runner: CliRunner, rows: list[dict], *args: str):
     return result, client
 
 
-def _body_lines(output: str) -> list[str]:
-    """The table's content lines, without its header and border rules."""
-    return [
-        line for line in _strip_ansi(output).splitlines() if line.startswith("│")
-    ]
+def _lines(output: str) -> list[str]:
+    return _strip_ansi(output).splitlines()
 
 
-def _cells(line: str) -> list[str]:
-    return [cell.strip() for cell in line.strip("│").split("│")]
-
-
-def _headers(output: str) -> list[str]:
-    header = next(
-        line for line in _strip_ansi(output).splitlines() if "Notes" in line
-    )
-    return [cell.strip() for cell in header.strip("┃").split("┃")]
+def _name_of(line: str) -> str:
+    """The task name in a rendered line: last word before the note, if any."""
+    return line.split(f" {LATEST_NOTE_SEPARATOR} ", 1)[0].split()[-1]
 
 
 def _names_in_order(output: str) -> list[str]:
-    return [cells[1] for line in _body_lines(output) if (cells := _cells(line))[1]]
+    return [_name_of(line) for line in _lines(output)]
 
 
 class TestLatestOrdering:
@@ -153,51 +147,122 @@ class TestLatestFiltering:
         client.list_tasks.assert_called_once_with(show_all=True)
 
 
-class TestLatestColumns:
-    def test_shows_number_name_and_note(
+class TestLatestLine:
+    def test_number_name_and_note_on_one_line(
         self, runner: CliRunner, tmp_config, wide_console,
     ) -> None:
         result, _ = _invoke(
             runner, [_row("ship-the-fix", number=12, notes="follow up on the flake")],
         )
-        assert _cells(_body_lines(result.output)[0]) == [
-            "12", "ship-the-fix", "follow up on the flake",
+        assert _lines(result.output) == [
+            "12 ship-the-fix — follow up on the flake",
         ]
 
-    def test_headers(self, runner: CliRunner, tmp_config, wide_console) -> None:
-        result, _ = _invoke(runner, [_row("finished")])
-        assert _headers(result.output) == ["#", "Name", "Notes"]
-
-    def test_a_task_with_no_note_leaves_the_cell_empty(
+    def test_one_line_per_task_and_no_table_chrome(
         self, runner: CliRunner, tmp_config, wide_console,
     ) -> None:
+        rows = [
+            _row("first", hour=1, number=1, notes="a note"),
+            _row("second", hour=2, number=2),
+            _row("third", hour=3, number=3, notes="another note"),
+        ]
+        result, _ = _invoke(runner, rows)
+        lines = _lines(result.output)
+        assert len(lines) == len(rows)
+        assert not any(char in result.output for char in "┏┃┡│└")
+
+    def test_a_task_with_no_note_ends_at_its_name(
+        self, runner: CliRunner, tmp_config, wide_console,
+    ) -> None:
+        """No note means no dangling separator."""
         result, _ = _invoke(runner, [_row("no-note", number=4)])
-        assert _cells(_body_lines(result.output)[0]) == ["4", "no-note", ""]
+        assert _lines(result.output) == ["4 no-note"]
+
+    def test_a_whitespace_only_note_counts_as_no_note(
+        self, runner: CliRunner, tmp_config, wide_console,
+    ) -> None:
+        result, _ = _invoke(runner, [_row("blank-note", number=4, notes="   \n ")])
+        assert _lines(result.output) == ["4 blank-note"]
 
     def test_a_task_with_no_number_still_lists(
         self, runner: CliRunner, tmp_config, wide_console,
     ) -> None:
         """A task saved before numbers existed is still something you finished."""
-        result, _ = _invoke(runner, [_row("ancient", number=None)])
-        assert _cells(_body_lines(result.output)[0]) == ["", "ancient", ""]
+        result, _ = _invoke(runner, [_row("ancient", number=None, notes="old")])
+        assert _lines(result.output) == ["ancient — old"]
 
-    def test_the_listing_is_styled(
+    def test_a_multiline_note_is_flattened_onto_the_line(
         self, runner: CliRunner, tmp_config, wide_console,
     ) -> None:
-        result, _ = _invoke(runner, [_row("finished", notes="a note")])
-        assert "\x1b[" in result.output
+        """A newline in a note would split the row; whitespace is collapsed."""
+        result, _ = _invoke(
+            runner, [_row("wrapped", number=7, notes="first line\n\nsecond   line")],
+        )
+        assert _lines(result.output) == ["7 wrapped — first line second line"]
+
+    def test_a_pinned_task_keeps_the_listings_marker(
+        self, runner: CliRunner, tmp_config, wide_console,
+    ) -> None:
+        result, _ = _invoke(runner, [_row("kept-up-top", number=8, pinned=True)])
+        assert _lines(result.output) == [f"{PIN_MARKER}8 kept-up-top"]
+
+
+class TestLatestWidth:
+    """One line per task holds however long the note is."""
+
+    _LONG_NOTE = "word " * 60
+
+    def _narrow(self, monkeypatch: pytest.MonkeyPatch, *, terminal: bool) -> None:
+        monkeypatch.setattr(
+            cli_mod, "console", Console(width=60, force_terminal=terminal),
+        )
+
+    def test_a_long_note_is_cut_to_the_window(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        self._narrow(monkeypatch, terminal=True)
+        result, _ = _invoke(runner, [_row("long", number=3, notes=self._LONG_NOTE)])
+        lines = _lines(result.output)
+        assert len(lines) == 1
+        assert len(lines[0]) <= 60
+        assert lines[0].endswith("…")
+
+    def test_a_short_note_is_left_alone(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        self._narrow(monkeypatch, terminal=True)
+        result, _ = _invoke(runner, [_row("short", number=3, notes="fits")])
+        assert _lines(result.output) == ["3 short — fits"]
+
+    def test_nothing_is_cut_when_there_is_no_window(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Piped to a file or `grep`, the note must survive whole."""
+        self._narrow(monkeypatch, terminal=False)
+        result, _ = _invoke(runner, [_row("long", number=3, notes=self._LONG_NOTE)])
+        assert self._LONG_NOTE.strip() in " ".join(_lines(result.output))
+        assert "…" not in result.output
+
+    def test_the_builder_leaves_the_line_whole_without_a_width(self) -> None:
+        line = _build_latest_line(_row("long", number=3, notes=self._LONG_NOTE))
+        assert line.plain.endswith("word")
+        assert len(line.plain) > 60
 
 
 class TestLatestStyles:
-    """The cells carry the listings' own styles rather than private copies.
+    """The line carries the listings' own styles rather than private copies.
 
-    Read off the built table rather than off rendered escape codes: which
+    Read off the built ``Text`` rather than off rendered escape codes: which
     codes a colour comes out as depends on the terminal the suite happens to
-    run under, while the style a cell is given does not.
+    run under, while the style a span is given does not.
     """
 
-    def _cell(self, row: dict, column: int) -> Text:
-        return list(_build_latest_table([row]).columns[column].cells)[0]
+    def _style_of(self, line: Text, fragment: str) -> str:
+        start = line.plain.index(fragment)
+        for span in line.spans:
+            if (span.start, span.end) == (start, start + len(fragment)):
+                return str(span.style)
+        raise AssertionError(f"no span covers {fragment!r} in {line.plain!r}")
 
     @pytest.mark.parametrize("engine", [ENGINE_CLAUDE, ENGINE_CODEX])
     def test_the_name_keeps_its_engine_colour_and_gist_link(
@@ -205,18 +270,23 @@ class TestLatestStyles:
     ) -> None:
         row = _row("finished", engine=engine)
         row["gist_url"] = "https://gist.github.com/shi/abc123"
-        cell = self._cell(row, 1)
-        assert cell.plain == "finished"
-        assert ENGINE_NAME_STYLE[engine] in str(cell.style)
-        assert "link https://gist.github.com/shi/abc123" in str(cell.style)
+        style = self._style_of(_build_latest_line(row), "finished")
+        assert ENGINE_NAME_STYLE[engine] in style
+        assert "link https://gist.github.com/shi/abc123" in style
 
     def test_the_note_is_drawn_in_the_listings_note_style(self) -> None:
-        cell = self._cell(_row("finished", notes="do not forget"), 2)
-        assert cell.plain == "do not forget"
-        assert cell.style == NOTES_STYLE
+        line = _build_latest_line(_row("finished", notes="do not forget"))
+        assert self._style_of(line, "do not forget") == NOTES_STYLE
 
-    def test_the_number_column_is_drawn_in_the_number_style(self) -> None:
-        assert _build_latest_table([_row("finished")]).columns[0].style == NUMBER_STYLE
+    def test_the_number_is_drawn_in_the_listings_number_style(self) -> None:
+        line = _build_latest_line(_row("finished", number=12))
+        assert self._style_of(line, "12 ") == NUMBER_STYLE
+
+    def test_the_listing_is_styled(
+        self, runner: CliRunner, tmp_config, wide_console,
+    ) -> None:
+        result, _ = _invoke(runner, [_row("finished", notes="a note")])
+        assert "\x1b[" in result.output
 
 
 class TestLatestCount:
@@ -231,7 +301,7 @@ class TestLatestCount:
     ) -> None:
         result, _ = _invoke(runner, self._ten_plus_two())
         assert LATEST_COUNT_DEFAULT == 10
-        assert len(_names_in_order(result.output)) == LATEST_COUNT_DEFAULT
+        assert len(_lines(result.output)) == LATEST_COUNT_DEFAULT
 
     def test_n_limits_the_listing(
         self, runner: CliRunner, tmp_config, wide_console,
