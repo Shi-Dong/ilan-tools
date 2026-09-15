@@ -13,7 +13,9 @@ from rich.text import Text
 import ilan.cli as cli_mod
 from ilan.cli import (
     LATEST_COUNT_DEFAULT,
-    LATEST_NOTE_SEPARATOR,
+    LATEST_NOTES_CLOSE,
+    LATEST_NOTES_LABEL_STYLE,
+    LATEST_NOTES_OPEN,
     main,
     _build_latest_line,
     _latest_done_rows,
@@ -84,7 +86,7 @@ def _lines(output: str) -> list[str]:
 
 def _name_of(line: str) -> str:
     """The task name in a rendered line: last word before the note, if any."""
-    return line.split(f" {LATEST_NOTE_SEPARATOR} ", 1)[0].split()[-1]
+    return line.split(LATEST_NOTES_OPEN, 1)[0].split()[-1]
 
 
 def _names_in_order(output: str) -> list[str]:
@@ -155,7 +157,7 @@ class TestLatestLine:
             runner, [_row("ship-the-fix", number=12, notes="follow up on the flake")],
         )
         assert _lines(result.output) == [
-            "12 ship-the-fix — follow up on the flake",
+            "12 ship-the-fix (Notes: follow up on the flake)",
         ]
 
     def test_one_line_per_task_and_no_table_chrome(
@@ -189,7 +191,7 @@ class TestLatestLine:
     ) -> None:
         """A task saved before numbers existed is still something you finished."""
         result, _ = _invoke(runner, [_row("ancient", number=None, notes="old")])
-        assert _lines(result.output) == ["ancient — old"]
+        assert _lines(result.output) == ["ancient (Notes: old)"]
 
     def test_a_multiline_note_is_flattened_onto_the_line(
         self, runner: CliRunner, tmp_config, wide_console,
@@ -198,7 +200,9 @@ class TestLatestLine:
         result, _ = _invoke(
             runner, [_row("wrapped", number=7, notes="first line\n\nsecond   line")],
         )
-        assert _lines(result.output) == ["7 wrapped — first line second line"]
+        assert _lines(result.output) == [
+            "7 wrapped (Notes: first line second line)",
+        ]
 
     def test_a_pinned_task_keeps_the_listings_marker(
         self, runner: CliRunner, tmp_config, wide_console,
@@ -225,14 +229,16 @@ class TestLatestWidth:
         lines = _lines(result.output)
         assert len(lines) == 1
         assert len(lines[0]) <= 60
-        assert lines[0].endswith("…")
+        # The note is what gets cut, so the bracket it opened still closes.
+        assert lines[0].startswith("3 long (Notes: word")
+        assert lines[0].endswith(f"…{LATEST_NOTES_CLOSE}")
 
     def test_a_short_note_is_left_alone(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         self._narrow(monkeypatch, terminal=True)
         result, _ = _invoke(runner, [_row("short", number=3, notes="fits")])
-        assert _lines(result.output) == ["3 short — fits"]
+        assert _lines(result.output) == ["3 short (Notes: fits)"]
 
     def test_nothing_is_cut_when_there_is_no_window(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
@@ -243,9 +249,25 @@ class TestLatestWidth:
         assert self._LONG_NOTE.strip() in " ".join(_lines(result.output))
         assert "…" not in result.output
 
+    def test_no_room_for_the_note_drops_the_parenthetical(
+        self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """An empty `(Notes: )` would be chrome reporting nothing."""
+        monkeypatch.setattr(
+            cli_mod, "console", Console(width=20, force_terminal=True),
+        )
+        result, _ = _invoke(
+            runner, [_row("a-rather-long-name", number=3, notes="never fits")],
+        )
+        lines = _lines(result.output)
+        assert len(lines) == 1
+        assert len(lines[0]) <= 20
+        assert LATEST_NOTES_OPEN.strip() not in lines[0]
+
     def test_the_builder_leaves_the_line_whole_without_a_width(self) -> None:
         line = _build_latest_line(_row("long", number=3, notes=self._LONG_NOTE))
-        assert line.plain.endswith("word")
+        assert line.plain.endswith(f"word{LATEST_NOTES_CLOSE}")
+        assert "…" not in line.plain
         assert len(line.plain) > 60
 
 
@@ -281,6 +303,12 @@ class TestLatestStyles:
     def test_the_number_is_drawn_in_the_listings_number_style(self) -> None:
         line = _build_latest_line(_row("finished", number=12))
         assert self._style_of(line, "12 ") == NUMBER_STYLE
+
+    def test_the_parenthetical_is_chrome_not_note_text(self) -> None:
+        """The label reads as chrome, so only the note carries the note style."""
+        line = _build_latest_line(_row("finished", notes="do not forget"))
+        assert self._style_of(line, LATEST_NOTES_OPEN) == LATEST_NOTES_LABEL_STYLE
+        assert self._style_of(line, LATEST_NOTES_CLOSE) == LATEST_NOTES_LABEL_STYLE
 
     def test_the_listing_is_styled(
         self, runner: CliRunner, tmp_config, wide_console,
