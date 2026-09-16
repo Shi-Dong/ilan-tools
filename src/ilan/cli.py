@@ -608,7 +608,51 @@ def _do_add(
     _print_burnable_hint(task_name)
 
 
+def _add_usage_error(
+    instruction: str | None, name: str | None, file_path: str | None,
+    description: str | None, agent: str | None, max_model: bool,
+) -> str | None:
+    """Refuse any flag typed next to a bare INSTRUCTION.
+
+    ``ilan add "…"`` is the one-argument spelling of ``ilan add -d "…"``: a
+    burnable task on the default backend and its default model, and nothing
+    else. Rather than guess what a name, a backend or ``--max`` beside it
+    should mean, the command refuses the mix and points at the ``-d`` form,
+    where every flag combines. Caught here, not on the server: these are
+    mistakes about the command line, not about the task.
+    """
+    if instruction is None:
+        return None
+    if description is not None:
+        return (
+            "The instruction was given twice, once bare and once with -d. "
+            "Pass it one way or the other."
+        )
+    if file_path is not None:
+        return (
+            "-f reads the instruction from FILE, so a bare instruction as "
+            "well is one too many. Pass one or the other."
+        )
+    flags: list[str] = []
+    if name is not None:
+        flags.append(f"-n {name}")
+    if agent is not None:
+        flags.append(f"--{agent}")
+    if max_model:
+        flags.append("--max")
+    if flags:
+        given = " ".join(flags)
+        return (
+            f'ilan add "…" takes no flags, but got {given}. A bare instruction '
+            "always makes a burnable task on the default backend and model; "
+            "to choose any of those, pass the instruction with -d instead: "
+            f'ilan add -d "…" {given}'
+        )
+    return None
+
+
 @task_group.command("add")
+@click.argument("instruction", required=False, default=None)
 @click.option("-n", "--name", default=None,
               help="Short name for the task. Omit it to get a generated "
                    f"burnable {BURNABLE_PREFIX}… name.")
@@ -622,15 +666,31 @@ def _do_add(
 @click.option("--max", "max_model", is_flag=True, default=False,
               help="Create the task on its backend's max model.")
 def task_add(
-    name: str | None, file_path: str | None, description: str | None,
-    agent: str | None, max_model: bool,
+    instruction: str | None, name: str | None, file_path: str | None,
+    description: str | None, agent: str | None, max_model: bool,
 ) -> None:
     """Add a new task.
+
+    The prompt comes from -d, from a file with -f, or as the bare
+    INSTRUCTION on its own: ``ilan add "Check the flaky test"`` is
+    ``ilan add -d "…"`` with no other flag allowed, so it always makes a
+    burnable task on the default backend and its default model.
 
     Without ``-n`` the task is given a random burnable name (e.g.
     ``xxx-cat-likes-fin``): ``ilan done`` / ``ilan discard`` delete such a task
     instead of closing it. Rename it to keep it.
     """
+    if err := _add_usage_error(
+        instruction, name, file_path, description, agent, max_model,
+    ):
+        # Text, not markup: the echoed name is the user's own bytes.
+        console.print(Text(err, style="red"))
+        raise SystemExit(1)
+    if instruction is not None:
+        # Nothing else was given (the check above saw to it), so this is
+        # `-d INSTRUCTION` on the defaults: no name, backend, or max model.
+        _do_add(None, None, instruction, None, False)
+        return
     _do_add(name, file_path, description, agent, max_model)
 
 

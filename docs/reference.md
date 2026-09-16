@@ -76,6 +76,16 @@ $ ilan done xxx-cat-likes-fin
 Burnable task xxx-cat-likes-fin removed (name starts with xxx-).
 ```
 
+Quicker still, give the instruction on its own. The bare form is `ilan add -d "…"` with no other flag allowed, so it always makes a burnable task on the default backend and its default model:
+
+```bash
+$ ilan add "Check whether the flaky test still flakes"
+Task xxx-cat-likes-fin added.
+Burnable (xxx-…): ilan done / ilan discard will delete it. Rename it to keep it.
+```
+
+`-n`, `-f`, `--claude` / `--codex` and `--max` are all refused next to a bare instruction, in either order, with a pointer at the `-d` spelling where they combine. So `ilan add "…" --max` does not make a maxed burnable task; `ilan add -d "…" --max` does.
+
 `ilan branch` works the same way — leave `-n` off and the child is burnable, which is what you usually want from a branch taken just to try something:
 
 ```bash
@@ -108,7 +118,7 @@ Notes:
 
 | Command | Description |
 |---|---|
-| `ilan task add [-n NAME] -d "prompt"` | Add a task (or use `-f file`; name must be ≥ 3 chars, letters/digits/`-`/`_` only, and not all digits). Omit `-n` and the task is given a generated [burnable](#burnable-tasks-xxx-) name such as `xxx-cat-likes-fin`, which makes `done`/`discard` delete it. Pass `--claude` or `--codex` to pick the backend for this task (default: the `default-backend` config value) — see [Agent backends](#agent-backends). Pass `--max` to create the task already on its backend's [max model](#max-models-ilan-max--ilan-unmax) |
+| `ilan task add [-n NAME] -d "prompt"` | Add a task (or use `-f file`; name must be ≥ 3 chars, letters/digits/`-`/`_` only, and not all digits). Omit `-n` and the task is given a generated [burnable](#burnable-tasks-xxx-) name such as `xxx-cat-likes-fin`, which makes `done`/`discard` delete it. Pass `--claude` or `--codex` to pick the backend for this task (default: the `default-backend` config value) — see [Agent backends](#agent-backends). Pass `--max` to create the task already on its backend's [max model](#max-models-ilan-max--ilan-unmax). Or give the prompt bare with nothing else, `ilan task add "prompt"`: a burnable task on the default backend and model, refusing every other flag (combine them with `-d` instead) |
 | `ilan task ls [-a] [-c] [NAME]` | List active tasks (`-a` includes `DONE`/`DISCARDED`, each shown with its [number](#task-numbers); `-c` prints only the pin marker, number, alias, name, and status, one task per line); if `NAME` is given, show its tail instead |
 | `ilan search PATTERN` | Print the `ilan ls -a -c` lines that contain `PATTERN`, keeping their colors. `PATTERN` is matched case-insensitively as a plain substring (not a regex) against the whole line, so it also matches on a number, an alias, or a status; `DONE` / `DISCARDED` tasks are always searched |
 | `ilan latest [-n N]` | List the tasks most recently marked `DONE`, newest first, **one line per task** in the shape `ilan ls -c` prints: the task's [number](#task-numbers), its name, and then the note you wrote with `ilan notes`, as `284 some-task [Notes: on shi-cpu-2]`. No header, no rules, nothing that needs a wide window; a task with no note simply ends at its name. `-n` says how many lines to show (default 10, minimum 1); asking for more than there are simply shows them all. The order is *when each task was closed*, which is neither number order nor the [activation order](#listing-order) of the listings — a task revived and closed again comes back to the top under its old number. `DISCARDED` tasks are left out, so every number on screen is one `ilan undone` accepts, and a [burnable](#burnable-tasks-xxx-) `xxx-` task never appears at all, since `done` deletes it rather than closing it. A note is the one thing here that can run long: newlines inside it are collapsed to spaces, and a note too wide for the window is cut with an `…` *inside* the brackets — `[Notes: the beginning…]` — so the pair always closes and a task is always exactly one line. A window with no room left for a note drops the `[Notes: …]` altogether rather than printing an empty one, and `ilan info NAME` prints the note whole. Redirected to a file or piped into `grep` there is no window to cut to, so nothing is cut |
@@ -147,7 +157,7 @@ Frequently used task commands have top-level aliases to save typing:
 
 | Shorthand | Equivalent |
 |---|---|
-| `ilan add [-n NAME]` | `ilan task add [-n NAME]` |
+| `ilan add ["prompt" \| -n NAME -d "prompt"]` | `ilan task add ["prompt" \| -n NAME -d "prompt"]` |
 | `ilan ls [-a] [-c] [NAME]` | `ilan task ls [-a] [-c] [NAME]` |
 | `ilan info NAME` | `ilan task info NAME` |
 | `ilan tail NAME` | `ilan task tail NAME` |
