@@ -46,7 +46,7 @@ ilan re fix-bug "Use the OAuth2 flow"       # answer it (re = reply)
 ilan done fix-bug                           # close the task
 ```
 
-Long prompts can come from a file (`-f tasks/refactor.md`). Leave out `-n` and you get a throwaway task with a generated name such as `xxx-cat-likes-fin`, which is deleted rather than kept when you close it.
+Long prompts can come from a file (`-f tasks/refactor.md`). Leave out `-n` and you get a throwaway task with a generated name such as `xxx-cat-likes-fin`, which is deleted rather than kept when you close it. Quickest of all, `ilan add "Check the flaky test"` with nothing else makes such a throwaway task on the default backend; the bare form takes no other flag.
 
 The first command starts a background server on port 4526. It stays up, spawns agents, reaps finished ones, and serves the web app. To drive a server on another machine, point the CLI at it with `ILAN_SERVER_URL=http://my-server:4526` (see [remote usage](docs/reference.md#remote-usage)).
 
@@ -90,6 +90,7 @@ Every task command has a top-level shorthand, so `ilan task reply` is just `ilan
 | Command | What it does |
 |---|---|
 | `ilan add [-n NAME] (-d "prompt" \| -f FILE) [--claude \| --codex] [--max]` | Add a task and start it. Omit `-n` for a burnable task; `--max` starts it on its backend's max model. |
+| `ilan add "prompt"` | The quick form: a burnable task on the default backend and model. Takes no other flag; to combine flags, use `-d`. |
 | `ilan ls [-a] [-c]` | List active tasks. `-a` includes closed ones, `-c` prints one plain line per task. |
 | `ilan search PATTERN` | Filter the `ilan ls -a -c` lines by a case-insensitive substring. |
 | `ilan latest [-n N]` | List the tasks most recently marked done, newest first, one plain line per task: `284 some-task [Notes: …]`. `-n` sets how many to show (default 10). |
