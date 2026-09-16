@@ -651,7 +651,59 @@ def _add_usage_error(
     return None
 
 
-@task_group.command("add")
+# `add` and `reply` are the commands with enough flags to need a map of how
+# they combine, so each answers `-h` as well as the `--help` every command has.
+_DASH_H_HELP_FLAGS = {"help_option_names": ["-h", "--help"]}
+
+# Shared by `ilan task add` and `ilan add`. Click rewraps each paragraph to
+# the terminal; the flags themselves are listed under Options.
+_ADD_HELP = """\
+Add a task and start its agent on it at once.
+
+The prompt can come three ways. -d "…" gives it inline. -f FILE reads it
+from a file, the place for anything longer than a sentence or two. A bare
+INSTRUCTION with no flag at all is the quick form: it means -d "…" on the
+defaults and takes nothing else, so a name, a backend or --max typed next
+to it is refused rather than guessed at. To combine any of those, write the
+prompt after -d.
+
+Naming: -n NAME is how every later command refers to the task (three or
+more letters, digits, hyphens and underscores, not all digits). Every task
+also gets a two-letter alias, shown beside its name in the listings, which
+works in place of the name anywhere. Without -n the task gets a generated
+burnable name such as xxx-cat-likes-fin: ilan done and ilan discard delete
+a burnable task outright instead of parking it in the closed list. The
+name is all that decides, so ilan rename turns a burnable task into a
+keeper, or a keeper into a burnable one, at any time.
+
+Backend and model: --claude or --codex runs this task on that backend;
+left out, the default-backend config key decides. --max starts the task on
+its backend's max model, FABLE on Claude and ASTRA on Codex, for work worth
+that model's price; ilan unmax NAME steps it back down later, and ilan max
+NAME steps a plain task up.
+
+Once added, the agent is already working: ilan ls shows the task and its
+status, ilan tail NAME reads the agent's reply, ilan reply NAME "…" answers
+it, and ilan done NAME closes it.
+"""
+
+_ADD_EPILOG = """\
+\b
+Examples:
+  ilan add "Check whether the flaky test still flakes"  a quick burnable task
+  ilan add -n fix-bug -d "Fix the crash in auth.py"     a task worth keeping
+  ilan add -n refactor -f tasks/refactor.md             a prompt from a file
+  ilan add -d "Port the parser to Rust" --codex         on the Codex backend
+  ilan add -n hard-one -d "Prove the lemma" --max       on the max model
+  ilan add -d "Try the OAuth2 flow" --max               burnable and maxed
+"""
+
+
+@task_group.command(
+    "add", context_settings=_DASH_H_HELP_FLAGS, help=_ADD_HELP,
+    epilog=_ADD_EPILOG,
+    short_help="Add a new task.",
+)
 @click.argument("instruction", required=False, default=None)
 @click.option("-n", "--name", default=None,
               help="Short name for the task. Omit it to get a generated "
@@ -669,17 +721,7 @@ def task_add(
     instruction: str | None, name: str | None, file_path: str | None,
     description: str | None, agent: str | None, max_model: bool,
 ) -> None:
-    """Add a new task.
-
-    The prompt comes from -d, from a file with -f, or as the bare
-    INSTRUCTION on its own: ``ilan add "Check the flaky test"`` is
-    ``ilan add -d "…"`` with no other flag allowed, so it always makes a
-    burnable task on the default backend and its default model.
-
-    Without ``-n`` the task is given a random burnable name (e.g.
-    ``xxx-cat-likes-fin``): ``ilan done`` / ``ilan discard`` delete such a task
-    instead of closing it. Rename it to keep it.
-    """
+    """Add a new task and start it; ``_ADD_HELP`` is the user-facing guide."""
     if err := _add_usage_error(
         instruction, name, file_path, description, agent, max_model,
     ):
@@ -1951,10 +1993,6 @@ _REPLY_UPDATE_HELP = (
     "from the next re-send on."
 )
 
-# `reply` is the one command with enough flags to need a map of how they
-# combine, so it answers `-h` as well as the `--help` every command has.
-_REPLY_HELP_FLAGS = {"help_option_names": ["-h", "--help"]}
-
 # Shared by `ilan task reply`, `ilan reply` and `ilan re`. Click rewraps each
 # paragraph to the terminal; the flags themselves are listed under Options.
 _REPLY_HELP = """\
@@ -2001,7 +2039,7 @@ Examples:
 
 
 @task_group.command(
-    "reply", context_settings=_REPLY_HELP_FLAGS, help=_REPLY_HELP,
+    "reply", context_settings=_DASH_H_HELP_FLAGS, help=_REPLY_HELP,
     epilog=_REPLY_EPILOG,
     short_help="Send a response to a task.",
 )
@@ -2889,7 +2927,7 @@ def _register_task_shortcut(name: str, *, help: str | None = None) -> None:
 
 
 for _shortcut_name in (
-    "add", "info", "tail", "done", "discard", "undone", "undiscard", "unread",
+    "info", "tail", "done", "discard", "undone", "undiscard", "unread",
     "pin", "unpin", "max", "unmax", "switch-backend", "rename", "alias",
     "branch", "tap", "cancel", "sleep", "attach", "log", "logs", "open",
     "check-model",
@@ -2900,6 +2938,7 @@ _register_task_shortcut(
     "ls",
     help="Shorthand for 'ilan task ls'. If a task name is given, acts as 'ilan tail'.",
 )
+_register_task_shortcut("add", help=_ADD_HELP)
 _register_task_shortcut("reply", help=_REPLY_HELP)
 _register_task_shortcut(
     "notes",
