@@ -2437,12 +2437,28 @@ def _do_branch(
     new_name: str | None,
     file_path: str | None,
     description: str | None,
+    instruction: str | None = None,
 ) -> None:
+    if instruction is not None:
+        if any(value is not None for value in (new_name, file_path, description)):
+            console.print(
+                '[red]A bare instruction takes no flags. Use '
+                'ilan branch OLD_NAME -d "…" to combine options, or -f FILE '
+                'to read the assignment from a file.[/red]'
+            )
+            raise SystemExit(1)
+        description = instruction
     if (file_path is None) == (description is None):
-        console.print("[red]Exactly one of --file / --description must be provided.[/red]")
+        console.print(
+            "[red]Exactly one of --file / --description (or a bare INSTRUCTION) "
+            "must be provided.[/red]"
+        )
         raise SystemExit(1)
     message = Path(file_path).read_text() if file_path is not None else description
     assert message is not None
+    if not message.strip():
+        console.print("[red]The child's first assignment must not be empty.[/red]")
+        raise SystemExit(1)
 
     if _line_number_enabled():
         message = _expand_at_refs(message, cfg.load_last_tail(old_name))
@@ -2461,6 +2477,7 @@ def _do_branch(
 
 @task_group.command("branch")
 @click.argument("old_name", shell_complete=_complete_task_names)
+@click.argument("instruction", required=False, default=None)
 @click.option("-n", "--name", "new_name", default=None,
               help="Short name for the branched (new) task. Omit it to get a "
                    f"generated burnable {BURNABLE_PREFIX}… name.")
@@ -2469,17 +2486,19 @@ def _do_branch(
 @click.option("-d", "--description", default=None,
               help="Inline first assignment for the child task.")
 def task_branch(
-    old_name: str, new_name: str | None, file_path: str | None, description: str | None
+    old_name: str, instruction: str | None, new_name: str | None,
+    file_path: str | None, description: str | None,
 ) -> None:
-    """Branch a new task from OLD_NAME, inheriting its full context.
+    """Branch a new task from OLD_NAME (or an alias), inheriting its full context.
 
-    Exactly one of -d / -f must supply the child's first assignment.
+    A bare INSTRUCTION is the quick form: a burnable child with no flags.
+    Use -d "…" or -f FILE to combine the assignment with -n.
 
     Without ``-n`` the child is given a random burnable name (e.g.
     ``xxx-cat-likes-fin``): ``ilan done`` / ``ilan discard`` delete such a task
     instead of closing it. Rename it to keep it.
     """
-    _do_branch(old_name, new_name, file_path, description)
+    _do_branch(old_name, new_name, file_path, description, instruction)
 
 
 # ── task attach ─────────────────────────────────────────────────────
@@ -2929,7 +2948,7 @@ def _register_task_shortcut(name: str, *, help: str | None = None) -> None:
 for _shortcut_name in (
     "info", "tail", "done", "discard", "undone", "undiscard", "unread",
     "pin", "unpin", "max", "unmax", "switch-backend", "rename", "alias",
-    "branch", "tap", "cancel", "sleep", "attach", "log", "logs", "open",
+    "tap", "cancel", "sleep", "attach", "log", "logs", "open",
     "check-model",
 ):
     _register_task_shortcut(_shortcut_name)
@@ -2939,6 +2958,7 @@ _register_task_shortcut(
     help="Shorthand for 'ilan task ls'. If a task name is given, acts as 'ilan tail'.",
 )
 _register_task_shortcut("add", help=_ADD_HELP)
+_register_task_shortcut("branch", help=task_branch.help)
 _register_task_shortcut("reply", help=_REPLY_HELP)
 _register_task_shortcut(
     "notes",
