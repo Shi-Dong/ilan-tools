@@ -89,6 +89,7 @@ ROUTES: list[tuple[str, str, str]] = [
     ("POST",   r"^/tasks/([^/]+)/alias$",      "handle_task_set_alias"),
     ("POST",   r"^/tasks/([^/]+)/notes$",      "handle_task_set_notes"),
     ("POST",   r"^/tasks/([^/]+)/branch$",     "handle_task_branch"),
+    ("POST",   r"^/tasks/([^/]+)/btw$",        "handle_task_btw"),
     ("POST",   r"^/tasks/([^/]+)/max$",        "handle_task_max"),
     ("POST",   r"^/tasks/([^/]+)/unmax$",      "handle_task_unmax"),
     ("POST",   r"^/tasks/([^/]+)/switch-backend$", "handle_task_switch_backend"),
@@ -1100,8 +1101,16 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 "truncated": truncated,
             })
 
-        def handle_task_branch(self, name: str):
+        def handle_task_btw(self, name: str) -> None:
+            self.handle_task_branch(name, side_question=True)
+
+        def handle_task_branch(self, name: str, *, side_question: bool = False) -> None:
             body = self._body()
+            if side_question and (
+                not isinstance(body, dict) or set(body) - {"message"}
+            ):
+                self._json({"error": "BTW accepts only a message; its name is automatic."}, 400)
+                return
             # As on ``POST /tasks``, an absent name asks for a generated burnable
             # one; a name that is present is validated, so an empty ``-n ""``
             # stays an error rather than a silent request for a random name.
@@ -1113,11 +1122,13 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     self._json({"error": err}, 400)
                     return
             message = body.get("message")
-            if not message:
+            if not message or (
+                side_question and (not isinstance(message, str) or not message.strip())
+            ):
                 self._json(
                     {"error": (
                         "Branching requires a first assignment for the child "
-                        "task (-d/-f). To continue the parent's work in "
+                        "task. To continue the parent's work in "
                         "place, reply to the parent instead."
                     )},
                     400,
@@ -1158,7 +1169,9 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 # Minted last, once the branch is known to be viable, so a
                 # refused request draws no name; still under the lock, so two
                 # concurrent unnamed branches can't be handed the same one.
-                if new_name is None:
+                if side_question:
+                    new_name = self._ilan.store.next_available_btw_name(parent.name)
+                elif new_name is None:
                     new_name = self._ilan.store.next_available_burnable_name()
                 now = datetime.now(timezone.utc).isoformat()
                 child = self._ilan.store.branch_task(

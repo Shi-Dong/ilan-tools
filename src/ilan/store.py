@@ -166,6 +166,17 @@ class Store:
         tasks[task.name] = task
         self.save_tasks(tasks)
 
+    def next_available_btw_name(self, parent_name: str) -> str:
+        """Return a free parent-derived name; callers hold the lock through creation."""
+        taken = self.load_tasks()
+        base = f"{BURNABLE_PREFIX}{parent_name}-btw"
+        name = base
+        number = 2
+        while name in taken:
+            name = f"{base}-{number}"
+            number += 1
+        return name
+
     def branch_task(
         self,
         parent: Task,

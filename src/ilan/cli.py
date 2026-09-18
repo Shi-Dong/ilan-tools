@@ -2481,15 +2481,9 @@ def _do_branch(
     client = _client()
     if side_question:
         message += _BTW_SUFFIX
-        if new_name is None:
-            parent_resp = client.get_task(old_name)
-            if _check_error(parent_resp):
-                raise SystemExit(1)
-            # Resolve aliases before naming the child, and branch by that
-            # full name so a reassigned alias cannot select a different task.
-            old_name = parent_resp["task"]["name"]
-            new_name = f"{BURNABLE_PREFIX}{old_name}-btw"
-    resp = client.branch_task(old_name, new_name, message)
+        resp = client.btw_task(old_name, message)
+    else:
+        resp = client.branch_task(old_name, new_name, message)
     if _check_error(resp):
         raise SystemExit(1)
     # Report the returned name; ordinary unnamed branches are named by the server.
@@ -2527,28 +2521,22 @@ def task_branch(
     _do_branch(old_name, new_name, file_path, description, instruction)
 
 
-@task_group.command("btw", params=task_branch.params)
-def task_btw(
-    old_name: str, instruction: str | None, new_name: str | None,
-    file_path: str | None, description: str | None,
-) -> None:
+@task_group.command("btw", add_help_option=False, options_metavar="")
+@click.argument("old_name", shell_complete=_complete_task_names)
+@click.argument("instruction")
+def task_btw(old_name: str, instruction: str) -> None:
     """Ask a quick side question using OLD_NAME's context (or an alias).
 
     Works like branch, with an added instruction to focus on this request,
     leave earlier work and ongoing jobs to the parent, and stop after answering.
 
-    Without -n, the child is named xxx-<parent-name>-btw using the parent's
-    full name, even when OLD_NAME is an alias. An existing task with that
-    name must be closed or renamed before creating another one.
-
-    A bare INSTRUCTION takes no flags. Use -d "…" or -f FILE to combine
-    the assignment with -n. Done and discard delete a burnable child;
-    rename it to keep it.
+    Takes only OLD_NAME and INSTRUCTION, with no flags. The child is named
+    xxx-<parent-name>-btw using the parent's full name, even when OLD_NAME
+    is an alias. If taken, the name gets -2, -3, and so on until available.
+    Done and discard delete the child; rename it to keep it.
     """
-    # Share branch's parameters, completion and execution path; side questions
-    # add a scope suffix and derive their default name from the parent.
     _do_branch(
-        old_name, new_name, file_path, description, instruction,
+        old_name, None, None, None, instruction,
         side_question=True,
     )
 

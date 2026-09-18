@@ -179,12 +179,17 @@ def test_quick_branch_through_real_client_and_server(
         with ilan_server.lock:
             before_tasks = ilan_server.store.load_tasks()
             before_logs = ilan_server.store.read_logs(child.name)
-        result = CliRunner().invoke(main, [command, parent_ref, "Another question"])
-        assert result.exit_code == 1
-        assert "xxx-parent-task-btw already exists" in result.output
+        with patch.object(ilan_server.runner, "find_session_log", return_value=session_log):
+            result = CliRunner().invoke(main, [command, parent_ref, "Another question"])
+        assert result.exit_code == 0, result.output
+        assert "xxx-parent-task-btw-2" in result.output
         with ilan_server.lock:
-            assert ilan_server.store.load_tasks() == before_tasks
+            after_tasks = ilan_server.store.load_tasks()
+            for name, task in before_tasks.items():
+                assert after_tasks[name] == task
             assert ilan_server.store.read_logs(child.name) == before_logs
+            second = after_tasks["xxx-parent-task-btw-2"]
+            assert second.cached_replies == ["Another question" + _BTW_SUFFIX]
     result = CliRunner().invoke(main, ["done", child.name])
     assert result.exit_code == 0, result.output
     with ilan_server.lock:
