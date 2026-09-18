@@ -2450,7 +2450,7 @@ def _do_branch(
     description: str | None,
     instruction: str | None = None,
     *,
-    instruction_suffix: str = "",
+    side_question: bool = False,
 ) -> None:
     if instruction is not None:
         if any(value is not None for value in (new_name, file_path, description)):
@@ -2478,11 +2478,15 @@ def _do_branch(
 
     # Validate and expand only the user's assignment; the suffix must never
     # turn a missing assignment into a branch or become part of an @N quote.
-    message += instruction_suffix
-    resp = _client().branch_task(old_name, new_name, message)
+    client = _client()
+    if side_question:
+        message += _BTW_SUFFIX
+        resp = client.btw_task(old_name, message)
+    else:
+        resp = client.branch_task(old_name, new_name, message)
     if _check_error(resp):
         raise SystemExit(1)
-    # Without ``-n`` the server mints the child's name, so report the one it chose.
+    # Report the returned name; ordinary unnamed branches are named by the server.
     child = str(resp.get("name") or new_name or "")
     parent = resp.get("parent_name", old_name)
     console.print(
@@ -2517,25 +2521,23 @@ def task_branch(
     _do_branch(old_name, new_name, file_path, description, instruction)
 
 
-@task_group.command("btw", params=task_branch.params)
-def task_btw(
-    old_name: str, instruction: str | None, new_name: str | None,
-    file_path: str | None, description: str | None,
-) -> None:
+@task_group.command("btw", add_help_option=False, options_metavar="")
+@click.argument("old_name", shell_complete=_complete_task_names)
+@click.argument("instruction")
+def task_btw(old_name: str, instruction: str) -> None:
     """Ask a quick side question using OLD_NAME's context (or an alias).
 
     Works like branch, with an added instruction to focus on this request,
     leave earlier work and ongoing jobs to the parent, and stop after answering.
 
-    A bare INSTRUCTION creates a burnable child and takes no flags. Use
-    -d "…" or -f FILE to combine the assignment with -n. Without -n, done
-    and discard delete the child; rename it to keep it.
+    Takes only OLD_NAME and INSTRUCTION, with no flags. The child is named
+    xxx-<parent-name>-btw using the parent's full name, even when OLD_NAME
+    is an alias. If taken, the name gets -2, -3, and so on until available.
+    Done and discard delete the child; rename it to keep it.
     """
-    # Reuse branch's parameters, completion and execution path so the suffix
-    # is the only difference in the assignment sent to the server.
     _do_branch(
-        old_name, new_name, file_path, description, instruction,
-        instruction_suffix=_BTW_SUFFIX,
+        old_name, None, None, None, instruction,
+        side_question=True,
     )
 
 

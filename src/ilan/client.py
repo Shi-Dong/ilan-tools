@@ -231,6 +231,10 @@ class Client:
             body["new_name"] = new_name
         return self.post(f"/tasks/{old_name}/branch", body)
 
+    def btw_task(self, name: str, message: str) -> dict:
+        """Create a side-question branch with a unique name derived from its parent."""
+        return self.post(f"/tasks/{name}/btw", {"message": message})
+
     def max_task(self, name: str) -> dict:        return self.post(f"/tasks/{name}/max")
     def unmax_task(self, name: str) -> dict:      return self.post(f"/tasks/{name}/unmax")
     def switch_backend(self, name: str) -> dict:  return self.post(f"/tasks/{name}/switch-backend")
