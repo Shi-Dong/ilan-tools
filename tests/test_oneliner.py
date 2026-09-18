@@ -3,6 +3,7 @@ the background thread that writes it off the server lock."""
 
 from __future__ import annotations
 
+import contextlib
 import json
 import subprocess
 import threading
@@ -283,8 +284,17 @@ def _finished(store: Store, name: str = "t", status: TaskStatus = TaskStatus.AGE
     return task
 
 
-def _summary(store: Store, name: str) -> str | None:
-    task = store.get_task(name)
+def _summary(store: Store, name: str, lock: threading.Lock | None = None) -> str | None:
+    """The stored summary of *name*.
+
+    Pass the summarizer's *lock* whenever its thread may be writing:
+    ``save_tasks`` truncates the file before it writes, so a read that lands
+    in that gap sees an empty file and ``json`` raises. The server only ever
+    reads under its lock, and so must a test that shares the store with a
+    running thread.
+    """
+    with lock or contextlib.nullcontext():
+        task = store.get_task(name)
     assert task is not None
     return task.summary_one_liner
 
@@ -405,21 +415,23 @@ class TestSummarizer:
             summarizer.summarize(task, then=lambda t: pytest.fail("then ran for a deleted task"))
         gen.assert_not_called()
 
-    def test_the_thread_writes_what_was_queued(self, store: Store, summarizer: Summarizer) -> None:
+    def test_the_thread_writes_what_was_queued(
+        self, store: Store, lock: threading.Lock, summarizer: Summarizer,
+    ) -> None:
         task = _finished(store)
         with patch("ilan.oneliner.generate_one_liner", return_value="Summary done."):
             summarizer.start()
             try:
                 summarizer.enqueue(task)
                 deadline = time.monotonic() + 5
-                while _summary(store, "t") is None and time.monotonic() < deadline:
+                while _summary(store, "t", lock) is None and time.monotonic() < deadline:
                     time.sleep(0.02)
             finally:
                 summarizer.stop()
-        assert _summary(store, "t") == "Summary done."
+        assert _summary(store, "t", lock) == "Summary done."
 
     def test_a_crash_on_one_turn_does_not_stop_the_next(
-        self, store: Store, summarizer: Summarizer,
+        self, store: Store, lock: threading.Lock, summarizer: Summarizer,
     ) -> None:
         first = _finished(store, name="first")
         second = _finished(store, name="second")
@@ -437,12 +449,12 @@ class TestSummarizer:
                 summarizer.enqueue(first)
                 summarizer.enqueue(second)
                 deadline = time.monotonic() + 5
-                while _summary(store, "second") is None and time.monotonic() < deadline:
+                while _summary(store, "second", lock) is None and time.monotonic() < deadline:
                     time.sleep(0.02)
             finally:
                 summarizer.stop()
-        assert _summary(store, "second") == "Summary done."
-        assert _summary(store, "first") is None
+        assert _summary(store, "second", lock) == "Summary done."
+        assert _summary(store, "first", lock) is None
 
 
 class TestEnqueueMissing:
@@ -487,9 +499,9 @@ class TestEnqueueMissing:
 
         with running_server(server):
             deadline = time.monotonic() + 5
-            while _summary(server.store, "lost") is None and time.monotonic() < deadline:
+            while _summary(server.store, "lost", server.lock) is None and time.monotonic() < deadline:
                 time.sleep(0.02)
-        assert _summary(server.store, "lost") == "Written at startup."
-        assert _summary(server.store, "kept") == "Kept."
+        assert _summary(server.store, "lost", server.lock) == "Written at startup."
+        assert _summary(server.store, "kept", server.lock) == "Kept."
         assert asked == ["please summarize this"], "only the task without a summary was summarised"
         assert announced == []
