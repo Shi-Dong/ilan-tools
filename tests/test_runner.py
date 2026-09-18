@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -805,6 +806,26 @@ class TestReplyToWorking:
         assert updated is not None
         assert updated.needs_review is False
 
+    def test_does_not_pause_between_the_kill_and_the_reap(
+        self, store: Store, runner: Runner,
+    ) -> None:
+        """``kill`` already returns once the agent is gone, so a pause on top
+        of it only made every reply to a WORKING task half a second slower."""
+        t = Task(name="re-fast", prompt="p", status=TaskStatus.WORKING,
+                 session_id="sid-rf", session_log_path="/fake/sid-rf.jsonl")
+        store.put_task(t)
+        out = {"session_id": "sid-rf", "result": "partial output", "is_error": False}
+        store.output_path("re-fast").write_text(json.dumps(out))
+
+        with patch.object(Runner, "kill", lambda self, task: None), \
+             patch.object(Runner, "_spawn", lambda self, task, prompt, resume: True), \
+             patch.object(Runner, "find_session_log",
+                          return_value=Path("/fake/sid-rf.jsonl")), \
+             patch("ilan.runner.time.sleep") as sleep:
+            runner.reply_to_working(t, "new instructions")
+
+        sleep.assert_not_called()
+
 
 # ── kill ────────────────────────────────────────────────────────────────
 
@@ -813,7 +834,8 @@ class TestKill:
     def test_sigterm_eperm_is_swallowed_and_pid_cleared(
         self, store: Store, runner: Runner,
     ) -> None:
-        """A stored pid we cannot signal must not crash the kill.
+        """A stored pid we cannot signal must not crash the kill, nor be
+        waited for.
 
         ``os.kill`` raises EPERM when the pid belongs to another user's
         process — the OS recycled the pid after the agent died, or the
@@ -821,16 +843,84 @@ class TestKill:
         ``_pid_alive`` deliberately reports such a pid as alive, so ``kill``
         goes on to SIGTERM it and must swallow the EPERM like it already
         swallows ESRCH; otherwise every reply/kill on the task 500s with
-        ``[Errno 1] Operation not permitted``.
+        ``[Errno 1] Operation not permitted``. And since the process was
+        never ours to signal, it is not ours to wait for either.
         """
         t = Task(name="eperm", prompt="p", status=TaskStatus.WORKING, pid=68563)
         store.put_task(t)
 
+        started = time.monotonic()
         with patch.object(Runner, "_pid_alive", return_value=True), \
              patch("ilan.runner.os.kill",
                    side_effect=PermissionError(1, "Operation not permitted")):
             runner.kill(t)  # must not raise
 
+        assert t.pid is None
+        assert time.monotonic() - started < 1, "waited for a process we could not signal"
+
+    def test_a_dead_pid_is_forgotten_without_a_signal(
+        self, store: Store, runner: Runner,
+    ) -> None:
+        t = Task(name="gone", prompt="p", status=TaskStatus.WORKING, pid=68563)
+        with patch.object(Runner, "_pid_alive", return_value=False), \
+             patch("ilan.runner.os.kill") as os_kill:
+            runner.kill(t)
+        os_kill.assert_not_called()
+        assert t.pid is None
+
+    def test_without_a_popen_the_pid_is_waited_for_until_it_exits(
+        self, store: Store, runner: Runner,
+    ) -> None:
+        """After a server restart the agent is known only by its pid. The
+        kill must still return only once the process is gone, because the
+        caller reads the agent's output file next — and it must return as
+        soon as it is gone rather than after a fixed pause."""
+        t = Task(name="restarted", prompt="p", status=TaskStatus.WORKING, pid=68563)
+        # Alive for the guard and two polls, gone on the third.
+        with patch.object(Runner, "_pid_alive", side_effect=[True, True, True, False]) as alive, \
+             patch("ilan.runner.os.kill") as os_kill:
+            runner.kill(t)
+        os_kill.assert_called_once()
+        assert alive.call_count == 4
+        assert t.pid is None
+
+    def test_the_wait_gives_up_at_the_timeout(self, store: Store, runner: Runner) -> None:
+        """An agent that ignores SIGTERM must not hold the request forever."""
+        t = Task(name="stubborn", prompt="p", status=TaskStatus.WORKING, pid=68563)
+        started = time.monotonic()
+        with patch.object(Runner, "_pid_alive", return_value=True), \
+             patch("ilan.runner.os.kill"):
+            runner.kill(t, timeout=0.05)
+        elapsed = time.monotonic() - started
+        assert 0.05 <= elapsed < 1
+        assert t.pid is None
+
+    def test_with_a_popen_the_process_is_waited_on_directly(
+        self, store: Store, runner: Runner,
+    ) -> None:
+        t = Task(name="live", prompt="p", status=TaskStatus.WORKING, pid=68563)
+        proc = MagicMock()
+        runner._procs["live"] = proc
+        with patch.object(Runner, "_pid_alive", return_value=True), \
+             patch("ilan.runner.os.kill"):
+            runner.kill(t)
+        proc.wait.assert_called_once_with(timeout=5.0)
+        assert "live" not in runner._procs
+        assert t.pid is None
+
+    def test_a_popen_whose_process_already_exited_is_still_reaped(
+        self, store: Store, runner: Runner,
+    ) -> None:
+        """Nothing to signal, but the child still has to be waited on, or it
+        lingers as a zombie — exactly what the kill did before."""
+        t = Task(name="exited", prompt="p", status=TaskStatus.WORKING, pid=68563)
+        proc = MagicMock()
+        runner._procs["exited"] = proc
+        with patch.object(Runner, "_pid_alive", return_value=False), \
+             patch("ilan.runner.os.kill") as os_kill:
+            runner.kill(t)
+        os_kill.assert_not_called()
+        proc.wait.assert_called_once_with(timeout=5.0)
         assert t.pid is None
 
 

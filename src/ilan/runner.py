@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 import re
@@ -295,8 +294,9 @@ class Runner:
 
     def reply_to_working(self, task: Task, message: str) -> None:
         """Kill the running agent and immediately resume the session."""
+        # ``kill`` returns once the agent is gone, so its output file is as
+        # complete as it will ever be and can be reaped straight away.
         self.kill(task)
-        time.sleep(0.5)
         self._try_reap(task)
         # The reap above parses the interrupted turn as if the agent had
         # voluntarily finished, which flips ``needs_review`` to True. But the
@@ -346,19 +346,40 @@ class Runner:
         task.awaiting_catchup = len(self.store.read_logs(task.name)) > seen
         self.store.put_task(task)
 
-    def kill(self, task: Task) -> None:
-        if task.pid and self._pid_alive(task.pid):
-            # EPERM: the stored pid now belongs to another user's
-            # process — e.g. it was spawned by a server that ran under
-            # a different account, or the OS recycled the pid after the
-            # agent died. It isn't ours to signal; forget it instead of
-            # crashing the request that triggered the kill.
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.kill(task.pid, signal.SIGTERM)
+    def kill(self, task: Task, *, timeout: float = 5.0) -> None:
+        """Stop *task*'s agent and wait, up to *timeout* seconds, for it to exit.
+
+        The wait is what lets a caller read the agent's output file next — a
+        reply to a WORKING task reaps the interrupted turn from it before
+        resuming. With the agent's ``Popen`` at hand that is a plain
+        ``wait``; after a server restart there is no ``Popen``, only a stored
+        pid, so the pid is polled instead. Either way the wait ends the
+        moment the process is gone: a fixed pause would cost every such
+        reply the full pause and still not cover a slow exit.
+        """
+        pid = task.pid
         proc = self._procs.pop(task.name, None)
-        if proc is not None:
-            proc.wait(timeout=5)
         task.pid = None
+        signalled: int | None = None
+        if pid and self._pid_alive(pid):
+            try:
+                os.kill(pid, signal.SIGTERM)
+                signalled = pid
+            except (ProcessLookupError, PermissionError):
+                # EPERM: the stored pid now belongs to another user's
+                # process — e.g. it was spawned by a server that ran under
+                # a different account, or the OS recycled the pid after the
+                # agent died. It isn't ours to signal, so not ours to wait
+                # for either; forget it instead of crashing the request
+                # that triggered the kill.
+                pass
+        if proc is not None:
+            # Also reaps a child that has already exited on its own.
+            proc.wait(timeout=timeout)
+        elif signalled is not None:
+            deadline = time.monotonic() + timeout
+            while self._pid_alive(signalled) and time.monotonic() < deadline:
+                time.sleep(0.02)
 
     # ── internals ────────────────────────────────────────────────────
 
