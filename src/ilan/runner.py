@@ -358,27 +358,29 @@ class Runner:
         moment the process is gone: a fixed pause would cost every such
         reply the full pause and still not cover a slow exit.
         """
-        proc = self._procs.pop(task.name, None)
         pid = task.pid
+        proc = self._procs.pop(task.name, None)
         task.pid = None
-        if not pid or not self._pid_alive(pid):
-            return
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
-            # EPERM: the stored pid now belongs to another user's
-            # process — e.g. it was spawned by a server that ran under
-            # a different account, or the OS recycled the pid after the
-            # agent died. It isn't ours to signal, so not ours to wait
-            # for either; forget it instead of crashing the request that
-            # triggered the kill.
-            return
+        signalled: int | None = None
+        if pid and self._pid_alive(pid):
+            try:
+                os.kill(pid, signal.SIGTERM)
+                signalled = pid
+            except (ProcessLookupError, PermissionError):
+                # EPERM: the stored pid now belongs to another user's
+                # process — e.g. it was spawned by a server that ran under
+                # a different account, or the OS recycled the pid after the
+                # agent died. It isn't ours to signal, so not ours to wait
+                # for either; forget it instead of crashing the request
+                # that triggered the kill.
+                pass
         if proc is not None:
+            # Also reaps a child that has already exited on its own.
             proc.wait(timeout=timeout)
-            return
-        deadline = time.monotonic() + timeout
-        while self._pid_alive(pid) and time.monotonic() < deadline:
-            time.sleep(0.02)
+        elif signalled is not None:
+            deadline = time.monotonic() + timeout
+            while self._pid_alive(signalled) and time.monotonic() < deadline:
+                time.sleep(0.02)
 
     # ── internals ────────────────────────────────────────────────────
 

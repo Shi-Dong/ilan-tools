@@ -945,6 +945,21 @@ class TestKill:
         assert "live" not in runner._procs
         assert t.pid is None
 
+    def test_a_popen_whose_process_already_exited_is_still_reaped(
+        self, store: Store, runner: Runner,
+    ) -> None:
+        """Nothing to signal, but the child still has to be waited on, or it
+        lingers as a zombie — exactly what the kill did before."""
+        t = Task(name="exited", prompt="p", status=TaskStatus.WORKING, pid=68563)
+        proc = MagicMock()
+        runner._procs["exited"] = proc
+        with patch.object(Runner, "_pid_alive", return_value=False), \
+             patch("ilan.runner.os.kill") as os_kill:
+            runner.kill(t)
+        os_kill.assert_not_called()
+        proc.wait.assert_called_once_with(timeout=5.0)
+        assert t.pid is None
+
 
 # ── _output_complete ────────────────────────────────────────────────────
 
