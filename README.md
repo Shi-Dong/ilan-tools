@@ -92,6 +92,7 @@ Every task command has a top-level shorthand, so `ilan task reply` is just `ilan
 | `ilan add [-n NAME] (-d "prompt" \| -f FILE) [--claude \| --codex] [--max]` | Add a task and start it. Omit `-n` for a burnable task; `--max` starts it on its backend's max model. |
 | `ilan add "prompt"` | The quick form: a burnable task on the default backend and model. Takes no other flag; to combine flags, use `-d`. |
 | `ilan branch NAME "prompt"` | Quickly branch a burnable task from a task name or alias, inheriting its context. Takes no other flag; use `-d` or `-f` to combine with `-n`. |
+| `ilan btw NAME "question"` | Branch a quick side question with instructions to focus on the new request, leave earlier work and running jobs to the parent, and stop after answering. Same options as `branch`. |
 | `ilan ls [-a] [-c]` | List active tasks. `-a` includes closed ones, `-c` prints one plain line per task. |
 | `ilan search PATTERN` | Filter the `ilan ls -a -c` lines by a case-insensitive substring. |
 | `ilan latest [-n N]` | List the tasks most recently marked done, newest first, one plain line per task: `284 some-task [Notes: …]`. `-n` sets how many to show (default 10). |
