@@ -195,7 +195,7 @@ ilan dashboard
 
 Full-screen, real-time task table (like `htop`). Polls the server at the configured `dashboard-interval` (default: every 1 second). Keybindings: **q** quit, **r** force-refresh. The "refreshed at" timestamp uses the configured `time-zone`.
 
-Each row's `Status` cell carries a `gpt-5.6-luna`-generated one-line summary of the agent's most recent reply (≤ 20 words). The summary is refreshed only on `WORKING → NEEDS_ATTENTION` / `AGENT_FINISHED` transitions. The server produces it via OpenAI's API when `api-key-codex` is set, otherwise it falls back to the server's local `codex` CLI (`codex login` session, requires `codex` installed and logged in). Toggle whether the client renders it with `ilan config set one-line-summary true|false` (default `true`); if the toggle is on but the server has no `api-key-codex`, the client prints a note about the CLI fallback above the table. A thin separator is drawn between every task row in both `ilan ls` and `ilan dashboard`. When a `github-token` is configured, each task's name is underlined and links to its secret-Gist conversation mirror — see [Gist conversation mirroring](#gist-conversation-mirroring).
+Each row's `Status` cell carries a `gpt-5.6-luna`-generated one-line summary of the agent's most recent reply (≤ 20 words). The summary is refreshed only on `WORKING → NEEDS_ATTENTION` / `AGENT_FINISHED` transitions, and it lands a few seconds after the transition: producing it is a model call, which the server makes on a background thread rather than while it holds its lock, so a finish never stalls the listing, tail or reply you are typing. Until it lands a freshly finished task shows its status alone, and a task you reply to or close in that window gets no summary for that turn. A finished task still without a summary when the server starts — its summary was in flight when the previous server stopped — gets one then. The server produces it via OpenAI's API when `api-key-codex` is set, otherwise it falls back to the server's local `codex` CLI (`codex login` session, requires `codex` installed and logged in). Toggle whether the client renders it with `ilan config set one-line-summary true|false` (default `true`); if the toggle is on but the server has no `api-key-codex`, the client prints a note about the CLI fallback above the table. A thin separator is drawn between every task row in both `ilan ls` and `ilan dashboard`. When a `github-token` is configured, each task's name is underlined and links to its secret-Gist conversation mirror — see [Gist conversation mirroring](#gist-conversation-mirroring).
 
 A sleeping task has its own `SLEEPING` state, rendered in a darker blue than `WORKING`. Its `Name` cell keeps the requested duration beside the task as `(sleeping for 5m)`, in the same dark blue. Its `Status` cell adds a ten-cell progress bar and exact elapsed/total clock, such as `█████░░░░░ 2m30s / 5m`. The clock advances on each dashboard refresh and can exceed the requested total, so an overdue sleep reads `██████████ 10m / 5m`; only the bar stops at 100%.
 
@@ -581,8 +581,10 @@ the task list and the task's conversation page and advances whenever the view re
 Push notifications are opt-in per phone, from Settings, on a phone that has added the app
 to its Home Screen (iOS 16.4 or later; Safari tabs cannot receive them). Once enabled the
 phone is told when a task finishes: the task's name, how it finished (`Agent finished`,
-`Needs attention` or `Error`) and the one-line summary — never the alias. A finish inside a
-`reply -t` cycle is not announced. Tapping a notification opens the task. The app icon also
+`Needs attention` or `Error`) and the one-line summary — never the alias. The note waits for
+the summary, so it arrives a few seconds after the finish; a finish inside a `reply -t`
+cycle, or one you have already replied to by then, is not announced. Tapping a notification
+opens the task. The app icon also
 carries a badge with the number of tasks waiting on you. Enabling needs the server-side
 support described under [Push notifications (server side)](#push-notifications-server-side).
 
@@ -600,7 +602,9 @@ The server can tell phones that have installed the web app when a task finishes.
 phone subscribes through `GET /push` (the server's public key and how many devices are
 subscribed) and `POST /push/subscribe` with the subscription its browser produced;
 `POST /push/unsubscribe` forgets it. Each notification carries the task name, how it
-finished (`Agent finished`, `Needs attention` or `Error`) and the one-line summary. A task
+finished (`Agent finished`, `Needs attention` or `Error`) and the one-line summary; it is
+sent once the summary has been written, a few seconds after the reap, and not at all for a
+turn that was replied to or closed in the meantime. A task
 on a `reply -t` cycle is never announced, errors included: the cycle re-prompts the agent on
 its own, and a looping task that kept failing would otherwise ring the phone every cycle.
 The signing key (`push/vapid.pem`, created on first use, never to be committed) and the

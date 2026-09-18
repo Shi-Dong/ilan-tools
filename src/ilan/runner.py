@@ -20,7 +20,6 @@ from ilan.models import (
     max_model_for,
     tag_for_max_model,
 )
-from ilan.oneliner import generate_one_liner
 from ilan.store import Store
 
 __all__ = ["Runner", "STATUS_SUFFIX"]
@@ -275,8 +274,8 @@ class Runner:
         """Reap agents whose process has exited. Called by the poll loop.
 
         Returns the tasks reaped on this call, each already in its final
-        status with its summary set, so the caller can tell someone — which
-        is the one thing the caller should do outside the lock it holds here.
+        status, so the caller can have each summarised and tell someone —
+        the two things the caller should do outside the lock it holds here.
         """
         reaped: list[Task] = []
         for task in self.store.load_tasks().values():
@@ -644,23 +643,13 @@ class Runner:
             task.set_status(new_status)
             if new_status in (TaskStatus.NEEDS_ATTENTION, TaskStatus.AGENT_FINISHED):
                 task.needs_review = True
-                task.summary_one_liner = self._generate_one_liner(task, response)
+                # This turn's one-line summary is written later by the
+                # server's Summarizer, off the lock this reap runs under: it
+                # is a model call that can take several seconds. Until it
+                # lands the status cell shows the status alone rather than
+                # the previous turn's summary.
+                task.summary_one_liner = None
         self.store.put_task(task)
-
-    def _generate_one_liner(self, task: Task, assistant_response: str) -> str | None:
-        """Best-effort one-line summary of a running→finished transition.
-
-        Reads the last user message from the task's log and feeds it +
-        the assistant's new reply to Luna. Returns ``None`` if there is
-        no API key or the request fails — the field stays unset and the
-        display falls back to status-only.
-        """
-        last_user = ""
-        for entry in reversed(self.store.read_logs(task.name)):
-            if entry.role == "user":
-                last_user = entry.content
-                break
-        return generate_one_liner(last_user, assistant_response)
 
     def _output_complete(self, task_name: str) -> bool:
         """Return True if the output file contains a valid JSON result."""

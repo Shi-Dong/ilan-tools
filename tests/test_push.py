@@ -33,7 +33,7 @@ from ilan.push import (
     validate_subscription,
 )
 from ilan.server import IlanServer
-from tests.helpers import get_json as _get, post_json as _post
+from tests.helpers import get_json as _get, post_json as _post, running_server
 
 
 SUB = {
@@ -304,15 +304,15 @@ class TestRoutes:
 class TestReaperNotifies:
     """A live finish, reaped by the real reaper with the mock agent, reaches
     the sender exactly once — with the words for its status and the summary
-    the reaper produced. Recorded, not sent: the sender is swapped for a
-    recorder before the server's reaper thread runs."""
+    written for it. Recorded, not sent: the sender is swapped for a recorder
+    before the server's reaper thread runs."""
 
     def _server(self, tmp_workdir: Path, monkeypatch: pytest.MonkeyPatch, status: str) -> tuple[IlanServer, Recorder]:
         cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
         monkeypatch.setenv("MOCK_CLAUDE_STATUS", status)
-        # The one-liner would otherwise shell out to a real `codex` if one is
-        # on PATH; the reaper's own summary is what should reach the phone.
-        monkeypatch.setattr("ilan.runner.generate_one_liner", lambda user, assistant: "Ran the suite")
+        # The summarizer would otherwise shell out to a real `codex` if one is
+        # on PATH; the summary it writes is what should reach the phone.
+        monkeypatch.setattr("ilan.oneliner.generate_one_liner", lambda user, assistant: "Ran the suite")
         server = IlanServer()
         rec = Recorder()
         server.push = PushNotifier(workdir=lambda: tmp_workdir, sender=rec)
@@ -346,8 +346,10 @@ class TestReaperNotifies:
         reaped = self._reap_once(server, "live-task")
         assert [t.name for t in reaped] == ["live-task"]
 
+        # What the reaper loop hands off, run here on this thread: the summary
+        # is written first and the notifier is then given the summarised task.
         for t in reaped:
-            server.push.notify_finished(t)
+            server.summarizer.summarize(t, then=server.push.notify_finished)
         assert server.push.send(server.push._queue.get_nowait()) == 1
         assert len(rec.calls) == 1
         note = json.loads(rec.calls[0]["data"])
@@ -361,8 +363,8 @@ class TestReaperNotifies:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Through the server's own loop this time, not by calling the reaper:
-        one tick, one note, and the loop must not hold the lock while
-        handing it over."""
+        one tick, one note, carrying the summary the summarizer thread wrote
+        in between, and nothing on the way must hold the lock."""
         server, rec = self._server(tmp_workdir, monkeypatch, "DONE")
         with server.lock:
             task = Task(name="loop-task", prompt="P")
@@ -380,19 +382,21 @@ class TestReaperNotifies:
             return True
 
         server.push.notify_finished = spy  # type: ignore[method-assign]
-        server._stop_event.set()  # one pass through the loop body, then out
-        server._reaper_loop.__wrapped__ if hasattr(server._reaper_loop, "__wrapped__") else None
-        # Run exactly one iteration by clearing the stop flag, starting the loop
-        # in a thread, and stopping it after the first tick.
-        server._stop_event.clear()
+        # The loop hands the finish to the summarizer, whose thread is what
+        # calls the notifier — so it has to be running, as under ``run()``.
+        server.summarizer.start()
+        # Run exactly one iteration by starting the loop in a thread and
+        # stopping it after the first tick.
         t = threading.Thread(target=server._reaper_loop, daemon=True)
         t.start()
         deadline = time.monotonic() + 5
         while not handed and time.monotonic() < deadline:
             time.sleep(0.02)
         server._stop_event.set()
+        server.summarizer.stop()
         t.join(timeout=3)
         assert [x.name for x in handed] == ["loop-task"]
+        assert handed[0].summary_one_liner == "Ran the suite", "the note went out before its summary"
         assert lock_held_during_handoff == [False], "the hand-off ran under the server lock"
 
     def test_a_finish_inside_a_cycle_is_not_announced(
@@ -408,6 +412,39 @@ class TestReaperNotifies:
         assert [t.name for t in reaped] == ["cycling-task"]
         assert all(server.push.notify_finished(t) is False for t in reaped)
         assert server.push._queue.empty()
+
+    def test_a_finish_recovered_at_startup_is_summarised_but_not_announced(
+        self, tmp_workdir: Path, tmp_config: Path, env_with_mock_claude: None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A task that finished while the server was down is reaped by
+        recover() when it comes back. It gets its summary like any other
+        finish, but no phone is told: a restart must not replay a night of
+        finishes."""
+        server, _ = self._server(tmp_workdir, monkeypatch, "DONE")
+        announced: list[Task] = []
+        server.push.notify_finished = lambda task: announced.append(task) or True  # type: ignore[method-assign]
+        # Left WORKING on disk by a server that is gone, with the agent's
+        # output complete and its pid long dead.
+        task = Task(name="night-task", prompt="P", status=TaskStatus.WORKING, pid=2**22 - 1)
+        server.store.put_task(task)
+        server.store.append_log("night-task", "user", "P")
+        server.store.output_path("night-task").write_text(json.dumps({
+            "session_id": "sid-night", "result": "All done.\n[STATUS: DONE]", "is_error": False,
+        }))
+
+        with running_server(server):
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                with server.lock:
+                    recovered = server.store.get_task("night-task")
+                if recovered is not None and recovered.summary_one_liner is not None:
+                    break
+                time.sleep(0.02)
+        assert recovered is not None
+        assert recovered.status is TaskStatus.AGENT_FINISHED
+        assert recovered.summary_one_liner == "Ran the suite"
+        assert announced == []
 
 
 # ── the contact ───────────────────────────────────────────────────────────
