@@ -34,6 +34,7 @@ def test_bare_instruction_matches_description(
         result = runner.invoke(main, [*prefix, parent, instruction])
         assert result.exit_code == 0, result.output
         client.branch_task.assert_called_once_with(parent, None, instruction)
+        client.get_task.assert_not_called()
         assert "xxx-cat-likes-fin" in result.output
         assert "Burnable" in result.output
         bare_call = client.branch_task.call_args
@@ -150,6 +151,8 @@ def test_quick_branch_through_real_client_and_server(
         tasks = ilan_server.store.load_tasks()
         child = next(task for task in tasks.values() if task.name != parent.name)
         assert is_burnable_name(child.name)
+        if command == "btw":
+            assert child.name == "xxx-parent-task-btw"
         assert child.parent_name == parent.name
         assert child.engine == engine
         assert child.prompt == parent.prompt
@@ -172,8 +175,27 @@ def test_quick_branch_through_real_client_and_server(
         assert assignment in prompt
         assert resume == (engine == "claude")
         assert prompt.count(_BTW_SUFFIX) == (1 if command == "btw" else 0)
+    if command == "btw":
+        with ilan_server.lock:
+            before_tasks = ilan_server.store.load_tasks()
+            before_logs = ilan_server.store.read_logs(child.name)
+        result = CliRunner().invoke(main, [command, parent_ref, "Another question"])
+        assert result.exit_code == 1
+        assert "xxx-parent-task-btw already exists" in result.output
+        with ilan_server.lock:
+            assert ilan_server.store.load_tasks() == before_tasks
+            assert ilan_server.store.read_logs(child.name) == before_logs
     result = CliRunner().invoke(main, ["done", child.name])
     assert result.exit_code == 0, result.output
     with ilan_server.lock:
         assert ilan_server.store.get_task(child.name) is None
         assert ilan_server.store.get_task(parent.name) == parent
+    if command == "btw":
+        with patch.object(ilan_server.runner, "find_session_log", return_value=session_log):
+            result = CliRunner().invoke(main, [command, parent_ref, "A new question"])
+        assert result.exit_code == 0, result.output
+        with ilan_server.lock:
+            recreated = ilan_server.store.get_task("xxx-parent-task-btw")
+            assert recreated is not None
+            assert recreated.cached_replies == ["A new question" + _BTW_SUFFIX]
+            assert ilan_server.store.get_task(parent.name) == parent

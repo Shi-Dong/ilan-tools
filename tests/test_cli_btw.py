@@ -15,15 +15,16 @@ from ilan.cli import _BTW_SUFFIX, main
 @pytest.fixture()
 def client(tmp_config: Path) -> MagicMock:
     client = MagicMock()
+    client.get_task.return_value = {"task": {"name": "parent-task"}}
     client.branch_task.return_value = {
-        "name": "xxx-cat-likes-fin", "parent_name": "parent-task",
+        "name": "xxx-parent-task-btw", "parent_name": "parent-task",
     }
     return client
 
 
 @pytest.mark.parametrize("prefix", [["btw"], ["task", "btw"]])
 @pytest.mark.parametrize("source", ["bare", "description", "file"])
-def test_only_adds_suffix_to_branch_assignment(
+def test_preserves_assignment_and_explicit_name(
     client: MagicMock, tmp_path: Path, prefix: list[str], source: str,
 ) -> None:
     instruction = "  Why this choice?\nExplain briefly.  "
@@ -34,8 +35,9 @@ def test_only_adds_suffix_to_branch_assignment(
         "description": ["-n", "saved-answer", "-d", instruction],
         "file": ["-n", "saved-answer", "-f", str(prompt)],
     }[source]
-    expected_name = None if source == "bare" else "saved-answer"
-    client.branch_task.return_value["name"] = expected_name or "xxx-cat-likes-fin"
+    branch_name = None if source == "bare" else "saved-answer"
+    expected_name = branch_name or "xxx-parent-task-btw"
+    client.branch_task.return_value["name"] = expected_name
     runner = CliRunner()
     with patch("ilan.cli._client", return_value=client):
         branch_result = runner.invoke(main, ["branch", "aa", *args])
@@ -44,11 +46,50 @@ def test_only_adds_suffix_to_branch_assignment(
         result = runner.invoke(main, [*prefix, "aa", *args])
     assert branch_result.exit_code == 0, branch_result.output
     assert result.exit_code == 0, result.output
-    assert branch_call.args == ("aa", expected_name, instruction)
+    assert branch_call.args == ("aa", branch_name, instruction)
     client.branch_task.assert_called_once_with(
-        "aa", expected_name, instruction + _BTW_SUFFIX,
+        "parent-task" if source == "bare" else "aa", expected_name,
+        instruction + _BTW_SUFFIX,
     )
-    assert ("Burnable" in result.output) == (expected_name is None)
+    assert ("Burnable" in result.output) == (source == "bare")
+    if source == "bare":
+        client.get_task.assert_called_once_with("aa")
+    else:
+        client.get_task.assert_not_called()
+
+
+@pytest.mark.parametrize("prefix", [["btw"], ["task", "btw"]])
+@pytest.mark.parametrize("parent_ref", ["parent-task", "aa"])
+@pytest.mark.parametrize("source", ["bare", "description", "file"])
+def test_default_name_uses_resolved_parent(
+    client: MagicMock, tmp_path: Path, prefix: list[str], parent_ref: str, source: str,
+) -> None:
+    prompt = tmp_path / "question.txt"
+    prompt.write_text("Why?")
+    args = {
+        "bare": ["Why?"], "description": ["-d", "Why?"], "file": ["-f", str(prompt)],
+    }[source]
+    with patch("ilan.cli._client", return_value=client):
+        result = CliRunner().invoke(main, [*prefix, parent_ref, *args])
+    assert result.exit_code == 0, result.output
+    client.get_task.assert_called_once_with(parent_ref)
+    # Use the resolved name for the POST too: an alias might be reassigned
+    # between the lookup and the branch request.
+    client.branch_task.assert_called_once_with(
+        "parent-task", "xxx-parent-task-btw", "Why?" + _BTW_SUFFIX,
+    )
+    assert "xxx-parent-task-btw" in result.output
+
+
+@pytest.mark.parametrize("parent_name", ["Review_bug-42", "xxx-original-task"])
+def test_entire_parent_name_is_preserved(client: MagicMock, parent_name: str) -> None:
+    client.get_task.return_value = {"task": {"name": parent_name}}
+    with patch("ilan.cli._client", return_value=client):
+        result = CliRunner().invoke(main, ["btw", "aa", "Why?"])
+    assert result.exit_code == 0, result.output
+    client.branch_task.assert_called_once_with(
+        parent_name, f"xxx-{parent_name}-btw", "Why?" + _BTW_SUFFIX,
+    )
 
 
 @pytest.mark.parametrize("args", [
@@ -62,6 +103,7 @@ def test_no_branch_without_an_unambiguous_assignment(
     with patch("ilan.cli._client", return_value=client):
         result = CliRunner().invoke(main, ["btw", "aa", *args])
     assert result.exit_code != 0
+    client.get_task.assert_not_called()
     client.branch_task.assert_not_called()
 
 
@@ -74,6 +116,7 @@ def test_empty_file_cannot_become_a_suffix_only_assignment(
         result = CliRunner().invoke(main, ["btw", "aa", "-f", str(prompt)])
     assert result.exit_code == 1
     assert "must not be empty" in result.output
+    client.get_task.assert_not_called()
     client.branch_task.assert_not_called()
 
 
@@ -87,7 +130,18 @@ def test_suffix_stays_outside_the_expanded_reference(
         result = CliRunner().invoke(main, ["btw", "aa", "Explain @1"])
     assert result.exit_code == 0, result.output
     instruction = "Explain\n\n> the previous answer" if line_number else "Explain @1"
-    client.branch_task.assert_called_once_with("aa", None, instruction + _BTW_SUFFIX)
+    client.branch_task.assert_called_once_with(
+        "parent-task", "xxx-parent-task-btw", instruction + _BTW_SUFFIX,
+    )
+
+
+def test_parent_lookup_error_prevents_branch(client: MagicMock) -> None:
+    client.get_task.return_value = {"error": "Task missing not found"}
+    with patch("ilan.cli._client", return_value=client):
+        result = CliRunner().invoke(main, ["btw", "missing", "Why?"])
+    assert result.exit_code == 1
+    assert "not found" in result.output
+    client.branch_task.assert_not_called()
 
 
 def test_server_refusal_does_not_print_success(client: MagicMock) -> None:
@@ -105,6 +159,7 @@ def test_help_describes_scope_and_options(prefix: list[str]) -> None:
     assert result.exit_code == 0, result.output
     assert "OLD_NAME [INSTRUCTION]" in result.output
     assert "ongoing jobs" in result.output
+    assert "xxx-<parent-name>-btw" in result.output
     assert "--name" in result.output
     assert "--file" in result.output
     assert "--description" in result.output

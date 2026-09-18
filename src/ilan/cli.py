@@ -2450,7 +2450,7 @@ def _do_branch(
     description: str | None,
     instruction: str | None = None,
     *,
-    instruction_suffix: str = "",
+    side_question: bool = False,
 ) -> None:
     if instruction is not None:
         if any(value is not None for value in (new_name, file_path, description)):
@@ -2478,11 +2478,21 @@ def _do_branch(
 
     # Validate and expand only the user's assignment; the suffix must never
     # turn a missing assignment into a branch or become part of an @N quote.
-    message += instruction_suffix
-    resp = _client().branch_task(old_name, new_name, message)
+    client = _client()
+    if side_question:
+        message += _BTW_SUFFIX
+        if new_name is None:
+            parent_resp = client.get_task(old_name)
+            if _check_error(parent_resp):
+                raise SystemExit(1)
+            # Resolve aliases before naming the child, and branch by that
+            # full name so a reassigned alias cannot select a different task.
+            old_name = parent_resp["task"]["name"]
+            new_name = f"{BURNABLE_PREFIX}{old_name}-btw"
+    resp = client.branch_task(old_name, new_name, message)
     if _check_error(resp):
         raise SystemExit(1)
-    # Without ``-n`` the server mints the child's name, so report the one it chose.
+    # Report the returned name; ordinary unnamed branches are named by the server.
     child = str(resp.get("name") or new_name or "")
     parent = resp.get("parent_name", old_name)
     console.print(
@@ -2527,15 +2537,19 @@ def task_btw(
     Works like branch, with an added instruction to focus on this request,
     leave earlier work and ongoing jobs to the parent, and stop after answering.
 
-    A bare INSTRUCTION creates a burnable child and takes no flags. Use
-    -d "…" or -f FILE to combine the assignment with -n. Without -n, done
-    and discard delete the child; rename it to keep it.
+    Without -n, the child is named xxx-<parent-name>-btw using the parent's
+    full name, even when OLD_NAME is an alias. An existing task with that
+    name must be closed or renamed before creating another one.
+
+    A bare INSTRUCTION takes no flags. Use -d "…" or -f FILE to combine
+    the assignment with -n. Done and discard delete a burnable child;
+    rename it to keep it.
     """
-    # Reuse branch's parameters, completion and execution path so the suffix
-    # is the only difference in the assignment sent to the server.
+    # Share branch's parameters, completion and execution path; side questions
+    # add a scope suffix and derive their default name from the parent.
     _do_branch(
         old_name, new_name, file_path, description, instruction,
-        instruction_suffix=_BTW_SUFFIX,
+        side_question=True,
     )
 
 
