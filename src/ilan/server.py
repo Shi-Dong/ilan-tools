@@ -22,6 +22,7 @@ from pathlib import Path
 from ilan import __version__, config as cfg, get_git_commit, web
 from ilan.backends.claude import last_assistant_model
 from ilan.gist import GistSyncer, github_token, last_comment_url
+from ilan.oneliner import Summarizer
 from ilan.push import PushNotifier
 from ilan.models import (
     ALIAS_POOL,
@@ -135,6 +136,11 @@ class IlanServer:
         # Tells subscribed phones when a task finishes. Fed by the reaper
         # loop below; sends on its own thread, like the Gist syncer.
         self.push = PushNotifier()
+        # Writes the one-line summary of each finished turn. Also fed by the
+        # reaper loop and also on its own thread: the summary is a model call
+        # of several seconds, which must not run under the lock the reaper
+        # holds, or every listing, tail and reply waits for it.
+        self.summarizer = Summarizer(self.store, self.lock)
         self._backfill_task_numbers()
 
     def _backfill_task_numbers(self) -> None:
@@ -181,12 +187,18 @@ class IlanServer:
         recovered = self.runner.recover()
         if recovered:
             print(f"Recovered {len(recovered)} task(s): {', '.join(recovered)}")
+            # Finishes found on disk get their summary like any other, but
+            # no phone is told: they happened while the server was down.
+            for name in recovered:
+                if (task := self.store.get_task(name)) is not None:
+                    self.summarizer.enqueue(task)
 
         reaper = threading.Thread(target=self._reaper_loop, daemon=True)
         reaper.start()
 
         self.gist.start()
         self.push.start()
+        self.summarizer.start()
 
         try:
             self._httpd.serve_forever(poll_interval=poll_interval)
@@ -197,6 +209,7 @@ class IlanServer:
         self._stop_event.set()
         self.gist.stop()
         self.push.stop()
+        self.summarizer.stop()
         if self._httpd:
             threading.Thread(target=self._httpd.shutdown, daemon=True).start()
 
@@ -242,13 +255,15 @@ class IlanServer:
             with self.lock:
                 reaped = self.runner.reap_finished()
                 self._fire_due_replies()
-            # Outside the lock: notifying only enqueues, but the rule is that
-            # nothing on the way to a phone runs while the server is held.
-            # Only live finishes notify — a task recovered at startup after
+            # Outside the lock: enqueueing never blocks, but the rule is that
+            # nothing on the way to a summary or a phone runs while the
+            # server is held. The summarizer writes the summary on its own
+            # thread and only then notifies, so the note carries it. Only
+            # live finishes notify — a task recovered at startup after
             # finishing while the server was down is reaped by recover(), not
             # here, so a restart cannot replay a night of finishes.
             for task in reaped or []:
-                self.push.notify_finished(task)
+                self.summarizer.enqueue(task, then=self.push.notify_finished)
             self._stop_event.wait(POLL_INTERVAL)
 
     def deliver_cycle_message(self, task: Task, message: str) -> None:

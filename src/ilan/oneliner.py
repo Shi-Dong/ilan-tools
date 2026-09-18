@@ -1,7 +1,10 @@
 """Generate a one-line summary of a task's most recent exchange.
 
-Called from :mod:`ilan.runner` when an agent finishes a turn (status
-transitioning from ``WORKING`` to ``NEEDS_ATTENTION`` or ``AGENT_FINISHED``).
+Produced when an agent finishes a turn (status transitioning from
+``WORKING`` to ``NEEDS_ATTENTION`` or ``AGENT_FINISHED``). The reaper in
+:mod:`ilan.runner` records the finish; :class:`Summarizer` below then writes
+the summary on its own thread, off the server lock, because generating one
+is a model call that can take several seconds.
 
 The summary is produced by sending the last user message + the new
 assistant message to OpenAI's GPT-5.6 Luna. The backend depends
@@ -20,14 +23,25 @@ callers can fall back gracefully.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import queue
 import subprocess
+import threading
 import urllib.error
 import urllib.request
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from ilan import config as cfg
+from ilan.models import LogEntry, Task, TaskStatus
+from ilan.store import Store
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
+
+# The finishes that get a summary. An ERROR finish has no reply worth
+# summarising, and a running task has not finished its turn yet.
+SUMMARIZED_STATUSES = frozenset({TaskStatus.NEEDS_ATTENTION, TaskStatus.AGENT_FINISHED})
 
 # Model used for the one-liner, on both the API and the CLI path. Luna is the
 # small/fast member of the GPT-5.6 family, which suits a 20-word summary.
@@ -196,3 +210,127 @@ def generate_one_liner(last_user: str, last_assistant: str) -> str | None:
     # can't blow out the status cell.
     text = " ".join(text.split())
     return _trim_to_words(text)
+
+
+# ── background summarizer ────────────────────────────────────────────────
+
+def _turn(task: Task) -> tuple[str, str]:
+    """Identify the turn a task is on: its status and when it got there.
+
+    ``set_status`` stamps a fresh time on every change, so two turns never
+    compare equal even when they land on the same status.
+    """
+    return task.status.value, task.status_changed_at
+
+
+def _last_exchange(entries: list[LogEntry]) -> tuple[str, str]:
+    """The last user message and the assistant reply that closes the log.
+
+    The reaper appends a finished turn's reply as the log's last entry, so
+    that entry is what the summary describes. Anything else last (an empty
+    reply is never logged) means there is nothing to summarise, and the empty
+    assistant text makes :func:`generate_one_liner` answer ``None``.
+    """
+    if not entries or entries[-1].role != "assistant":
+        return "", ""
+    response = entries[-1].content
+    last_user = next(
+        (entry.content for entry in reversed(entries[:-1]) if entry.role == "user"),
+        "",
+    )
+    return last_user, response
+
+
+@dataclass(frozen=True)
+class _SummaryJob:
+    name: str
+    turn: tuple[str, str]
+    then: Callable[[Task], object] | None
+
+
+class Summarizer:
+    """Write each finished turn's one-line summary on a background thread.
+
+    A summary is a model call: several seconds through the ``codex`` CLI, a
+    second or so over the API. The reaper used to make that call while it
+    held the server lock, so every ``ilan ls``, tail and reply that arrived
+    in those seconds waited for it. Now the reaper only enqueues, which never
+    blocks; this thread makes the call off the lock and writes the summary
+    back under it. Same shape as the Gist syncer and the push notifier.
+
+    A job names the turn it summarises — the task's status and when it
+    changed — and is dropped if the task has moved on by the time it runs: a
+    reply that landed meanwhile has already made the summary stale, and stale
+    text must not overwrite whatever the new turn produces.
+    """
+
+    def __init__(self, store: Store, lock: threading.Lock) -> None:
+        self.store = store
+        self.lock = lock
+        self._queue: queue.Queue[_SummaryJob] = queue.Queue()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self._thread is not None:
+            return
+        self._thread = threading.Thread(target=self._loop, name="summarizer", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def enqueue(self, task: Task, then: Callable[[Task], object] | None = None) -> None:
+        """Schedule a summary of *task*'s latest turn. Never blocks.
+
+        *then* runs afterwards — off the lock, with the task re-read from the
+        store so it carries the summary — or straight away for a turn that
+        takes no summary, such as an error. It is how a phone notification
+        gets to include the summary: the reaper passes ``notify_finished``.
+        Like the summary itself, it is skipped when the turn was superseded.
+        """
+        self._queue.put(_SummaryJob(task.name, _turn(task), then))
+
+    def summarize(self, task: Task, then: Callable[[Task], object] | None = None) -> None:
+        """Do now, on the calling thread, what :meth:`enqueue` defers."""
+        self._run(_SummaryJob(task.name, _turn(task), then))
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                job = self._queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            # A failure on one turn must not kill the thread; the next
+            # finish still gets its summary.
+            with contextlib.suppress(Exception):
+                self._run(job)
+
+    def _run(self, job: _SummaryJob) -> None:
+        with self.lock:
+            task = self._current(job)
+            if task is None:
+                return
+            exchange = (
+                _last_exchange(self.store.read_logs(task.name))
+                if task.status in SUMMARIZED_STATUSES
+                else None
+            )
+        if exchange is not None:
+            # The slow part, and the reason this class exists: no lock held.
+            summary = generate_one_liner(*exchange)
+            with self.lock:
+                task = self._current(job)
+                if task is None:
+                    return
+                task.summary_one_liner = summary
+                self.store.put_task(task)
+        if job.then is not None:
+            job.then(task)
+
+    def _current(self, job: _SummaryJob) -> Task | None:
+        """The task, if it is still on the turn *job* was made for."""
+        task = self.store.get_task(job.name)
+        if task is None or _turn(task) != job.turn:
+            return None
+        return task

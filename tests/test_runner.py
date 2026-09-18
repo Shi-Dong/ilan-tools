@@ -44,19 +44,6 @@ def runner(store: Store) -> Runner:
     return Runner(store)
 
 
-@pytest.fixture(autouse=True)
-def no_real_one_liner(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Stub the one-liner generator for every test in this module.
-
-    The real ``generate_one_liner`` reads the user's actual ilan config and,
-    with no ``api-key-codex`` set, shells out to the ``codex`` CLI — a live
-    LLM call on every reap that reaches AGENT_FINISHED/NEEDS_ATTENTION
-    (2-5s per test, network, quota). Tests that exercise the one-liner flow
-    override this with their own ``patch``.
-    """
-    monkeypatch.setattr("ilan.runner.generate_one_liner", lambda *_: None)
-
-
 # ── _parse_status_marker ────────────────────────────────────────────────
 
 
@@ -728,89 +715,65 @@ class TestTryReap:
         logs = store.read_logs("t7")
         assert len(logs) == 0
 
-    def test_reap_sets_one_liner_on_agent_finished(
-        self, store: Store, runner: Runner,
+    @pytest.mark.parametrize(("marker", "status"), [
+        ("DONE", TaskStatus.AGENT_FINISHED),
+        ("NEEDS_ATTENTION", TaskStatus.NEEDS_ATTENTION),
+    ])
+    def test_reap_clears_the_previous_turns_summary(
+        self, store: Store, runner: Runner, marker: str, status: TaskStatus,
     ) -> None:
-        t = Task(name="ol-fin", prompt="p", status=TaskStatus.WORKING, pid=99999)
+        """A finish leaves the summary empty for the server's Summarizer to
+        fill in off the lock; the previous turn's line must not linger under
+        the new status while that happens."""
+        t = Task(name="ol-fin", prompt="p", status=TaskStatus.WORKING, pid=99999,
+                 summary_one_liner="Summary of the previous turn.")
         store.put_task(t)
-        store.append_log("ol-fin", "user", "please summarize this")
         out = {
             "session_id": "sid-ol",
-            "result": "Sure, all set.\n[STATUS: DONE]",
+            "result": f"Sure, all set.\n[STATUS: {marker}]",
             "is_error": False,
         }
         store.output_path("ol-fin").write_text(json.dumps(out))
 
-        with patch(
-            "ilan.runner.generate_one_liner",
-            return_value="Summary done.",
-        ) as mock_gen:
-            runner._try_reap(t)
+        runner._try_reap(t)
 
         updated = store.get_task("ol-fin")
         assert updated is not None
-        assert updated.summary_one_liner == "Summary done."
-        last_user, last_assistant = mock_gen.call_args[0]
-        assert last_user == "please summarize this"
-        assert last_assistant.startswith("Sure, all set.")
+        assert updated.status == status
+        assert updated.summary_one_liner is None
 
-    def test_reap_sets_one_liner_on_needs_attention(
-        self, store: Store, runner: Runner,
-    ) -> None:
-        t = Task(name="ol-na", prompt="p", status=TaskStatus.WORKING, pid=99999)
+    def test_reap_never_calls_the_model(self, store: Store, runner: Runner) -> None:
+        """The reap runs under the server lock, and the model call behind a
+        summary takes seconds — it belongs to the Summarizer's thread."""
+        t = Task(name="ol-model", prompt="p", status=TaskStatus.WORKING, pid=99999)
         store.put_task(t)
         out = {
-            "session_id": "sid-ol2",
-            "result": "I am stuck.\n[STATUS: NEEDS_ATTENTION]",
+            "session_id": "sid-olm",
+            "result": "All good.\n[STATUS: DONE]",
             "is_error": False,
         }
-        store.output_path("ol-na").write_text(json.dumps(out))
+        store.output_path("ol-model").write_text(json.dumps(out))
 
-        with patch(
-            "ilan.runner.generate_one_liner", return_value="Blocked on input.",
-        ):
+        with patch("ilan.oneliner.generate_one_liner") as mock_gen:
             runner._try_reap(t)
 
-        updated = store.get_task("ol-na")
-        assert updated is not None
-        assert updated.status == TaskStatus.NEEDS_ATTENTION
-        assert updated.summary_one_liner == "Blocked on input."
+        mock_gen.assert_not_called()
 
-    def test_reap_skips_one_liner_on_error(
+    def test_reap_leaves_the_summary_alone_on_error(
         self, store: Store, runner: Runner,
     ) -> None:
-        t = Task(name="ol-err", prompt="p", status=TaskStatus.WORKING, pid=99999)
+        t = Task(name="ol-err", prompt="p", status=TaskStatus.WORKING, pid=99999,
+                 summary_one_liner="Summary of the previous turn.")
         store.put_task(t)
         out = {"session_id": "sid-ole", "result": "boom", "is_error": True}
         store.output_path("ol-err").write_text(json.dumps(out))
 
-        with patch("ilan.runner.generate_one_liner") as mock_gen:
-            runner._try_reap(t)
+        runner._try_reap(t)
 
-        mock_gen.assert_not_called()
         updated = store.get_task("ol-err")
         assert updated is not None
-        assert updated.summary_one_liner is None
-
-    def test_reap_one_liner_none_when_not_configured(
-        self, store: Store, runner: Runner,
-    ) -> None:
-        t = Task(name="ol-noapi", prompt="p", status=TaskStatus.WORKING, pid=99999)
-        store.put_task(t)
-        out = {
-            "session_id": "sid-ol3",
-            "result": "All good.\n[STATUS: DONE]",
-            "is_error": False,
-        }
-        store.output_path("ol-noapi").write_text(json.dumps(out))
-
-        with patch("ilan.runner.generate_one_liner", return_value=None):
-            runner._try_reap(t)
-
-        updated = store.get_task("ol-noapi")
-        assert updated is not None
-        assert updated.summary_one_liner is None
-        assert updated.status == TaskStatus.AGENT_FINISHED
+        assert updated.status == TaskStatus.ERROR
+        assert updated.summary_one_liner == "Summary of the previous turn."
 
 
 # ── reply_to_working ────────────────────────────────────────────────────

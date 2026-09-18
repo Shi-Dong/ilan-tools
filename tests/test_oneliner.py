@@ -1,9 +1,12 @@
-"""Tests for ilan.oneliner — Luna-backed one-line summary of a task turn."""
+"""Tests for ilan.oneliner — Luna-backed one-line summary of a task turn, and
+the background thread that writes it off the server lock."""
 
 from __future__ import annotations
 
 import json
 import subprocess
+import threading
+import time
 import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -11,6 +14,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ilan import oneliner
+from ilan.models import Task, TaskStatus
+from ilan.oneliner import Summarizer
+from ilan.store import Store
 
 
 @pytest.fixture()
@@ -244,3 +250,193 @@ class TestCodexCliFallback:
         with patch("subprocess.run", return_value=_mock_cli_result("   ")):
             result = oneliner.generate_one_liner("u", "a")
         assert result is None
+
+
+# ── the background summarizer ────────────────────────────────────────────
+
+@pytest.fixture()
+def store(tmp_workdir: Path) -> Store:
+    return Store(tmp_workdir)
+
+
+@pytest.fixture()
+def lock() -> threading.Lock:
+    return threading.Lock()
+
+
+@pytest.fixture()
+def summarizer(store: Store, lock: threading.Lock) -> Summarizer:
+    return Summarizer(store, lock)
+
+
+def _finished(store: Store, name: str = "t", status: TaskStatus = TaskStatus.AGENT_FINISHED) -> Task:
+    """A task whose turn the reaper has just recorded: status set, reply logged,
+    summary cleared for the summarizer to fill in."""
+    task = Task(name=name, prompt="p")
+    store.append_log(name, "user", "please summarize this")
+    store.append_log(name, "assistant", "Sure, all set.\n[STATUS: DONE]")
+    task.set_status(status)
+    store.put_task(task)
+    return task
+
+
+def _summary(store: Store, name: str) -> str | None:
+    task = store.get_task(name)
+    assert task is not None
+    return task.summary_one_liner
+
+
+class TestSummarizer:
+    @pytest.mark.parametrize("status", [TaskStatus.AGENT_FINISHED, TaskStatus.NEEDS_ATTENTION])
+    def test_writes_the_summary_of_the_last_exchange(
+        self, store: Store, summarizer: Summarizer, status: TaskStatus,
+    ) -> None:
+        task = _finished(store, status=status)
+        with patch("ilan.oneliner.generate_one_liner", return_value="Summary done.") as gen:
+            summarizer.summarize(task)
+        assert _summary(store, "t") == "Summary done."
+        last_user, last_assistant = gen.call_args[0]
+        assert last_user == "please summarize this"
+        assert last_assistant.startswith("Sure, all set.")
+
+    def test_the_model_is_called_with_the_lock_released(
+        self, store: Store, lock: threading.Lock, summarizer: Summarizer,
+    ) -> None:
+        """The whole point: the seconds the model takes must not be seconds
+        during which every listing, tail and reply waits."""
+        task = _finished(store)
+        held: list[bool] = []
+
+        def gen(user: str, assistant: str) -> str:
+            held.append(lock.locked())
+            return "Summary done."
+
+        with patch("ilan.oneliner.generate_one_liner", gen):
+            summarizer.summarize(task)
+        assert held == [False]
+        assert _summary(store, "t") == "Summary done."
+
+    def test_no_summary_leaves_the_field_empty(self, store: Store, summarizer: Summarizer) -> None:
+        task = _finished(store)
+        with patch("ilan.oneliner.generate_one_liner", return_value=None):
+            summarizer.summarize(task)
+        assert _summary(store, "t") is None
+
+    def test_a_turn_without_a_logged_reply_asks_for_nothing(
+        self, store: Store, summarizer: Summarizer,
+    ) -> None:
+        """An empty reply is never logged, so the log ends on the user's
+        message; there is nothing to summarise and the model is not asked."""
+        task = Task(name="quiet", prompt="p")
+        store.append_log("quiet", "user", "anything?")
+        task.set_status(TaskStatus.AGENT_FINISHED)
+        store.put_task(task)
+        with patch("ilan.oneliner._call_codex_cli") as cli, patch("ilan.oneliner._call_luna") as api:
+            summarizer.summarize(task)
+        cli.assert_not_called()
+        api.assert_not_called()
+        assert _summary(store, "quiet") is None
+
+    def test_then_gets_the_task_carrying_the_summary(
+        self, store: Store, lock: threading.Lock, summarizer: Summarizer,
+    ) -> None:
+        task = _finished(store)
+        seen: list[tuple[str | None, bool]] = []
+        with patch("ilan.oneliner.generate_one_liner", return_value="Summary done."):
+            summarizer.summarize(task, then=lambda t: seen.append((t.summary_one_liner, lock.locked())))
+        assert seen == [("Summary done.", False)], "then must see the summary, off the lock"
+
+    def test_an_error_finish_takes_no_summary_but_then_still_runs(
+        self, store: Store, summarizer: Summarizer,
+    ) -> None:
+        """The phone is told about errors too, and without a summary there is
+        nothing to wait for."""
+        task = _finished(store, status=TaskStatus.ERROR)
+        seen: list[str] = []
+        with patch("ilan.oneliner.generate_one_liner") as gen:
+            summarizer.summarize(task, then=lambda t: seen.append(t.status.value))
+        gen.assert_not_called()
+        assert seen == ["ERROR"]
+
+    def test_a_turn_the_task_has_moved_on_from_is_dropped(
+        self, store: Store, summarizer: Summarizer,
+    ) -> None:
+        """A reply that landed before the job ran has made the summary stale;
+        neither it nor the notification may go out for the old turn."""
+        task = _finished(store)
+        replied = store.get_task("t")
+        assert replied is not None
+        replied.set_status(TaskStatus.WORKING)
+        store.put_task(replied)
+        seen: list[Task] = []
+        with patch("ilan.oneliner.generate_one_liner") as gen:
+            summarizer.summarize(task, then=seen.append)
+        gen.assert_not_called()
+        assert seen == []
+        assert _summary(store, "t") is None
+
+    def test_a_reply_that_lands_during_the_model_call_wins(
+        self, store: Store, summarizer: Summarizer,
+    ) -> None:
+        """The summary is written under the lock only if the turn is still
+        the one it was asked for; the new turn's summary comes later."""
+        task = _finished(store)
+        seen: list[Task] = []
+
+        def gen(user: str, assistant: str) -> str:
+            replied = store.get_task("t")
+            assert replied is not None
+            replied.set_status(TaskStatus.WORKING)
+            store.put_task(replied)
+            return "Stale summary."
+
+        with patch("ilan.oneliner.generate_one_liner", gen):
+            summarizer.summarize(task, then=seen.append)
+        assert _summary(store, "t") is None
+        assert seen == []
+
+    def test_a_deleted_task_is_dropped(self, store: Store, summarizer: Summarizer) -> None:
+        task = _finished(store)
+        store.delete_task("t")
+        with patch("ilan.oneliner.generate_one_liner") as gen:
+            summarizer.summarize(task, then=lambda t: pytest.fail("then ran for a deleted task"))
+        gen.assert_not_called()
+
+    def test_the_thread_writes_what_was_queued(self, store: Store, summarizer: Summarizer) -> None:
+        task = _finished(store)
+        with patch("ilan.oneliner.generate_one_liner", return_value="Summary done."):
+            summarizer.start()
+            try:
+                summarizer.enqueue(task)
+                deadline = time.monotonic() + 5
+                while _summary(store, "t") is None and time.monotonic() < deadline:
+                    time.sleep(0.02)
+            finally:
+                summarizer.stop()
+        assert _summary(store, "t") == "Summary done."
+
+    def test_a_crash_on_one_turn_does_not_stop_the_next(
+        self, store: Store, summarizer: Summarizer,
+    ) -> None:
+        first = _finished(store, name="first")
+        second = _finished(store, name="second")
+        calls: list[str] = []
+
+        def gen(user: str, assistant: str) -> str:
+            calls.append(user)
+            if len(calls) == 1:
+                raise RuntimeError("boom")
+            return "Summary done."
+
+        with patch("ilan.oneliner.generate_one_liner", gen):
+            summarizer.start()
+            try:
+                summarizer.enqueue(first)
+                summarizer.enqueue(second)
+                deadline = time.monotonic() + 5
+                while _summary(store, "second") is None and time.monotonic() < deadline:
+                    time.sleep(0.02)
+            finally:
+                summarizer.stop()
+        assert _summary(store, "second") == "Summary done."
+        assert _summary(store, "first") is None
