@@ -9,7 +9,7 @@ import pytest
 from click.testing import CliRunner
 
 from ilan import config as cfg
-from ilan.cli import main
+from ilan.cli import _BTW_SUFFIX, main
 from ilan.models import Task, is_burnable_name
 from ilan.server import IlanServer
 
@@ -119,9 +119,10 @@ def test_help_explains_quick_form(prefix: list[str]) -> None:
 
 @pytest.mark.parametrize("engine", ["claude", "codex"])
 @pytest.mark.parametrize("parent_ref", ["parent-task", "aa"])
+@pytest.mark.parametrize("command", ["branch", "btw"])
 def test_quick_branch_through_real_client_and_server(
     ilan_server: IlanServer, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
-    engine: str, parent_ref: str,
+    engine: str, parent_ref: str, command: str,
 ) -> None:
     """Exercise HTTP, inheritance and burning while agent spawning is stubbed."""
     session_log = tmp_path / "parent-session.jsonl"
@@ -142,8 +143,9 @@ def test_quick_branch_through_real_client_and_server(
     with patch.object(
         ilan_server.runner, "find_session_log", return_value=session_log,
     ):
-        result = CliRunner().invoke(main, ["branch", parent_ref, "Explain the last result"])
+        result = CliRunner().invoke(main, [command, parent_ref, "Explain the last result"])
     assert result.exit_code == 0, result.output
+    assignment = "Explain the last result" + (_BTW_SUFFIX if command == "btw" else "")
     with ilan_server.lock:
         tasks = ilan_server.store.load_tasks()
         child = next(task for task in tasks.values() if task.name != parent.name)
@@ -151,7 +153,7 @@ def test_quick_branch_through_real_client_and_server(
         assert child.parent_name == parent.name
         assert child.engine == engine
         assert child.prompt == parent.prompt
-        assert child.cached_replies == ["Explain the last result"]
+        assert child.cached_replies == [assignment]
         assert child.awaiting_branch_notice
         if engine == "claude":
             assert child.session_id != parent.session_id
@@ -160,9 +162,16 @@ def test_quick_branch_through_real_client_and_server(
             assert child.session_id is None
             assert child.awaiting_catchup
         assert [entry.content for entry in ilan_server.store.read_logs(child.name)] == [
-            parent.prompt, "The job is progressing", "Explain the last result",
+            parent.prompt, "The job is progressing", assignment,
         ]
         assert ilan_server.store.get_task(parent.name) == parent
+        # Check the actual Claude resume / Codex catch-up consumer, not just
+        # the HTTP payload. Building the prompt does not launch an agent.
+        with patch.object(ilan_server.runner, "find_session_log", return_value=session_log):
+            prompt, resume = ilan_server.runner._build_prompt(child)
+        assert assignment in prompt
+        assert resume == (engine == "claude")
+        assert prompt.count(_BTW_SUFFIX) == (1 if command == "btw" else 0)
     result = CliRunner().invoke(main, ["done", child.name])
     assert result.exit_code == 0, result.output
     with ilan_server.lock:

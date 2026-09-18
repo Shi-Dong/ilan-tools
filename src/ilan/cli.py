@@ -2432,18 +2432,31 @@ task_group.add_command(task_notes, "note")
 
 # ── task branch ─────────────────────────────────────────────────────
 
+_BTW_SUFFIX = (
+    "\n\n---\n"
+    "This is a quick side question in a separate branch. Focus only on the "
+    "user's instruction above; use the inherited conversation as background. "
+    "Earlier requests and ongoing jobs remain the parent task's responsibility. "
+    "Do not resume that work or continue monitoring, managing, or waiting for "
+    "those jobs unless the instruction above explicitly asks you to. "
+    "Answer the current request directly, then stop."
+)
+
+
 def _do_branch(
     old_name: str,
     new_name: str | None,
     file_path: str | None,
     description: str | None,
     instruction: str | None = None,
+    *,
+    instruction_suffix: str = "",
 ) -> None:
     if instruction is not None:
         if any(value is not None for value in (new_name, file_path, description)):
             console.print(
                 '[red]A bare instruction takes no flags. Use '
-                'ilan branch OLD_NAME -d "…" to combine options, or -f FILE '
+                '-d "…" to combine options, or -f FILE '
                 'to read the assignment from a file.[/red]'
             )
             raise SystemExit(1)
@@ -2463,6 +2476,9 @@ def _do_branch(
     if _line_number_enabled():
         message = _expand_at_refs(message, cfg.load_last_tail(old_name))
 
+    # Validate and expand only the user's assignment; the suffix must never
+    # turn a missing assignment into a branch or become part of an @N quote.
+    message += instruction_suffix
     resp = _client().branch_task(old_name, new_name, message)
     if _check_error(resp):
         raise SystemExit(1)
@@ -2499,6 +2515,28 @@ def task_branch(
     instead of closing it. Rename it to keep it.
     """
     _do_branch(old_name, new_name, file_path, description, instruction)
+
+
+@task_group.command("btw", params=task_branch.params)
+def task_btw(
+    old_name: str, instruction: str | None, new_name: str | None,
+    file_path: str | None, description: str | None,
+) -> None:
+    """Ask a quick side question using OLD_NAME's context (or an alias).
+
+    Works like branch, with an added instruction to focus on this request,
+    leave earlier work and ongoing jobs to the parent, and stop after answering.
+
+    A bare INSTRUCTION creates a burnable child and takes no flags. Use
+    -d "…" or -f FILE to combine the assignment with -n. Without -n, done
+    and discard delete the child; rename it to keep it.
+    """
+    # Reuse branch's parameters, completion and execution path so the suffix
+    # is the only difference in the assignment sent to the server.
+    _do_branch(
+        old_name, new_name, file_path, description, instruction,
+        instruction_suffix=_BTW_SUFFIX,
+    )
 
 
 # ── task attach ─────────────────────────────────────────────────────
@@ -2959,6 +2997,7 @@ _register_task_shortcut(
 )
 _register_task_shortcut("add", help=_ADD_HELP)
 _register_task_shortcut("branch", help=task_branch.help)
+_register_task_shortcut("btw", help=task_btw.help)
 _register_task_shortcut("reply", help=_REPLY_HELP)
 _register_task_shortcut(
     "notes",
