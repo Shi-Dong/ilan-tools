@@ -421,7 +421,7 @@ class TestReaperNotifies:
         recover() when it comes back. It gets its summary like any other
         finish, but no phone is told: a restart must not replay a night of
         finishes."""
-        server, rec = self._server(tmp_workdir, monkeypatch, "DONE")
+        server, _ = self._server(tmp_workdir, monkeypatch, "DONE")
         announced: list[Task] = []
         server.push.notify_finished = lambda task: announced.append(task) or True  # type: ignore[method-assign]
         # Left WORKING on disk by a server that is gone, with the agent's

@@ -295,6 +295,26 @@ class Summarizer:
         """Do now, on the calling thread, what :meth:`enqueue` defers."""
         self._run(_SummaryJob(task.name, _turn(task), then))
 
+    def enqueue_missing(self) -> list[str]:
+        """Schedule a summary for every finished task that has none.
+
+        For the server's startup. A finish recovered from disk was reaped
+        without a summary, and a finish whose summary was still being
+        written when the last server stopped never got one; both are
+        finished tasks with the field empty. Nothing is chained after them:
+        these finishes happened while the server was down, so no phone is
+        told. Returns the names scheduled.
+        """
+        with self.lock:
+            tasks = self.store.load_tasks()
+        missing = [
+            task for task in tasks.values()
+            if task.status in SUMMARIZED_STATUSES and task.summary_one_liner is None
+        ]
+        for task in missing:
+            self.enqueue(task)
+        return [task.name for task in missing]
+
     def _loop(self) -> None:
         while not self._stop.is_set():
             try:

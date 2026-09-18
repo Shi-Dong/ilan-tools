@@ -13,10 +13,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from ilan import config as cfg_mod
 from ilan import oneliner
 from ilan.models import Task, TaskStatus
 from ilan.oneliner import Summarizer
+from ilan.server import IlanServer
 from ilan.store import Store
+from tests.helpers import running_server
 
 
 @pytest.fixture()
@@ -440,3 +443,53 @@ class TestSummarizer:
                 summarizer.stop()
         assert _summary(store, "second") == "Summary done."
         assert _summary(store, "first") is None
+
+
+class TestEnqueueMissing:
+    def test_schedules_every_finished_task_without_a_summary(
+        self, store: Store, summarizer: Summarizer,
+    ) -> None:
+        _finished(store, name="fin-none")
+        _finished(store, name="na-none", status=TaskStatus.NEEDS_ATTENTION)
+        has = _finished(store, name="fin-has")
+        has.summary_one_liner = "Already there."
+        store.put_task(has)
+        _finished(store, name="err-none", status=TaskStatus.ERROR)
+        _finished(store, name="working-none", status=TaskStatus.WORKING)
+        _finished(store, name="done-none", status=TaskStatus.DONE)
+
+        assert sorted(summarizer.enqueue_missing()) == ["fin-none", "na-none"]
+        assert summarizer._queue.qsize() == 2
+
+    def test_a_summary_lost_to_a_restart_is_written_when_the_server_starts(
+        self, tmp_workdir: Path, tmp_config: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The reaper records a finish and the summary follows a few seconds
+        later, so a server stopped in between leaves a finished task with no
+        summary on disk. The next server writes it — and tells no phone,
+        since the finish happened while no server was up. A task that has
+        its summary is left alone."""
+        cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir)})
+        asked: list[str] = []
+
+        def gen(user: str, assistant: str) -> str:
+            asked.append(user)
+            return "Written at startup."
+
+        monkeypatch.setattr("ilan.oneliner.generate_one_liner", gen)
+        server = IlanServer()
+        announced: list[Task] = []
+        server.push.notify_finished = lambda task: announced.append(task) or True  # type: ignore[method-assign]
+        _finished(server.store, name="lost")
+        kept = _finished(server.store, name="kept")
+        kept.summary_one_liner = "Kept."
+        server.store.put_task(kept)
+
+        with running_server(server):
+            deadline = time.monotonic() + 5
+            while _summary(server.store, "lost") is None and time.monotonic() < deadline:
+                time.sleep(0.02)
+        assert _summary(server.store, "lost") == "Written at startup."
+        assert _summary(server.store, "kept") == "Kept."
+        assert asked == ["please summarize this"], "only the task without a summary was summarised"
+        assert announced == []

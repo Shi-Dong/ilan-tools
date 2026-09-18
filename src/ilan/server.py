@@ -187,11 +187,9 @@ class IlanServer:
         recovered = self.runner.recover()
         if recovered:
             print(f"Recovered {len(recovered)} task(s): {', '.join(recovered)}")
-            # Finishes found on disk get their summary like any other, but
-            # no phone is told: they happened while the server was down.
-            for name in recovered:
-                if (task := self.store.get_task(name)) is not None:
-                    self.summarizer.enqueue(task)
+        # Covers the finishes just recovered, and any whose summary was
+        # still being written when the last server stopped.
+        self.summarizer.enqueue_missing()
 
         reaper = threading.Thread(target=self._reaper_loop, daemon=True)
         reaper.start()
