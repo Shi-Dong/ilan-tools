@@ -334,7 +334,7 @@ before writing. Use `--yes` for non-interactive scripts.
 | `default-backend` | `claude` | Default agent backend for newly added tasks (`claude` or `codex`). Override per task with `ilan add --claude`/`--codex`, or flip an existing task with `ilan task switch-backend` — see [Agent backends](#agent-backends) |
 | `time-zone` | `US/Pacific` | Client-side: time zone for displayed timestamps; set it on each machine running the CLI. Accepts friendly aliases — see [Time-zone aliases](#time-zone-aliases) |
 | `model-claude` | `claude-opus-5-5` | Model passed verbatim to `claude -p --model` for tasks on the `claude` backend. Must be an exact Claude model id (e.g. `claude-opus-5-5`, `claude-sonnet-4-6`); CLI aliases like `opus` are rejected by `ilan config set` — see [Exact model ids](#exact-model-ids) |
-| `model-codex` | `gpt-5.6-sol` | Model passed verbatim to `codex exec --model` for tasks on the `codex` backend. Must be an exact model id (e.g. `gpt-5.6-sol`, `gpt-5.1-codex-max`); bare aliases are rejected — see [Exact model ids](#exact-model-ids) |
+| `model-codex` | `gpt-5.6-sol` | Model passed verbatim to `codex exec --model` for tasks on the `codex` backend. Must be an exact model id (e.g. `gpt-6-sol`, `gpt-5.6-sol`, `gpt-5.1-codex-max`); bare aliases are rejected — see [Exact model ids](#exact-model-ids) |
 | `effort` | `max` | Reasoning-effort level for spawned agents, applied to both backends: passed as `--effort` to `claude` and as `-c model_reasoning_effort=...` to `codex exec`. Accepts `low`, `medium`, `high`, `xhigh`, or `max` (the subset both CLIs support); other values are rejected |
 | `editor` | `emacs` | Client-side: editor used by `ilan task log`, `ilan notes -e`, `ilan reply -e`, and `ilan reply -u` |
 | `api-key-mode` | `false` | Server-side credential switch for agent messages. When `true` and the active backend's matching `api-key-*` value is non-empty, spawned agents use that API key. When `false`, or when the matching key is empty, ilan removes inherited backend API credentials and the CLI uses its stored team subscription login |
@@ -358,7 +358,7 @@ values that don't look like an exact id:
 ```bash
 ilan config set model-claude claude-opus-5-5    # OK
 ilan config set model-claude opus               # rejected
-ilan config set model-codex gpt-5.1-codex-max   # OK
+ilan config set model-codex gpt-6-sol           # OK
 ilan config set model-codex sol                 # rejected
 ```
 
@@ -681,7 +681,7 @@ ilan task switch-backend fix-bug   # flip an existing task's backend
   switch turn — the full history is always preserved in the task's unified log
   (`ilan log`) and its Gist mirror.
 
-Codex tasks run on `gpt-5.6-sol` (OpenAI's flagship model) unless the task is
+Codex tasks run on the `model-codex` config default (`gpt-5.6-sol` out of the box; set it to `gpt-6-sol` to use GPT-6 Sol) unless the task is
 maxed, which runs it on Codex's max model, currently `gpt-6-astra` — see [Max models](#max-models-ilan-max--ilan-unmax).
 
 Codex authenticates with the configured `api-key-codex`, passed as

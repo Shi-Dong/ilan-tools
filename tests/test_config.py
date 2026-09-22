@@ -275,6 +275,7 @@ class TestModelIdValidation:
         assert not cfg.is_valid_model_id("model-claude", value)
 
     @pytest.mark.parametrize("value", [
+        "gpt-6-sol",
         "gpt-5.6-sol",
         "gpt-5.1-codex-max",
         "gpt-5-codex",
