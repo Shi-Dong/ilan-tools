@@ -19,7 +19,15 @@ import pytest
 import ilan.server as srv_mod
 from ilan import __version__
 from ilan.client import Client
-from ilan.models import ASTRA_MODEL, FABLE_MODEL, Task, TaskStatus
+from ilan.models import (
+    ASTRA_MODEL,
+    ENGINE_CLAUDE,
+    FABLE_MODEL,
+    MAX_MODELS,
+    MaxModel,
+    Task,
+    TaskStatus,
+)
 from ilan.server import IlanServer
 from ilan.server_state import read_server_info, read_server_owner
 from ilan.store import Store
@@ -2329,7 +2337,8 @@ class TestMaxUnmax:
         assert task["engine"] == "codex"
 
     def test_max_after_switch_to_codex_is_idempotent(self, ilan_server: IlanServer) -> None:
-        """Switching to Codex already translates Fable to Astra."""
+        """A maxed task switched to Codex is already on Astra, so maxing it
+        again changes nothing."""
         _post(ilan_server, "/tasks", {"name": "max-then-switch", "prompt": "P"})
         _post(ilan_server, "/tasks/max-then-switch/max")  # claude → Fable
         _park(ilan_server, "max-then-switch")
@@ -2353,7 +2362,7 @@ class TestMaxUnmax:
         assert row["model"] is None
         assert row["max_tag"] is None
 
-    def test_unmax_clears_an_astra_pin_too(self, ilan_server: IlanServer) -> None:
+    def test_unmax_clears_a_maxed_codex_task_too(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "unmax-codex", "prompt": "P", "agent": "codex"})
         _post(ilan_server, "/tasks/unmax-codex/max")
         resp = _post(ilan_server, "/tasks/unmax-codex/unmax")
@@ -2564,7 +2573,7 @@ class TestRestart:
 
 
 class TestGetTaskMaxTag:
-    """The task page reads the same computed tag the list row carries.
+    """The task page reads the same computed model and tag the list row carries.
 
     Derived in the handler rather than stored: ``to_dict()`` is also the
     on-disk format, and a value that depends on the current max models would
@@ -2588,8 +2597,21 @@ class TestGetTaskMaxTag:
         _post(ilan_server, "/tasks", {"name": "page-plain", "prompt": "P"})
         assert _get(ilan_server, "/tasks/page-plain")["task"]["max_tag"] is None
 
-    def test_the_tag_is_not_written_to_disk(self, ilan_server: IlanServer) -> None:
+    def test_only_the_choice_is_written_to_disk(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "page-stored", "prompt": "P", "max": True})
         with ilan_server.lock:
             stored = ilan_server.store.load_tasks()["page-stored"].to_dict()
-        assert "max_tag" not in stored, "a derived value leaked into the stored task"
+        assert stored["maxed"] is True
+        for derived in ("max_tag", "model"):
+            assert derived not in stored, f"derived {derived!r} leaked into the stored task"
+
+    def test_a_maxed_task_follows_a_bump_with_no_re_max(
+        self, ilan_server: IlanServer, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Maxed before the next Fable ships, both views report that Fable
+        once it does: neither the task nor its file names a model."""
+        _post(ilan_server, "/tasks", {"name": "page-bump", "prompt": "P", "max": True})
+        monkeypatch.setitem(MAX_MODELS, ENGINE_CLAUDE, MaxModel("claude-fable-6", "FABLE"))
+        assert _get(ilan_server, "/tasks/page-bump")["task"]["model"] == "claude-fable-6"
+        row = next(t for t in _get(ilan_server, "/tasks")["tasks"] if t["name"] == "page-bump")
+        assert (row["model"], row["max_tag"]) == ("claude-fable-6", "FABLE")

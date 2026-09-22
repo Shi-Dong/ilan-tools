@@ -1631,12 +1631,12 @@ def _edit_text_in_editor(
 def _model_switch_needed(name: str, max_: bool) -> bool:
     """Return False when the task's model is already in the requested state.
 
-    ``--max`` compares against the exact id its backend's max model is on now,
-    rather than asking whether the pin is a max model at all: a task pinned to
-    a superseded id is still maxed, but it is not on the id ``--max`` means, so
-    it needs the switch to move up. The same holds across backends — a task
-    maxed on claude and then switched to codex is not on codex's max model, so
-    ``--max`` moves it there.
+    The server reports ``model`` as what the task's next spawn will run
+    instead of the default (null when it runs the default), resolved on the
+    spot, so ``--max`` is needed unless that is already its backend's max
+    model. Comparing the id rather than trusting ``maxed`` keeps the check
+    right against an older server that still stores a superseded or
+    other-backend pin: ``--max`` moves such a task onto the current model.
     """
     resp = _client().get_task(name)
     if _check_error(resp):
@@ -2583,7 +2583,12 @@ def _do_attach(name: str) -> None:
     workdir = cfg.get_workdir()
     console.print(f"Attaching to session [bold]{session_id}[/bold] for task [bold]{t['name']}[/bold]…")
     os.chdir(workdir)
-    argv = backend.build_attach_command(session_id, t.get("model"))
+    # Only a maxed task overrides the default, and ``max_tag`` is the server's
+    # own verdict on that. Gating on it also keeps a server still running older
+    # code (between ``ilan update`` and a restart) from handing this backend's
+    # CLI the other backend's stale max pin.
+    model = t.get("model") if t.get("max_tag") else None
+    argv = backend.build_attach_command(session_id, model)
     os.execvp(argv[0], argv)
 
 
@@ -2906,8 +2911,8 @@ def _do_max(name: str) -> None:
         raise SystemExit(1)
     task_name = resp.get("name", name)
     model = resp.get("model", "")
-    # A remote server can be newer than this CLI and pin a max model it has
-    # never heard of; report the switch rather than mislabelling the model.
+    # A remote server can be newer than this CLI and resolve to a max model it
+    # has never heard of; report the switch rather than mislabelling the model.
     tag = tag_for_max_model(model) or "MAX"
     console.print(
         f"[green]Task [bold]{task_name}[/bold] set to [{MAX_TAG_STYLE}]{tag}[/{MAX_TAG_STYLE}] "
@@ -2930,8 +2935,8 @@ def _do_unmax(name: str) -> None:
 def task_max(name: str) -> None:
     """Run a task on its backend's max model.
 
-    Fable (claude-fable-5-1) on the claude backend, Astra (gpt-6-astra) on
-    codex.
+    Fable on the claude backend, Astra on codex: always the newest release,
+    looked up at every spawn, so a maxed task follows each upgrade.
     """
     _do_max(name)
 

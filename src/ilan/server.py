@@ -37,7 +37,6 @@ from ilan.models import (
     generate_task_hash,
     is_burnable_name,
     join_notes,
-    max_model_for,
     max_tag,
     other_engine,
     parse_task_number,
@@ -566,17 +565,18 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     "deleted_ancestors": t.deleted_ancestors,
                     "notes": t.notes,
                     "summary_one_liner": t.summary_one_liner,
-                    "model": t.model,
+                    "maxed": t.maxed,
+                    # The model the next spawn will be told to run instead of
+                    # the configured default, resolved now rather than stored,
+                    # so it is always the current max model or null.
+                    "model": t.model_override,
                     "gist_url": t.gist_url,
                     "engine": t.engine,
                     # The tag ("FABLE", "ASTRA") or null, computed here rather
-                    # than in the web app: the answer depends on each backend's
-                    # max model, the ids those superseded, and which backend
-                    # honours which pin, and a copy of any of that in JavaScript
-                    # would drift the first time one of them moved. The list is
-                    # the only view that shows the tag, so this is the only
-                    # payload that carries it.
-                    "max_tag": max_tag(t.engine, t.model),
+                    # than in the web app or the CLI: the answer depends on
+                    # each backend's max model, and a copy of that anywhere
+                    # else would drift the first time one of them moved.
+                    "max_tag": max_tag(t.engine, t.maxed),
                 })
             self._json({"tasks": rows})
 
@@ -622,26 +622,28 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     alias=alias,
                     task_hash=generate_task_hash(),
                     engine=engine,
-                    model=max_model_for(engine) if want_max else None,
+                    maxed=want_max,
                 )
                 self._ilan.store.put_task(task)
                 # Log the opening prompt before spawning so the unified log
                 # always opens with the task statement.
                 self._ilan.store.append_log(task.name, "user", prompt)
                 self._ilan.runner.start(task)
-            self._json({"ok": True, "name": task.name, "model": task.model})
+            self._json({"ok": True, "name": task.name, "model": task.model_override})
 
         def handle_get_task(self, name: str):
             with self._ilan.lock:
                 task = self._get_task_or_404(name)
             if task:
-                # The tag is computed here, as on the list row, rather than in
-                # to_dict(): that dict is also the on-disk format, and a derived
-                # value does not belong in it. Same predicate as `ls`, so the
-                # page and the list cannot disagree about which tag to show.
+                # The model and tag are computed here, as on the list row,
+                # rather than in to_dict(): that dict is also the on-disk
+                # format, and a derived value does not belong in it. Same
+                # predicate as `ls`, so the page and the list cannot disagree
+                # about which tag to show.
                 self._json({"task": {
                     **task.to_dict(),
-                    "max_tag": max_tag(task.engine, task.model),
+                    "model": task.model_override,
+                    "max_tag": max_tag(task.engine, task.maxed),
                 }})
 
         def handle_delete_task(self, name: str):
@@ -1200,20 +1202,20 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task = self._get_task_or_404(name)
                 if task is None:
                     return
-                # Pin this backend's max model; switching backends later
-                # translates the pin to the incoming backend's max model.
-                task.model = max_model_for(task.engine)
+                # Record the choice, not a model: every spawn resolves it to
+                # the max model of whichever backend the task is on by then.
+                task.maxed = True
                 self._ilan.store.put_task(task)
-            self._json({"ok": True, "name": task.name, "model": task.model})
+            self._json({"ok": True, "name": task.name, "model": task.model_override})
 
         def handle_task_unmax(self, name: str):
             with self._ilan.lock:
                 task = self._get_task_or_404(name)
                 if task is None:
                     return
-                task.model = None
+                task.maxed = False
                 self._ilan.store.put_task(task)
-            self._json({"ok": True, "name": task.name, "model": task.model})
+            self._json({"ok": True, "name": task.name, "model": task.model_override})
 
         def handle_task_switch_backend(self, name: str):
             with self._ilan.lock:

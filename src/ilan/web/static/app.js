@@ -1349,7 +1349,7 @@ function showActions(task) {
   // change the task rather than talk to the agent.
   options.push({ value: 'notes', label: 'Note…' });
   options.push({ value: task.pinned ? 'unpin' : 'pin', label: task.pinned ? 'Unpin' : 'Pin' });
-  options.push({ value: task.model ? 'unmax' : 'max', label: task.model ? 'Unmax' : 'Max' });
+  options.push({ value: task.maxed ? 'unmax' : 'max', label: task.maxed ? 'Unmax' : 'Max' });
   options.push({ value: 'switch-backend', label: `Switch backend (now ${task.engine || '?'})` });
   options.push({ value: 'rename', label: 'Rename…' });
   options.push({ value: 'branch', label: 'Branch…' });

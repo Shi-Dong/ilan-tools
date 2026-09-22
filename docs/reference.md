@@ -168,7 +168,7 @@ The parent continues independently. The suffix guides the child agent's scope; i
 | `ilan task unread NAME [NAME...]` | Restore the unread marker on task(s) |
 | `ilan task pin NAME` | Pin a task to the top of `ilan ls` / `ilan dashboard`; the row is marked with a `→` before its `(Alias) Name`. A pinned `DONE` / `DISCARDED` task stays visible without `-a` |
 | `ilan task unpin NAME` | Remove the pin, returning the task to its place in [activation order](#listing-order) (and hiding it again if it is `DONE` / `DISCARDED`) |
-| `ilan task max NAME` | Run this task on its backend's max model instead of the default — Fable (`claude-fable-5-1`) on `claude`, Astra (`gpt-6-astra`) on `codex`. In `ilan ls` / `ilan dashboard` a maxed task is told apart by its alias, which is written `[GK]` — capitals inside square brackets, in the red the `FABLE` / `ASTRA` tag used to be drawn in — where an ordinary task shows `(gk)` in pink; no tag is printed there. The web app still shows a red tag naming the model (`FABLE`, `ASTRA`) beside the status on its task list, and beside the status on the task's own page. Takes effect on the task's next agent spawn. Switching backends translates the pin and tag to the destination's max model. |
+| `ilan task max NAME` | Run this task on its backend's max model instead of the default — the newest Fable on `claude`, the newest Astra on `codex`, looked up at every spawn so the task moves to each new release on its own (see [Max models](#max-models-ilan-max--ilan-unmax)). In `ilan ls` / `ilan dashboard` a maxed task is told apart by its alias, which is written `[GK]` — capitals inside square brackets, in the red the `FABLE` / `ASTRA` tag used to be drawn in — where an ordinary task shows `(gk)` in pink; no tag is printed there. The web app still shows a red tag naming the model (`FABLE`, `ASTRA`) beside the status on its task list, and beside the status on the task's own page. Takes effect on the task's next agent spawn. A maxed task stays maxed across backend switches, running and tagged as the destination's max model. |
 | `ilan task unmax NAME` | Reset the task's model back to the `model-claude` / `model-codex` config default |
 | `ilan task switch-backend NAME` | Toggle the task's agent backend (`claude` ↔ `codex`). Maxed tasks stay maxed (`FABLE` ↔ `ASTRA`). Lazy: takes effect on the task's next spawn, and the new backend catches up on its next turn. Not allowed on a `WORKING` or `SLEEPING` task (warns and does nothing) — wait for the agent to finish or kill it first. See [Agent backends](#agent-backends) |
 | `ilan task rm NAME [NAME...]` | Delete task(s) and all their data; surviving descendants remain and are re-parented |
@@ -528,10 +528,13 @@ ilan reply my-task "…" --unmax     # back to the default model, then reply
 ```
 
 Each backend has one **max model**: the strongest thing it can run, worth its
-price on a hard turn. `ilan max` pins a single task to the max model of the
-backend it is on, leaving every other task on the configured default.
+price on a hard turn. `ilan max` marks a single task as maxed, leaving every
+other task on the configured default. The mark names no model: every spawn of
+a maxed task runs whatever max model its backend has at that moment, so once
+ilan is updated to a newer Fable or Astra, every maxed task moves to it on its
+next reply, with nothing to re-max.
 
-| Backend | Max model | Tag |
+| Backend | Current max model | Tag |
 | --- | --- | --- |
 | `claude` | Anthropic's Fable (`claude-fable-5-1`) | `FABLE` |
 | `codex` | OpenAI's GPT-6 Astra (`gpt-6-astra`) | `ASTRA` |
@@ -545,28 +548,31 @@ printed there. Type the alias either way: `ilan notes GK` and `ilan notes gk`
 name the same task. On the web
 app the red tag is rendered beside the status on the task list, where it stays
 visible on a collapsed card, and beside the status on the task's own page. The
-override is per task and persists across replies until you run `ilan unmax`,
-which clears it back to the `model-claude` / `model-codex` config default. A
+mark is per task and persists across replies until you run `ilan unmax`, which
+puts the task back on the `model-claude` / `model-codex` config default. A
 change takes effect on the task's next agent spawn (the next reply), not on an
 already-running agent.
 
-Switching backends keeps a maxed task maxed: `ilan switch-backend` translates
-Fable to Astra when moving to Codex, and Astra to Fable when moving to Claude.
-The model pin and displayed tag change immediately; the next reply runs on
-the new backend's max model. Older max model pins are also recognized and
-translated to the destination's current max model. Run `ilan unmax` to clear
-the pin; subsequent backend switches keep the task on the configured defaults.
+Switching backends keeps a maxed task maxed: moved to Codex it runs Astra, and
+moved to Claude it runs Fable. The displayed tag changes immediately; the next
+reply runs on the new backend's max model. Run `ilan unmax` to clear the mark;
+subsequent backend switches keep the task on the configured defaults.
+
+Older versions pinned a maxed task to the exact model id instead. On upgrade,
+such a task is read as maxed and runs the current max model from its next
+reply, including one still pinned to an earlier Fable. The one exception is a
+stale pin of the *other* backend's, left by a switch from before switches
+translated pins: that backend always ignored it and ran its default, so the
+task stays unmaxed rather than waking up on the expensive model.
 
 `ilan reply` (and its `re` / `ilan task reply` forms) accepts `--max` /
 `--unmax` to combine the two steps: the model is switched first, then the
 reply is posted, so the reply's own turn already runs on the new model and
 the switch persists for every message after it. If the model is already in
-the requested state (`--max` on a task already on its backend's current max
-model, `--unmax` on a task already on the default model), the switch is
-silently skipped and the reply is posted as usual. A task pinned to an older
-max id, or to the *other* backend's, is not "already maxed": `--max` moves it
-onto the current model of the backend it is on. Both flags require a reply
-message — `-e` counts as one — and are mutually exclusive.
+the requested state (`--max` on a task already maxed, `--unmax` on a task
+already on the default model), the switch is silently skipped and the reply is
+posted as usual. Both flags require a reply message — `-e` counts as one — and
+are mutually exclusive.
 
 ## Web app
 
@@ -676,7 +682,7 @@ ilan task switch-backend fix-bug   # flip an existing task's backend
   (`ilan log`) and its Gist mirror.
 
 Codex tasks run on `gpt-5.6-sol` (OpenAI's flagship model) unless the task is
-maxed, which pins it to `gpt-6-astra` — see [Max models](#max-models-ilan-max--ilan-unmax).
+maxed, which runs it on Codex's max model, currently `gpt-6-astra` — see [Max models](#max-models-ilan-max--ilan-unmax).
 
 Codex authenticates with the configured `api-key-codex`, passed as
 `OPENAI_API_KEY`, only when `api-key-mode` is `true` and the key is non-empty.

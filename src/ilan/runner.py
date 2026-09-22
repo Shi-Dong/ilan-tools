@@ -17,8 +17,6 @@ from ilan.models import (
     ENGINE_CODEX,
     Task,
     TaskStatus,
-    max_model_for,
-    tag_for_max_model,
 )
 from ilan.store import Store
 
@@ -326,8 +324,9 @@ class Runner:
         injects the turns it missed (Option A: native resume + catch-up, or a
         fresh session seeded with the transcript when it has never run).
 
-        A maxed task stays maxed: translate its pin (including older max
-        model ids) to the incoming backend's current max model.
+        A maxed task stays maxed with nothing to rewrite: ``maxed`` names no
+        model, so the next spawn resolves it to the incoming backend's max
+        model on its own.
 
         The caller is responsible for ensuring the task is not mid-flight:
         the server rejects switching a running task, so its in-flight output
@@ -337,8 +336,6 @@ class Runner:
             return
         if task.session_id:
             task.set_session_for(task.engine, task.session_id)
-        if tag_for_max_model(task.model) is not None:
-            task.model = max_model_for(target_engine)
         task.engine = target_engine
         task.session_id = task.sessions.get(target_engine)
         task.session_log_path = None
@@ -396,7 +393,7 @@ class Runner:
         tmux_instr = _tmux_instruction(task.task_hash, task.name) if task.task_hash else ""
         full_prompt = prompt + tmux_instr + STATUS_SUFFIX
         cmd, env = self._backend_for(task.engine).build_command(
-            task.model, resume=resume, session_id=task.session_id
+            task.model_override, resume=resume, session_id=task.session_id
         )
 
         out_path = self.store.output_path(task.name)

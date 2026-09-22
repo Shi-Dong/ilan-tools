@@ -172,7 +172,12 @@ class TestAttachCodex:
         assert "--model" in argv
 
     def test_codex_task_ignores_fable_model_override(self, runner: CliRunner, tmp_config) -> None:
-        """A Claude-only Fable override must not reach ``codex --model``."""
+        """A Claude-only Fable id must not reach ``codex --model``.
+
+        A current server never reports one for a codex task, but one still
+        running older code can report a stale pin left from before switches
+        translated them; it gives that pin no tag, and attach goes by the tag.
+        """
         client = _make_client({
             "task": {
                 "name": "codex-fable-task",
@@ -180,6 +185,7 @@ class TestAttachCodex:
                 "session_id": "thread-456",
                 "engine": "codex",
                 "model": "claude-fable-5-1",
+                "max_tag": None,
             }
         })
         with (
@@ -312,13 +318,15 @@ class TestAttachSuccess:
         assert "--effort" in argv
 
     def test_task_model_override_honored(self, runner: CliRunner, tmp_config) -> None:
-        """A task pinned to a model via ``ilan max`` resumes with that model."""
+        """A maxed task resumes with the max model the server resolved for it."""
         client = _make_client({
             "task": {
                 "name": "pinned-task",
                 "status": "NEEDS_ATTENTION",
                 "session_id": "sess-pin",
+                "maxed": True,
                 "model": "claude-fable-5-1",
+                "max_tag": "FABLE",
             }
         })
         with (

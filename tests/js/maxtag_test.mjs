@@ -1,9 +1,9 @@
 /* Assertions for the max-model tag on a task card.
  *
- * The card renders a string the server computes — the tag of the max model a
- * task is pinned to, but only on the backend that will run it there — so what
- * is checked here is the rendering of that string, not the rule behind it. The
- * rule has its own tests against models.py and the server.
+ * The card renders a string the server computes — the tag of the max model of
+ * the backend a maxed task is on — so what is checked here is the rendering of
+ * that string, not the rule behind it. The rule has its own tests against
+ * models.py and the server.
  *
  * The one property worth more than a glance is that the tag survives
  * collapsing. Most of the list is only ever seen collapsed on a phone, and
@@ -17,17 +17,17 @@ const { check, report } = checker();
 
 const TASKS = [
   { name: 'maxed-task', alias: 'aa', status: 'WORKING', engine: 'claude', max_tag: 'FABLE',
-    model: 'claude-fable-5-1',
+    maxed: true, model: 'claude-fable-5-1',
     created_at: '2026-01-01T00:00:00+00:00', status_changed_at: '2026-01-01T00:00:00+00:00' },
   // The other backend's max model, tagged with its own name: which model a
   // task is burning is the whole reason the tag is there.
   { name: 'maxed-codex', alias: 'ab', status: 'WORKING', engine: 'codex', max_tag: 'ASTRA',
-    model: 'gpt-6-astra',
+    maxed: true, model: 'gpt-6-astra',
     created_at: '2026-01-02T00:00:00+00:00', status_changed_at: '2026-01-02T00:00:00+00:00' },
   { name: 'plain-task', alias: 'ac', status: 'AGENT_FINISHED', engine: 'claude', max_tag: null,
     created_at: '2026-01-03T00:00:00+00:00', status_changed_at: '2026-01-03T00:00:00+00:00' },
-  // A codex task still pinned to Fable: the server sends no tag, and the card
-  // must not second-guess that from the model it can also see.
+  // A model id with no tag beside it: the card renders only the tag the server
+  // computed, and must not second-guess it from the model it can also see.
   { name: 'codex-pinned', alias: 'ad', status: 'AGENT_FINISHED', engine: 'codex', max_tag: null,
     model: 'claude-fable-5-1',
     created_at: '2026-01-04T00:00:00+00:00', status_changed_at: '2026-01-04T00:00:00+00:00' },

@@ -316,7 +316,8 @@ class TestAddWithoutAName:
         _code, body = _post(ilan_server, "/tasks", {"prompt": "p", "max": True})
         task = ilan_server.store.get_task(body["name"])
         assert is_burnable_name(task.name)
-        assert task.model == "claude-fable-5-1"
+        assert task.maxed
+        assert task.model_override == body["model"] == "claude-fable-5-1"
 
 
 class TestBurnOnDone:

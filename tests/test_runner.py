@@ -17,9 +17,9 @@ from ilan.models import (
     ENGINE_CLAUDE,
     ENGINE_CODEX,
     FABLE_MODEL,
-    LEGACY_ASTRA_MODELS,
-    LEGACY_FABLE_MODELS,
+    MAX_MODELS,
     LogEntry,
+    MaxModel,
     Task,
     TaskStatus,
 )
@@ -1053,6 +1053,31 @@ class TestSpawn:
         if proc:
             proc.wait(timeout=5)
 
+    @pytest.mark.parametrize(("engine", "flag", "expected"), [
+        (ENGINE_CLAUDE, "--effort", "high"),
+        (ENGINE_CODEX, "-c", 'model_reasoning_effort="high"'),
+    ])
+    def test_a_recorded_effort_never_feeds_the_next_spawn(
+        self, store: Store, tmp_workdir: Path, tmp_config: Path,
+        engine: str, flag: str, expected: str,
+    ) -> None:
+        """There is no effort pin, maxed task or not: what the last turn ran
+        at is a receipt kept for display, and every spawn reads the live
+        ``effort`` config instead."""
+        cfg.save({**cfg.DEFAULTS, "workdir": str(tmp_workdir), "effort": "high"})
+        task = Task(name="effort-follows", prompt="p", engine=engine, maxed=True,
+                    spawn_effort="low", last_assistant_effort="low")
+
+        with (
+            patch("ilan.runner.subprocess.Popen") as popen,
+            patch("ilan.runner.budget.detect", return_value=None),
+        ):
+            popen.return_value.pid = 12345
+            assert Runner(store)._spawn(task, "continue", resume=False)
+        cmd = popen.call_args.args[0]
+        assert cmd[cmd.index(flag) + 1] == expected
+        assert task.spawn_effort == "high"
+
     def test_spawn_captures_budget_for_the_engine(
         self, store: Store, tmp_workdir: Path, tmp_config: Path,
         env_with_mock_claude: None, monkeypatch: pytest.MonkeyPatch,
@@ -1175,14 +1200,14 @@ class TestSpawn:
         self, store: Store, tmp_workdir: Path, tmp_config: Path,
         env_with_mock_claude: None,
     ) -> None:
-        """A task with a model set (via ilan max) should pass --model <model>."""
+        """A maxed task (via ilan max) should pass --model <max model>."""
         import ilan.config as cfg_mod
 
         cfg_mod.save({**cfg_mod.DEFAULTS, "workdir": str(tmp_workdir),
                       "model-claude": "claude-opus-4-7"})
 
         runner = Runner(store)
-        t = Task(name="model-override", prompt="do work", model="claude-fable-5-1")
+        t = Task(name="model-override", prompt="do work", maxed=True)
         store.put_task(t)
 
         with patch("subprocess.Popen") as mock_popen:
@@ -1192,6 +1217,41 @@ class TestSpawn:
             cmd = mock_popen.call_args[0][0]
             assert "--model" in cmd
             assert cmd[cmd.index("--model") + 1] == "claude-fable-5-1"
+
+    def test_a_maxed_task_spawns_the_newest_max_model(
+        self, store: Store, tmp_workdir: Path, tmp_config: Path,
+        env_with_mock_claude: None, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Maxed before the next Fable ships, spawned after: it runs that
+        Fable. Nothing on the task names a model, so nothing has to change."""
+        cfg.save({**cfg.DEFAULTS, "workdir": str(tmp_workdir)})
+        store.put_task(Task(name="maxed-early", prompt="p", maxed=True))
+        monkeypatch.setitem(MAX_MODELS, ENGINE_CLAUDE, MaxModel("claude-fable-6", "FABLE"))
+        task = store.get_task("maxed-early")
+        assert task is not None
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_popen.return_value.pid = 12345
+            Runner(store)._spawn(task, "continue", resume=False)
+        cmd = mock_popen.call_args[0][0]
+        assert cmd[cmd.index("--model") + 1] == "claude-fable-6"
+
+    def test_a_task_pinned_before_the_bump_spawns_the_current_fable(
+        self, store: Store, tmp_workdir: Path, tmp_config: Path,
+        env_with_mock_claude: None,
+    ) -> None:
+        """A store written before ``maxed`` existed still holds the Fable id
+        the task was maxed on; its next spawn runs today's Fable instead."""
+        cfg.save({**cfg.DEFAULTS, "workdir": str(tmp_workdir)})
+        task = Task.from_dict({"name": "pinned-early", "prompt": "p",
+                               "status": "AGENT_FINISHED", "engine": ENGINE_CLAUDE,
+                               "model": "claude-fable-5"})
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_popen.return_value.pid = 12345
+            Runner(store)._spawn(task, "continue", resume=False)
+        cmd = mock_popen.call_args[0][0]
+        assert cmd[cmd.index("--model") + 1] == FABLE_MODEL
 
     def test_spawn_falls_back_to_config_model(
         self, store: Store, tmp_workdir: Path, tmp_config: Path,
@@ -1720,29 +1780,24 @@ class TestReapCursor:
 
 class TestSwitchEngine:
     @pytest.mark.parametrize(
-        ("source_engine", "source_model", "target_engine", "expected_model"),
+        ("source_engine", "target_engine", "expected_model"),
         [
-            (ENGINE_CLAUDE, model, ENGINE_CODEX, ASTRA_MODEL)
-            for model in (FABLE_MODEL, *LEGACY_FABLE_MODELS)
-        ] + [
-            (ENGINE_CODEX, model, ENGINE_CLAUDE, FABLE_MODEL)
-            for model in (ASTRA_MODEL, *LEGACY_ASTRA_MODELS)
-        ] + [
-            # Old switches could leave a Fable pin on a Codex task.
-            (ENGINE_CODEX, "claude-fable-5", ENGINE_CLAUDE, FABLE_MODEL),
+            (ENGINE_CLAUDE, ENGINE_CODEX, ASTRA_MODEL),
+            (ENGINE_CODEX, ENGINE_CLAUDE, FABLE_MODEL),
         ],
     )
     @pytest.mark.parametrize("resume", [False, True])
     def test_max_model_reaches_spawn_after_switch(
         self, store: Store, runner: Runner, tmp_config: Path, tmp_workdir: Path,
-        source_engine: str, source_model: str, target_engine: str,
-        expected_model: str, resume: bool,
+        source_engine: str, target_engine: str, expected_model: str,
+        resume: bool,
     ) -> None:
-        """Persist the translated pin and pass it to the real backend builder."""
+        """A maxed task stays maxed with nothing translated, and the real
+        backend builder is handed the incoming backend's max model."""
         cfg.save({**cfg.DEFAULTS, "workdir": str(tmp_workdir)})
         task = Task(
             name="switch-max", prompt="p", engine=source_engine,
-            model=source_model, status=TaskStatus.AGENT_FINISHED,
+            maxed=True, status=TaskStatus.AGENT_FINISHED,
             session_id="source-session",
             sessions={target_engine: "target-session"} if resume else {},
         )
@@ -1753,7 +1808,8 @@ class TestSwitchEngine:
         stored = store.get_task(task.name)
         assert stored is not None
         assert stored.engine == target_engine
-        assert stored.model == expected_model
+        assert stored.maxed
+        assert stored.model_override == expected_model
         assert stored.sessions[source_engine] == "source-session"
         assert stored.session_id == ("target-session" if resume else None)
         with (
@@ -1771,18 +1827,18 @@ class TestSwitchEngine:
         ("source_engine", "target_engine"),
         [(ENGINE_CLAUDE, ENGINE_CODEX), (ENGINE_CODEX, ENGINE_CLAUDE)],
     )
-    @pytest.mark.parametrize("model", [None, "custom-model"])
-    def test_switch_preserves_non_max_model(
+    def test_switch_keeps_an_unmaxed_task_on_the_default(
         self, store: Store, runner: Runner, source_engine: str,
-        target_engine: str, model: str | None,
+        target_engine: str,
     ) -> None:
-        task = Task(name="switch-plain", prompt="p", engine=source_engine, model=model)
+        task = Task(name="switch-plain", prompt="p", engine=source_engine)
         store.put_task(task)
         runner.switch_engine(task, target_engine)
         stored = store.get_task(task.name)
         assert stored is not None
         assert stored.engine == target_engine
-        assert stored.model == model
+        assert not stored.maxed
+        assert stored.model_override is None
 
     def test_noop_when_same_engine(self, store: Store, runner: Runner) -> None:
         t = Task(name="s1", prompt="p", engine=ENGINE_CLAUDE, session_id="a")
