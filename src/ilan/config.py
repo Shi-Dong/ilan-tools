@@ -44,7 +44,7 @@ MODEL_KEYS = ("model-claude", "model-codex")
 _MODEL_ID_PATTERNS: dict[str, re.Pattern[str]] = {
     # e.g. claude-opus-5-5, claude-sonnet-4-6, claude-haiku-4-5-20251001
     "model-claude": re.compile(r"^claude-[a-z0-9]+(?:[.-][a-z0-9]+)*$"),
-    # e.g. gpt-5.6-sol, gpt-5.1-codex-max, o3, o4-mini
+    # e.g. gpt-6-sol, gpt-5.6-sol, gpt-5.1-codex-max, o3, o4-mini
     "model-codex": re.compile(r"^(?:gpt-|o)[0-9]+(?:[.-][a-z0-9]+)*$"),
 }
 
