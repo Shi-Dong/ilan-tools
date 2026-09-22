@@ -268,7 +268,7 @@ class TestConfig:
     def test_get_config(self, ilan_server: IlanServer) -> None:
         resp = _get(ilan_server, "/config")
         assert "config" in resp
-        assert resp["config"]["model-claude"] == "claude-opus-4-7"
+        assert resp["config"]["model-claude"] == "claude-opus-5-5"
         assert resp["config"]["model-codex"] == "gpt-5.6-sol"
 
     def test_set_config(self, ilan_server: IlanServer) -> None:
@@ -324,7 +324,7 @@ class TestConfig:
         assert "error" in resp
         assert "model-claude" in resp["error"]
         conf = _get(ilan_server, "/config")["config"]
-        assert conf["model-claude"] == "claude-opus-4-7"
+        assert conf["model-claude"] == "claude-opus-5-5"
 
     def test_set_config_model_rejects_garbage_codex_id(
         self, ilan_server: IlanServer

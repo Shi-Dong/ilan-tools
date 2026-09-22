@@ -162,7 +162,7 @@ Settings live in `~/.config/ilan/config.json`. Most are **server-side** and appl
 |---|---|---|
 | `workdir` | `~/.ilan` | Where tasks, conversation logs, and agent output are stored. |
 | `default-backend` | `claude` | Backend for new tasks, `claude` or `codex`. |
-| `model-claude` | `claude-opus-4-7` | Exact model id for Claude tasks. Aliases such as `opus` are rejected. |
+| `model-claude` | `claude-opus-5-5` | Exact model id for Claude tasks. Aliases such as `opus` are rejected. |
 | `model-codex` | `gpt-5.6-sol` | Exact model id for Codex tasks. |
 | `effort` | `max` | Reasoning effort for both backends: `low`, `medium`, `high`, `xhigh`, or `max`. |
 | `api-key-mode` | `false` | `true` bills agents to the API keys below; `false` uses each CLI's own login. |
