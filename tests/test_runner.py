@@ -1053,6 +1053,31 @@ class TestSpawn:
         if proc:
             proc.wait(timeout=5)
 
+    @pytest.mark.parametrize(("engine", "flag", "expected"), [
+        (ENGINE_CLAUDE, "--effort", "high"),
+        (ENGINE_CODEX, "-c", 'model_reasoning_effort="high"'),
+    ])
+    def test_a_recorded_effort_never_feeds_the_next_spawn(
+        self, store: Store, tmp_workdir: Path, tmp_config: Path,
+        engine: str, flag: str, expected: str,
+    ) -> None:
+        """There is no effort pin, maxed task or not: what the last turn ran
+        at is a receipt kept for display, and every spawn reads the live
+        ``effort`` config instead."""
+        cfg.save({**cfg.DEFAULTS, "workdir": str(tmp_workdir), "effort": "high"})
+        task = Task(name="effort-follows", prompt="p", engine=engine, maxed=True,
+                    spawn_effort="low", last_assistant_effort="low")
+
+        with (
+            patch("ilan.runner.subprocess.Popen") as popen,
+            patch("ilan.runner.budget.detect", return_value=None),
+        ):
+            popen.return_value.pid = 12345
+            assert Runner(store)._spawn(task, "continue", resume=False)
+        cmd = popen.call_args.args[0]
+        assert cmd[cmd.index(flag) + 1] == expected
+        assert task.spawn_effort == "high"
+
     def test_spawn_captures_budget_for_the_engine(
         self, store: Store, tmp_workdir: Path, tmp_config: Path,
         env_with_mock_claude: None, monkeypatch: pytest.MonkeyPatch,
