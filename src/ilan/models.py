@@ -195,41 +195,39 @@ ENGINE_NAME_STYLE: dict[str, str] = {
 
 
 # ── Max models (``ilan max``) ────────────────────────────────────────────
-# Every backend has one model that ``ilan max`` pins a task to: the strongest
-# thing that backend can run, worth its price on a hard turn. ``ilan unmax``
-# drops the pin and puts the task back on the configured default.
+# Every backend has one max model: the strongest thing that backend can run,
+# worth its price on a hard turn. ``ilan max`` marks a task as maxed and
+# ``ilan unmax`` clears the mark, putting the task back on the configured
+# default. The mark never names a model: every spawn resolves it here, so
+# bumping an id below moves every maxed task onto the new model at once.
 FABLE_MODEL = "claude-fable-5-1"  # Anthropic's Fable, for the Claude backend
 ASTRA_MODEL = "gpt-6-astra"  # OpenAI's GPT-6 Astra, for the Codex backend
-
-# Ids this repo pinned before the two above were bumped. A task keeps whichever
-# id it was maxed on, so a superseded one still has to read as maxed: the task
-# keeps its tag, and the *other* backend keeps dropping the id rather than
-# handing its own CLI a model that CLI cannot load. Maxing a task again
-# rewrites it to the current id. Bumping a model above without listing its
-# predecessor here is a bug.
-LEGACY_FABLE_MODELS: tuple[str, ...] = ("claude-fable-5",)
-LEGACY_ASTRA_MODELS: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
 class MaxModel:
-    """What ``ilan max`` means on one backend: what to pin, what to call it."""
+    """What ``ilan max`` means on one backend: which model, what to call it."""
 
     model: str
-    legacy: tuple[str, ...]
     # The tag shown beside a maxed task in ``ilan ls``, ``ilan dashboard`` and
     # the web app. It names the model rather than reading "MAX" so that a
     # glance at the list says *which* expensive model the task is burning.
     tag: str
 
-    def matches(self, model: str | None) -> bool:
-        """Whether *model* is this one: the current id, or one it superseded."""
-        return model == self.model or model in self.legacy
-
 
 MAX_MODELS: dict[str, MaxModel] = {
-    ENGINE_CLAUDE: MaxModel(FABLE_MODEL, LEGACY_FABLE_MODELS, "FABLE"),
-    ENGINE_CODEX: MaxModel(ASTRA_MODEL, LEGACY_ASTRA_MODELS, "ASTRA"),
+    ENGINE_CLAUDE: MaxModel(FABLE_MODEL, "FABLE"),
+    ENGINE_CODEX: MaxModel(ASTRA_MODEL, "ASTRA"),
+}
+
+# Every id ``ilan max`` ever pinned, by the backend that ran it: what a task
+# persisted before ``maxed`` existed can hold in ``model``. Only
+# ``Task._migrate_maxed`` reads this, to judge such a task the way its backend
+# did. Nothing resolves to these ids any more, and nothing will add to them:
+# no code writes ``model`` now, so bumping a max model above never touches it.
+_PINNED_MAX_MODELS: dict[str, frozenset[str]] = {
+    ENGINE_CLAUDE: frozenset({"claude-fable-5", "claude-fable-5-1"}),
+    ENGINE_CODEX: frozenset({"gpt-6-astra"}),
 }
 
 
@@ -243,45 +241,31 @@ def _max_model(engine: str | None) -> MaxModel:
 
 
 def max_model_for(engine: str | None) -> str:
-    """The model id ``ilan max`` pins a task running on *engine* to."""
+    """The model id a maxed task running on *engine* spawns with."""
     return _max_model(engine).model
 
 
-def max_tag(engine: str | None, model: str | None) -> str | None:
-    """The tag for a task on *engine* pinned to *model*, or ``None`` for none.
-
-    The pin must belong to the task's current backend. Older saved tasks may
-    still carry another backend's max pin from before switches translated
-    them. The backend ignores such pins, so they must not be tagged.
+def max_tag(engine: str | None, maxed: bool) -> str | None:
+    """The tag for a task on *engine*, or ``None`` when it is not maxed.
 
     This is the predicate behind the tag wherever it appears — ``ilan ls``,
     ``ilan dashboard`` and the web app — so the three cannot disagree about
     which tasks carry one, or about what it says.
     """
-    entry = _max_model(engine)
-    return entry.tag if entry.matches(model) else None
+    return _max_model(engine).tag if maxed else None
 
 
 def tag_for_max_model(model: str | None) -> str | None:
     """The tag of whichever backend's max model *model* is, if it is one.
 
     ``max_tag`` answers for a whole task; this answers for a bare id, which is
-    what a command reporting the pin it has just set has to go on.
+    what a command reporting the model the server has just resolved has to go
+    on.
     """
     for entry in MAX_MODELS.values():
-        if entry.matches(model):
+        if entry.model == model:
             return entry.tag
     return None
-
-
-def foreign_max_model(engine: str | None, model: str | None) -> bool:
-    """Whether *model* is a max pin owned by some backend other than *engine*.
-
-    Backends drop such pins before they reach their CLI. This remains a
-    compatibility guard for older saved tasks whose backend switches did
-    not translate max pins.
-    """
-    return tag_for_max_model(model) is not None and not _max_model(engine).matches(model)
 
 
 STYLE_FOR_STATUS: dict[TaskStatus, str] = {
@@ -385,11 +369,15 @@ class Task:
     # nothing overwrites it and it survives every status change.
     notes: str | None = None
     summary_one_liner: str | None = None
-    model: str | None = None
+    # Whether ``ilan max`` has put this task on its backend's max model. Only
+    # the choice is stored, never a model id: ``model_override`` resolves it
+    # afresh at every spawn, so a newer Fable or Astra reaches every maxed task
+    # without re-maxing it, and a backend switch has nothing to translate.
+    maxed: bool = False
     # The model that generated the most recent assistant message, cached at
     # reap time so ``ilan tail`` need not rescan the Claude session log. This
-    # is the *observed* model, distinct from ``model`` above (the *configured*
-    # model used by ``ilan max`` / ``unmax``).
+    # is the *observed* model, distinct from ``model_override`` (what the next
+    # spawn is *told* to run).
     last_assistant_model: str | None = None
     # Reasoning-effort level passed to the most recent agent spawn. Neither
     # backend's session log records the effort, so it is captured here at
@@ -469,6 +457,16 @@ class Task:
         if not self.activated_at:
             self.activated_at = self.created_at
 
+    @property
+    def model_override(self) -> str | None:
+        """The model a spawn runs instead of the configured default, if any.
+
+        A maxed task gets the max model of the backend it is on *now*, looked
+        up at the moment of asking; every other task gets ``None`` and so the
+        ``model-claude`` / ``model-codex`` default.
+        """
+        return max_model_for(self.engine) if self.maxed else None
+
     def set_session_for(self, engine: str, session_id: str) -> None:
         """Record the native session id for *engine*."""
         self.sessions[engine] = session_id
@@ -524,7 +522,7 @@ class Task:
             "deleted_ancestors": self.deleted_ancestors,
             "notes": self.notes,
             "summary_one_liner": self.summary_one_liner,
-            "model": self.model,
+            "maxed": self.maxed,
             "last_assistant_model": self.last_assistant_model,
             "spawn_effort": self.spawn_effort,
             "last_assistant_effort": self.last_assistant_effort,
@@ -577,7 +575,7 @@ class Task:
             deleted_ancestors=list(d.get("deleted_ancestors") or []),
             notes=d.get("notes"),
             summary_one_liner=d.get("summary_one_liner"),
-            model=d.get("model"),
+            maxed=cls._migrate_maxed(d),
             last_assistant_model=d.get("last_assistant_model"),
             spawn_effort=d.get("spawn_effort"),
             last_assistant_effort=d.get("last_assistant_effort"),
@@ -629,6 +627,24 @@ class Task:
         if legacy_sid and not sessions:
             sessions[d.get("engine", DEFAULT_ENGINE)] = legacy_sid
         return sessions
+
+    @staticmethod
+    def _migrate_maxed(d: dict[str, Any]) -> bool:
+        """Read ``maxed``, deciding it for tasks persisted before the flag.
+
+        Those pinned a maxed task to a model id in ``model``. Such a task was
+        maxed exactly when that id was a max model of the backend it sat on:
+        a stale pin of the *other* backend's, left by a switch from before
+        switches translated pins, was ignored and the task ran its default,
+        so it migrates as not maxed rather than waking up on the expensive
+        model. Dropping the id is the point: a maxed task now follows the
+        current max model like any other.
+        """
+        if "maxed" in d:
+            return bool(d["maxed"])
+        engine = d.get("engine") or DEFAULT_ENGINE
+        pinned = _PINNED_MAX_MODELS.get(engine, _PINNED_MAX_MODELS[DEFAULT_ENGINE])
+        return d.get("model") in pinned
 
 
 # Budget label for a spawn billed to an API key rather than a subscription.

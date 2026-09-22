@@ -9,7 +9,6 @@ from ilan.models import (
     ENGINE_NAME_STYLE,
     TaskStatus,
     display_status,
-    max_tag,
 )
 from ilan.time_format import (
     _format_elapsed,
@@ -119,15 +118,14 @@ def _name_style(row: dict) -> str:
 
 
 def _is_maxed(row: dict) -> bool:
-    """Whether the task is pinned to the max model of the backend it is on.
+    """Whether the task runs on the max model of the backend it is on.
 
-    This is :func:`max_tag`'s call — the same predicate the web app's tag
-    uses, so the two views cannot disagree about which tasks are maxed. A
-    stale foreign pin left over from before a backend switch does not count,
-    just as it never earned the tag.
+    Read from the ``max_tag`` the server put on the row — the very string the
+    web app renders — so the two views cannot disagree about which tasks are
+    maxed, and a CLI older than its server cannot misjudge a max model it has
+    never heard of.
     """
-    engine = row.get("engine") or DEFAULT_ENGINE
-    return bool(max_tag(engine, row.get("model")))
+    return bool(row.get("max_tag"))
 
 
 def _format_alias(row: dict) -> str:

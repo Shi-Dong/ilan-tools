@@ -6,7 +6,6 @@ from pathlib import Path
 
 from ilan import config as cfg
 from ilan.backends.base import Backend, ParsedResult, TokenUsage
-from ilan.models import ENGINE_CODEX, foreign_max_model
 
 _CODEX_STATIC_FLAGS = [
     "--json",
@@ -87,11 +86,7 @@ class CodexBackend(Backend):
         effort = str(conf.get("effort", "max")).strip()
         if effort:
             cmd += ["-c", f'model_reasoning_effort="{effort}"']
-        # Older saved tasks may carry a Fable pin from before backend switches
-        # translated max models. Drop it (including superseded ids) so it
-        # cannot reach ``codex exec --model``.
-        model = None if foreign_max_model(ENGINE_CODEX, model_override) else model_override
-        cmd += ["--model", model or str(conf["model-codex"])]
+        cmd += ["--model", model_override or str(conf["model-codex"])]
         # `-` makes codex read the prompt from stdin.
         cmd.append("-")
 
@@ -107,13 +102,10 @@ class CodexBackend(Backend):
     def build_attach_command(
         self, session_id: str, model_override: str | None
     ) -> list[str]:
-        # Same guard as build_command: another backend's max pin must not
-        # reach `codex --model`.
-        model = None if foreign_max_model(ENGINE_CODEX, model_override) else model_override
         return [
             "codex", "resume", session_id,
             "--dangerously-bypass-approvals-and-sandbox",
-            "--model", model or str(cfg.load()["model-codex"]),
+            "--model", model_override or str(cfg.load()["model-codex"]),
         ]
 
     def parse_output(self, out_path: Path) -> ParsedResult | None:

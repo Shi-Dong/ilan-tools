@@ -6,7 +6,6 @@ from pathlib import Path
 
 from ilan import config as cfg
 from ilan.backends.base import Backend, ParsedResult, TokenUsage
-from ilan.models import ENGINE_CLAUDE, foreign_max_model
 
 _CLAUDE_STATIC_FLAGS = [
     "--dangerously-skip-permissions",
@@ -17,16 +16,11 @@ _CLAUDE_STATIC_FLAGS = [
 def _effective_model(model_override: str | None = None) -> str:
     """Return the model string passed to ``claude --model`` for a spawn.
 
-    *model_override* (a task's ``model``, set via ``ilan max``) takes
-    precedence over the configured default; ``None`` falls back to config.
-
-    Older saved tasks may carry an Astra pin from before backend switches
-    translated max models. Ignore it here because ``claude --model`` cannot
-    load a Codex model.
+    *model_override* (a maxed task's ``model_override``, already resolved to
+    this backend's max model) takes precedence over the configured default;
+    ``None`` falls back to config.
     """
     conf = cfg.load()
-    if foreign_max_model(ENGINE_CLAUDE, model_override):
-        model_override = None
     return model_override or str(conf["model-claude"])
 
 

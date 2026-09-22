@@ -16,7 +16,7 @@ import { bootApp, checker, settle } from './harness.mjs';
 const { check, clickModal, report } = checker();
 
 const OPEN = { name: 'live-task', alias: 'aa', status: 'AGENT_FINISHED', engine: 'claude',
-  pinned: false, model: null, gist_url: null };
+  pinned: false, maxed: false, model: null, gist_url: null };
 const values = (app) => app.modalOptions().map((o) => o.value);
 const labels = (app) => app.modalOptions().map((o) => o.label);
 
@@ -39,6 +39,13 @@ check('only Delete is marked dangerous on a task that is not running',
   JSON.stringify(a.modalOptions().filter((o) => o.danger).map((o) => o.value)) === '["delete"]');
 clickModal(a, '[data-value=""]', 'the sheet must be dismissable');
 check('cancelling closes it', !a.modalOpen());
+
+// ── Max / Unmax follows the stored choice, not a model id ───────────────
+const m = bootApp();
+m.showActions({ ...OPEN, maxed: true, model: 'claude-fable-5-1' });
+await settle();
+check('a maxed task is offered Unmax in the place of Max',
+  values(m).includes('unmax') && !values(m).includes('max'), JSON.stringify(values(m)));
 
 // ── a running task adds Kill, a closed one swaps the top for its way back ──
 const w = bootApp();

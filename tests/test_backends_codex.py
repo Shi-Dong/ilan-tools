@@ -65,36 +65,16 @@ class TestBuildCommand:
     def test_astra_override_passed(
         self, backend: CodexBackend, tmp_config: Path
     ) -> None:
-        """``ilan max`` on a codex task pins Astra, which is codex's own max
-        model, so it reaches the CLI like any other override."""
+        """A maxed codex task resolves to Astra, codex's own max model, which
+        reaches the CLI like any other override."""
         cmd, _ = backend.build_command("gpt-6-astra", resume=False, session_id=None)
         assert cmd[cmd.index("--model") + 1] == "gpt-6-astra"
-
-    @pytest.mark.parametrize("fable_id", ["claude-fable-5-1", "claude-fable-5"])
-    def test_fable_override_falls_back_to_default(
-        self, backend: CodexBackend, tmp_config: Path, fable_id: str
-    ) -> None:
-        """A stale Fable override (from a switch to codex in an older version)
-        is the Claude backend's max model, so codex ignores it and spawns the
-        codex default. A task maxed before the model bump still holds the older
-        Fable id, so that one has to be ignored too."""
-        cmd, _ = backend.build_command(fable_id, resume=False, session_id=None)
-        assert cmd[cmd.index("--model") + 1] == "gpt-5.6-sol"
 
     def test_uses_configured_model_codex(
         self, backend: CodexBackend, tmp_config: Path
     ) -> None:
         cfg.save({**cfg.DEFAULTS, "model-codex": "gpt-5.1-codex-max"})
         cmd, _ = backend.build_command(None, resume=False, session_id=None)
-        assert cmd[cmd.index("--model") + 1] == "gpt-5.1-codex-max"
-
-    def test_fable_override_falls_back_to_configured_model_codex(
-        self, backend: CodexBackend, tmp_config: Path
-    ) -> None:
-        cfg.save({**cfg.DEFAULTS, "model-codex": "gpt-5.1-codex-max"})
-        cmd, _ = backend.build_command(
-            "claude-fable-5-1", resume=False, session_id=None
-        )
         assert cmd[cmd.index("--model") + 1] == "gpt-5.1-codex-max"
 
     def test_api_key_codex_sets_openai_key(

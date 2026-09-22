@@ -326,7 +326,9 @@ class TestLsNoArgs:
                     "engine": ENGINE_CLAUDE,
                     "pinned": True,
                     "needs_review": True,
+                    "maxed": True,
                     "model": "claude-fable-5-1",
+                    "max_tag": "FABLE",
                     "created_at": "2026-04-13T00:00:00+00:00",
                     "status_changed_at": "2026-04-13T01:00:00+00:00",
                     "gist_url": "https://example.com/history",
@@ -1746,19 +1748,21 @@ class TestMaxedAliasMark:
     `ilan ls`, `ilan dashboard`, the concise line and `ilan info`: no FABLE /
     ASTRA word. The red is the `bold red` the tag itself used to be drawn in,
     and the `ilan max` confirmation still prints the tag in, so the alias took
-    over the tag's colour along with its job. What counts as maxed is
-    `max_tag`'s call — the same predicate the web app's tag uses — so the two
-    views cannot disagree about which tasks are maxed.
+    over the tag's colour along with its job. What counts as maxed is the
+    `max_tag` the server puts on the row — the very string the web app
+    renders — so the two views cannot disagree about which tasks are maxed.
     """
 
     def _row(self, **extra) -> dict:
         row = {"name": "the-task", "alias": "gk", "status": "WORKING",
-               "needs_review": False, "model": None}
+               "needs_review": False, "maxed": False, "model": None,
+               "max_tag": None}
         row.update(extra)
         return row
 
     def _maxed(self, **extra) -> dict:
-        return self._row(model="claude-fable-5-1", engine="claude", **extra)
+        return self._row(maxed=True, model="claude-fable-5-1", max_tag="FABLE",
+                         engine="claude", **extra)
 
     def test_an_ordinary_alias_is_lowercase_in_parentheses(self) -> None:
         assert not _is_maxed(self._row())
@@ -1770,7 +1774,7 @@ class TestMaxedAliasMark:
 
     def test_an_astra_task_on_codex_gets_the_same_mark(self) -> None:
         """Both backends' max models get the same mark."""
-        row = self._row(model="gpt-6-astra", engine="codex")
+        row = self._row(maxed=True, model="gpt-6-astra", max_tag="ASTRA", engine="codex")
         assert _is_maxed(row)
         assert _format_alias(row) == "[GK]"
 
@@ -1813,19 +1817,20 @@ class TestMaxedAliasMark:
         assert result.exit_code == 0, result.output
         assert "\x1b[1;31mFABLE" in result.output
 
-    def test_a_stale_fable_pin_after_a_switch_to_codex_is_not_maxed(self) -> None:
-        """Fable is Claude-only: once the task is on Codex the stored Fable id
-        is a foreign pin the backend ignores, so the alias goes back to
-        ``(gk)`` — exactly as the tag used to disappear.
+    def test_the_mark_follows_the_servers_tag_not_the_model_id(self) -> None:
+        """The CLI never re-derives maxedness from a model id. A server still
+        running older code can report a stale Fable pin on a codex task, which
+        it gives no tag because Codex ignores it — and the alias stays
+        ``(gk)``, exactly as that server's own tag disappeared.
         """
-        assert _format_alias(self._row(model="claude-fable-5-1", engine="codex")) == "(gk)"
+        row = self._row(model="claude-fable-5-1", engine="codex")
+        assert _format_alias(row) == "(gk)"
 
-    def test_a_legacy_fable_id_still_counts_as_maxed(self) -> None:
-        """A task maxed before the model bump still runs Fable."""
-        assert _format_alias(self._row(model="claude-fable-5", engine="claude")) == "[GK]"
-
-    def test_an_unknown_engine_falls_back_to_claude_and_honours_fable(self) -> None:
-        row = self._row(model="claude-fable-5-1", engine="some-future-engine")
+    def test_an_older_servers_superseded_id_keeps_the_mark_it_tagged(self) -> None:
+        """That same older server may still store the Fable id a task was maxed
+        on before a bump; it tags it, so the CLI marks it, with no list of
+        superseded ids of its own to keep in step."""
+        row = self._row(model="claude-fable-5", engine="claude", max_tag="FABLE")
         assert _format_alias(row) == "[GK]"
 
     def test_the_name_cell_carries_the_mark_and_nothing_else(self) -> None:
@@ -1887,11 +1892,13 @@ class TestMaxedAliasMark:
         client = _make_client()
         client.list_tasks.return_value = {"tasks": [
             {"name": "maxed-task", "alias": "aa", "status": "WORKING", "needs_review": False,
-             "model": "claude-fable-5-1", "engine": "claude", **stamps},
+             "maxed": True, "model": "claude-fable-5-1", "max_tag": "FABLE",
+             "engine": "claude", **stamps},
             {"name": "astra-task", "alias": "as", "status": "WORKING", "needs_review": False,
-             "model": "gpt-6-astra", "engine": "codex", **stamps},
+             "maxed": True, "model": "gpt-6-astra", "max_tag": "ASTRA",
+             "engine": "codex", **stamps},
             {"name": "plain-task", "alias": "pp", "status": "WORKING", "needs_review": False,
-             "model": None, "engine": "claude", **stamps},
+             "maxed": False, "model": None, "max_tag": None, "engine": "claude", **stamps},
         ]}
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["ls"])
