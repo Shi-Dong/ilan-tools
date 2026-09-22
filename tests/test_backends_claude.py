@@ -43,7 +43,7 @@ class TestBuildCommand:
         max model, which ``claude --model`` cannot load, so it is dropped for
         the configured default."""
         cmd, _ = backend.build_command("gpt-6-astra", resume=False, session_id=None)
-        assert cmd[cmd.index("--model") + 1] == "claude-opus-4-7"
+        assert cmd[cmd.index("--model") + 1] == "claude-opus-5-5"
 
     def test_astra_override_falls_back_to_configured_model_claude(
         self, backend: ClaudeBackend, tmp_config: Path
@@ -56,7 +56,7 @@ class TestBuildCommand:
         self, backend: ClaudeBackend, tmp_config: Path
     ) -> None:
         cmd, _ = backend.build_command(None, resume=False, session_id=None)
-        assert cmd[cmd.index("--model") + 1] == "claude-opus-4-7"
+        assert cmd[cmd.index("--model") + 1] == "claude-opus-5-5"
 
     def test_uses_configured_model_claude(
         self, backend: ClaudeBackend, tmp_config: Path

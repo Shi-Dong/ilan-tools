@@ -149,7 +149,7 @@ class TestLoad:
         conf = cfg.load()
         assert tmp_config.exists()
         assert conf["dashboard-interval"] == 1
-        assert conf["model-claude"] == "claude-opus-4-7"
+        assert conf["model-claude"] == "claude-opus-5-5"
         assert conf["model-codex"] == "gpt-5.6-sol"
 
     def test_load_merges_with_defaults(self, tmp_config: Path) -> None:
@@ -252,6 +252,7 @@ class TestModelIdValidation:
     """model-claude / model-codex must hold exact model ids, not aliases."""
 
     @pytest.mark.parametrize("value", [
+        "claude-opus-5-5",
         "claude-opus-4-7",
         "claude-sonnet-4-6",
         "claude-haiku-4-5-20251001",
