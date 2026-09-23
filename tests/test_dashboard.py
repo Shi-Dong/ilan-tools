@@ -951,9 +951,14 @@ class TestReasoningCell:
         line = _build_concise_task_line(
             {"name": "t", "status": "WORKING", "reasoning": level},
         )
-        assert line.plain.endswith(f" {level}")
+        assert line.plain.endswith(f" {{{level}}}")
         assert "⋅" not in line.plain
+        # One span covers the braces and the level, so they share its colour.
         assert any(
-            line.plain[sp.start:sp.end] == f" {level}" and str(sp.style) == style
+            line.plain[sp.start:sp.end] == f"{{{level}}}" and str(sp.style) == style
             for sp in line.spans
         )
+
+    def test_the_concise_line_has_no_braces_without_a_level(self) -> None:
+        line = _build_concise_task_line({"name": "t", "status": "WORKING"})
+        assert line.plain == "t WORKING"

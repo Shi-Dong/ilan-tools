@@ -73,6 +73,23 @@ def _invoke(runner: CliRunner, pattern: str, tasks: list[dict] | None = None):
 
 
 class TestSearch:
+    def test_braced_level_finds_tasks_by_reasoning_level(
+        self, runner: CliRunner, tmp_config, wide_console,
+    ) -> None:
+        """``ls -c`` lines end in ``{level}``, so searching the braced form
+        picks out one level without matching task names that contain it."""
+        tasks = _tasks()
+        for task, level in zip(tasks, ("max", "low", "max")):
+            task["reasoning"] = level
+        tasks[1]["name"] = "max-out-router"
+        result, _ = _invoke(runner, "{max}", tasks)
+        assert result.exit_code == 0
+        lines = _strip_ansi(result.output).splitlines()
+        assert lines == [
+            "(as) fix-router-timeout WORKING {max}",
+            "update-readme DONE {max}",
+        ]
+
     def test_prints_only_matching_lines(
         self, runner: CliRunner, tmp_config, wide_console,
     ) -> None:
