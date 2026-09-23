@@ -781,6 +781,8 @@ textarea.field {
   color: var(--text-dim);
 }
 .row-reasoning > span { font-weight: 600; }
+/* The two levels a task is not at, in the ladder's grey. */
+.row-reasoning > .rl-off { font-weight: 400; }
 /* In the conversation header it keeps the header's own tighter spacing. */
 .hdr-sub.row-reasoning { margin-top: 2px; }
 .rl-low { color: var(--rl-low); }

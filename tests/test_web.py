@@ -1110,6 +1110,9 @@ def test_the_level_is_a_line_of_its_own_in_the_meta_rows_grey():
     for prop in ("display: block", "font-size: 12px", "color: var(--text-dim)"):
         assert prop in rule.group(1), f"the reasoning line lost {prop}"
     assert ".row-reasoning > span { font-weight: 600; }" in css
+    # The unlit levels of the ladder: grey (inherited) and not bold.
+    assert ".row-reasoning > .rl-off { font-weight: 400; }" in css
+    assert ".rl-off {" not in css.replace(".row-reasoning > .rl-off {", ""), "unlit levels got a colour"
 
 
 def test_a_collapsed_card_drops_the_level_line():

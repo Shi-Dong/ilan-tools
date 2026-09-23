@@ -609,8 +609,9 @@ The list refreshes every 15 seconds while it is the frontmost tab and pauses whe
 not.
 
 Every task shows its [reasoning level](#commands) on a line of its own right beneath
-its status — `Reasoning: low` — with the level's name in its colour: green `low`, yellow
-`medium`, red `max`, as the terminal listings print them. The line is on an expanded
+its status — `Reasoning: low ⋅ medium ⋅ max` — listing all three levels the way the
+`Reasoning` column of `ilan dashboard` does: only the task's own level is coloured (green
+`low`, yellow `medium`, red `max`), and the other two are grey. The line is on an expanded
 card and on the task's conversation page; a collapsed card drops it, as it drops the
 summary and the note. The level is changed from the task page's `•••` sheet: **Reasoning level…** names the
 current level and opens a choice of the three, each drawn in its colour; for a Codex task
