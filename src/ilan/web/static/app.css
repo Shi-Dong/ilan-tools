@@ -82,6 +82,22 @@
    * the orange is the binding constraint, at 4.60:1. */
   --loop-bg: #f0f0f4;
 
+  /* Reasoning levels, mirroring REASONING_STYLES in task_display.py: green
+   * for low, yellow for medium, red for max. Two of the three are colours the
+   * app already spends, and they are referenced rather than copied so they
+   * cannot drift: max is the red of the FABLE / ASTRA tag, which already
+   * means "this task runs on the expensive setting" and is the same red the
+   * terminal prints both in; low is AGENT FINISHED's green, which is the
+   * terminal's plain green too.
+   *
+   * Yellow is the new one. As ink on a white card it has to be dark to reach
+   * 4.5:1, so it is an olive-yellow at 5.52:1 on the card and 4.94:1 on the
+   * header's grey. Its hue is held at ~51deg, clear of the Claude orange
+   * (33deg) in task names and the Tap amber (38deg) on the same card. */
+  --rl-low: var(--st-finished);
+  --rl-medium: #7a6800;
+  --rl-max: var(--danger);
+
   --radius: 12px;
   --tap: 44px;
 }
@@ -136,6 +152,11 @@
     --act-done: #e0a3c0;
     /* Lifted the same way: 7.3:1 on the dark card, a step above --text-dim. */
     --act-notes: #a9a9ae;
+
+    /* A clean yellow at 11.09:1 on the dark card. The other two levels follow
+     * their referents into dark mode by themselves. Hue ~52deg, clear of the
+     * dark-mode Claude orange (41deg) and Tap amber (40deg). */
+    --rl-medium: #e6d24a;
   }
 }
 
@@ -540,8 +561,13 @@ textarea.field {
 /* The sleep suffix is deliberately NOT hidden here, unlike in `ls -c`: on a
  * phone the fact that a task is asleep is worth a line of its own, and a
  * collapsed card is the only thing most of the list ever shows. */
+/* The reasoning line goes the other way: `ls -c` prints the level, but a
+ * collapsed card drops it with the summary and the note, so the collapsed
+ * list stays two lines a task. It is on the expanded card and the task's
+ * page. */
 .card.collapsed .row-sum,
 .card.collapsed .row-notes,
+.card.collapsed .row-reasoning,
 .card.collapsed .meta-detail {
   display: none;
 }
@@ -742,6 +768,28 @@ textarea.field {
   color: var(--danger);
   flex: none;
 }
+
+/* The reasoning level, on a line of its own right beneath the status:
+ * "Reasoning: low". The words are the meta row's size and grey, and the
+ * level's name carries its colour (green low, yellow medium, red max, as
+ * `ilan ls` prints them) with a little weight, so it reads as the line's
+ * value. A collapsed card hides it (see .card.collapsed above). */
+.row-reasoning {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.row-reasoning > span { font-weight: 600; }
+/* In the conversation header it keeps the header's own tighter spacing. */
+.hdr-sub.row-reasoning { margin-top: 2px; }
+.rl-low { color: var(--rl-low); }
+.rl-medium { color: var(--rl-medium); }
+.rl-max { color: var(--rl-max); }
+
+/* On the level sheet each choice is set in its own colour, as .btn-danger
+ * colours Delete, so the sheet uses the same colours as the line it sets. */
+.btn.rl-choice { font-weight: 600; }
 
 /* The status is a filled pill, not coloured text: eleven bold pixels of colour
  * are hard to see at arm's length, where a filled shape is not.

@@ -315,7 +315,8 @@ function askConfirm(title, okLabel = 'Confirm', danger = false) {
 function askChoice(title, options) {
   return modal(
     `<div class="sheet-title">${esc(title)}</div>
-     ${options.map((o) => `<button class="btn ${o.danger ? 'btn-danger' : ''}"
+     ${options.map((o) => `<button class="${
+        ['btn', o.danger && 'btn-danger', o.cls && esc(o.cls)].filter(Boolean).join(' ')}"
         data-value="${esc(o.value)}">${esc(o.label)}</button>`).join('')}
      <button class="btn btn-ghost" data-value="">Cancel</button>`,
     (root, close) => {
@@ -593,6 +594,30 @@ function icon(name) {
   return `<svg class="ico" aria-hidden="true"><use href="#${ICONS[name]}"></use></svg>`;
 }
 
+/** The reasoning levels `ilan level` accepts, cheapest first.
+ *
+ * Mirrors REASONING_LEVELS in models.py, and a test holds the two equal. The
+ * order is the ladder's: it is the order the words are drawn in.
+ */
+const REASONING_LEVELS = ['low', 'medium', 'max'];
+
+/** "Reasoning: low", with the level in its colour, or '' for a level the app
+ * does not know.
+ *
+ * It is a line of its own right beneath the status, on an expanded card and on
+ * the task's page. A collapsed card drops it, as it drops the summary and the
+ * note: the markup is the same either way and CSS hides it, so collapsing
+ * stays a class on the card. The caller wraps it: a card in a span styled as
+ * a line, the page in a paragraph of its header. Only the level's name is coloured (green low, yellow medium,
+ * red max, as `ilan ls` prints them); the words around it are the meta row's
+ * grey.
+ */
+function reasoningLine(task) {
+  const level = task.reasoning;
+  if (!REASONING_LEVELS.includes(level)) return '';
+  return `Reasoning: <span class="rl-${level}">${level}</span>`;
+}
+
 /** The status, as the filled pill both the list and the conversation show.
  *
  * One function rather than the same span written out in two places, because
@@ -625,6 +650,9 @@ function taskRow(task) {
   // handle_list_tasks): the model ids and the backend rule live in models.py,
   // and this only reads the answer.
   //
+  // The reasoning level is a line of its own right beneath the status, and it
+  // is detail a collapsed card drops, like the summary (see reasoningLine).
+  //
   // The note the user wrote with `ilan notes` is rendered as Markdown in a
   // box below the body: what the agent last did, the status, then what the
   // task is for in the user's own words, with whatever links, lists or code
@@ -638,6 +666,7 @@ function taskRow(task) {
     `<span class="meta-detail">${
       esc(ago(task.status_changed_at || task.created_at))} ago</span>`,
   ].filter(Boolean).join('');
+  const reasoning = reasoningLine(task);
 
   const collapsed = isCollapsed(task);
 
@@ -659,6 +688,7 @@ function taskRow(task) {
         ${task.summary_one_liner
           ? `<span class="row-sum">${esc(task.summary_one_liner)}</span>` : ''}
         <span class="row-meta">${meta}</span>
+        ${reasoning ? `<span class="row-reasoning">${reasoning}</span>` : ''}
       </button>
       ${task.notes ? `<div class="row-notes md">${MD.render(task.notes)}</div>` : ''}
       <div class="row-actions">
@@ -1156,6 +1186,7 @@ async function renderDetail(name) {
   const sub = [
     replyEverySuffix(task.reply_every_seconds),
   ].filter(Boolean).join(' · ');
+  const reasoning = reasoningLine(task);
 
   // A closed task has nothing to reply to, so the composer's place along the
   // bottom of the screen goes to the one thing you do want from it: reopening
@@ -1211,10 +1242,12 @@ async function renderDetail(name) {
       <!-- The max-model tag follows the pill here exactly as it does on the
            card: same container class, same rule, same position. Beside the
            status rather than the name because the title is the one line on
-           this page that cannot afford to give up width. -->
+           this page that cannot afford to give up width. The reasoning
+           level is the line right beneath, as on a card. -->
       <p class="hdr-sub row-meta rs-${esc(status)}">${statusPill(task)}${
         task.max_tag ? `<span class="max-tag">${esc(task.max_tag)}</span>` : ''}${
         sub ? `<span class="meta-detail">${esc(sub)}</span>` : ''}</p>
+      ${reasoning ? `<p class="hdr-sub row-reasoning">${reasoning}</p>` : ''}
       ${hasMore ? `
       <div class="hdr-row">
         <button class="btn btn-sm show-more" id="show-more">Show More</button>
@@ -1350,6 +1383,12 @@ function showActions(task) {
   options.push({ value: 'notes', label: 'Note…' });
   options.push({ value: task.pinned ? 'unpin' : 'pin', label: task.pinned ? 'Unpin' : 'Pin' });
   options.push({ value: task.maxed ? 'unmax' : 'max', label: task.maxed ? 'Unmax' : 'Max' });
+  // Beside Max, the other knob for how hard the task thinks. Named with its
+  // current value, the way Switch backend names the backend it would leave.
+  options.push({
+    value: 'level',
+    label: `Reasoning level… (now ${REASONING_LEVELS.includes(task.reasoning) ? task.reasoning : '?'})`,
+  });
   options.push({ value: 'switch-backend', label: `Switch backend (now ${task.engine || '?'})` });
   options.push({ value: 'rename', label: 'Rename…' });
   options.push({ value: 'branch', label: 'Branch…' });
@@ -1411,6 +1450,28 @@ async function runAction(choice, task) {
       if (resp === null) return;
       if (!resp.ok) { toast(resp.data.error || 'Failed', true); return; }
       toast(`Sleeping for ${formatCompactDuration(seconds)}`);
+      back();
+      return;
+    }
+
+    case 'level': {
+      // A fixed choice, like Sleep: the three levels `ilan level` takes,
+      // spelled the way the CLI spells them and in the colours the card draws
+      // them in, so the sheet teaches the ladder it sets.
+      const chosen = await askChoice('Reasoning level',
+        REASONING_LEVELS.map((level) => ({
+          value: level,
+          label: level === task.reasoning ? `${level} (current)` : level,
+          cls: `rl-choice rl-${level}`,
+        })));
+      if (chosen === null) return;
+      const { ok, data } = await api.post(`/tasks/${t}/level`, { level: chosen });
+      if (!ok) { toast(data.error || 'Failed', true); return; }
+      // `max` is `xhigh` on Codex, and saying so is the one thing the level's
+      // name alone does not tell you.
+      const effort = data.effort && data.effort !== chosen
+        ? ` (${data.effort} on ${task.engine || 'this backend'})` : '';
+      toast(`Reasoning level set to ${chosen}${effort}`);
       back();
       return;
     }

@@ -16,7 +16,7 @@ import { bootApp, checker, settle } from './harness.mjs';
 const { check, clickModal, report } = checker();
 
 const OPEN = { name: 'live-task', alias: 'aa', status: 'AGENT_FINISHED', engine: 'claude',
-  pinned: false, maxed: false, model: null, gist_url: null };
+  pinned: false, maxed: false, model: null, gist_url: null, reasoning: 'low' };
 const values = (app) => app.modalOptions().map((o) => o.value);
 const labels = (app) => app.modalOptions().map((o) => o.label);
 
@@ -27,7 +27,7 @@ await settle();
 check('the sheet opens', a.modalOpen());
 check('an open task is offered exactly these, in this order',
   JSON.stringify(values(a)) === JSON.stringify(
-    ['tap', 'cancel', 'sleep', 'done', 'notes', 'pin', 'max', 'switch-backend', 'rename', 'branch', 'delete']),
+    ['tap', 'cancel', 'sleep', 'done', 'notes', 'pin', 'max', 'level', 'switch-backend', 'rename', 'branch', 'delete']),
   JSON.stringify(values(a)));
 for (const gone of ['replyEvery', 'unread', 'alias', 'discard']) {
   check(`${gone} is no longer offered`, !values(a).includes(gone));
