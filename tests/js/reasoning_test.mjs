@@ -1,13 +1,10 @@
 /* Assertions for the reasoning level on a task card, on the task's page, and
  * on the ••• sheet that changes it.
  *
- * The card mirrors the terminal: an expanded card draws the ladder the
- * `Reasoning` column of `ilan dashboard` draws, `low ⋅ medium ⋅ max` with the
- * task's own level lit, and a collapsed card is `ilan ls -c`, which prints
- * only `{level}`. Both forms are one piece of markup that CSS switches
- * between, so what is checked here is that the markup carries both — the
- * braces inside the lit word, every other part marked as what collapsing
- * hides — and test_web.py checks the rules that do the hiding.
+ * The level is a line of its own right beneath the status, "Reasoning: low",
+ * with only the level's name coloured. It is on every card, collapsed or not,
+ * and on the task's page — and a level the app does not know draws nothing,
+ * rather than a line naming a level no one set.
  */
 
 import { bootApp, checker, settle } from './harness.mjs';
@@ -21,8 +18,7 @@ const TASKS = [
   { name: 'medium-task', alias: 'ab', status: 'AGENT_FINISHED', engine: 'codex', reasoning: 'medium', ...STAMP },
   { name: 'max-task', alias: 'ac', status: 'NEEDS_ATTENTION', engine: 'claude', reasoning: 'max',
     max_tag: 'FABLE', maxed: true, ...STAMP },
-  // A level the app does not know, and a row with none: neither may draw a
-  // ladder with nothing lit on it.
+  // A level the app does not know, and a row with none: neither may draw a line.
   { name: 'odd-task', alias: 'ad', status: 'AGENT_FINISHED', engine: 'claude', reasoning: 'xhigh', ...STAMP },
   { name: 'bare-task', alias: 'af', status: 'AGENT_FINISHED', engine: 'claude', ...STAMP },
 ];
@@ -42,62 +38,38 @@ function card(app, name) {
   return m ? m[0] : '';
 }
 
-/** The reasoning span inside *html*, or ''. */
-const ladder = (html) => (html.match(/<span class="reasoning">[\s\S]*?<\/span><\/span>(?=<span class="meta-detail">|<\/span>|<\/p>|$)/) || [])[0] || '';
+const lineFor = (level) => `Reasoning: <span class="rl-${level}">${level}</span>`;
 
-/** The words of a ladder, in order, as {level, lit}. */
-const words = (html) => [...ladder(html).matchAll(/<span class="rl-(on rl-[a-z]+|off)"[^>]*>(?:<span class="rl-brace"[^>]*>\{<\/span>)?([a-z]+)/g)]
-  .map((m) => ({ level: m[2], lit: m[1].startsWith('on') }));
-
-// ── an expanded card draws the ladder ───────────────────────────────────
+// ── every card carries the line, right beneath the status ───────────────
 const open = listWith(TASKS.map((t) => t.name));
-for (const level of LEVELS) {
-  const c = card(open, `${level}-task`);
-  const w = words(c);
-  check(`${level}: the card draws all three levels, cheapest first`,
-    JSON.stringify(w.map((x) => x.level)) === JSON.stringify(LEVELS), JSON.stringify(w));
-  check(`${level}: exactly its own level is lit`,
-    JSON.stringify(w.filter((x) => x.lit).map((x) => x.level)) === JSON.stringify([level]),
-    JSON.stringify(w));
-  check(`${level}: the lit word carries its level's colour class`,
-    ladder(c).includes(`<span class="rl-on rl-${level}">`), ladder(c));
-  check(`${level}: the words are joined by the terminal's dot`,
-    (ladder(c).match(/<span class="rl-sep" aria-hidden="true"> ⋅ <\/span>/g) || []).length === 2,
-    ladder(c));
-  check(`${level}: the braces are inside the lit word, so they take its colour`,
-    new RegExp(`<span class="rl-on rl-${level}"><span class="rl-brace" aria-hidden="true">\\{</span>${level}<span class="rl-brace" aria-hidden="true">\\}</span></span>`).test(c),
-    ladder(c));
-  check(`${level}: the ladder is inside the meta row`,
-    /<span class="row-meta">[\s\S]*?<span class="reasoning">/.test(c));
-  check(`${level}: it is not tagged as something collapsing hides`,
-    !/<span class="reasoning[^"]*meta-detail|meta-detail[^"]*reasoning/.test(c));
-  check(`${level}: it comes after the status and before the age`,
-    c.indexOf('class="status ') < c.indexOf('class="reasoning"')
-      && c.indexOf('class="reasoning"') < c.indexOf('class="meta-detail"'), c);
-  check(`${level}: a screen reader hears the level, not the ladder`,
-    ladder(c).includes('<span class="sr-only">Reasoning </span>')
-      && (ladder(c).match(/<span class="rl-off" aria-hidden="true">/g) || []).length === 2,
-    ladder(c));
+const shut = listWith([]);
+check('the card really is collapsed', /class="card rs-WORKING collapsed"/.test(card(shut, 'low-task')));
+for (const [state, app] of [['expanded', open], ['collapsed', shut]]) {
+  for (const level of LEVELS) {
+    const c = card(app, `${level}-task`);
+    check(`${state} ${level}: the card reads "Reasoning: ${level}", with only the level coloured`,
+      c.includes(`<span class="row-reasoning">${lineFor(level)}</span>`), c);
+    check(`${state} ${level}: the line sits right beneath the status row`,
+      /<span class="row-meta">[\s\S]*?<\/span>\s*<span class="row-reasoning">/.test(c)
+        && !/<span class="row-meta">(?:(?!<\/button>)[\s\S])*<span class="row-meta">/.test(c),
+      c);
+    check(`${state} ${level}: it is part of the card body, not a second control`,
+      c.indexOf('class="row-reasoning"') < c.indexOf('</button>'), c);
+    check(`${state} ${level}: the line is drawn once`,
+      (c.match(/class="row-reasoning"/g) || []).length === 1);
+    check(`${state} ${level}: it is not tagged as something collapsing hides`,
+      !/row-reasoning[^"]*meta-detail|meta-detail[^"]*row-reasoning/.test(c));
+  }
+  check(`${state}: a level the app does not know draws no line`,
+    !card(app, 'odd-task').includes('row-reasoning'), card(app, 'odd-task'));
+  check(`${state}: a row with no level draws no line`, !card(app, 'bare-task').includes('row-reasoning'));
 }
-check('the level follows the max-model tag when there is one',
-  card(open, 'max-task').indexOf('class="max-tag"') < card(open, 'max-task').indexOf('class="reasoning"'),
-  card(open, 'max-task'));
-check('a level the app does not know draws no ladder',
-  !card(open, 'odd-task').includes('class="reasoning"'), card(open, 'odd-task'));
-check('a row with no level draws no ladder', !card(open, 'bare-task').includes('class="reasoning"'));
+check('the status row itself no longer carries the level',
+  !/<span class="row-meta">[^\n]*Reasoning/.test(open.html()));
 check('the card offers no control for it — the ••• sheet does',
   !/data-level=|act-level/.test(open.html()));
 
-// ── a collapsed card carries the same markup ────────────────────────────
-const shut = listWith([]);
-check('the card really is collapsed', /class="card rs-WORKING collapsed"/.test(card(shut, 'low-task')));
-for (const level of LEVELS) {
-  check(`${level}: the collapsed card still carries the level`,
-    ladder(card(shut, `${level}-task`)) === ladder(card(open, `${level}-task`)),
-    'collapsing rendered a different ladder instead of leaving it to CSS');
-}
-
-// ── the task's own page draws the ladder beside the status ──────────────
+// ── the task's own page shows the same line beneath its status ──────────
 const openTask = (task, onPost) => {
   const app = bootApp();
   app.setFetch(async (path, opts) => {
@@ -108,19 +80,25 @@ const openTask = (task, onPost) => {
   });
   return app;
 };
-const statusLine = (app) => (app.html().match(/<p class="hdr-sub[^"]*"[^>]*>([\s\S]*?)<\/p>/) || [])[1] || '';
+const header = (app) => (app.html().match(/<header class="hdr">([\s\S]*?)<\/header>/) || [])[1] || '';
 
 for (const task of TASKS.slice(0, 3)) {
   const app = openTask(task);
   await app.renderDetail(task.name);
   await settle();
-  check(`${task.name}: its page draws the same ladder as its card`,
-    ladder(statusLine(app)) !== '' && ladder(statusLine(app)) === ladder(card(open, task.name)),
-    statusLine(app));
-  check(`${task.name}: after the status, and after the tag when there is one`,
-    statusLine(app).indexOf('class="status ') < statusLine(app).indexOf('class="reasoning"')
-      && (!task.max_tag || statusLine(app).indexOf('class="max-tag"') < statusLine(app).indexOf('class="reasoning"')),
-    statusLine(app));
+  const h = header(app);
+  check(`${task.name}: its page reads the same line as its card`,
+    h.includes(`<p class="hdr-sub row-reasoning">${lineFor(task.reasoning)}</p>`), h);
+  check(`${task.name}: right beneath the status line`,
+    /<p class="hdr-sub row-meta rs-[A-Z_]+">[\s\S]*?<\/p>\s*<p class="hdr-sub row-reasoning">/.test(h), h);
+  check(`${task.name}: the status line itself does not carry it`,
+    !/<p class="hdr-sub row-meta[^>]*>(?:(?!<\/p>)[\s\S])*Reasoning/.test(h), h);
+}
+{
+  const app = openTask(TASKS[4]);
+  await app.renderDetail(TASKS[4].name);
+  await settle();
+  check('a page for a task with no level has no line', !header(app).includes('row-reasoning'));
 }
 
 // ── the ••• sheet names the level and changes it ────────────────────────

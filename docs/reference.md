@@ -606,13 +606,11 @@ credential keys are shown but not editable in Settings.
 The list refreshes every 15 seconds while it is the frontmost tab and pauses when it is
 not.
 
-Every task shows its [reasoning level](#commands) after its status (and after the
-`FABLE` / `ASTRA` tag, when there is one), the way the terminal listings do. An expanded
-card and the task's conversation page draw the whole ladder, `low ⋅ medium ⋅ max`, with
-the task's own level in bold and in its colour — green `low`, yellow `medium`, red `max` —
-and the other two in grey, as the `Reasoning` column of `ilan dashboard` does. A collapsed
-card shows only the level, in braces of its colour, as `ilan ls -c` prints it: `{low}`.
-The level is changed from the task page's `•••` sheet: **Reasoning level…** names the
+Every task shows its [reasoning level](#commands) on a line of its own right beneath
+its status — `Reasoning: low` — with the level's name in its colour: green `low`, yellow
+`medium`, red `max`, as the terminal listings print them. The line is on every card,
+collapsed or expanded, and on the task's conversation page. The level is changed from
+the task page's `•••` sheet: **Reasoning level…** names the
 current level and opens a choice of the three, each drawn in its colour; for a Codex task
 the confirmation says that `max` runs at `xhigh` there.
 

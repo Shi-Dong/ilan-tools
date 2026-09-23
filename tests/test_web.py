@@ -1057,7 +1057,7 @@ def test_max_and_low_reuse_the_colours_that_already_mean_them():
 
 
 def test_every_level_is_legible_in_both_schemes():
-    """Twelve-pixel text on the card, and on the conversation page's header,
+    """Twelve-pixel text on the card, and in the conversation page's header,
     which sits on the page's own grey rather than on the card."""
     css = web.read_asset("app.css").decode()
     light, dark = _scheme_values(css)
@@ -1100,62 +1100,28 @@ def test_the_yellow_stays_off_the_oranges_it_sits_beside():
             )
 
 
-def test_the_lit_level_stands_out_without_colour():
-    """Bold as well as coloured, so the ladder still says which level is set
-    where colour is lost; the unlit words and the dots are the meta row's grey."""
+def test_the_level_is_a_line_of_its_own_in_the_meta_rows_grey():
+    """"Reasoning: low" right beneath the status: its own line, at the meta
+    row's size and in its grey, with only the level's name coloured and a
+    little heavier so it reads as the line's value."""
     css = web.read_asset("app.css").decode()
-    rule = re.search(r"\n\.reasoning \{(.*?)\}", css, re.S)
-    assert rule, "the ladder has no rule"
-    assert "color: var(--text-dim)" in rule.group(1)
-    assert "flex: none" in rule.group(1), "the ladder can be squeezed onto two lines"
-    assert ".rl-on { font-weight: 700; }" in css
+    rule = re.search(r"\n\.row-reasoning \{(.*?)\}", css, re.S)
+    assert rule, "the reasoning line has no rule"
+    for prop in ("display: block", "font-size: 12px", "color: var(--text-dim)"):
+        assert prop in rule.group(1), f"the reasoning line lost {prop}"
+    assert ".row-reasoning > span { font-weight: 600; }" in css
 
 
-def test_a_collapsed_card_folds_the_ladder_to_the_braced_level():
-    """Collapsed is `ls -c`, which prints `{low}`: the unlit words and the dots
-    go, the braces appear, and the lit word itself stays.
-
-    The braces are hidden everywhere else, which is what keeps them off an
-    expanded card and off the conversation page.
-    """
+def test_the_level_line_survives_collapsing():
+    """Which tasks run on the expensive setting is worth seeing from the
+    collapsed list, so no collapsed-card rule hides the line."""
     css = web.read_asset("app.css").decode()
-    hide = re.search(
-        r"\.card\.collapsed \.rl-off,\s*\.card\.collapsed \.rl-sep,\s*"
-        r"\.rl-folded \.rl-off,\s*\.rl-folded \.rl-sep \{\s*display: none;\s*\}", css,
-    )
-    assert hide, "a collapsed card, or a folded header, keeps the whole ladder"
-    assert ".card.collapsed .rl-brace,\n.rl-folded .rl-brace { display: inline; }" in css
-    assert ".rl-brace { display: none; }" in css, "the braces show on an expanded card"
-    for kept in (".card.collapsed .reasoning", ".card.collapsed .rl-on"):
-        assert kept not in css, f"{kept} is hidden when collapsed"
-
-
-def test_the_conversation_header_folds_a_ladder_that_does_not_fit():
-    """The header's status line never wraps, so a ladder too wide for it would
-    be clipped mid-word; it folds to `{level}` instead, measured after layout.
-    Only the header is measured: a card's meta row wraps rather than clips."""
+    assert ".card.collapsed .row-reasoning" not in css, "the line is hidden when collapsed"
     js = web.read_asset("app.js").decode()
-    body = js.split("function foldLadderToFit")[1].split("\n}\n")[0]
-    assert "line.scrollWidth > line.clientWidth" in body
-    assert "classList.add('rl-folded')" in body
-    assert "classList.remove('rl-folded', 'rl-wrapped')" in body, (
-        "a header folded once would stay folded on a wider screen"
-    )
-    # Folded and still too wide, the line wraps rather than cutting the level.
-    assert "classList.add('rl-wrapped')" in body
-    css = web.read_asset("app.css").decode()
-    assert ".hdr-sub.row-meta.rl-wrapped { flex-wrap: wrap; }" in css
-    detail = js.split("async function renderDetail")[1].split("\n}\n")[0]
-    assert "foldLadderToFit($('.hdr-sub'))" in detail
-    assert js.count("foldLadderToFit(") == 2, "the fold is applied somewhere other than the header"
-
-
-def test_the_screen_reader_text_is_really_out_of_sight():
-    css = web.read_asset("app.css").decode()
-    rule = re.search(r"\n\.sr-only \{(.*?)\}", css, re.S)
-    assert rule, "the screen-reader-only helper has no rule"
-    for prop in ("position: absolute", "width: 1px", "height: 1px", "overflow: hidden"):
-        assert prop in rule.group(1), f".sr-only lost {prop}"
+    row = js.split("function taskRow")[1].split("\n}\n")[0]
+    line = re.search(r"reasoning \? `(<span[^>]*>)", row)
+    assert line, "the card no longer renders the reasoning line"
+    assert "meta-detail" not in line.group(1), "the line carries the class that collapsing hides"
 
 
 # ── the collapsed card ──────────────────────────────────────────────────

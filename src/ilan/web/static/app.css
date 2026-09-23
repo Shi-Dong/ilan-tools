@@ -280,11 +280,6 @@ button, input, textarea, select {
   min-width: 0;
 }
 
-/* The one exception to the no-wrap rule above: a line on which even the
- * folded reasoning level does not fit (see foldLadderToFit). Wrapping moves
- * the level to a second line instead of cutting it off. */
-.hdr-sub.row-meta.rl-wrapped { flex-wrap: wrap; }
-
 /* ── buttons ────────────────────────────────────────────────────────── */
 
 .btn {
@@ -572,20 +567,6 @@ textarea.field {
   display: none;
 }
 
-/* The reasoning ladder folds to `ls -c`'s form: the lit level alone, in braces
- * of its colour. The braces sit inside the lit word's span in the markup, so
- * they take its colour without a rule of their own. The conversation header
- * folds the same way when the ladder would not fit on its one line
- * (.rl-folded, set by foldLadderToFit). */
-.card.collapsed .rl-off,
-.card.collapsed .rl-sep,
-.rl-folded .rl-off,
-.rl-folded .rl-sep {
-  display: none;
-}
-.card.collapsed .rl-brace,
-.rl-folded .rl-brace { display: inline; }
-
 /* With the summary gone the row would otherwise keep its two-line padding. */
 .card.collapsed .row { padding: 10px 14px; }
 .card.collapsed .row-meta { margin-top: 4px; }
@@ -783,42 +764,28 @@ textarea.field {
   flex: none;
 }
 
-/* The reasoning level, drawn as the `Reasoning` column of `ilan dashboard`
- * draws it: `low ⋅ medium ⋅ max`, the task's level lit in its colour and the
- * other two in the meta row's grey. Text at the meta row's size rather than
- * the tags' eleven pixels: these are lowercase words, which read smaller than
- * the capitals beside them. The lit level is bold as well as coloured, so it
- * still stands out where colour is lost. The braces belong to the collapsed
- * form (see .card.collapsed .rl-brace) and are hidden everywhere else. */
-.reasoning {
-  flex: none;
+/* The reasoning level, on a line of its own right beneath the status:
+ * "Reasoning: low". The words are the meta row's size and grey, and the
+ * level's name carries its colour (green low, yellow medium, red max, as
+ * `ilan ls` prints them) with a little weight, so it reads as the line's
+ * value. Deliberately absent from the collapsed card's rules: which tasks run
+ * on the expensive setting is worth seeing from a collapsed list. */
+.row-reasoning {
+  display: block;
+  margin-top: 4px;
   font-size: 12px;
-  font-weight: 500;
   color: var(--text-dim);
-  white-space: nowrap;
 }
-.rl-on { font-weight: 700; }
-.rl-brace { display: none; }
+.row-reasoning > span { font-weight: 600; }
+/* In the conversation header it keeps the header's own tighter spacing. */
+.hdr-sub.row-reasoning { margin-top: 2px; }
 .rl-low { color: var(--rl-low); }
 .rl-medium { color: var(--rl-medium); }
 .rl-max { color: var(--rl-max); }
 
 /* On the level sheet each choice is set in its own colour, as .btn-danger
- * colours Delete, so the sheet uses the same colours as the ladder it sets. */
+ * colours Delete, so the sheet uses the same colours as the line it sets. */
 .btn.rl-choice { font-weight: 600; }
-
-/* Text for a screen reader only: in the layout, clipped to nothing. */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
-}
 
 /* The status is a filled pill, not coloured text: eleven bold pixels of colour
  * are hard to see at arm's length, where a filled shape is not.

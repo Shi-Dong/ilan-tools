@@ -601,57 +601,21 @@ function icon(name) {
  */
 const REASONING_LEVELS = ['low', 'medium', 'max'];
 
-/** The task's reasoning level, as the terminal listings draw it.
+/** "Reasoning: low", with the level in its colour, or '' for a level the app
+ * does not know.
  *
- * `low ⋅ medium ⋅ max` with the task's own level in its colour and the other
- * two in the meta row's grey — the `Reasoning` column of `ilan dashboard`. A
- * collapsed card is `ilan ls -c`, which prints only the level, in braces of
- * its colour: `{low}`. Both forms are in this one piece of markup and CSS
- * shows one or the other, so collapsing stays a class on the card rather than
- * a second rendering path. The level is not a .meta-detail for the same
- * reason the max-model tag is not: which tasks are burning the expensive
- * setting is worth knowing from a collapsed list.
- *
- * The colour is not the only mark: the lit level is also bold, which survives
- * colour loss. A screen reader hears "Reasoning low" — the grey words, the
- * dots and the braces are hidden from it, since they only say where on the
- * ladder the level sits, which the word itself already says.
- *
- * A level the app does not know renders nothing, rather than a ladder with
- * nothing lit.
+ * It is a line of its own right beneath the status, on every card — collapsed
+ * ones too, since which tasks run on the expensive setting is worth seeing in
+ * the list most of it is only ever seen as — and on the task's page. The
+ * caller wraps it: a card in a span styled as a line, the page in a paragraph
+ * of its header. Only the level's name is coloured (green low, yellow medium,
+ * red max, as `ilan ls` prints them); the words around it are the meta row's
+ * grey.
  */
-function reasoningHtml(task) {
-  const active = task.reasoning;
-  if (!REASONING_LEVELS.includes(active)) return '';
-  const brace = (b) => `<span class="rl-brace" aria-hidden="true">${b}</span>`;
-  const words = REASONING_LEVELS.map((level) => (level === active
-    ? `<span class="rl-on rl-${level}">${brace('{')}${level}${brace('}')}</span>`
-    : `<span class="rl-off" aria-hidden="true">${level}</span>`));
-  return `<span class="reasoning"><span class="sr-only">Reasoning </span>${
-    words.join('<span class="rl-sep" aria-hidden="true"> ⋅ </span>')}</span>`;
-}
-
-/** Fold the ladder on a one-line strip to `{level}` when it does not fit.
- *
- * The conversation header's status line never wraps — a sticky header that
- * grew a second line would push the conversation down — so a ladder that did
- * not fit beside a long status would be clipped mid-word: `low ⋅ mediu`. That
- * happens on a narrow phone once a sleep bar and a max-model tag share the
- * line. Instead the ladder takes a collapsed card's form, the level alone in
- * braces, which says the same thing in a third of the width. Measured after
- * layout rather than predicted, since what fits depends on the status, the
- * tag, the font and the phone.
- *
- * On the narrowest phones (320px) even `{max}` does not fit beside a sleep
- * bar and a tag, and there the line is let wrap, so the level moves to a line
- * of its own rather than being cut. That is the only case the header grows.
- */
-function foldLadderToFit(line) {
-  if (!line || typeof line.querySelector !== 'function' || !line.querySelector('.reasoning')) return;
-  line.classList.remove('rl-folded', 'rl-wrapped');
-  if (line.scrollWidth <= line.clientWidth) return;
-  line.classList.add('rl-folded');
-  if (line.scrollWidth > line.clientWidth) line.classList.add('rl-wrapped');
+function reasoningLine(task) {
+  const level = task.reasoning;
+  if (!REASONING_LEVELS.includes(level)) return '';
+  return `Reasoning: <span class="rl-${level}">${level}</span>`;
 }
 
 /** The status, as the filled pill both the list and the conversation show.
@@ -686,9 +650,8 @@ function taskRow(task) {
   // handle_list_tasks): the model ids and the backend rule live in models.py,
   // and this only reads the answer.
   //
-  // The reasoning level follows the tag, and survives collapsing the same way:
-  // expanded it is the dashboard's ladder, collapsed it is `ls -c`'s `{level}`
-  // (see reasoningHtml).
+  // The reasoning level is a line of its own right beneath the status, and it
+  // survives collapsing the same way the tag does (see reasoningLine).
   //
   // The note the user wrote with `ilan notes` is rendered as Markdown in a
   // box below the body: what the agent last did, the status, then what the
@@ -700,10 +663,10 @@ function taskRow(task) {
   const meta = [
     statusPill(task),
     task.max_tag ? `<span class="max-tag">${esc(task.max_tag)}</span>` : '',
-    reasoningHtml(task),
     `<span class="meta-detail">${
       esc(ago(task.status_changed_at || task.created_at))} ago</span>`,
   ].filter(Boolean).join('');
+  const reasoning = reasoningLine(task);
 
   const collapsed = isCollapsed(task);
 
@@ -725,6 +688,7 @@ function taskRow(task) {
         ${task.summary_one_liner
           ? `<span class="row-sum">${esc(task.summary_one_liner)}</span>` : ''}
         <span class="row-meta">${meta}</span>
+        ${reasoning ? `<span class="row-reasoning">${reasoning}</span>` : ''}
       </button>
       ${task.notes ? `<div class="row-notes md">${MD.render(task.notes)}</div>` : ''}
       <div class="row-actions">
@@ -1222,6 +1186,7 @@ async function renderDetail(name) {
   const sub = [
     replyEverySuffix(task.reply_every_seconds),
   ].filter(Boolean).join(' · ');
+  const reasoning = reasoningLine(task);
 
   // A closed task has nothing to reply to, so the composer's place along the
   // bottom of the screen goes to the one thing you do want from it: reopening
@@ -1278,11 +1243,11 @@ async function renderDetail(name) {
            card: same container class, same rule, same position. Beside the
            status rather than the name because the title is the one line on
            this page that cannot afford to give up width. The reasoning
-           ladder follows the tag, as on an expanded card. -->
+           level is the line right beneath, as on a card. -->
       <p class="hdr-sub row-meta rs-${esc(status)}">${statusPill(task)}${
         task.max_tag ? `<span class="max-tag">${esc(task.max_tag)}</span>` : ''}${
-        reasoningHtml(task)}${
         sub ? `<span class="meta-detail">${esc(sub)}</span>` : ''}</p>
+      ${reasoning ? `<p class="hdr-sub row-reasoning">${reasoning}</p>` : ''}
       ${hasMore ? `
       <div class="hdr-row">
         <button class="btn btn-sm show-more" id="show-more">Show More</button>
@@ -1292,7 +1257,6 @@ async function renderDetail(name) {
     <div class="dock">${footer}</div>`);
 
   wireBack();
-  foldLadderToFit($('.hdr-sub'));
   $('#refresh').onclick = () => renderDetail(name);
   $('#actions').onclick = () => showActions(task);
   const more = $('#show-more');
