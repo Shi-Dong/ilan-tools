@@ -258,10 +258,11 @@ def max_tag(engine: str | None, maxed: bool) -> str | None:
 # ── Reasoning levels (``ilan level``) ───────────────────────────────────
 # Each task carries one of three reasoning levels. The level is backend
 # neutral and every spawn translates it to the flag value of the backend the
-# task is on *now*, so switching backends needs no rewrite. Codex tops out at
+# task is on *now*, so switching backends needs no rewrite. New tasks, and
+# tasks stored before the field existed, start at ``low``. Codex tops out at
 # ``xhigh``, which is what ``max`` means there.
 REASONING_LEVELS = ("low", "medium", "max")
-DEFAULT_REASONING = "max"
+DEFAULT_REASONING = "low"
 
 _BACKEND_EFFORTS: dict[str, dict[str, str]] = {
     ENGINE_CLAUDE: {"low": "low", "medium": "medium", "max": "max"},

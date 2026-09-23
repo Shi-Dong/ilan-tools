@@ -408,15 +408,15 @@ class TestTask:
 
     def test_reasoning_roundtrip(self) -> None:
         t = self._make_task()
-        t.reasoning = "low"
-        assert Task.from_dict(t.to_dict()).reasoning == "low"
+        t.reasoning = "medium"
+        assert Task.from_dict(t.to_dict()).reasoning == "medium"
 
     @pytest.mark.parametrize("stored", [None, "high", "bogus"])
-    def test_from_dict_missing_or_unknown_reasoning_is_max(self, stored: str | None) -> None:
+    def test_from_dict_missing_or_unknown_reasoning_is_low(self, stored: str | None) -> None:
         d = {"name": "old", "prompt": "p", "status": "UNCLAIMED"}
         if stored is not None:
             d["reasoning"] = stored
-        assert Task.from_dict(d).reasoning == "max"
+        assert Task.from_dict(d).reasoning == "low"
 
     @pytest.mark.parametrize(("engine", "level", "effort"), [
         (ENGINE_CLAUDE, "low", "low"),
@@ -426,14 +426,16 @@ class TestTask:
         (ENGINE_CODEX, "medium", "medium"),
         (ENGINE_CODEX, "max", "xhigh"),
         (None, "max", "max"),
+        (ENGINE_CODEX, None, "low"),
     ])
     def test_effort_translates_the_level_for_the_backend(
-        self, engine: str | None, level: str, effort: str,
+        self, engine: str | None, level: str | None, effort: str,
     ) -> None:
         assert backend_effort(engine, level) == effort
         t = self._make_task()
         t.engine = engine or ENGINE_CLAUDE
-        t.reasoning = level
+        if level is not None:
+            t.reasoning = level
         assert t.effort == effort
 
     def test_effort_fields_roundtrip(self) -> None:

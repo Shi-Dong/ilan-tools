@@ -130,7 +130,7 @@ Every task command has a top-level shorthand, so `ilan task reply` is just `ilan
 
 | Command | What it does |
 |---|---|
-| `ilan level NAME low\|medium\|max` | Set how hard the task's agent thinks. `low` and `medium` mean the same on both backends; `max` is `max` on Claude and `xhigh` on Codex. New tasks start at `max`, and a branch keeps its parent's level. The `Reasoning` column in `ilan ls` and `ilan dashboard` shows it: green for `low`, yellow for `medium`, red for `max`. Takes effect on the next reply. |
+| `ilan level NAME low\|medium\|max` | Set how hard the task's agent thinks. `low` and `medium` mean the same on both backends; `max` is `max` on Claude and `xhigh` on Codex. New tasks start at `low`, and a branch keeps its parent's level. The `Reasoning` column in `ilan ls` and `ilan dashboard` shows `low ⋅ medium ⋅ max` with the active level coloured (green `low`, yellow `medium`, red `max`) and the others grey; `ilan ls -c` ends each line with just the active level. Takes effect on the next reply. |
 | `ilan max NAME` / `ilan unmax NAME` | Run the task on its backend's max model — the newest Fable on `claude`, the newest Astra on `codex` — or return to the configured default. A maxed task moves to each new release on its own. In `ilan ls` and `ilan dashboard` a maxed task's alias is written `[GK]` — capitals in square brackets, in red — where an ordinary task's is `(gk)` in pink. Takes effect on the next reply. |
 | `ilan switch-backend NAME` | Move an idle task between Claude Code and Codex. Maxed tasks stay maxed (FABLE ↔ ASTRA). The new backend catches up on its first turn. |
 | `ilan task kill NAME` | Stop a `WORKING` or `SLEEPING` agent. The task moves to `ERROR` until you reply. |

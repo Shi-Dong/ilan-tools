@@ -34,6 +34,7 @@ from ilan.task_display import (
     SLEEP_PROGRESS_EMPTY_STYLE,
     SLEEP_PROGRESS_STYLE,
     SLEEP_SUFFIX_STYLE,
+    _build_concise_task_line,
     _build_name_cell,
     _build_reasoning_cell,
     _name_style,
@@ -915,13 +916,44 @@ class TestOneLinerWarning:
 
 
 class TestReasoningCell:
+    @staticmethod
+    def _styles(cell: Text) -> dict[str, str]:
+        return {cell.plain[sp.start:sp.end]: str(sp.style) for sp in cell.spans}
+
     @pytest.mark.parametrize(("level", "style"), [
         ("low", "green"), ("medium", "yellow"), ("max", "red"),
     ])
-    def test_level_is_coloured(self, level: str, style: str) -> None:
+    def test_the_active_level_is_coloured_and_the_rest_grey(
+        self, level: str, style: str,
+    ) -> None:
         cell = _build_reasoning_cell({"reasoning": level})
-        assert cell.plain == level
-        assert str(cell.style) == style
+        assert cell.plain == "low ⋅ medium ⋅ max"
+        styles = self._styles(cell)
+        assert styles[level] == style
+        for other in {"low", "medium", "max"} - {level}:
+            assert styles[other] == "grey50"
+        assert styles[" ⋅ "] == "grey50"
 
-    def test_a_row_without_a_level_is_blank(self) -> None:
-        assert _build_reasoning_cell({}).plain == ""
+    def test_a_row_without_a_level_is_all_grey(self) -> None:
+        cell = _build_reasoning_cell({})
+        assert cell.plain == "low ⋅ medium ⋅ max"
+        assert set(self._styles(cell).values()) == {"grey50"}
+
+    def test_the_column_fits_the_ladder(self) -> None:
+        assert REASONING_COLUMN_WIDTH == len("low ⋅ medium ⋅ max")
+
+    @pytest.mark.parametrize(("level", "style"), [
+        ("low", "green"), ("medium", "yellow"), ("max", "red"),
+    ])
+    def test_the_concise_line_shows_only_the_active_level(
+        self, level: str, style: str,
+    ) -> None:
+        line = _build_concise_task_line(
+            {"name": "t", "status": "WORKING", "reasoning": level},
+        )
+        assert line.plain.endswith(f" {level}")
+        assert "⋅" not in line.plain
+        assert any(
+            line.plain[sp.start:sp.end] == f" {level}" and str(sp.style) == style
+            for sp in line.spans
+        )

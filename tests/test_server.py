@@ -2268,11 +2268,11 @@ class TestKill:
 
 
 class TestMaxUnmax:
-    def test_new_task_defaults_to_max_reasoning(self, ilan_server: IlanServer) -> None:
+    def test_new_task_defaults_to_low_reasoning(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "level-default", "prompt": "P"})
-        assert _get(ilan_server, "/tasks/level-default")["task"]["reasoning"] == "max"
+        assert _get(ilan_server, "/tasks/level-default")["task"]["reasoning"] == "low"
         rows = _get(ilan_server, "/tasks")["tasks"]
-        assert next(r for r in rows if r["name"] == "level-default")["reasoning"] == "max"
+        assert next(r for r in rows if r["name"] == "level-default")["reasoning"] == "low"
 
     @pytest.mark.parametrize(("agent", "level", "effort"), [
         ("claude", "low", "low"),
@@ -2302,7 +2302,7 @@ class TestMaxUnmax:
         _post(ilan_server, "/tasks", {"name": "level-bad", "prompt": "P"})
         resp = _post(ilan_server, "/tasks/level-bad/level", {"level": bad})
         assert "error" in resp
-        assert _get(ilan_server, "/tasks/level-bad")["task"]["reasoning"] == "max"
+        assert _get(ilan_server, "/tasks/level-bad")["task"]["reasoning"] == "low"
 
     def test_max_sets_fable_model(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "max-test", "prompt": "P"})

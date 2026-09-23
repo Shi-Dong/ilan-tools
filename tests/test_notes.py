@@ -1462,19 +1462,18 @@ class TestDashboardWidths:
         name, status = _rendered_widths(_build_dashboard_table([_row("a")], _TZ), width)[:2]
         assert 0 <= name - status <= 1
 
-    def test_the_reasoning_column_fits_its_header_and_every_level(self) -> None:
-        assert REASONING_COLUMN_WIDTH == len("Reasoning")
-        assert all(len(level) <= REASONING_COLUMN_WIDTH for level in REASONING_LEVELS)
+    def test_the_reasoning_column_fits_the_whole_ladder(self) -> None:
+        assert REASONING_COLUMN_WIDTH == len(" ⋅ ".join(REASONING_LEVELS))
 
     # Measured after `Reasoning` replaced `Last Changed`. Pinned so a later
     # change to the geometry has to be a deliberate one. The prose columns
-    # split the 11 characters the narrower pinned column gave back.
+    # split the 2 characters the narrower pinned column gave back.
     _EXPECTED = {
-        140: (61, 60, 9),
-        150: (66, 65, 9),
-        180: (81, 80, 9),
-        200: (91, 90, 9),
-        240: (111, 110, 9),
+        140: (56, 56, 18),
+        150: (61, 61, 18),
+        180: (76, 76, 18),
+        200: (86, 86, 18),
+        240: (106, 106, 18),
     }
 
     @pytest.mark.parametrize("width", sorted(_EXPECTED))
