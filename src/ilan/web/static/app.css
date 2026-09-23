@@ -82,6 +82,22 @@
    * the orange is the binding constraint, at 4.60:1. */
   --loop-bg: #f0f0f4;
 
+  /* Reasoning levels, mirroring REASONING_STYLES in task_display.py: green
+   * for low, yellow for medium, red for max. Two of the three are colours the
+   * app already spends, and they are referenced rather than copied so they
+   * cannot drift: max is the red of the FABLE / ASTRA tag, which already
+   * means "this task runs on the expensive setting" and is the same red the
+   * terminal prints both in; low is AGENT FINISHED's green, which is the
+   * terminal's plain green too.
+   *
+   * Yellow is the new one. As ink on a white card it has to be dark to reach
+   * 4.5:1, so it is an olive-yellow at 5.52:1 on the card and 4.94:1 on the
+   * header's grey. Its hue is held at ~51deg, clear of the Claude orange
+   * (33deg) in task names and the Tap amber (38deg) on the same card. */
+  --rl-low: var(--st-finished);
+  --rl-medium: #7a6800;
+  --rl-max: var(--danger);
+
   --radius: 12px;
   --tap: 44px;
 }
@@ -136,6 +152,11 @@
     --act-done: #e0a3c0;
     /* Lifted the same way: 7.3:1 on the dark card, a step above --text-dim. */
     --act-notes: #a9a9ae;
+
+    /* A clean yellow at 11.09:1 on the dark card. The other two levels follow
+     * their referents into dark mode by themselves. Hue ~52deg, clear of the
+     * dark-mode Claude orange (41deg) and Tap amber (40deg). */
+    --rl-medium: #e6d24a;
   }
 }
 
@@ -258,6 +279,11 @@ button, input, textarea, select {
   text-overflow: ellipsis;
   min-width: 0;
 }
+
+/* The one exception to the no-wrap rule above: a line on which even the
+ * folded reasoning level does not fit (see foldLadderToFit). Wrapping moves
+ * the level to a second line instead of cutting it off. */
+.hdr-sub.row-meta.rl-wrapped { flex-wrap: wrap; }
 
 /* ── buttons ────────────────────────────────────────────────────────── */
 
@@ -534,9 +560,9 @@ textarea.field {
  * from it. Hidden so it cannot occupy a line box at the top of the page. */
 .sprite { display: none; }
 
-/* Collapsed shows what `ilan ls -c` shows: pin, alias, name, unread marker
- * and status. The summary, the engine, the age and the sleep suffix are the
- * parts that line omits. */
+/* Collapsed shows what `ilan ls -c` shows: pin, alias, name, unread marker,
+ * status and reasoning level. The summary, the engine, the age and the sleep
+ * suffix are the parts that line omits. */
 /* The sleep suffix is deliberately NOT hidden here, unlike in `ls -c`: on a
  * phone the fact that a task is asleep is worth a line of its own, and a
  * collapsed card is the only thing most of the list ever shows. */
@@ -545,6 +571,20 @@ textarea.field {
 .card.collapsed .meta-detail {
   display: none;
 }
+
+/* The reasoning ladder folds to `ls -c`'s form: the lit level alone, in braces
+ * of its colour. The braces sit inside the lit word's span in the markup, so
+ * they take its colour without a rule of their own. The conversation header
+ * folds the same way when the ladder would not fit on its one line
+ * (.rl-folded, set by foldLadderToFit). */
+.card.collapsed .rl-off,
+.card.collapsed .rl-sep,
+.rl-folded .rl-off,
+.rl-folded .rl-sep {
+  display: none;
+}
+.card.collapsed .rl-brace,
+.rl-folded .rl-brace { display: inline; }
 
 /* With the summary gone the row would otherwise keep its two-line padding. */
 .card.collapsed .row { padding: 10px 14px; }
@@ -741,6 +781,43 @@ textarea.field {
   letter-spacing: .03em;
   color: var(--danger);
   flex: none;
+}
+
+/* The reasoning level, drawn as the `Reasoning` column of `ilan dashboard`
+ * draws it: `low ⋅ medium ⋅ max`, the task's level lit in its colour and the
+ * other two in the meta row's grey. Text at the meta row's size rather than
+ * the tags' eleven pixels: these are lowercase words, which read smaller than
+ * the capitals beside them. The lit level is bold as well as coloured, so it
+ * still stands out where colour is lost. The braces belong to the collapsed
+ * form (see .card.collapsed .rl-brace) and are hidden everywhere else. */
+.reasoning {
+  flex: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.rl-on { font-weight: 700; }
+.rl-brace { display: none; }
+.rl-low { color: var(--rl-low); }
+.rl-medium { color: var(--rl-medium); }
+.rl-max { color: var(--rl-max); }
+
+/* On the level sheet each choice is set in its own colour, as .btn-danger
+ * colours Delete, so the sheet uses the same colours as the ladder it sets. */
+.btn.rl-choice { font-weight: 600; }
+
+/* Text for a screen reader only: in the layout, clipped to nothing. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* The status is a filled pill, not coloured text: eleven bold pixels of colour

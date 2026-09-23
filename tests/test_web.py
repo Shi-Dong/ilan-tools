@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import colorsys
 import http.client
 import json
 import re
@@ -13,6 +14,7 @@ from ilan.models import (
     AGENT_IN_LOOP_LABEL,
     CANCEL_MESSAGE,
     MAX_NOTES_LENGTH,
+    REASONING_LEVELS,
     TAP_MESSAGE,
     TaskStatus,
 )
@@ -998,6 +1000,162 @@ def test_the_card_no_longer_names_the_backend():
 
     assert "task.engine" not in row, "the card still spells out the backend"
     assert "engineClass(task)" in row, "the name is no longer coloured by backend"
+
+
+# ── the reasoning level ─────────────────────────────────────────────────
+
+def _level_inks(css: str) -> tuple[dict[str, str], dict[str, str]]:
+    """Level → the colour it is drawn in, as light mode and dark mode resolve it.
+
+    Two of the three are references to colours the app already spends, which
+    ``_scheme_values`` does not follow, so they are resolved here the way the
+    cascade resolves them: through each scheme's own value of the referent.
+    """
+    light, dark = _scheme_values(css)
+    root = re.search(r":root \{(.*?)\n\}", css, re.S)
+    assert root
+    refs = dict(re.findall(r"(--rl-[a-z]+):\s*var\((--[a-z-]+)\);", root.group(1)))
+    resolve = lambda values, var: values[refs[var]] if var in refs else values[var]  # noqa: E731
+    return (
+        {level: resolve(light, f"--rl-{level}") for level in REASONING_LEVELS},
+        {level: resolve(dark, f"--rl-{level}") for level in REASONING_LEVELS},
+    )
+
+
+def _hue(colour: str) -> float:
+    r, g, b = (int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    return colorsys.rgb_to_hls(r, g, b)[0] * 360
+
+
+def test_the_levels_are_the_ones_the_server_accepts():
+    """The sheet offers these and the card draws these, so a level added on
+    the server and missed here would be one the app can neither show nor set."""
+    js = web.read_asset("app.js").decode()
+    match = re.search(r"const REASONING_LEVELS = \[([^\]]*)\];", js)
+    assert match, "the app no longer declares its reasoning levels"
+    assert tuple(re.findall(r"'([a-z]+)'", match.group(1))) == REASONING_LEVELS
+
+
+def test_each_level_takes_its_colour_from_its_own_variable():
+    css = web.read_asset("app.css").decode()
+    for level in REASONING_LEVELS:
+        assert f".rl-{level} {{ color: var(--rl-{level}); }}" in css, (
+            f"{level} is no longer drawn in --rl-{level}"
+        )
+
+
+def test_max_and_low_reuse_the_colours_that_already_mean_them():
+    """Referenced rather than copied, so the pair cannot drift apart.
+
+    Max is the red of the FABLE / ASTRA tag — the mark for a task on the
+    expensive setting, and the same red the terminal draws both in. Low is
+    AGENT FINISHED's green, which is the terminal's plain green as well.
+    """
+    css = web.read_asset("app.css").decode()
+    assert "--rl-max: var(--danger);" in css
+    assert "--rl-low: var(--st-finished);" in css
+
+
+def test_every_level_is_legible_in_both_schemes():
+    """Twelve-pixel text on the card, and on the conversation page's header,
+    which sits on the page's own grey rather than on the card."""
+    css = web.read_asset("app.css").decode()
+    light, dark = _scheme_values(css)
+    inks = dict(zip(("light", "dark"), _level_inks(css)))
+    for scheme, values in (("light", light), ("dark", dark)):
+        for level, ink in inks[scheme].items():
+            for surface in ("--bg-elevated", "--bg"):
+                ground = values[surface]
+                assert _contrast(ink, ground) >= 4.5, (
+                    f"{scheme}: {level} is {ink} on {surface} {ground}, "
+                    f"only {_contrast(ink, ground):.2f}:1"
+                )
+
+
+def test_the_levels_are_green_yellow_and_red():
+    """What `ilan ls` prints them in, checked as properties of the colours so a
+    shade can move without the test caring, but a hue cannot."""
+    css = web.read_asset("app.css").decode()
+    for scheme, inks in zip(("light", "dark"), _level_inks(css)):
+        for level, want in (("low", (100, 150)), ("medium", (45, 65)), ("max", (-10, 10))):
+            hue = _hue(inks[level])
+            hue = hue - 360 if hue > 180 and want[0] < 0 else hue
+            assert want[0] <= hue <= want[1], (
+                f"{scheme}: {level} is {inks[level]}, hue {hue:.0f}deg, "
+                f"outside {want[0]}..{want[1]}"
+            )
+
+
+def test_the_yellow_stays_off_the_oranges_it_sits_beside():
+    """A Claude task's name above it is orange, and the card's Tap button is
+    amber. A yellow that drifted toward either would read as one of them."""
+    css = web.read_asset("app.css").decode()
+    light, dark = _scheme_values(css)
+    for scheme, values, inks in zip(("light", "dark"), (light, dark), _level_inks(css)):
+        for neighbour in ("--engine-claude", "--act-tap"):
+            gap = abs(_hue(inks["medium"]) - _hue(values[neighbour]))
+            assert gap >= 8, (
+                f"{scheme}: medium {inks['medium']} is only {gap:.0f}deg from "
+                f"{neighbour} {values[neighbour]}"
+            )
+
+
+def test_the_lit_level_stands_out_without_colour():
+    """Bold as well as coloured, so the ladder still says which level is set
+    where colour is lost; the unlit words and the dots are the meta row's grey."""
+    css = web.read_asset("app.css").decode()
+    rule = re.search(r"\n\.reasoning \{(.*?)\}", css, re.S)
+    assert rule, "the ladder has no rule"
+    assert "color: var(--text-dim)" in rule.group(1)
+    assert "flex: none" in rule.group(1), "the ladder can be squeezed onto two lines"
+    assert ".rl-on { font-weight: 700; }" in css
+
+
+def test_a_collapsed_card_folds_the_ladder_to_the_braced_level():
+    """Collapsed is `ls -c`, which prints `{low}`: the unlit words and the dots
+    go, the braces appear, and the lit word itself stays.
+
+    The braces are hidden everywhere else, which is what keeps them off an
+    expanded card and off the conversation page.
+    """
+    css = web.read_asset("app.css").decode()
+    hide = re.search(
+        r"\.card\.collapsed \.rl-off,\s*\.card\.collapsed \.rl-sep,\s*"
+        r"\.rl-folded \.rl-off,\s*\.rl-folded \.rl-sep \{\s*display: none;\s*\}", css,
+    )
+    assert hide, "a collapsed card, or a folded header, keeps the whole ladder"
+    assert ".card.collapsed .rl-brace,\n.rl-folded .rl-brace { display: inline; }" in css
+    assert ".rl-brace { display: none; }" in css, "the braces show on an expanded card"
+    for kept in (".card.collapsed .reasoning", ".card.collapsed .rl-on"):
+        assert kept not in css, f"{kept} is hidden when collapsed"
+
+
+def test_the_conversation_header_folds_a_ladder_that_does_not_fit():
+    """The header's status line never wraps, so a ladder too wide for it would
+    be clipped mid-word; it folds to `{level}` instead, measured after layout.
+    Only the header is measured: a card's meta row wraps rather than clips."""
+    js = web.read_asset("app.js").decode()
+    body = js.split("function foldLadderToFit")[1].split("\n}\n")[0]
+    assert "line.scrollWidth > line.clientWidth" in body
+    assert "classList.add('rl-folded')" in body
+    assert "classList.remove('rl-folded', 'rl-wrapped')" in body, (
+        "a header folded once would stay folded on a wider screen"
+    )
+    # Folded and still too wide, the line wraps rather than cutting the level.
+    assert "classList.add('rl-wrapped')" in body
+    css = web.read_asset("app.css").decode()
+    assert ".hdr-sub.row-meta.rl-wrapped { flex-wrap: wrap; }" in css
+    detail = js.split("async function renderDetail")[1].split("\n}\n")[0]
+    assert "foldLadderToFit($('.hdr-sub'))" in detail
+    assert js.count("foldLadderToFit(") == 2, "the fold is applied somewhere other than the header"
+
+
+def test_the_screen_reader_text_is_really_out_of_sight():
+    css = web.read_asset("app.css").decode()
+    rule = re.search(r"\n\.sr-only \{(.*?)\}", css, re.S)
+    assert rule, "the screen-reader-only helper has no rule"
+    for prop in ("position: absolute", "width: 1px", "height: 1px", "overflow: hidden"):
+        assert prop in rule.group(1), f".sr-only lost {prop}"
 
 
 # ── the collapsed card ──────────────────────────────────────────────────

@@ -315,7 +315,8 @@ function askConfirm(title, okLabel = 'Confirm', danger = false) {
 function askChoice(title, options) {
   return modal(
     `<div class="sheet-title">${esc(title)}</div>
-     ${options.map((o) => `<button class="btn ${o.danger ? 'btn-danger' : ''}"
+     ${options.map((o) => `<button class="${
+        ['btn', o.danger && 'btn-danger', o.cls && esc(o.cls)].filter(Boolean).join(' ')}"
         data-value="${esc(o.value)}">${esc(o.label)}</button>`).join('')}
      <button class="btn btn-ghost" data-value="">Cancel</button>`,
     (root, close) => {
@@ -593,6 +594,66 @@ function icon(name) {
   return `<svg class="ico" aria-hidden="true"><use href="#${ICONS[name]}"></use></svg>`;
 }
 
+/** The reasoning levels `ilan level` accepts, cheapest first.
+ *
+ * Mirrors REASONING_LEVELS in models.py, and a test holds the two equal. The
+ * order is the ladder's: it is the order the words are drawn in.
+ */
+const REASONING_LEVELS = ['low', 'medium', 'max'];
+
+/** The task's reasoning level, as the terminal listings draw it.
+ *
+ * `low ⋅ medium ⋅ max` with the task's own level in its colour and the other
+ * two in the meta row's grey — the `Reasoning` column of `ilan dashboard`. A
+ * collapsed card is `ilan ls -c`, which prints only the level, in braces of
+ * its colour: `{low}`. Both forms are in this one piece of markup and CSS
+ * shows one or the other, so collapsing stays a class on the card rather than
+ * a second rendering path. The level is not a .meta-detail for the same
+ * reason the max-model tag is not: which tasks are burning the expensive
+ * setting is worth knowing from a collapsed list.
+ *
+ * The colour is not the only mark: the lit level is also bold, which survives
+ * colour loss. A screen reader hears "Reasoning low" — the grey words, the
+ * dots and the braces are hidden from it, since they only say where on the
+ * ladder the level sits, which the word itself already says.
+ *
+ * A level the app does not know renders nothing, rather than a ladder with
+ * nothing lit.
+ */
+function reasoningHtml(task) {
+  const active = task.reasoning;
+  if (!REASONING_LEVELS.includes(active)) return '';
+  const brace = (b) => `<span class="rl-brace" aria-hidden="true">${b}</span>`;
+  const words = REASONING_LEVELS.map((level) => (level === active
+    ? `<span class="rl-on rl-${level}">${brace('{')}${level}${brace('}')}</span>`
+    : `<span class="rl-off" aria-hidden="true">${level}</span>`));
+  return `<span class="reasoning"><span class="sr-only">Reasoning </span>${
+    words.join('<span class="rl-sep" aria-hidden="true"> ⋅ </span>')}</span>`;
+}
+
+/** Fold the ladder on a one-line strip to `{level}` when it does not fit.
+ *
+ * The conversation header's status line never wraps — a sticky header that
+ * grew a second line would push the conversation down — so a ladder that did
+ * not fit beside a long status would be clipped mid-word: `low ⋅ mediu`. That
+ * happens on a narrow phone once a sleep bar and a max-model tag share the
+ * line. Instead the ladder takes a collapsed card's form, the level alone in
+ * braces, which says the same thing in a third of the width. Measured after
+ * layout rather than predicted, since what fits depends on the status, the
+ * tag, the font and the phone.
+ *
+ * On the narrowest phones (320px) even `{max}` does not fit beside a sleep
+ * bar and a tag, and there the line is let wrap, so the level moves to a line
+ * of its own rather than being cut. That is the only case the header grows.
+ */
+function foldLadderToFit(line) {
+  if (!line || typeof line.querySelector !== 'function' || !line.querySelector('.reasoning')) return;
+  line.classList.remove('rl-folded', 'rl-wrapped');
+  if (line.scrollWidth <= line.clientWidth) return;
+  line.classList.add('rl-folded');
+  if (line.scrollWidth > line.clientWidth) line.classList.add('rl-wrapped');
+}
+
 /** The status, as the filled pill both the list and the conversation show.
  *
  * One function rather than the same span written out in two places, because
@@ -625,6 +686,10 @@ function taskRow(task) {
   // handle_list_tasks): the model ids and the backend rule live in models.py,
   // and this only reads the answer.
   //
+  // The reasoning level follows the tag, and survives collapsing the same way:
+  // expanded it is the dashboard's ladder, collapsed it is `ls -c`'s `{level}`
+  // (see reasoningHtml).
+  //
   // The note the user wrote with `ilan notes` is rendered as Markdown in a
   // box below the body: what the agent last did, the status, then what the
   // task is for in the user's own words, with whatever links, lists or code
@@ -635,6 +700,7 @@ function taskRow(task) {
   const meta = [
     statusPill(task),
     task.max_tag ? `<span class="max-tag">${esc(task.max_tag)}</span>` : '',
+    reasoningHtml(task),
     `<span class="meta-detail">${
       esc(ago(task.status_changed_at || task.created_at))} ago</span>`,
   ].filter(Boolean).join('');
@@ -1211,9 +1277,11 @@ async function renderDetail(name) {
       <!-- The max-model tag follows the pill here exactly as it does on the
            card: same container class, same rule, same position. Beside the
            status rather than the name because the title is the one line on
-           this page that cannot afford to give up width. -->
+           this page that cannot afford to give up width. The reasoning
+           ladder follows the tag, as on an expanded card. -->
       <p class="hdr-sub row-meta rs-${esc(status)}">${statusPill(task)}${
         task.max_tag ? `<span class="max-tag">${esc(task.max_tag)}</span>` : ''}${
+        reasoningHtml(task)}${
         sub ? `<span class="meta-detail">${esc(sub)}</span>` : ''}</p>
       ${hasMore ? `
       <div class="hdr-row">
@@ -1224,6 +1292,7 @@ async function renderDetail(name) {
     <div class="dock">${footer}</div>`);
 
   wireBack();
+  foldLadderToFit($('.hdr-sub'));
   $('#refresh').onclick = () => renderDetail(name);
   $('#actions').onclick = () => showActions(task);
   const more = $('#show-more');
@@ -1350,6 +1419,12 @@ function showActions(task) {
   options.push({ value: 'notes', label: 'Note…' });
   options.push({ value: task.pinned ? 'unpin' : 'pin', label: task.pinned ? 'Unpin' : 'Pin' });
   options.push({ value: task.maxed ? 'unmax' : 'max', label: task.maxed ? 'Unmax' : 'Max' });
+  // Beside Max, the other knob for how hard the task thinks. Named with its
+  // current value, the way Switch backend names the backend it would leave.
+  options.push({
+    value: 'level',
+    label: `Reasoning level… (now ${REASONING_LEVELS.includes(task.reasoning) ? task.reasoning : '?'})`,
+  });
   options.push({ value: 'switch-backend', label: `Switch backend (now ${task.engine || '?'})` });
   options.push({ value: 'rename', label: 'Rename…' });
   options.push({ value: 'branch', label: 'Branch…' });
@@ -1411,6 +1486,28 @@ async function runAction(choice, task) {
       if (resp === null) return;
       if (!resp.ok) { toast(resp.data.error || 'Failed', true); return; }
       toast(`Sleeping for ${formatCompactDuration(seconds)}`);
+      back();
+      return;
+    }
+
+    case 'level': {
+      // A fixed choice, like Sleep: the three levels `ilan level` takes,
+      // spelled the way the CLI spells them and in the colours the card draws
+      // them in, so the sheet teaches the ladder it sets.
+      const chosen = await askChoice('Reasoning level',
+        REASONING_LEVELS.map((level) => ({
+          value: level,
+          label: level === task.reasoning ? `${level} (current)` : level,
+          cls: `rl-choice rl-${level}`,
+        })));
+      if (chosen === null) return;
+      const { ok, data } = await api.post(`/tasks/${t}/level`, { level: chosen });
+      if (!ok) { toast(data.error || 'Failed', true); return; }
+      // `max` is `xhigh` on Codex, and saying so is the one thing the level's
+      // name alone does not tell you.
+      const effort = data.effort && data.effort !== chosen
+        ? ` (${data.effort} on ${task.engine || 'this backend'})` : '';
+      toast(`Reasoning level set to ${chosen}${effort}`);
       back();
       return;
     }
