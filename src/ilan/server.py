@@ -782,6 +782,19 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             body = self._body()
             message = body["message"]
             every_seconds = body.get("every_seconds")
+            # ``reply --level``: the task's reasoning level from this reply's
+            # own answer on. Checked before anything else changes, so a bad
+            # value refuses the reply instead of posting it at the old level.
+            level = body.get("level")
+            if level is not None:
+                level = str(level).strip().lower()
+                if level not in REASONING_LEVELS:
+                    self._json(
+                        {"error": f"Invalid reasoning level {body.get('level')!r}. "
+                                  f"Choose from: {', '.join(REASONING_LEVELS)}"},
+                        400,
+                    )
+                    return
             if every_seconds is not None and (
                 not isinstance(every_seconds, int)
                 or every_seconds < REPLY_EVERY_MIN_SECONDS
@@ -808,6 +821,13 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 store = self._ilan.store
                 runner = self._ilan.runner
 
+                # Set only now that nothing can refuse the reply (a declined
+                # reply -t confirmation changes nothing), and before the agent
+                # is resumed below, so the spawn that answers this message is
+                # already told the new level — and every one after it.
+                if level is not None:
+                    task.reasoning = level
+
                 # A plain reply overrides any in-flight sleep: the agent is
                 # no longer sleeping on behalf of an earlier ``ilan sleep``,
                 # so drop ``sleep_seconds`` in every branch below to make
@@ -825,7 +845,12 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
 
                 if task.status.is_running:
                     runner.reply_to_working(task, message)
-                    self._json({"ok": True, "message": "Interrupted agent and resumed with reply."})
+                    self._json({
+                        "ok": True,
+                        "message": "Interrupted agent and resumed with reply.",
+                        "reasoning": task.reasoning,
+                        "effort": task.effort,
+                    })
                     return
 
                 # NEEDS_ATTENTION / AGENT_FINISHED / ERROR
@@ -838,6 +863,8 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 "ok": True,
                 "name": task.name,
                 "message": f"Reply sent to {task.name}. Agent resumed.",
+                "reasoning": task.reasoning,
+                "effort": task.effort,
             })
 
         def handle_task_set_reply_every(self, name: str):

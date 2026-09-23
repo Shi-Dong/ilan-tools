@@ -26,6 +26,7 @@ _REPLY_FLAGS = [
     "-t, --every",
     "-e, --editor",
     "-u, --update",
+    "--level",
     "-h, --help",
 ]
 
@@ -90,6 +91,7 @@ class TestWhatTheHelpSays:
         assert "leaving the cadence alone" in out
         assert "-e writes MESSAGE in the editor" in out
         assert "--max and --unmax switch the task's model" in out
+        assert "--level sets the task's reasoning level" in out
 
     @pytest.mark.parametrize("prefix", _REPLY_PREFIXES)
     def test_it_ends_with_an_example_of_each_mode(
@@ -107,6 +109,7 @@ class TestWhatTheHelpSays:
             "-t 30m",
             "-u ",
             '"Try again" --max',
+            '"Dig in" --level max',
         ):
             assert snippet in examples, snippet
 
@@ -118,7 +121,7 @@ class TestWhatTheHelpSays:
         out = _help(runner, [*prefix, "-h"])
         examples = out[out.index("Examples:"):].splitlines()[1:]
         commands = [line for line in examples if line.strip()]
-        assert len(commands) == 9
+        assert len(commands) == 10
         assert all(line.lstrip().startswith("ilan re fix-bug") for line in commands)
 
     @pytest.mark.parametrize("prefix", _REPLY_PREFIXES)

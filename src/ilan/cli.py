@@ -1685,6 +1685,7 @@ def _confirm_reply_every_override(resp: dict) -> None:
 def _do_reply(
     name: str, message: str, max_: bool = False, unmax: bool = False,
     every_seconds: int | None = None, confirmation: str | None = None,
+    level: str | None = None,
 ) -> None:
     # Switch the model first so this reply's own turn (and every one after
     # it) already runs on the new model. On a codex task the max endpoint
@@ -1700,6 +1701,11 @@ def _do_reply(
     kwargs: dict = {}
     if every_seconds is not None:
         kwargs["every_seconds"] = every_seconds
+    # Sent with the reply rather than as an `ilan level` call before it, so
+    # the server sets it only once the reply is accepted — a declined reply -t
+    # confirmation leaves the level as it was — and before the agent answers.
+    if level is not None:
+        kwargs["level"] = level
     client = _client()
     resp = client.reply(name, message, **kwargs)
     if resp.get("confirm_reply_every"):
@@ -1715,6 +1721,8 @@ def _do_reply(
         _print_reply_confirmation(confirmation, name)
     elif resp.get("message"):
         _print_reply_confirmation(resp["message"], resp.get("name"))
+    if level is not None:
+        _print_reply_level(name, level, resp)
     if every_seconds is not None:
         console.print(
             f"[{REPLY_EVERY_STYLE}]Will re-send this reply every "
@@ -1723,10 +1731,33 @@ def _do_reply(
         )
 
 
+def _print_reply_level(name: str, level: str, resp: dict) -> None:
+    """Confirm the level a ``reply --level`` set, or warn that it was not set.
+
+    A server older than the flag ignores the field it does not know and posts
+    the reply at the task's old level; its response then carries no matching
+    ``reasoning``, and saying so beats a silent no-op.
+    """
+    if resp.get("reasoning") != level:
+        console.print(
+            "[yellow]The server did not change the reasoning level: it predates "
+            "reply --level. Restart it with ilan server restart, then use "
+            f"ilan level {name} {level}.[/yellow]"
+        )
+        return
+    style = REASONING_STYLES.get(level, "")
+    console.print(
+        f"[green]Reasoning level set to [{style}]{level}[/{style}] "
+        f"(effort: [cyan]{resp.get('effort', '')}[/cyan]), starting with the "
+        "answer to this reply.[/green]"
+    )
+
+
 def _check_reply_model_flags(
-    message: str | None, max_: bool, unmax: bool, editor: bool = False
+    message: str | None, max_: bool, unmax: bool, editor: bool = False,
+    level: str | None = None,
 ) -> None:
-    """Validate the ``--max``/``--unmax`` reply flags, exiting on misuse.
+    """Validate the ``--max``/``--unmax``/``--level`` reply flags, exiting on misuse.
 
     ``-e`` counts as a message: the text is written after this runs, but the
     command is still a reply rather than the bare tail these flags reject.
@@ -1738,6 +1769,12 @@ def _check_reply_model_flags(
         console.print(
             "[red]--max/--unmax require a response message (to only switch "
             "the model, use ilan max / ilan unmax).[/red]"
+        )
+        raise SystemExit(1)
+    if level is not None and message is None and not editor:
+        console.print(
+            "[red]--level requires a response message: it sets the level the "
+            "agent answers it at (to only change the level, use ilan level).[/red]"
         )
         raise SystemExit(1)
 
@@ -1919,6 +1956,7 @@ def _do_reply_command(
     name: str, message: str | None, num: int | None, markdown: bool | None,
     line_number: bool | None, max_: bool, unmax: bool,
     every: str | None = None, editor: bool = False, update: bool = False,
+    level: str | None = None,
 ) -> None:
     """Shared body of ``ilan task reply``, ``ilan reply`` and ``ilan re``."""
     if update:
@@ -1932,12 +1970,13 @@ def _do_reply_command(
             )
             raise SystemExit(1)
         if (
-            editor or every is not None or max_ or unmax
+            editor or every is not None or max_ or unmax or level is not None
             or markdown is not None or line_number is not None
         ):
             console.print(
                 "[red]-u only edits the looping prompt; it cannot be combined "
-                "with -e, -t, --max, --unmax, --md/--no-md or --line-number.[/red]"
+                "with -e, -t, --max, --unmax, --level, --md/--no-md or "
+                "--line-number.[/red]"
             )
             raise SystemExit(1)
         _do_update_loop_prompt(name)
@@ -1947,7 +1986,7 @@ def _do_reply_command(
             "[red]-e takes no message: it opens your editor to write one.[/red]"
         )
         raise SystemExit(1)
-    _check_reply_model_flags(message, max_, unmax, editor)
+    _check_reply_model_flags(message, max_, unmax, editor, level)
     if message is None and not editor:
         if every is None:
             _do_tail(name, n=num, markdown=markdown, line_number=line_number)
@@ -1974,7 +2013,10 @@ def _do_reply_command(
         if editor:
             message = _collect_editor_reply(name)
         assert message is not None
-        _do_reply(name, message, max_=max_, unmax=unmax, every_seconds=every_seconds)
+        _do_reply(
+            name, message, max_=max_, unmax=unmax, every_seconds=every_seconds,
+            level=level,
+        )
 
 
 _REPLY_EVERY_HELP = (
@@ -2022,7 +2064,9 @@ message in your editor so you can change it, leaving the cadence alone.
 
 -e writes MESSAGE in the editor from your config instead of on the command
 line. --max and --unmax switch the task's model before the message is
-posted. When line-number mode is on, @N in a message quotes line N of the
+posted. --level sets the task's reasoning level (low, medium or max) from
+this reply on: the agent answers MESSAGE at that level, and keeps it for
+every turn after. When line-number mode is on, @N in a message quotes line N of the
 last tail as a Markdown blockquote on a line of its own.
 """
 
@@ -2038,6 +2082,7 @@ Examples:
   ilan re fix-bug -t 30m                 looping task: now, then every 30m
   ilan re fix-bug -u                     looping task: edit its message
   ilan re fix-bug "Try again" --max      switch to the max model, then send
+  ilan re fix-bug "Dig in" --level max   answer this, and what follows, at max
 """
 
 
@@ -2062,6 +2107,11 @@ Examples:
 @click.option("--unmax", "unmax", is_flag=True, default=False,
               help="Reset the task's model to the config default before "
                    "posting the reply.")
+@click.option("--level", "level", default=None,
+              type=click.Choice(REASONING_LEVELS, case_sensitive=False),
+              help="Set the task's reasoning level from this reply on: the "
+                   "agent answers MESSAGE at LEVEL, and keeps it for every "
+                   "turn after.")
 @click.option("-t", "--every", "every", default=None, help=_REPLY_EVERY_HELP)
 @click.option("-e", "--editor", "editor", is_flag=True,
               help=_REPLY_EDITOR_HELP)
@@ -2070,12 +2120,12 @@ Examples:
 def task_reply(
     name: str, message: str | None, num: int | None, markdown: bool | None,
     line_number: bool | None, max_: bool, unmax: bool, every: str | None,
-    editor: bool, update: bool,
+    editor: bool, update: bool, level: str | None,
 ) -> None:
     """Send a response to a task. If no message is given, show the tail instead."""
     _do_reply_command(
         name, message, num, markdown, line_number, max_, unmax, every, editor,
-        update,
+        update, level.lower() if level else None,
     )
 
 
