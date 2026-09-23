@@ -615,7 +615,10 @@ const REASONING_LEVELS = ['low', 'medium', 'max'];
 function reasoningLine(task) {
   const level = task.reasoning;
   if (!REASONING_LEVELS.includes(level)) return '';
-  return `Reasoning: <span class="rl-${level}">${level}</span>`;
+  // The whole ladder, as the Reasoning column of `ilan dashboard` draws it:
+  // only the task's own level is coloured, the other two stay grey.
+  return `Reasoning: ${REASONING_LEVELS.map((l) => (l === level
+    ? `<span class="rl-${l}">${l}</span>` : `<span class="rl-off">${l}</span>`)).join(' ⋅ ')}`;
 }
 
 /** The status, as the filled pill both the list and the conversation show.

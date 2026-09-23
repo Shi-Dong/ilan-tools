@@ -40,7 +40,8 @@ function card(app, name) {
   return m ? m[0] : '';
 }
 
-const lineFor = (level) => `Reasoning: <span class="rl-${level}">${level}</span>`;
+const lineFor = (level) => `Reasoning: ${LEVELS.map((l) => (l === level
+  ? `<span class="rl-${l}">${l}</span>` : `<span class="rl-off">${l}</span>`)).join(' ⋅ ')}`;
 
 // ── the line, right beneath the status; the same markup either way ──────
 const open = listWith(TASKS.map((t) => t.name));
