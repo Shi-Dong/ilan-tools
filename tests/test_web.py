@@ -1112,16 +1112,16 @@ def test_the_level_is_a_line_of_its_own_in_the_meta_rows_grey():
     assert ".row-reasoning > span { font-weight: 600; }" in css
 
 
-def test_the_level_line_survives_collapsing():
-    """Which tasks run on the expensive setting is worth seeing from the
-    collapsed list, so no collapsed-card rule hides the line."""
+def test_a_collapsed_card_drops_the_level_line():
+    """Asked for explicitly: the line is on an expanded card and the task's
+    page, not on a collapsed card. It is hidden by the same rule that hides the
+    summary and the note, so it cannot come back on its own while they stay
+    hidden — and it is the card's rule, so the task page keeps its line."""
     css = web.read_asset("app.css").decode()
-    assert ".card.collapsed .row-reasoning" not in css, "the line is hidden when collapsed"
-    js = web.read_asset("app.js").decode()
-    row = js.split("function taskRow")[1].split("\n}\n")[0]
-    line = re.search(r"reasoning \? `(<span[^>]*>)", row)
-    assert line, "the card no longer renders the reasoning line"
-    assert "meta-detail" not in line.group(1), "the line carries the class that collapsing hides"
+    rule = re.search(r"((?:\.card\.collapsed \.[a-z-]+,\s*)+\.card\.collapsed \.[a-z-]+) \{\s*display: none;", css)
+    assert rule, "the collapsed card's hide rule is gone"
+    assert ".card.collapsed .row-reasoning" in rule.group(1), "a collapsed card shows the reasoning line"
+    assert ".hdr-sub.row-reasoning { display: none" not in css
 
 
 # ── the collapsed card ──────────────────────────────────────────────────
@@ -1130,15 +1130,16 @@ def test_a_collapsed_card_hides_the_summary_and_the_metadata():
     """The collapsed view is defined by CSS, so assert the rules exist.
 
     A collapsed card shows the pin, alias, name, unread marker, status and the
-    max-model tag. The summary, the note and the age are what it drops, hidden
-    by class rather than by a second rendering path — so losing one of these
-    selectors would quietly put the detail back.
+    max-model tag. The summary, the note, the reasoning line and the age are
+    what it drops, hidden by class rather than by a second rendering path — so
+    losing one of these selectors would quietly put the detail back.
     """
     css = web.read_asset("app.css").decode()
 
     for selector in (
         ".card.collapsed .row-sum",
         ".card.collapsed .row-notes",
+        ".card.collapsed .row-reasoning",
         ".card.collapsed .meta-detail",
     ):
         assert selector in css, f"{selector} is no longer hidden when collapsed"

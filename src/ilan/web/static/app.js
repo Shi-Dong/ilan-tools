@@ -604,11 +604,11 @@ const REASONING_LEVELS = ['low', 'medium', 'max'];
 /** "Reasoning: low", with the level in its colour, or '' for a level the app
  * does not know.
  *
- * It is a line of its own right beneath the status, on every card — collapsed
- * ones too, since which tasks run on the expensive setting is worth seeing in
- * the list most of it is only ever seen as — and on the task's page. The
- * caller wraps it: a card in a span styled as a line, the page in a paragraph
- * of its header. Only the level's name is coloured (green low, yellow medium,
+ * It is a line of its own right beneath the status, on an expanded card and on
+ * the task's page. A collapsed card drops it, as it drops the summary and the
+ * note: the markup is the same either way and CSS hides it, so collapsing
+ * stays a class on the card. The caller wraps it: a card in a span styled as
+ * a line, the page in a paragraph of its header. Only the level's name is coloured (green low, yellow medium,
  * red max, as `ilan ls` prints them); the words around it are the meta row's
  * grey.
  */
@@ -651,7 +651,7 @@ function taskRow(task) {
   // and this only reads the answer.
   //
   // The reasoning level is a line of its own right beneath the status, and it
-  // survives collapsing the same way the tag does (see reasoningLine).
+  // is detail a collapsed card drops, like the summary (see reasoningLine).
   //
   // The note the user wrote with `ilan notes` is rendered as Markdown in a
   // box below the body: what the agent last did, the status, then what the

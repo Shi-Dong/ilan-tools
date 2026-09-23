@@ -555,14 +555,19 @@ textarea.field {
  * from it. Hidden so it cannot occupy a line box at the top of the page. */
 .sprite { display: none; }
 
-/* Collapsed shows what `ilan ls -c` shows: pin, alias, name, unread marker,
- * status and reasoning level. The summary, the engine, the age and the sleep
- * suffix are the parts that line omits. */
+/* Collapsed shows what `ilan ls -c` shows: pin, alias, name, unread marker
+ * and status. The summary, the engine, the age and the sleep suffix are the
+ * parts that line omits. */
 /* The sleep suffix is deliberately NOT hidden here, unlike in `ls -c`: on a
  * phone the fact that a task is asleep is worth a line of its own, and a
  * collapsed card is the only thing most of the list ever shows. */
+/* The reasoning line goes the other way: `ls -c` prints the level, but a
+ * collapsed card drops it with the summary and the note, so the collapsed
+ * list stays two lines a task. It is on the expanded card and the task's
+ * page. */
 .card.collapsed .row-sum,
 .card.collapsed .row-notes,
+.card.collapsed .row-reasoning,
 .card.collapsed .meta-detail {
   display: none;
 }
@@ -768,8 +773,7 @@ textarea.field {
  * "Reasoning: low". The words are the meta row's size and grey, and the
  * level's name carries its colour (green low, yellow medium, red max, as
  * `ilan ls` prints them) with a little weight, so it reads as the line's
- * value. Deliberately absent from the collapsed card's rules: which tasks run
- * on the expensive setting is worth seeing from a collapsed list. */
+ * value. A collapsed card hides it (see .card.collapsed above). */
 .row-reasoning {
   display: block;
   margin-top: 4px;

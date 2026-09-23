@@ -2,9 +2,11 @@
  * on the ••• sheet that changes it.
  *
  * The level is a line of its own right beneath the status, "Reasoning: low",
- * with only the level's name coloured. It is on every card, collapsed or not,
- * and on the task's page — and a level the app does not know draws nothing,
- * rather than a line naming a level no one set.
+ * with only the level's name coloured, on an expanded card and on the task's
+ * page. A collapsed card carries the same markup and CSS hides it, as it hides
+ * the summary (test_web.py checks that rule) — so what is checked here is that
+ * the markup does not change with the card's state. A level the app does not
+ * know draws nothing, rather than a line naming a level no one set.
  */
 
 import { bootApp, checker, settle } from './harness.mjs';
@@ -40,7 +42,7 @@ function card(app, name) {
 
 const lineFor = (level) => `Reasoning: <span class="rl-${level}">${level}</span>`;
 
-// ── every card carries the line, right beneath the status ───────────────
+// ── the line, right beneath the status; the same markup either way ──────
 const open = listWith(TASKS.map((t) => t.name));
 const shut = listWith([]);
 check('the card really is collapsed', /class="card rs-WORKING collapsed"/.test(card(shut, 'low-task')));
@@ -57,8 +59,6 @@ for (const [state, app] of [['expanded', open], ['collapsed', shut]]) {
       c.indexOf('class="row-reasoning"') < c.indexOf('</button>'), c);
     check(`${state} ${level}: the line is drawn once`,
       (c.match(/class="row-reasoning"/g) || []).length === 1);
-    check(`${state} ${level}: it is not tagged as something collapsing hides`,
-      !/row-reasoning[^"]*meta-detail|meta-detail[^"]*row-reasoning/.test(c));
   }
   check(`${state}: a level the app does not know draws no line`,
     !card(app, 'odd-task').includes('row-reasoning'), card(app, 'odd-task'));

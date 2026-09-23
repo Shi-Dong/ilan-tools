@@ -189,7 +189,7 @@ Task names are tinted by backend in every listing: orange for Claude, light blue
 
 ## Web app
 
-The server serves a phone-first web app at `/app` (`http://127.0.0.1:4526/app/`), with nothing extra to install. It covers the everyday commands: the task list with search, reading and replying, tap, sleep, done, pin, max, reasoning level, switch-backend, branch, notes, and settings. Each task shows its reasoning level on a line beneath its status, such as `Reasoning: low`. Sleeping tasks carry the same elapsed/total progress bar as the full terminal listing. Once the app is on an iPhone's Home Screen, it can also send push notifications when a task finishes. Point a phone at the server over your LAN, a VPN, or an SSH tunnel, and on iOS use Share, then Add to Home Screen, to install it as an app.
+The server serves a phone-first web app at `/app` (`http://127.0.0.1:4526/app/`), with nothing extra to install. It covers the everyday commands: the task list with search, reading and replying, tap, sleep, done, pin, max, reasoning level, switch-backend, branch, notes, and settings. An expanded task card and the task page show the task's reasoning level on a line beneath its status, such as `Reasoning: low`. Sleeping tasks carry the same elapsed/total progress bar as the full terminal listing. Once the app is on an iPhone's Home Screen, it can also send push notifications when a task finishes. Point a phone at the server over your LAN, a VPN, or an SSH tunnel, and on iOS use Share, then Add to Home Screen, to install it as an app.
 
 The web app has the same access model as the server, which is none: anyone who can reach the port can drive your agents. Expose it only on a network you trust, or behind an authenticating proxy.
 
