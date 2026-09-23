@@ -24,38 +24,44 @@ def backend() -> ClaudeBackend:
 
 class TestBuildCommand:
     def test_basic_argv_shape(self, backend: ClaudeBackend, tmp_config: Path) -> None:
-        cmd, _ = backend.build_command(None, resume=False, session_id=None)
+        cmd, _ = backend.build_command(None, effort="max", resume=False, session_id=None)
         # No positional prompt: the prompt travels on stdin.
         assert cmd[:2] == ["claude", "-p"]
         assert "--dangerously-skip-permissions" in cmd
         assert cmd[cmd.index("--output-format") + 1] == "json"
         assert "--resume" not in cmd
 
+    def test_effort_passed_through(self, backend: ClaudeBackend, tmp_config: Path) -> None:
+        cmd, _ = backend.build_command(None, effort="low", resume=False, session_id=None)
+        assert cmd[cmd.index("--effort") + 1] == "low"
+        argv = backend.build_attach_command("sid-1", None, effort="medium")
+        assert argv[argv.index("--effort") + 1] == "medium"
+
     def test_model_override_wins(self, backend: ClaudeBackend, tmp_config: Path) -> None:
-        cmd, _ = backend.build_command("claude-fable-5-1", resume=False, session_id=None)
+        cmd, _ = backend.build_command("claude-fable-5-1", effort="max", resume=False, session_id=None)
         assert cmd[cmd.index("--model") + 1] == "claude-fable-5-1"
 
     def test_falls_back_to_config_model(
         self, backend: ClaudeBackend, tmp_config: Path
     ) -> None:
-        cmd, _ = backend.build_command(None, resume=False, session_id=None)
+        cmd, _ = backend.build_command(None, effort="max", resume=False, session_id=None)
         assert cmd[cmd.index("--model") + 1] == "claude-opus-5-5"
 
     def test_uses_configured_model_claude(
         self, backend: ClaudeBackend, tmp_config: Path
     ) -> None:
         cfg.save({**cfg.DEFAULTS, "model-claude": "claude-sonnet-4-6"})
-        cmd, _ = backend.build_command(None, resume=False, session_id=None)
+        cmd, _ = backend.build_command(None, effort="max", resume=False, session_id=None)
         assert cmd[cmd.index("--model") + 1] == "claude-sonnet-4-6"
 
     def test_resume_appends_session(self, backend: ClaudeBackend, tmp_config: Path) -> None:
-        cmd, _ = backend.build_command(None, resume=True, session_id="sid-42")
+        cmd, _ = backend.build_command(None, effort="max", resume=True, session_id="sid-42")
         assert cmd[cmd.index("--resume") + 1] == "sid-42"
 
     def test_resume_without_session_id_omits_flag(
         self, backend: ClaudeBackend, tmp_config: Path
     ) -> None:
-        cmd, _ = backend.build_command(None, resume=True, session_id=None)
+        cmd, _ = backend.build_command(None, effort="max", resume=True, session_id=None)
         assert "--resume" not in cmd
 
     def test_sets_api_key_from_config(
@@ -68,7 +74,7 @@ class TestBuildCommand:
             "api-key-mode": True,
             "api-key-claude": "sk-live",
         })
-        _, env = backend.build_command(None, resume=False, session_id=None)
+        _, env = backend.build_command(None, effort="max", resume=False, session_id=None)
         assert env["ANTHROPIC_API_KEY"] == "sk-live"
         assert "ANTHROPIC_AUTH_TOKEN" not in env
 
@@ -83,7 +89,7 @@ class TestBuildCommand:
             "api-key-mode": False,
             "api-key-claude": "sk-configured",
         })
-        _, env = backend.build_command(None, resume=False, session_id=None)
+        _, env = backend.build_command(None, effort="max", resume=False, session_id=None)
         assert "ANTHROPIC_API_KEY" not in env
         assert "ANTHROPIC_AUTH_TOKEN" not in env
 
@@ -93,7 +99,7 @@ class TestBuildCommand:
     ) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "inherited-key")
         cfg.save({**cfg.DEFAULTS, "api-key-mode": True})
-        _, env = backend.build_command(None, resume=False, session_id=None)
+        _, env = backend.build_command(None, effort="max", resume=False, session_id=None)
         assert "ANTHROPIC_API_KEY" not in env
 
 

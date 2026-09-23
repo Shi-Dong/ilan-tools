@@ -44,9 +44,11 @@ from ilan.models import (
     ENGINE_CODEX,
     ENGINE_NAME_STYLE,
     MAX_NOTES_LENGTH,
+    REASONING_LEVELS,
     REPLY_EVERY_MIN_SECONDS,
     TAP_MESSAGE,
     TaskStatus,
+    backend_effort,
     display_status,
     format_cost_usd,
     is_burnable_name,
@@ -62,11 +64,13 @@ from ilan.task_display import (
     ONE_LINER_STYLE,
     PROSE_MAX_WIDTH,
     REPLY_EVERY_STYLE,
-    TIMESTAMP_COLUMN_WIDTH,
+    REASONING_COLUMN_WIDTH,
+    REASONING_STYLES,
     _alias_style,
     _build_concise_task_line,
     _build_name_cell,
     _build_name_label,
+    _build_reasoning_cell,
     _build_status_cell,
     _format_alias,
     _name_style,
@@ -784,13 +788,12 @@ def _do_ls(show_all: bool, concise: bool = False) -> None:
     table = Table(show_lines=True)
     table.add_column("(Alias) Name", style="bold", max_width=PROSE_MAX_WIDTH)
     table.add_column("Status", max_width=PROSE_MAX_WIDTH)
-    table.add_column("Last Changed", width=TIMESTAMP_COLUMN_WIDTH)
+    table.add_column("Reasoning", width=REASONING_COLUMN_WIDTH)
     for row in rows:
-        changed = _format_ts(row["status_changed_at"], seconds=False) if row.get("status_changed_at") else ""
         table.add_row(
             _build_name_cell(row),
             _build_status_cell(row, show_one_liner=show_one_liner),
-            changed,
+            _build_reasoning_cell(row),
         )
     console.print(table)
 
@@ -2588,7 +2591,9 @@ def _do_attach(name: str) -> None:
     # code (between ``ilan update`` and a restart) from handing this backend's
     # CLI the other backend's stale max pin.
     model = t.get("model") if t.get("max_tag") else None
-    argv = backend.build_attach_command(session_id, model)
+    argv = backend.build_attach_command(
+        session_id, model, effort=backend_effort(engine, t.get("reasoning")),
+    )
     os.execvp(argv[0], argv)
 
 
@@ -2948,6 +2953,33 @@ def task_unmax(name: str) -> None:
     _do_unmax(name)
 
 
+# ── task level ───────────────────────────────────────────────────────
+
+def _do_level(name: str, level: str) -> None:
+    resp = _client().set_level(name, level)
+    if _check_error(resp):
+        raise SystemExit(1)
+    task_name = resp.get("name", name)
+    reasoning = resp.get("reasoning", level)
+    style = REASONING_STYLES.get(reasoning, "")
+    console.print(
+        f"[green]Task [bold]{task_name}[/bold] set to reasoning level "
+        f"[{style}]{reasoning}[/{style}] (effort: [cyan]{resp.get('effort', '')}[/cyan]).[/green]"
+    )
+
+
+@task_group.command("level")
+@click.argument("name", shell_complete=_complete_task_names)
+@click.argument("level", type=click.Choice(REASONING_LEVELS, case_sensitive=False))
+def task_level(name: str, level: str) -> None:
+    """Set a task's reasoning level: low, medium or max.
+
+    low and medium mean the same on both backends; max is max on claude and
+    xhigh on codex. Takes effect from the task's next spawn.
+    """
+    _do_level(name, level.lower())
+
+
 # ── task switch-backend ──────────────────────────────────────────────
 
 def _do_switch_backend(name: str) -> None:
@@ -2992,7 +3024,7 @@ def _register_task_shortcut(name: str, *, help: str | None = None) -> None:
 
 for _shortcut_name in (
     "info", "tail", "done", "discard", "undone", "undiscard", "unread",
-    "pin", "unpin", "max", "unmax", "switch-backend", "rename", "alias",
+    "pin", "unpin", "max", "unmax", "level", "switch-backend", "rename", "alias",
     "tap", "cancel", "sleep", "attach", "log", "logs", "open",
     "check-model",
 ):
@@ -3041,7 +3073,7 @@ def _build_dashboard_table(
     header.append("r", style="bold")
     header.append(" refresh", style="dim")
 
-    # ``Last Changed`` is pinned; Name and Status split what is left equally
+    # ``Reasoning`` is pinned; Name and Status split what is left equally
     # (``NAME_TO_STATUS``). Both hold prose — the note under the name, the
     # summary under the status label — so neither is favoured, and overlong
     # cells fold within their column instead of pushing it wider.
@@ -3049,7 +3081,7 @@ def _build_dashboard_table(
     table = Table(title=header, expand=True, show_lines=True)
     table.add_column("(Alias) Name", style="bold", ratio=name_share)
     table.add_column("Status", ratio=status_share)
-    table.add_column("Last Changed", width=TIMESTAMP_COLUMN_WIDTH)
+    table.add_column("Reasoning", width=REASONING_COLUMN_WIDTH)
 
     if not rows:
         table.add_row(*(Text("No active tasks.", style="dim"),
@@ -3057,11 +3089,10 @@ def _build_dashboard_table(
         return table
 
     for row in rows:
-        changed = _format_ts(row["status_changed_at"], seconds=False) if row.get("status_changed_at") else ""
         table.add_row(
             _build_name_cell(row),
             _build_status_cell(row, show_one_liner=show_one_liner),
-            changed,
+            _build_reasoning_cell(row),
         )
     return table
 

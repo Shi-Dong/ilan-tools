@@ -34,7 +34,7 @@ def backend() -> CodexBackend:
 
 class TestBuildCommand:
     def test_fresh_argv_shape(self, backend: CodexBackend, tmp_config: Path) -> None:
-        cmd, env = backend.build_command(None, resume=False, session_id=None)
+        cmd, env = backend.build_command(None, effort="max", resume=False, session_id=None)
         assert cmd[:2] == ["codex", "exec"]
         assert "resume" not in cmd
         assert "--json" in cmd
@@ -44,22 +44,22 @@ class TestBuildCommand:
         assert isinstance(env, dict)
 
     def test_default_model_when_no_override(self, backend: CodexBackend, tmp_config: Path) -> None:
-        cmd, _ = backend.build_command(None, resume=False, session_id=None)
+        cmd, _ = backend.build_command(None, effort="max", resume=False, session_id=None)
         assert cmd[cmd.index("--model") + 1] == "gpt-5.6-sol"
 
     def test_resume_inserts_session(self, backend: CodexBackend, tmp_config: Path) -> None:
-        cmd, _ = backend.build_command(None, resume=True, session_id="sid-9")
+        cmd, _ = backend.build_command(None, effort="max", resume=True, session_id="sid-9")
         assert cmd[:4] == ["codex", "exec", "resume", "sid-9"]
         assert cmd[-1] == "-"
 
     def test_resume_without_session_id_stays_fresh(
         self, backend: CodexBackend, tmp_config: Path
     ) -> None:
-        cmd, _ = backend.build_command(None, resume=True, session_id=None)
+        cmd, _ = backend.build_command(None, effort="max", resume=True, session_id=None)
         assert "resume" not in cmd
 
     def test_model_override_passed(self, backend: CodexBackend, tmp_config: Path) -> None:
-        cmd, _ = backend.build_command("gpt-5.6-sol", resume=False, session_id=None)
+        cmd, _ = backend.build_command("gpt-5.6-sol", effort="max", resume=False, session_id=None)
         assert cmd[cmd.index("--model") + 1] == "gpt-5.6-sol"
 
     def test_astra_override_passed(
@@ -67,14 +67,14 @@ class TestBuildCommand:
     ) -> None:
         """A maxed codex task resolves to Astra, codex's own max model, which
         reaches the CLI like any other override."""
-        cmd, _ = backend.build_command("gpt-6-astra", resume=False, session_id=None)
+        cmd, _ = backend.build_command("gpt-6-astra", effort="max", resume=False, session_id=None)
         assert cmd[cmd.index("--model") + 1] == "gpt-6-astra"
 
     def test_uses_configured_model_codex(
         self, backend: CodexBackend, tmp_config: Path
     ) -> None:
         cfg.save({**cfg.DEFAULTS, "model-codex": "gpt-5.1-codex-max"})
-        cmd, _ = backend.build_command(None, resume=False, session_id=None)
+        cmd, _ = backend.build_command(None, effort="max", resume=False, session_id=None)
         assert cmd[cmd.index("--model") + 1] == "gpt-5.1-codex-max"
 
     def test_api_key_codex_sets_openai_key(
@@ -85,28 +85,25 @@ class TestBuildCommand:
             "api-key-mode": True,
             "api-key-codex": "sk-codex-live",
         })
-        _, env = backend.build_command(None, resume=False, session_id=None)
+        _, env = backend.build_command(None, effort="max", resume=False, session_id=None)
         assert env["OPENAI_API_KEY"] == "sk-codex-live"
 
-    def test_default_effort_passed_as_reasoning_config(
+    def test_effort_passed_as_reasoning_config(
         self, backend: CodexBackend, tmp_config: Path
     ) -> None:
-        cmd, _ = backend.build_command(None, resume=False, session_id=None)
-        assert cmd[cmd.index("-c") + 1] == 'model_reasoning_effort="max"'
+        cmd, _ = backend.build_command(None, effort="xhigh", resume=False, session_id=None)
+        assert cmd[cmd.index("-c") + 1] == 'model_reasoning_effort="xhigh"'
 
-    def test_configured_effort_passed_as_reasoning_config(
-        self, backend: CodexBackend, tmp_config: Path
-    ) -> None:
-        cfg.save({**cfg.DEFAULTS, "effort": "medium"})
-        cmd, _ = backend.build_command(None, resume=False, session_id=None)
-        assert cmd[cmd.index("-c") + 1] == 'model_reasoning_effort="medium"'
+    def test_attach_passes_effort(self, backend: CodexBackend, tmp_config: Path) -> None:
+        argv = backend.build_attach_command("sid-1", None, effort="medium")
+        assert argv[argv.index("-c") + 1] == 'model_reasoning_effort="medium"'
 
     def test_no_api_key_omits_openai_key(
         self, backend: CodexBackend, tmp_config: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         cfg.save({"model-claude": "opus"})
-        _, env = backend.build_command(None, resume=False, session_id=None)
+        _, env = backend.build_command(None, effort="max", resume=False, session_id=None)
         assert "OPENAI_API_KEY" not in env
 
     def test_disabled_api_key_mode_removes_openai_key(
@@ -119,7 +116,7 @@ class TestBuildCommand:
             "api-key-mode": False,
             "api-key-codex": "sk-configured",
         })
-        _, env = backend.build_command(None, resume=False, session_id=None)
+        _, env = backend.build_command(None, effort="max", resume=False, session_id=None)
         assert "OPENAI_API_KEY" not in env
 
     def test_enabled_mode_without_configured_key_uses_subscription(
@@ -128,7 +125,7 @@ class TestBuildCommand:
     ) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "inherited-key")
         cfg.save({**cfg.DEFAULTS, "api-key-mode": True})
-        _, env = backend.build_command(None, resume=False, session_id=None)
+        _, env = backend.build_command(None, effort="max", resume=False, session_id=None)
         assert "OPENAI_API_KEY" not in env
 
 

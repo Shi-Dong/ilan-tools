@@ -372,26 +372,10 @@ class TestConfig:
         conf = _get(ilan_server, "/config")["config"]
         assert conf["default-backend"] == "claude"
 
-    def test_set_config_effort_accepts_valid_levels(
-        self, ilan_server: IlanServer
-    ) -> None:
-        for level in ("low", "medium", "high", "xhigh", "max"):
-            resp = _post(ilan_server, "/config/set", {"key": "effort", "value": level})
-            assert resp.get("ok") is True
-            assert resp["value"] == level
-
-    def test_set_config_effort_rejects_invalid_value(
-        self, ilan_server: IlanServer
-    ) -> None:
-        # "none" and "minimal" are codex-only, so they sit outside the common
-        # subset and must be rejected along with outright junk.
-        for bad in ("none", "minimal", "bogus"):
-            resp = _post(ilan_server, "/config/set", {"key": "effort", "value": bad})
-            assert "error" in resp
-            assert "effort" in resp["error"]
-        # The bad values must not be persisted.
-        conf = _get(ilan_server, "/config")["config"]
-        assert conf["effort"] == "max"
+    def test_effort_is_no_longer_a_config_key(self, ilan_server: IlanServer) -> None:
+        resp = _post(ilan_server, "/config/set", {"key": "effort", "value": "low"})
+        assert "error" in resp
+        assert "effort" not in _get(ilan_server, "/config")["config"]
 
 
 # ── Tasks CRUD ──────────────────────────────────────────────────────────
@@ -2284,6 +2268,42 @@ class TestKill:
 
 
 class TestMaxUnmax:
+    def test_new_task_defaults_to_max_reasoning(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "level-default", "prompt": "P"})
+        assert _get(ilan_server, "/tasks/level-default")["task"]["reasoning"] == "max"
+        rows = _get(ilan_server, "/tasks")["tasks"]
+        assert next(r for r in rows if r["name"] == "level-default")["reasoning"] == "max"
+
+    @pytest.mark.parametrize(("agent", "level", "effort"), [
+        ("claude", "low", "low"),
+        ("claude", "medium", "medium"),
+        ("claude", "max", "max"),
+        ("codex", "low", "low"),
+        ("codex", "medium", "medium"),
+        ("codex", "max", "xhigh"),
+    ])
+    def test_level_sets_reasoning(
+        self, ilan_server: IlanServer, agent: str, level: str, effort: str,
+    ) -> None:
+        name = f"level-{agent}-{level}"
+        _post(ilan_server, "/tasks", {"name": name, "prompt": "P", "agent": agent})
+        resp = _post(ilan_server, f"/tasks/{name}/level", {"level": level})
+        assert resp == {"ok": True, "name": name, "reasoning": level, "effort": effort}
+        assert _get(ilan_server, f"/tasks/{name}")["task"]["reasoning"] == level
+
+    def test_level_accepts_alias(self, ilan_server: IlanServer) -> None:
+        _post(ilan_server, "/tasks", {"name": "level-alias", "prompt": "P"})
+        alias = _get(ilan_server, "/tasks/level-alias")["task"]["alias"]
+        resp = _post(ilan_server, f"/tasks/{alias}/level", {"level": "low"})
+        assert resp["name"] == "level-alias"
+
+    @pytest.mark.parametrize("bad", ["high", "xhigh", "minimal", "none", "", "bogus"])
+    def test_level_rejects_other_values(self, ilan_server: IlanServer, bad: str) -> None:
+        _post(ilan_server, "/tasks", {"name": "level-bad", "prompt": "P"})
+        resp = _post(ilan_server, "/tasks/level-bad/level", {"level": bad})
+        assert "error" in resp
+        assert _get(ilan_server, "/tasks/level-bad")["task"]["reasoning"] == "max"
+
     def test_max_sets_fable_model(self, ilan_server: IlanServer) -> None:
         _post(ilan_server, "/tasks", {"name": "max-test", "prompt": "P"})
         resp = _post(ilan_server, "/tasks/max-test/max")

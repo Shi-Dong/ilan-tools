@@ -24,6 +24,7 @@ from ilan.models import (
     MaxModel,
     Task,
     TaskStatus,
+    backend_effort,
     display_status,
     format_cost_usd,
     generate_task_hash,
@@ -315,7 +316,7 @@ class TestTask:
             "reply_every_seconds", "reply_every_message", "reply_every_next_at",
             "parent_name", "deleted_ancestors",
             "notes",
-            "summary_one_liner", "maxed", "last_assistant_model",
+            "summary_one_liner", "maxed", "reasoning", "last_assistant_model",
             "spawn_effort", "last_assistant_effort",
             "spawn_budget", "last_assistant_budget", "last_assistant_cost_usd",
             "gist_id", "gist_url", "gist_synced_count", "gist_branch_point",
@@ -404,6 +405,36 @@ class TestTask:
     def test_from_dict_missing_maxed(self) -> None:
         d = {"name": "old", "prompt": "p", "status": "UNCLAIMED"}
         assert Task.from_dict(d).maxed is False
+
+    def test_reasoning_roundtrip(self) -> None:
+        t = self._make_task()
+        t.reasoning = "low"
+        assert Task.from_dict(t.to_dict()).reasoning == "low"
+
+    @pytest.mark.parametrize("stored", [None, "high", "bogus"])
+    def test_from_dict_missing_or_unknown_reasoning_is_max(self, stored: str | None) -> None:
+        d = {"name": "old", "prompt": "p", "status": "UNCLAIMED"}
+        if stored is not None:
+            d["reasoning"] = stored
+        assert Task.from_dict(d).reasoning == "max"
+
+    @pytest.mark.parametrize(("engine", "level", "effort"), [
+        (ENGINE_CLAUDE, "low", "low"),
+        (ENGINE_CLAUDE, "medium", "medium"),
+        (ENGINE_CLAUDE, "max", "max"),
+        (ENGINE_CODEX, "low", "low"),
+        (ENGINE_CODEX, "medium", "medium"),
+        (ENGINE_CODEX, "max", "xhigh"),
+        (None, "max", "max"),
+    ])
+    def test_effort_translates_the_level_for_the_backend(
+        self, engine: str | None, level: str, effort: str,
+    ) -> None:
+        assert backend_effort(engine, level) == effort
+        t = self._make_task()
+        t.engine = engine or ENGINE_CLAUDE
+        t.reasoning = level
+        assert t.effort == effort
 
     def test_effort_fields_roundtrip(self) -> None:
         t = self._make_task()

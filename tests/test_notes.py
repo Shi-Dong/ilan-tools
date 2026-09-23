@@ -24,6 +24,7 @@ from ilan.cli import (
 )
 from ilan.models import (
     MAX_NOTES_LENGTH,
+    REASONING_LEVELS,
     Task,
     TaskStatus,
     join_notes,
@@ -36,7 +37,7 @@ from ilan.task_display import (
     NAME_TO_STATUS,
     NOTES_STYLE,
     PROSE_MAX_WIDTH,
-    TIMESTAMP_COLUMN_WIDTH,
+    REASONING_COLUMN_WIDTH,
     _build_concise_task_line,
     _build_name_cell,
     _build_status_cell,
@@ -1419,7 +1420,7 @@ def _rendered_widths(table, width: int) -> list[int]:
 
 
 class TestNoNotesColumn:
-    _COLUMNS = ["(Alias) Name", "Status", "Last Changed"]
+    _COLUMNS = ["(Alias) Name", "Status", "Reasoning"]
 
     def test_dashboard_columns(self) -> None:
         table = _build_dashboard_table([_row("a", notes="x")], _TZ)
@@ -1438,7 +1439,7 @@ class TestDashboardWidths:
         ratios = [c.ratio for c in table.columns]
         widths = [c.width for c in table.columns]
         assert ratios == [*NAME_TO_STATUS, None]
-        assert widths[2:] == [TIMESTAMP_COLUMN_WIDTH]
+        assert widths[2:] == [REASONING_COLUMN_WIDTH]
 
     def test_name_and_status_are_equal(self) -> None:
         """Both are prose columns — the note under the name, the summary
@@ -1461,23 +1462,19 @@ class TestDashboardWidths:
         name, status = _rendered_widths(_build_dashboard_table([_row("a")], _TZ), width)[:2]
         assert 0 <= name - status <= 1
 
-    def test_the_stamp_never_folds(self) -> None:
-        """The longest stamp in any common zone is nine for the day word, a
-        space, five for the time, a space, and a four-letter zone.
-        """
-        assert len("Yesterday 21:38 CEST") <= TIMESTAMP_COLUMN_WIDTH
-        assert TIMESTAMP_COLUMN_WIDTH == 20
+    def test_the_reasoning_column_fits_its_header_and_every_level(self) -> None:
+        assert REASONING_COLUMN_WIDTH == len("Reasoning")
+        assert all(len(level) <= REASONING_COLUMN_WIDTH for level in REASONING_LEVELS)
 
-    # Measured after `Created` left the table for good. Pinned so a later
-    # change to the geometry has to be a deliberate one. Each is 11 or 12
-    # wider than while `Created` was a column: half of its 20 characters,
-    # plus half of the three Rich spends on every column it draws.
+    # Measured after `Reasoning` replaced `Last Changed`. Pinned so a later
+    # change to the geometry has to be a deliberate one. The prose columns
+    # split the 11 characters the narrower pinned column gave back.
     _EXPECTED = {
-        140: (55, 55, 20),
-        150: (60, 60, 20),
-        180: (75, 75, 20),
-        200: (85, 85, 20),
-        240: (105, 105, 20),
+        140: (61, 60, 9),
+        150: (66, 65, 9),
+        180: (81, 80, 9),
+        200: (91, 90, 9),
+        240: (111, 110, 9),
     }
 
     @pytest.mark.parametrize("width", sorted(_EXPECTED))
@@ -1486,9 +1483,9 @@ class TestDashboardWidths:
         assert tuple(_rendered_widths(table, width)) == self._EXPECTED[width]
 
     @pytest.mark.parametrize("width", sorted(_EXPECTED))
-    def test_the_stamp_never_moves(self, width: int) -> None:
+    def test_the_reasoning_column_never_moves(self, width: int) -> None:
         table = _build_dashboard_table([_row("a", notes="x")], _TZ)
-        assert _rendered_widths(table, width)[2:] == [TIMESTAMP_COLUMN_WIDTH]
+        assert _rendered_widths(table, width)[2:] == [REASONING_COLUMN_WIDTH]
 
     @pytest.mark.parametrize("width", sorted(_EXPECTED))
     def test_a_long_note_does_not_change_the_geometry(self, width: int) -> None:
@@ -1532,7 +1529,7 @@ class TestLsLayout:
         width: int,
     ) -> None:
         out = _invoke_ls(runner, [_row("a", notes="x")], monkeypatch, width=width).output
-        assert _ls_headers(out) == ["(Alias) Name", "Status", "Last Changed"]
+        assert _ls_headers(out) == ["(Alias) Name", "Status", "Reasoning"]
 
     def test_the_note_shows_under_the_name(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
@@ -1601,7 +1598,7 @@ class TestLsLayout:
         row = _row("a", notes="word " * 50)
         row["summary_one_liner"] = "words " * 30
         out = _invoke_ls(runner, [row], monkeypatch).output
-        assert sum(_ls_column_widths(out)) == 2 * PROSE_MAX_WIDTH + TIMESTAMP_COLUMN_WIDTH
+        assert sum(_ls_column_widths(out)) == 2 * PROSE_MAX_WIDTH + REASONING_COLUMN_WIDTH
 
     def test_the_prose_columns_render_at_the_widened_cap(
         self, runner: CliRunner, tmp_config, monkeypatch: pytest.MonkeyPatch,
@@ -1616,4 +1613,4 @@ class TestLsLayout:
         row = _row("a", notes="word " * 50)
         row["summary_one_liner"] = "words " * 30
         out = _invoke_ls(runner, [row], monkeypatch, width=200).output
-        assert _ls_column_widths(out) == [52, 52, 20]
+        assert _ls_column_widths(out) == [52, 52, REASONING_COLUMN_WIDTH]

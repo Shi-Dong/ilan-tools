@@ -46,6 +46,7 @@ class Backend(ABC):
         self,
         model_override: str | None,
         *,
+        effort: str,
         resume: bool,
         session_id: str | None,
     ) -> tuple[list[str], dict[str, str]]:
@@ -57,12 +58,14 @@ class Backend(ABC):
         transcript can exceed the OS ARG_MAX (E2BIG at exec), and ~1 MB argv
         values crash codex-cli outright (SIGSEGV before any output). When
         *resume* is true and *session_id* is set, the argv must resume that
-        native session rather than starting fresh.
+        native session rather than starting fresh. *effort* is the
+        reasoning-effort value this backend's CLI accepts, already translated
+        from the task's level by ``models.backend_effort``.
         """
 
     @abstractmethod
     def build_attach_command(
-        self, session_id: str, model_override: str | None
+        self, session_id: str, model_override: str | None, *, effort: str
     ) -> list[str]:
         """Return argv for interactively resuming *session_id* in the CLI's
         own TUI (``ilan attach``). Unlike ``build_command`` this is exec'd in

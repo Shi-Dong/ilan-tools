@@ -72,6 +72,7 @@ class CodexBackend(Backend):
         self,
         model_override: str | None,
         *,
+        effort: str,
         resume: bool,
         session_id: str | None,
     ) -> tuple[list[str], dict[str, str]]:
@@ -83,9 +84,7 @@ class CodexBackend(Backend):
         # Mirror the Claude backend's --effort flag. Codex has no dedicated
         # CLI flag; the knob is the model_reasoning_effort config key. The
         # value is quoted so it parses as a TOML string.
-        effort = str(conf.get("effort", "max")).strip()
-        if effort:
-            cmd += ["-c", f'model_reasoning_effort="{effort}"']
+        cmd += ["-c", f'model_reasoning_effort="{effort}"']
         cmd += ["--model", model_override or str(conf["model-codex"])]
         # `-` makes codex read the prompt from stdin.
         cmd.append("-")
@@ -100,11 +99,12 @@ class CodexBackend(Backend):
         return cmd, env
 
     def build_attach_command(
-        self, session_id: str, model_override: str | None
+        self, session_id: str, model_override: str | None, *, effort: str
     ) -> list[str]:
         return [
             "codex", "resume", session_id,
             "--dangerously-bypass-approvals-and-sandbox",
+            "-c", f'model_reasoning_effort="{effort}"',
             "--model", model_override or str(cfg.load()["model-codex"]),
         ]
 

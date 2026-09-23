@@ -28,7 +28,7 @@ from ilan.task_display import (
     NUMBER_STYLE,
     PIN_MARKER,
     PROSE_MAX_WIDTH,
-    TIMESTAMP_COLUMN_WIDTH,
+    REASONING_COLUMN_WIDTH,
     _alias_style,
     _build_concise_task_line,
     _build_name_cell,
@@ -225,7 +225,7 @@ class TestLsNoArgs:
         assert result.exit_code == 0
         out = _strip_ansi(result.output)
         assert "narrow-task" in out
-        assert "Last Changed" in out
+        assert "Reasoning" in out
         assert "Cost" not in out
         assert "Created" not in out
 
@@ -272,11 +272,11 @@ class TestLsNoArgs:
         )
         widths = [len(seg) - 2 for seg in rule.strip("┏┓").split("┳")]
         name_width, status_width, changed_width = widths
-        assert changed_width == TIMESTAMP_COLUMN_WIDTH
+        assert changed_width == REASONING_COLUMN_WIDTH
         # Three columns of Rich chrome, then a closing rule.
         chrome = 3 * 3 + 1
         assert len(rule) == min(
-            width, 2 * PROSE_MAX_WIDTH + TIMESTAMP_COLUMN_WIDTH + chrome,
+            width, 2 * PROSE_MAX_WIDTH + REASONING_COLUMN_WIDTH + chrome,
         )
         # Rich hands an odd remainder to one of them; that is the only
         # difference an equal share can leave.
@@ -1431,6 +1431,36 @@ class TestMaxShorthand:
     def test_max_no_args_shows_usage(self, runner: CliRunner, tmp_config) -> None:
         result = runner.invoke(main, ["max"])
         assert result.exit_code != 0
+
+
+class TestLevelShorthand:
+    @pytest.mark.parametrize("argv", [["level"], ["task", "level"]])
+    def test_level_success(self, runner: CliRunner, tmp_config, argv: list[str]) -> None:
+        client = _make_client()
+        client.set_level.return_value = {
+            "ok": True, "name": "my-task", "reasoning": "max", "effort": "xhigh",
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, [*argv, "my-task", "MAX"])
+        assert result.exit_code == 0, result.output
+        assert "max" in result.output and "xhigh" in result.output
+        client.set_level.assert_called_once_with("my-task", "max")
+
+    @pytest.mark.parametrize("bad", ["high", "xhigh", "minimal"])
+    def test_level_rejects_other_values(self, runner: CliRunner, tmp_config, bad: str) -> None:
+        client = _make_client()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["level", "my-task", bad])
+        assert result.exit_code != 0
+        client.set_level.assert_not_called()
+
+    def test_level_error(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.set_level.return_value = {"error": "Task 'bad' not found"}
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["level", "bad", "low"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
 
 
 class TestUnmaxShorthand:

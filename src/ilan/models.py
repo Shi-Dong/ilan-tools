@@ -255,6 +255,30 @@ def max_tag(engine: str | None, maxed: bool) -> str | None:
     return _max_model(engine).tag if maxed else None
 
 
+# ── Reasoning levels (``ilan level``) ───────────────────────────────────
+# Each task carries one of three reasoning levels. The level is backend
+# neutral and every spawn translates it to the flag value of the backend the
+# task is on *now*, so switching backends needs no rewrite. Codex tops out at
+# ``xhigh``, which is what ``max`` means there.
+REASONING_LEVELS = ("low", "medium", "max")
+DEFAULT_REASONING = "max"
+
+_BACKEND_EFFORTS: dict[str, dict[str, str]] = {
+    ENGINE_CLAUDE: {"low": "low", "medium": "medium", "max": "max"},
+    ENGINE_CODEX: {"low": "low", "medium": "medium", "max": "xhigh"},
+}
+
+
+def backend_effort(engine: str | None, level: str | None) -> str:
+    """The effort value *engine*'s CLI is given for reasoning *level*.
+
+    An unknown level falls back to the default, and an absent or unknown
+    engine answers the way the Claude backend would, as ``_max_model`` does.
+    """
+    efforts = _BACKEND_EFFORTS.get(engine or DEFAULT_ENGINE, _BACKEND_EFFORTS[DEFAULT_ENGINE])
+    return efforts.get(level or DEFAULT_REASONING, efforts[DEFAULT_REASONING])
+
+
 def tag_for_max_model(model: str | None) -> str | None:
     """The tag of whichever backend's max model *model* is, if it is one.
 
@@ -374,6 +398,10 @@ class Task:
     # afresh at every spawn, so a newer Fable or Astra reaches every maxed task
     # without re-maxing it, and a backend switch has nothing to translate.
     maxed: bool = False
+    # The ``ilan level`` reasoning level (one of ``REASONING_LEVELS``). Like
+    # ``maxed`` it stores the choice, not a backend flag value:
+    # ``backend_effort`` translates it at every spawn.
+    reasoning: str = DEFAULT_REASONING
     # The model that generated the most recent assistant message, cached at
     # reap time so ``ilan tail`` need not rescan the Claude session log. This
     # is the *observed* model, distinct from ``model_override`` (what the next
@@ -381,7 +409,7 @@ class Task:
     last_assistant_model: str | None = None
     # Reasoning-effort level passed to the most recent agent spawn. Neither
     # backend's session log records the effort, so it is captured here at
-    # spawn time (from the ``effort`` config) and copied to
+    # spawn time (from the task's ``reasoning`` level) and copied to
     # ``last_assistant_effort`` when the turn is reaped.
     spawn_effort: str | None = None
     # The effort behind the most recent assistant message. Kept separate from
@@ -467,6 +495,11 @@ class Task:
         """
         return max_model_for(self.engine) if self.maxed else None
 
+    @property
+    def effort(self) -> str:
+        """The effort flag value a spawn on the task's current backend gets."""
+        return backend_effort(self.engine, self.reasoning)
+
     def set_session_for(self, engine: str, session_id: str) -> None:
         """Record the native session id for *engine*."""
         self.sessions[engine] = session_id
@@ -523,6 +556,7 @@ class Task:
             "notes": self.notes,
             "summary_one_liner": self.summary_one_liner,
             "maxed": self.maxed,
+            "reasoning": self.reasoning,
             "last_assistant_model": self.last_assistant_model,
             "spawn_effort": self.spawn_effort,
             "last_assistant_effort": self.last_assistant_effort,
@@ -576,6 +610,10 @@ class Task:
             notes=d.get("notes"),
             summary_one_liner=d.get("summary_one_liner"),
             maxed=cls._migrate_maxed(d),
+            reasoning=(
+                d["reasoning"] if d.get("reasoning") in REASONING_LEVELS
+                else DEFAULT_REASONING
+            ),
             last_assistant_model=d.get("last_assistant_model"),
             spawn_effort=d.get("spawn_effort"),
             last_assistant_effort=d.get("last_assistant_effort"),

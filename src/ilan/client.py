@@ -237,6 +237,9 @@ class Client:
 
     def max_task(self, name: str) -> dict:        return self.post(f"/tasks/{name}/max")
     def unmax_task(self, name: str) -> dict:      return self.post(f"/tasks/{name}/unmax")
+    def set_level(self, name: str, level: str) -> dict:
+        return self.post(f"/tasks/{name}/level", {"level": level})
+
     def switch_backend(self, name: str) -> dict:  return self.post(f"/tasks/{name}/switch-backend")
 
     def reply(

@@ -46,6 +46,7 @@ class TestStoreBranch:
             session_log_path=str(parent_session),
             alias="aa",
             task_hash="abcd1234",
+            reasoning="low",
         )
         store.put_task(parent)
         store.append_log("parent", "user", "hello")
@@ -55,6 +56,8 @@ class TestStoreBranch:
             parent, "child",
             alias="bb", task_hash="deadbeef", now="2026-01-01T00:00:00+00:00",
         )
+        # A branch keeps its parent's reasoning level.
+        assert child.reasoning == "low"
 
         assert child.name == "child"
         assert child.parent_name == "parent"

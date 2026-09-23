@@ -58,18 +58,22 @@ NOTES_STYLE = "not bold italic light_green"
 # in the listings, and in its own `ilan info` field. One constant so the two
 # cannot drift apart.
 ONE_LINER_STYLE = "yellow italic"
+# The `Reasoning` column's level, coloured by cost: green for `low`, yellow
+# for `medium`, red for `max`. Plain theme colours, like `MAX_TAG_STYLE`.
+REASONING_STYLES: dict[str, str] = {
+    "low": "green",
+    "medium": "yellow",
+    "max": "red",
+}
 # The dashboard splits its flexible space equally between Name and Status;
-# the timestamp columns are pinned. Both are prose columns now — Name carries
+# the `Reasoning` column is pinned. Both are prose columns now — Name carries
 # the note beneath the alias and name, Status the one-line summary beneath
 # the label — and neither has a claim on more room than the other.
 NAME_TO_STATUS = (1, 1)
-# `_format_ts(..., seconds=False)` is longest as "Yesterday 21:38 CEST": nine
-# for the day word, a space, five for the time, a space, and up to four for a
-# zone abbreviation. At 20 no stamp folds onto a second line in any common
-# zone. Pinned, because under `expand=True` a ratio share grew with the
-# terminal, far past anything a timestamp needs. `Last Changed` is the only
-# column it applies to now — see `PROSE_MAX_WIDTH`.
-TIMESTAMP_COLUMN_WIDTH = 20
+# Wide enough for the header, which is longer than any level it holds.
+# Pinned, because under `expand=True` a ratio share grew with the terminal,
+# far past anything a one-word level needs.
+REASONING_COLUMN_WIDTH = len("Reasoning")
 # `ilan ls` sizes its columns to their contents. The two prose columns share
 # one cap, so a long note or summary folds within its cell instead of pushing
 # the table off the right edge, and the two come out equal whenever both are
@@ -83,6 +87,16 @@ TIMESTAMP_COLUMN_WIDTH = 20
 # The dashboard needs no cap of its own: its prose columns are ratios under
 # `expand=True`, so they absorbed `Created`'s width the moment it left.
 PROSE_MAX_WIDTH = 52
+
+
+def _build_reasoning_cell(row: dict) -> Text:
+    """The task's reasoning level, coloured by ``REASONING_STYLES``.
+
+    A row from a server that predates per-task levels carries none; it shows
+    blank rather than a guess at what that server spawns with.
+    """
+    level = row.get("reasoning") or ""
+    return Text(level, style=REASONING_STYLES.get(level, ""))
 
 
 def _append_task_number(text: Text, row: dict) -> None:
