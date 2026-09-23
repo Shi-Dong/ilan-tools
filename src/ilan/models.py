@@ -263,6 +263,10 @@ def max_tag(engine: str | None, maxed: bool) -> str | None:
 # ``xhigh``, which is what ``max`` means there.
 REASONING_LEVELS = ("low", "medium", "max")
 DEFAULT_REASONING = "low"
+# A branch keeps its parent's level, but an ``ilan btw`` side question always
+# starts here, whatever the parent runs at: it is a quick question asked of the
+# parent's context, and ``ilan level`` raises it if it turns out to be hard.
+BTW_REASONING = "low"
 
 _BACKEND_EFFORTS: dict[str, dict[str, str]] = {
     ENGINE_CLAUDE: {"low": "low", "medium": "medium", "max": "max"},

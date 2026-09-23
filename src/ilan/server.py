@@ -26,6 +26,7 @@ from ilan.oneliner import Summarizer
 from ilan.push import PushNotifier
 from ilan.models import (
     ALIAS_POOL,
+    BTW_REASONING,
     CANCEL_MESSAGE,
     DEFAULT_ENGINE,
     MAX_NOTES_LENGTH,
@@ -1172,12 +1173,16 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 elif new_name is None:
                     new_name = self._ilan.store.next_available_burnable_name()
                 now = datetime.now(timezone.utc).isoformat()
+                # A branch keeps its parent's reasoning level; a side question
+                # starts at the cheapest one. Set before the child's first
+                # spawn below, so even its first answer runs at that level.
                 child = self._ilan.store.branch_task(
                     parent,
                     new_name,
                     alias=alias,
                     task_hash=generate_task_hash(),
                     now=now,
+                    reasoning=BTW_REASONING if side_question else None,
                 )
                 child.cached_replies.append(message)
                 # Every branch carries the child's first assignment, so every
@@ -1191,6 +1196,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 "ok": True,
                 "name": child.name,
                 "parent_name": parent.name,
+                "reasoning": child.reasoning,
             })
 
         def handle_task_max(self, name: str):
