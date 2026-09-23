@@ -244,11 +244,13 @@ class Client:
 
     def reply(
         self, name: str, message: str, every_seconds: int | None = None,
-        override_reply_every: bool = False,
+        override_reply_every: bool = False, level: str | None = None,
     ) -> dict:
         body: dict = {"message": message}
         if every_seconds is not None:
             body["every_seconds"] = every_seconds
+        if level is not None:
+            body["level"] = level
         if override_reply_every:
             body["override_reply_every"] = True
         return self.post(f"/tasks/{name}/reply", body)
