@@ -1024,22 +1024,16 @@ class TestSpawn:
         if proc:
             proc.wait(timeout=5)
 
-    def test_spawn_captures_effort_from_config(
+    def test_spawn_captures_effort_from_the_task_level(
         self, store: Store, tmp_workdir: Path, tmp_config: Path,
         env_with_mock_claude: None,
     ) -> None:
-        """_spawn records the configured effort on the task, since neither
-        backend's session log carries it."""
-        import ilan.config as cfg_mod
-
-        cfg_mod.save({
-            **cfg_mod.DEFAULTS,
-            "workdir": str(tmp_workdir),
-            "effort": "medium",
-        })
+        """_spawn records the effort the task's level resolved to, since
+        neither backend's session log carries it."""
+        cfg.save({**cfg.DEFAULTS, "workdir": str(tmp_workdir)})
 
         runner = Runner(store)
-        t = Task(name="spawn-effort", prompt="hello")
+        t = Task(name="spawn-effort", prompt="hello", reasoning="medium")
         store.put_task(t)
 
         ok = runner._spawn(t, "hello", resume=False)
@@ -1053,20 +1047,22 @@ class TestSpawn:
         if proc:
             proc.wait(timeout=5)
 
-    @pytest.mark.parametrize(("engine", "flag", "expected"), [
-        (ENGINE_CLAUDE, "--effort", "high"),
-        (ENGINE_CODEX, "-c", 'model_reasoning_effort="high"'),
+    @pytest.mark.parametrize(("engine", "level", "flag", "expected"), [
+        (ENGINE_CLAUDE, "low", "--effort", "low"),
+        (ENGINE_CLAUDE, "max", "--effort", "max"),
+        (ENGINE_CODEX, "medium", "-c", 'model_reasoning_effort="medium"'),
+        (ENGINE_CODEX, "max", "-c", 'model_reasoning_effort="xhigh"'),
     ])
-    def test_a_recorded_effort_never_feeds_the_next_spawn(
+    def test_every_spawn_follows_the_task_level(
         self, store: Store, tmp_workdir: Path, tmp_config: Path,
-        engine: str, flag: str, expected: str,
+        engine: str, level: str, flag: str, expected: str,
     ) -> None:
-        """There is no effort pin, maxed task or not: what the last turn ran
-        at is a receipt kept for display, and every spawn reads the live
-        ``effort`` config instead."""
-        cfg.save({**cfg.DEFAULTS, "workdir": str(tmp_workdir), "effort": "high"})
+        """The task's level, translated for its backend, is what the spawn
+        gets; what the last turn ran at is only a receipt kept for display."""
+        cfg.save({**cfg.DEFAULTS, "workdir": str(tmp_workdir)})
         task = Task(name="effort-follows", prompt="p", engine=engine, maxed=True,
-                    spawn_effort="low", last_assistant_effort="low")
+                    reasoning=level, spawn_effort="stale",
+                    last_assistant_effort="stale")
 
         with (
             patch("ilan.runner.subprocess.Popen") as popen,
@@ -1076,7 +1072,7 @@ class TestSpawn:
             assert Runner(store)._spawn(task, "continue", resume=False)
         cmd = popen.call_args.args[0]
         assert cmd[cmd.index(flag) + 1] == expected
-        assert task.spawn_effort == "high"
+        assert task.spawn_effort == expected.removeprefix("model_reasoning_effort=").strip('"')
 
     def test_spawn_captures_budget_for_the_engine(
         self, store: Store, tmp_workdir: Path, tmp_config: Path,

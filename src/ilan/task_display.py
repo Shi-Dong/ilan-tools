@@ -7,6 +7,7 @@ from rich.text import Text
 from ilan.models import (
     DEFAULT_ENGINE,
     ENGINE_NAME_STYLE,
+    REASONING_LEVELS,
     TaskStatus,
     display_status,
 )
@@ -58,18 +59,27 @@ NOTES_STYLE = "not bold italic light_green"
 # in the listings, and in its own `ilan info` field. One constant so the two
 # cannot drift apart.
 ONE_LINER_STYLE = "yellow italic"
+# The `Reasoning` column's level, coloured by cost: green for `low`, yellow
+# for `medium`, red for `max`. Plain theme colours, like `MAX_TAG_STYLE`.
+REASONING_STYLES: dict[str, str] = {
+    "low": "green",
+    "medium": "yellow",
+    "max": "red",
+}
 # The dashboard splits its flexible space equally between Name and Status;
-# the timestamp columns are pinned. Both are prose columns now — Name carries
+# the `Reasoning` column is pinned. Both are prose columns now — Name carries
 # the note beneath the alias and name, Status the one-line summary beneath
 # the label — and neither has a claim on more room than the other.
 NAME_TO_STATUS = (1, 1)
-# `_format_ts(..., seconds=False)` is longest as "Yesterday 21:38 CEST": nine
-# for the day word, a space, five for the time, a space, and up to four for a
-# zone abbreviation. At 20 no stamp folds onto a second line in any common
-# zone. Pinned, because under `expand=True` a ratio share grew with the
-# terminal, far past anything a timestamp needs. `Last Changed` is the only
-# column it applies to now — see `PROSE_MAX_WIDTH`.
-TIMESTAMP_COLUMN_WIDTH = 20
+# The `Reasoning` cell lists every level, `low ⋅ medium ⋅ max`: the task's own
+# in its colour, the other two in grey, so the choice reads as a position on
+# the ladder. The inactive levels are grey rather than dim so they stay
+# legible on every theme.
+REASONING_INACTIVE_STYLE = "grey50"
+REASONING_SEPARATOR = " ⋅ "
+# Exactly the full ladder, so the cell never folds. Pinned, because under
+# `expand=True` a ratio share grew with the terminal.
+REASONING_COLUMN_WIDTH = len(REASONING_SEPARATOR.join(REASONING_LEVELS))
 # `ilan ls` sizes its columns to their contents. The two prose columns share
 # one cap, so a long note or summary folds within its cell instead of pushing
 # the table off the right edge, and the two come out equal whenever both are
@@ -83,6 +93,25 @@ TIMESTAMP_COLUMN_WIDTH = 20
 # The dashboard needs no cap of its own: its prose columns are ratios under
 # `expand=True`, so they absorbed `Created`'s width the moment it left.
 PROSE_MAX_WIDTH = 52
+
+
+def _build_reasoning_cell(row: dict) -> Text:
+    """``low ⋅ medium ⋅ max`` with the task's level in its colour.
+
+    The other levels, and the separators, are grey. A row from a server that
+    predates per-task levels carries none, so every level shows grey rather
+    than a guess at what that server spawns with.
+    """
+    active = row.get("reasoning")
+    cell = Text()
+    for i, level in enumerate(REASONING_LEVELS):
+        if i:
+            cell.append(REASONING_SEPARATOR, style=REASONING_INACTIVE_STYLE)
+        cell.append(
+            level,
+            style=REASONING_STYLES[level] if level == active else REASONING_INACTIVE_STYLE,
+        )
+    return cell
 
 
 def _append_task_number(text: Text, row: dict) -> None:
@@ -263,7 +292,7 @@ def _append_sleep_progress(cell: Text, row: dict) -> None:
 
 
 def _build_concise_task_line(row: dict) -> Text:
-    """Build a styled ``→ number (alias) name !! STATUS`` concise line.
+    """Build a styled ``→ number (alias) name !! STATUS level`` concise line.
 
     The name links to the task's Gist conversation mirror, same as in the full
     table — see :func:`_name_style`.
@@ -285,6 +314,10 @@ def _build_concise_task_line(row: dict) -> Text:
         row.get("reply_every_seconds")
     ):
         line.append(reply_every_suffix, style=REPLY_EVERY_STYLE)
+    # Only the active level: the full ladder is for the table's own column.
+    if (level := row.get("reasoning")) in REASONING_STYLES:
+        line.append(f" {level}", style=REASONING_STYLES[level])
+    if reply_every_suffix:
         # Mirror _build_name_cell: paint the background under the whole line
         # so cycling tasks are as easy to spot here as in the full table.
         line.stylize(f"on {REPLY_EVERY_BG}")

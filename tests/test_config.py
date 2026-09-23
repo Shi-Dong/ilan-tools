@@ -13,7 +13,7 @@ import ilan.config as cfg
 class TestDefaults:
     def test_default_keys(self) -> None:
         expected = {
-            "workdir", "model-claude", "model-codex", "effort",
+            "workdir", "model-claude", "model-codex",
             "time-zone", "editor", "default-backend",
             "api-key-mode", "api-key-claude", "api-key-codex",
             "github-token", "push-contact",
@@ -224,7 +224,7 @@ class TestSave:
         original = {"workdir": "/custom", "dashboard-interval": 8,
                      "model-claude": "claude-sonnet-4-6",
                      "model-codex": "gpt-5.1-codex-max",
-                     "effort": "low", "time-zone": "UTC", "editor": "nano"}
+                     "time-zone": "UTC", "editor": "nano"}
         cfg.save(original)
         loaded = cfg.load()
         for k, v in original.items():

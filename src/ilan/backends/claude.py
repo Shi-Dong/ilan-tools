@@ -24,13 +24,12 @@ def _effective_model(model_override: str | None = None) -> str:
     return model_override or str(conf["model-claude"])
 
 
-def _claude_flags(model_override: str | None = None) -> list[str]:
-    """Build claude flags, reading model/effort from config at call time."""
-    conf = cfg.load()
+def _claude_flags(model_override: str | None, effort: str) -> list[str]:
+    """Build claude flags, reading the default model from config at call time."""
     return [
         *_CLAUDE_STATIC_FLAGS,
         "--model", _effective_model(model_override),
-        "--effort", str(conf.get("effort", "max")),
+        "--effort", effort,
     ]
 
 
@@ -107,11 +106,12 @@ class ClaudeBackend(Backend):
         self,
         model_override: str | None,
         *,
+        effort: str,
         resume: bool,
         session_id: str | None,
     ) -> tuple[list[str], dict[str, str]]:
         # No positional prompt: `claude -p` reads the prompt from stdin.
-        cmd = ["claude", "-p", *_claude_flags(model_override)]
+        cmd = ["claude", "-p", *_claude_flags(model_override, effort)]
         if resume and session_id:
             cmd.extend(["--resume", session_id])
 
@@ -127,15 +127,14 @@ class ClaudeBackend(Backend):
         return cmd, env
 
     def build_attach_command(
-        self, session_id: str, model_override: str | None
+        self, session_id: str, model_override: str | None, *, effort: str
     ) -> list[str]:
-        conf = cfg.load()
         return [
             "claude",
             "--resume", session_id,
             "--dangerously-skip-permissions",
             "--model", _effective_model(model_override),
-            "--effort", str(conf.get("effort", "max")),
+            "--effort", effort,
         ]
 
     def parse_output(self, out_path: Path) -> ParsedResult | None:

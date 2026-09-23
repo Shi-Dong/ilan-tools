@@ -393,7 +393,8 @@ class Runner:
         tmux_instr = _tmux_instruction(task.task_hash, task.name) if task.task_hash else ""
         full_prompt = prompt + tmux_instr + STATUS_SUFFIX
         cmd, env = self._backend_for(task.engine).build_command(
-            task.model_override, resume=resume, session_id=task.session_id
+            task.model_override, effort=task.effort,
+            resume=resume, session_id=task.session_id
         )
 
         out_path = self.store.output_path(task.name)
@@ -430,9 +431,9 @@ class Runner:
         self._procs[task.name] = proc
         task.pid = proc.pid
         # Neither backend's session log records the reasoning effort, so
-        # capture what this spawn was given (the ``effort`` config the
-        # backend read when building the command) for attribution at reap.
-        task.spawn_effort = str(cfg.load().get("effort", "max"))
+        # capture what this spawn was given (the task's reasoning level as
+        # this backend spells it) for attribution at reap.
+        task.spawn_effort = task.effort
         # Same for the paying account: resolve it from the credentials this
         # spawn just authenticated with, since a later credential config change
         # would affect the *next* spawn only.

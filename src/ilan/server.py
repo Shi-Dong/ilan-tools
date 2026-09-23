@@ -29,6 +29,7 @@ from ilan.models import (
     CANCEL_MESSAGE,
     DEFAULT_ENGINE,
     MAX_NOTES_LENGTH,
+    REASONING_LEVELS,
     REPLY_EVERY_MIN_SECONDS,
     TAP_MESSAGE,
     VALID_ENGINES,
@@ -91,6 +92,7 @@ ROUTES: list[tuple[str, str, str]] = [
     ("POST",   r"^/tasks/([^/]+)/btw$",        "handle_task_btw"),
     ("POST",   r"^/tasks/([^/]+)/max$",        "handle_task_max"),
     ("POST",   r"^/tasks/([^/]+)/unmax$",      "handle_task_unmax"),
+    ("POST",   r"^/tasks/([^/]+)/level$",      "handle_task_set_level"),
     ("POST",   r"^/tasks/([^/]+)/switch-backend$", "handle_task_switch_backend"),
     ("GET",    r"^/tasks/([^/]+)/logs$",       "handle_task_logs"),
     ("GET",    r"^/tasks/([^/]+)/log-path$",   "handle_task_log_path"),
@@ -502,13 +504,6 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     400,
                 )
                 return
-            if key == "effort" and value not in cfg.VALID_EFFORTS:
-                self._json(
-                    {"error": f"Invalid value {value!r} for effort. "
-                              f"Choose from: {', '.join(cfg.VALID_EFFORTS)}"},
-                    400,
-                )
-                return
             if key in cfg.MODEL_KEYS and not cfg.is_valid_model_id(key, str(value)):
                 self._json(
                     {"error": f"Invalid model id {value!r} for {key}. Use the "
@@ -566,6 +561,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     "notes": t.notes,
                     "summary_one_liner": t.summary_one_liner,
                     "maxed": t.maxed,
+                    "reasoning": t.reasoning,
                     # The model the next spawn will be told to run instead of
                     # the configured default, resolved now rather than stored,
                     # so it is always the current max model or null.
@@ -1216,6 +1212,26 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 task.maxed = False
                 self._ilan.store.put_task(task)
             self._json({"ok": True, "name": task.name, "model": task.model_override})
+
+        def handle_task_set_level(self, name: str):
+            level = str(self._body().get("level", "")).strip().lower()
+            if level not in REASONING_LEVELS:
+                self._json(
+                    {"error": f"Invalid reasoning level {level!r}. "
+                              f"Choose from: {', '.join(REASONING_LEVELS)}"},
+                    400,
+                )
+                return
+            with self._ilan.lock:
+                task = self._get_task_or_404(name)
+                if task is None:
+                    return
+                # Stored as the level, not a flag value: the next spawn
+                # translates it for whichever backend the task is on then.
+                task.reasoning = level
+                self._ilan.store.put_task(task)
+            self._json({"ok": True, "name": task.name, "reasoning": task.reasoning,
+                        "effort": task.effort})
 
         def handle_task_switch_backend(self, name: str):
             with self._ilan.lock:

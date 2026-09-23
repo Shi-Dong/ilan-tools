@@ -252,6 +252,7 @@ class Store:
             gist_branch_point=inherited_log_count,
             gist_branch_parent_name=parent.name,
             engine=parent.engine,
+            reasoning=parent.reasoning,
             awaiting_catchup=awaiting_catchup,
         )
         self.put_task(child)
