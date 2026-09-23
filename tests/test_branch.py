@@ -59,6 +59,16 @@ class TestStoreBranch:
         # A branch keeps its parent's reasoning level.
         assert child.reasoning == "medium"
 
+        # Unless the caller names another, as ``ilan btw`` does.
+        side = store.branch_task(
+            parent, "side",
+            alias="cc", task_hash="feedbeef", now="2026-01-01T00:00:00+00:00",
+            reasoning="low",
+        )
+        assert side.reasoning == "low"
+        assert store.get_task("parent") is not None
+        assert store.get_task("parent").reasoning == "medium"
+
         assert child.name == "child"
         assert child.parent_name == "parent"
         assert child.alias == "bb"
@@ -339,6 +349,24 @@ class TestServerBranchEndpoint:
         logs = ilan_server.store.read_logs("child-task")
         # Copied 2 parent entries + 1 new user message.
         assert [e.content for e in logs] == ["hello", "hi", "try plan B"]
+
+    @pytest.mark.parametrize("parent_level", ["low", "medium", "max"])
+    def test_branch_keeps_the_parents_reasoning_level(
+        self, ilan_server: IlanServer, parent_level: str,
+    ) -> None:
+        parent = _seed_parent(ilan_server)
+        parent.reasoning = parent_level
+        ilan_server.store.put_task(parent)
+        with patch.object(Runner, "find_session_log", return_value=Path("/fake/sid-1.jsonl")):
+            code, resp = _post(
+                ilan_server, "/tasks/parent-task/branch",
+                {"new_name": "child-task", "message": "try plan B"},
+            )
+        assert code == 200, resp
+        assert resp["reasoning"] == parent_level
+        child = ilan_server.store.get_task("child-task")
+        assert child is not None
+        assert child.reasoning == parent_level
 
     def test_branch_codex_parent_yields_fresh_codex_child(
         self, ilan_server: IlanServer,

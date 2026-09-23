@@ -16,7 +16,7 @@ from ilan.cli import _BTW_SUFFIX, main
 def client(tmp_config: Path) -> MagicMock:
     client = MagicMock()
     client.btw_task.return_value = {
-        "name": "xxx-parent-task-btw", "parent_name": "parent-task",
+        "name": "xxx-parent-task-btw", "parent_name": "parent-task", "reasoning": "low",
     }
     return client
 
@@ -113,3 +113,21 @@ def test_usage_shows_only_two_required_positionals(prefix: list[str]) -> None:
     assert result.exit_code == 2
     assert "OLD_NAME INSTRUCTION" in result.output
     assert "[OPTIONS]" not in result.output
+
+
+def test_the_confirmation_names_the_childs_level(client: MagicMock) -> None:
+    """A side question starts at low whatever its parent runs at, so the level
+    is said out loud rather than left for the user to assume."""
+    with patch("ilan.cli._client", return_value=client):
+        result = CliRunner().invoke(main, ["btw", "aa", "Why?"])
+    assert result.exit_code == 0, result.output
+    assert "Branched xxx-parent-task-btw from parent-task. Reasoning level: low." in result.output
+
+
+def test_a_server_without_levels_gets_the_plain_confirmation(client: MagicMock) -> None:
+    del client.btw_task.return_value["reasoning"]
+    with patch("ilan.cli._client", return_value=client):
+        result = CliRunner().invoke(main, ["btw", "aa", "Why?"])
+    assert result.exit_code == 0, result.output
+    assert "Branched xxx-parent-task-btw from parent-task." in result.output
+    assert "Reasoning level" not in result.output

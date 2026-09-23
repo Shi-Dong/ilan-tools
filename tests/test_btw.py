@@ -106,3 +106,27 @@ def test_refused_branch_does_not_allocate_a_name(
     name.assert_not_called()
     with ilan_server.lock:
         assert list(ilan_server.store.load_tasks()) == [parent.name]
+
+
+@pytest.mark.parametrize("parent_level", ["low", "medium", "max"])
+def test_a_side_question_starts_at_low_whatever_its_parent_runs_at(
+    ilan_server: IlanServer, parent: Task, parent_level: str,
+) -> None:
+    with ilan_server.lock:
+        parent.reasoning = parent_level
+        ilan_server.store.put_task(parent)
+    with patch.object(
+        ilan_server.runner, "find_session_log", return_value=Path("/fake/session.jsonl"),
+    ):
+        response = post_json(ilan_server, "/tasks/aa/btw", {"message": "Why?"})
+    assert response["reasoning"] == "low"
+    with ilan_server.lock:
+        child = ilan_server.store.get_task(response["name"])
+        stored_parent = ilan_server.store.get_task(parent.name)
+    assert child is not None and stored_parent is not None
+    assert child.reasoning == "low"
+    # The parent is a codex task, whose max would be xhigh: the child's spawn
+    # is told low, not a translation of the parent's level.
+    assert child.effort == "low"
+    # Asking a side question leaves the parent's own level alone.
+    assert stored_parent.reasoning == parent_level

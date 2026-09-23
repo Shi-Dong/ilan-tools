@@ -185,11 +185,15 @@ class Store:
         alias: str,
         task_hash: str,
         now: str,
+        reasoning: str | None = None,
     ) -> Task:
         """Create a child task that inherits *parent*'s conversation.
 
         The child keeps the parent's ``engine`` so branching a codex task
-        yields a codex child (and a claude task a claude child).
+        yields a codex child (and a claude task a claude child). It keeps the
+        parent's reasoning level too, unless *reasoning* names the level it
+        should start at instead — ``ilan btw`` starts its side question at
+        ``BTW_REASONING``.
 
         For a **Claude** parent the native session log is forked onto a fresh
         UUID so the two tasks evolve independently after this point.
@@ -252,7 +256,7 @@ class Store:
             gist_branch_point=inherited_log_count,
             gist_branch_parent_name=parent.name,
             engine=parent.engine,
-            reasoning=parent.reasoning,
+            reasoning=reasoning or parent.reasoning,
             awaiting_catchup=awaiting_catchup,
         )
         self.put_task(child)

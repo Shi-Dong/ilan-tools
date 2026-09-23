@@ -2492,8 +2492,13 @@ def _do_branch(
     # Report the returned name; ordinary unnamed branches are named by the server.
     child = str(resp.get("name") or new_name or "")
     parent = resp.get("parent_name", old_name)
+    # The level is named because it is not always the parent's: a side
+    # question starts at low whatever the parent runs at.
+    level = resp.get("reasoning")
+    style = REASONING_STYLES.get(level or "", "")
+    suffix = f" Reasoning level: [{style}]{level}[/{style}]." if style else ""
     console.print(
-        f"[green]Branched [bold]{child}[/bold] from [bold]{parent}[/bold].[/green]"
+        f"[green]Branched [bold]{child}[/bold] from [bold]{parent}[/bold].{suffix}[/green]"
     )
     _print_burnable_hint(child)
 
