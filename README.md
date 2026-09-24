@@ -111,7 +111,7 @@ Every task command has a top-level shorthand, so `ilan task reply` is just `ilan
 |---|---|
 | `ilan reply NAME ["msg"] [--max \| --unmax] [--level LEVEL] [-t DURATION] [-e] [-u]` | Send a message; `ilan re` is the same. Without a message it shows the tail. `-t 1h` re-sends the message every hour until you write to the task again; `-t 30m` on its own, on a looping task, switches it to every 30 minutes and re-sends its message at once. `-e` writes the message in your configured editor instead of on the command line, and sends nothing if you leave the buffer empty. `-u` opens the message a looping task re-sends in your editor, prefilled, so you can change it; the new text goes out from the next re-send on, on the same schedule. `--level max` sets the task's reasoning level starting with the answer to this message, and it stays there. |
 | `ilan tap NAME` | Ask the agent for a status update. |
-| `ilan cancel NAME` | Retract your last message and tell the agent to stop acting on it. |
+| `ilan cancel NAME` | Retract your last message and tell the agent to stop acting on it. Only works within 120s of that message. |
 | `ilan sleep NAME DURATION` | Tell an idle agent to wait (`300`, `5m`, `1.5h`) and then report back. |
 | `ilan branch OLD [-n NEW] (-d "msg" \| -f FILE)` | Fork a child task that inherits the whole conversation and starts on `msg`. |
 | `ilan attach NAME` | Drop into the agent's native session (`claude --resume` or `codex resume`). |

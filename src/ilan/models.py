@@ -168,6 +168,11 @@ CANCEL_MESSAGE = (
     "specified in that message, you should stop immediately."
 )
 
+# ``ilan cancel`` retracts the user's last message, which only makes sense
+# while the agent has barely started on it; after this long the agent has
+# likely acted on the message, so the server refuses the cancel.
+CANCEL_WINDOW_SECONDS = 120
+
 
 # ── Agent backends (engines) ─────────────────────────────────────────────
 # A task's ``engine`` names which agent CLI drives it. It defaults to Claude
