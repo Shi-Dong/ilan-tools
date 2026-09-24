@@ -240,18 +240,22 @@ def _parse_duration(spec: str) -> timedelta:
     return timedelta(days=value)
 
 
-def _complete_task_names(ctx: click.Context, param: click.Parameter, incomplete: str) -> list[str]:
-    """Shell completion for task names.
+def _task_names(incomplete: str, *, active_only: bool = False) -> list[str]:
+    """Task names starting with *incomplete*, for shell completion.
 
     When connected to a remote server (ILAN_SERVER_URL), queries the server API
     so that the client can discover task names that only exist on the remote host.
     Falls back to reading the local tasks.json when the server is unreachable.
+    With *active_only*, DONE and DISCARDED tasks are left out.
     """
     try:
         c = Client()
         if c.is_remote:
             resp = c.list_tasks(show_all=True)
-            names = [t["name"] for t in resp.get("tasks", [])]
+            names = [
+                t["name"] for t in resp.get("tasks", [])
+                if not (active_only and TaskStatus(t["status"]).is_terminal)
+            ]
             return sorted(n for n in names if n.startswith(incomplete))
     except Exception:
         pass
@@ -260,9 +264,22 @@ def _complete_task_names(ctx: click.Context, param: click.Parameter, incomplete:
     # for tab-completion).
     try:
         tasks = Store(cfg.get_workdir()).load_tasks()
-        return sorted(n for n in tasks if n.startswith(incomplete))
+        return sorted(
+            n for n, t in tasks.items()
+            if n.startswith(incomplete) and not (active_only and t.status.is_terminal)
+        )
     except Exception:
         return []
+
+
+def _complete_task_names(ctx: click.Context, param: click.Parameter, incomplete: str) -> list[str]:
+    """Shell completion for any task name."""
+    return _task_names(incomplete)
+
+
+def _complete_active_task_names(ctx: click.Context, param: click.Parameter, incomplete: str) -> list[str]:
+    """Shell completion for tasks that are not DONE or DISCARDED."""
+    return _task_names(incomplete, active_only=True)
 
 
 def _complete_config_keys(ctx: click.Context, param: click.Parameter, incomplete: str) -> list[str]:
@@ -2091,7 +2108,7 @@ Examples:
     epilog=_REPLY_EPILOG,
     short_help="Send a response to a task.",
 )
-@click.argument("name", shell_complete=_complete_task_names)
+@click.argument("name", shell_complete=_complete_active_task_names)
 @click.argument("message", required=False, default=None)
 @click.option("-n", "--num", "num", type=int, default=None,
               help="With no message, show the final N assistant messages.")

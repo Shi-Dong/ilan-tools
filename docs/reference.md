@@ -38,7 +38,7 @@ ilan done sd
 
 Aliases are assigned when a task is created. A `DONE` task releases its alias back to the pool; moving it back out with `undone` mints a fresh alias. A `DISCARDED` task instead *keeps* its alias — a discard is a recycle-bin entry you can restore, so it stays reachable by its short alias (e.g. `ilan undiscard sd`), and `undiscard` brings it back under that same handle. To pick a specific alias for an active task, use `ilan task alias NAME NEW_ALIAS` (or the `ilan alias` shorthand); the new alias must be two letters from `asdfghjkl` and not already taken by another task.
 
-Task names must be at least 3 characters long (to avoid ambiguity with aliases), may only contain letters, digits, hyphens (`-`), and underscores (`_`), and may not be all digits (those are [task numbers](#task-numbers)). Aliases are not included in shell tab-completion.
+Task names must be at least 3 characters long (to avoid ambiguity with aliases), may only contain letters, digits, hyphens (`-`), and underscores (`_`), and may not be all digits (those are [task numbers](#task-numbers)). Aliases are not included in shell tab-completion. Tab-completion for `ilan reply` (and `ilan re`) only offers tasks that are not DONE or DISCARDED.
 
 ## Task numbers
 
