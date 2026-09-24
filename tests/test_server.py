@@ -21,9 +21,12 @@ from ilan import __version__
 from ilan.client import Client
 from ilan.models import (
     ASTRA_MODEL,
+    CANCEL_MESSAGE,
+    CANCEL_WINDOW_SECONDS,
     ENGINE_CLAUDE,
     FABLE_MODEL,
     MAX_MODELS,
+    LogEntry,
     MaxModel,
     Task,
     TaskStatus,
@@ -1014,6 +1017,59 @@ class TestReply:
         _post(ilan_server, "/tasks/reply-done/done")
         resp = _post(ilan_server, "/tasks/reply-done/reply", {"message": "too late"})
         assert "error" in resp
+
+
+class TestCancelWindow:
+    """``ilan cancel`` only works within CANCEL_WINDOW_SECONDS of the last user message."""
+
+    @staticmethod
+    def _needs_attention(ilan_server: IlanServer, name: str) -> None:
+        _post(ilan_server, "/tasks", {"name": name, "prompt": "P"})
+        with ilan_server.lock:
+            task = ilan_server.store.get_task(name)
+            task.set_status(TaskStatus.NEEDS_ATTENTION)
+            ilan_server.store.put_task(task)
+
+    @staticmethod
+    def _user_message_ago(seconds: int) -> list[LogEntry]:
+        sent_at = datetime.now(timezone.utc) - timedelta(seconds=seconds)
+        return [
+            LogEntry(role="user", content="oops", timestamp=sent_at.isoformat()),
+            LogEntry.now("assistant", "on it"),
+        ]
+
+    def test_cancel_within_window_is_sent(self, ilan_server: IlanServer) -> None:
+        self._needs_attention(ilan_server, "cancel-fresh")
+        with patch.object(ilan_server.runner, "start"):
+            resp = _post(
+                ilan_server, "/tasks/cancel-fresh/reply", {"message": CANCEL_MESSAGE}
+            )
+        assert resp.get("ok") is True
+
+    def test_cancel_after_window_is_rejected(self, ilan_server: IlanServer) -> None:
+        self._needs_attention(ilan_server, "cancel-stale")
+        entries = self._user_message_ago(CANCEL_WINDOW_SECONDS + 5)
+        with (
+            patch.object(ilan_server.store, "read_logs", return_value=entries),
+            patch.object(ilan_server.runner, "start") as start,
+        ):
+            resp = _post(
+                ilan_server, "/tasks/cancel-stale/reply", {"message": CANCEL_MESSAGE}
+            )
+        assert f"within {CANCEL_WINDOW_SECONDS}s" in resp["error"]
+        start.assert_not_called()
+        task = _get(ilan_server, "/tasks/cancel-stale")["task"]
+        assert CANCEL_MESSAGE not in task["cached_replies"]
+
+    def test_plain_reply_after_window_is_sent(self, ilan_server: IlanServer) -> None:
+        self._needs_attention(ilan_server, "cancel-plain")
+        entries = self._user_message_ago(CANCEL_WINDOW_SECONDS + 5)
+        with (
+            patch.object(ilan_server.store, "read_logs", return_value=entries),
+            patch.object(ilan_server.runner, "start"),
+        ):
+            resp = _post(ilan_server, "/tasks/cancel-plain/reply", {"message": "hi"})
+        assert resp.get("ok") is True
 
 
 # ── Sleep ───────────────────────────────────────────────────────────────

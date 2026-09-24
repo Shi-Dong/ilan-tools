@@ -101,3 +101,16 @@ class TestCancelDisallowedStatuses:
         assert result.exit_code == 0
         client.reply.assert_not_called()
         assert status in result.output
+
+
+class TestCancelWindowRejection:
+    def test_cancel_prints_server_rejection(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client("WORKING")
+        client.reply.return_value = {
+            "error": "Cannot cancel: your last message to my-task was sent 300s ago."
+        }
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["cancel", "my-task"])
+        assert result.exit_code == 1
+        assert "Cannot cancel" in _unwrapped(result.output)
+        assert "Retracted" not in _unwrapped(result.output)

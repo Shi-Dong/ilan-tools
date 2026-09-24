@@ -28,6 +28,7 @@ from ilan.models import (
     ALIAS_POOL,
     BTW_REASONING,
     CANCEL_MESSAGE,
+    CANCEL_WINDOW_SECONDS,
     DEFAULT_ENGINE,
     MAX_NOTES_LENGTH,
     REASONING_LEVELS,
@@ -779,6 +780,25 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
         def handle_task_unpin(self, name: str):
             self._set_pinned(name, False)
 
+        def _cancel_window_error(self, task: Task) -> str | None:
+            """Why a cancel of TASK's last user message is refused, or ``None``."""
+            last_user = next(
+                (e for e in reversed(self._ilan.store.read_logs(task.name))
+                 if e.role == "user"),
+                None,
+            )
+            if last_user is None or not last_user.timestamp:
+                return f"Task {task.name} has no user message to cancel."
+            sent_at = datetime.fromisoformat(last_user.timestamp)
+            elapsed = (datetime.now(timezone.utc) - sent_at).total_seconds()
+            if elapsed <= CANCEL_WINDOW_SECONDS:
+                return None
+            return (
+                f"Cannot cancel: your last message to {task.name} was sent "
+                f"{int(elapsed)}s ago. A message can only be cancelled within "
+                f"{CANCEL_WINDOW_SECONDS}s of sending it."
+            )
+
         def handle_task_reply(self, name: str):
             body = self._body()
             message = body["message"]
@@ -817,6 +837,11 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     return
                 if confirm := self._reply_every_confirmation(task, body):
                     self._json(confirm, 409)
+                    return
+                if message == CANCEL_MESSAGE and (
+                    error := self._cancel_window_error(task)
+                ):
+                    self._json({"error": error}, 409)
                     return
 
                 store = self._ilan.store
