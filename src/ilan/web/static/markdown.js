@@ -154,7 +154,10 @@ const MD = (() => {
   function renderList(items, start = 0, indent = null) {
     const base = indent === null ? items[start].indent : indent;
     const ordered = /\d/.test(items[start].marker);
-    let html = ordered ? '<ol>' : '<ul>';
+    // Honour the first marker's number so a list the parser had to split
+    // (e.g. around a code fence) still continues 3., 4., … instead of 1.
+    const first = ordered ? parseInt(items[start].marker, 10) : 1;
+    let html = ordered ? (first === 1 ? '<ol>' : `<ol start="${first}">`) : '<ul>';
     let i = start;
 
     while (i < items.length && items[i].indent >= base) {
@@ -274,10 +277,25 @@ const MD = (() => {
       if (RE_LIST.test(line)) {
         flush();
         const items = [];
-        while (i < lines.length && RE_LIST.test(lines[i])) {
+        while (i < lines.length) {
           const m = RE_LIST.exec(lines[i]);
-          items.push({ indent: m[1].length, marker: m[2], text: m[3] });
-          i += 1;
+          if (m) {
+            items.push({ indent: m[1].length, marker: m[2], text: m[3] });
+            i += 1;
+            continue;
+          }
+          // Blank lines between items ("loose" lists) keep the list going.
+          let j = i;
+          while (j < lines.length && !lines[j].trim()) j += 1;
+          if (j > i && j < lines.length && RE_LIST.test(lines[j])) { i = j; continue; }
+          // An indented, non-blank line directly under an item is a wrapped
+          // continuation of that item, not the end of the list.
+          if (j === i && /^\s+\S/.test(lines[i]) && !RE_FENCE.test(lines[i])) {
+            items[items.length - 1].text += ` ${lines[i].trim()}`;
+            i += 1;
+            continue;
+          }
+          break;
         }
         html += renderList(items)[0];
         continue;

@@ -43,6 +43,12 @@ const CASES = [
   ['relative link still allowed', '[x](/app/)', ['<a href="/app/"'], []],
 
   // ── formatting ────────────────────────────────────────────────────────
+  ['loose ordered list stays one list', '1. a\n\n2. b\n\n3. c',
+    ['<ol><li>a</li><li>b</li><li>c</li></ol>'], ['</ol><ol']],
+  ['wrapped item keeps list numbering', '1. first line\n   continues\n2. second',
+    ['<ol><li>first line continues</li><li>second</li></ol>'], ['</ol>\n']],
+  ['list split by a fence resumes numbering', '1. a\n```\nx\n```\n2. b',
+    ['<ol start="2"><li>b</li></ol>'], []],
   ['bold', '**bold**', ['<strong>bold</strong>'], []],
   ['italic', 'an *ital* word', ['<em>ital</em>'], []],
   ['strikethrough', '~~gone~~', ['<del>gone</del>'], []],
