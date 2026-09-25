@@ -7,7 +7,7 @@ the summary on its own thread, off the server lock, because generating one
 is a model call that can take several seconds.
 
 The summary is produced by sending the last user message + the new
-assistant message to OpenAI's GPT-5.6 Luna. The backend depends
+assistant message to OpenAI's GPT-6 Luna. The backend depends
 on the ``api-key-codex`` config:
 
 * When ``api-key-codex`` is set, the summary is produced by a direct HTTPS call
@@ -44,8 +44,8 @@ OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 SUMMARIZED_STATUSES = frozenset({TaskStatus.NEEDS_ATTENTION, TaskStatus.AGENT_FINISHED})
 
 # Model used for the one-liner, on both the API and the CLI path. Luna is the
-# small/fast member of the GPT-5.6 family, which suits a 20-word summary.
-ONELINER_MODEL = "gpt-5.6-luna"
+# small/fast member of the GPT-6 family, which suits a 20-word summary.
+ONELINER_MODEL = "gpt-6-luna"
 
 # Luna is a reasoning model: at its default effort it spends more tokens
 # thinking than a 20-word summary needs. "none" is the cheapest setting it
