@@ -9,6 +9,7 @@ import io
 import os
 import re
 import select
+import shlex
 import shutil
 import subprocess
 import sys
@@ -1577,8 +1578,20 @@ def task_tail(
 _SET_EDITOR_HINT = "Set one with `ilan config set editor <name>`."
 
 
-def _resolve_editor() -> str | None:
-    """Return a runnable editor command, or ``None`` after saying what is wrong.
+def _split_editor(editor: str) -> list[str]:
+    """Split an ``editor`` setting into argv the way a shell would.
+
+    ``emacs -nw`` becomes ``["emacs", "-nw"]``, and quotes keep a path with
+    spaces in one piece. Raises ``ValueError`` on an unbalanced quote.
+    """
+    return shlex.split(editor)
+
+
+def _resolve_editor() -> list[str] | None:
+    """Return a runnable editor argv, or ``None`` after saying what is wrong.
+
+    The setting may carry arguments (``emacs -nw``); only the first word has
+    to be a program on PATH.
 
     Checked before anything else happens, so a user without a usable editor
     gets one clear message instead of a temp file and whatever their shell
@@ -1587,22 +1600,31 @@ def _resolve_editor() -> str | None:
     the default of ``emacs`` is only a guess on a machine that may not have it.
     """
     editor = str(cfg.load().get("editor", "")).strip()
-    if not editor:
+    try:
+        argv = _split_editor(editor)
+    except ValueError as exc:
+        console.print(
+            f"[red]Cannot parse the configured editor {editor!r}: {exc}. "
+            f"{_SET_EDITOR_HINT}[/red]"
+        )
+        return None
+    if not argv:
         console.print(f"[red]No editor configured. {_SET_EDITOR_HINT}[/red]")
         return None
-    if shutil.which(editor) is None:
+    if shutil.which(argv[0]) is None:
         console.print(
-            f"[red]The configured editor {editor!r} is not installed, or not "
+            f"[red]The configured editor {argv[0]!r} is not installed, or not "
             f"on your PATH. {_SET_EDITOR_HINT}[/red]"
         )
         return None
-    return editor
+    return argv
 
 
 def _edit_text_in_editor(
-    editor: str, task_name: str, current: str, *, kind: str, abandoned: str,
+    editor: list[str], task_name: str, current: str, *, kind: str,
+    abandoned: str,
 ) -> str | None:
-    """Open *current* in *editor* and return what came back.
+    """Open *current* in the *editor* argv and return what came back.
 
     *kind* names what is being written (``note``, ``reply``) and labels the
     temp file; *abandoned* says what became of it when the editor exits
@@ -1625,18 +1647,18 @@ def _edit_text_in_editor(
         tmp_path = tmp.name
     try:
         try:
-            completed = subprocess.run([editor, tmp_path])
+            completed = subprocess.run([*editor, tmp_path])
         except OSError as exc:
             # `shutil.which` said it was there, so this is a race or a
             # permission problem rather than a missing editor.
             console.print(
-                f"[red]Cannot run the configured editor {editor!r}: {exc}. "
+                f"[red]Cannot run the configured editor {editor[0]!r}: {exc}. "
                 f"{_SET_EDITOR_HINT}[/red]"
             )
             return None
         if completed.returncode != 0:
             console.print(
-                f"[yellow]{editor} exited with {completed.returncode}; "
+                f"[yellow]{editor[0]} exited with {completed.returncode}; "
                 f"{abandoned}[/yellow]"
             )
             return None
@@ -2717,7 +2739,9 @@ def _open_log(name: str, *, path: bool = False) -> None:
         lines.append(entry["content"])
         lines.append("")
 
-    editor = str(cfg.load().get("editor", "emacs"))
+    editor = _resolve_editor()
+    if editor is None:
+        raise SystemExit(1)  # _resolve_editor said what was wrong
     readonly_flags: dict[str, list[str]] = {
         "vim": ["-R"], "vi": ["-R"], "nvim": ["-R"],
         "nano": ["-v"],
@@ -2727,7 +2751,8 @@ def _open_log(name: str, *, path: bool = False) -> None:
         tmp.write("\n".join(lines))
         tmp_path = tmp.name
 
-    cmd = [editor, *readonly_flags.get(editor, []), tmp_path]
+    program = os.path.basename(editor[0])
+    cmd = [*editor, *readonly_flags.get(program, []), tmp_path]
     subprocess.run(cmd)
 
 

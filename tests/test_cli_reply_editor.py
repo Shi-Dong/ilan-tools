@@ -106,6 +106,28 @@ class TestEditorFlagSendsWhatWasWritten:
         )
         assert seen["cmd"][0] == "nano"
 
+    def test_the_editor_setting_may_carry_arguments(
+        self, runner: CliRunner
+    ) -> None:
+        """`emacs -nw` runs emacs with -nw; only `emacs` must be on PATH."""
+        result, client, seen = _invoke_editor(
+            runner, ["re", "my-task", "-e"], written="ship it",
+            editor="emacs", configured_editor="emacs -nw",
+        )
+        assert result.exit_code == 0, result.output
+        assert seen["cmd"][:2] == ["emacs", "-nw"]
+        assert len(seen["cmd"]) == 3
+        client.reply.assert_called_once_with("my-task", "ship it")
+
+    def test_a_quoted_editor_path_stays_one_word(
+        self, runner: CliRunner
+    ) -> None:
+        _, _, seen = _invoke_editor(
+            runner, ["re", "my-task", "-e"], written="x",
+            configured_editor="'/Applications/My Editor/bin/ed' --wait",
+        )
+        assert seen["cmd"][:2] == ["/Applications/My Editor/bin/ed", "--wait"]
+
     def test_the_buffer_starts_empty(self, runner: CliRunner) -> None:
         """A reply is new text, so nothing is prefilled for the user to delete."""
         _, _, seen = _invoke_editor(runner, ["re", "my-task", "-e"], written="x")
@@ -175,6 +197,15 @@ class TestEditorFlagSendsNothing:
         )
         assert result.exit_code == 1
         assert "No editor configured" in _squash(result.output)
+        client.reply.assert_not_called()
+        assert "cmd" not in seen
+
+    def test_an_unbalanced_quote_is_reported(self, runner: CliRunner) -> None:
+        result, client, seen = _invoke_editor(
+            runner, ["re", "my-task", "-e"], configured_editor="emacs '-nw",
+        )
+        assert result.exit_code == 1
+        assert "Cannot parse the configured editor" in _squash(result.output)
         client.reply.assert_not_called()
         assert "cmd" not in seen
 
