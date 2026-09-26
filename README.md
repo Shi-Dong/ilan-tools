@@ -170,7 +170,7 @@ Settings live in `~/.config/ilan/config.json`. Most are **server-side** and appl
 | `api-key-codex` | *(empty)* | OpenAI key used while `api-key-mode` is on. When set, it also produces the one-line summaries. |
 | `github-token` | *(empty)* | Token with the `gist` scope. Setting it turns on Gist mirroring. |
 | `time-zone` | `US/Pacific` | Time zone for timestamps. Friendly aliases such as `tokyo` or `london` work. |
-| `editor` | `emacs` | Editor used by `ilan log`. |
+| `editor` | `emacs` | Editor used by `ilan log`, `ilan notes -e`, and `ilan reply -e`/`-u`. May include arguments, e.g. `emacs -nw`. |
 | `push-contact` | `mailto:ilan@example.com` | Contact address a push service may use about this server's web-app notifications. Apple accepts only a `mailto:` with a dotted host. |
 | `dashboard-interval` | `1` | Seconds between dashboard refreshes. |
 | `line-number` | `false` | Number the lines of `ilan tail`, so a reply can quote line 12 as `@12`, which expands to that line as a Markdown blockquote. |
