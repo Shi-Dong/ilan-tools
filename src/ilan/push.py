@@ -74,6 +74,33 @@ FINISH_WORDS: dict[TaskStatus, str] = {
 # bite; this keeps a runaway summary from filling the screen.
 BODY_LIMIT = 240
 
+# The code points of the Mathematical Sans-Serif Bold alphabet, in the order
+# A-Z, a-z, 0-9. A notification's body has no formatting: the platform draws
+# the title in bold and everything else in regular weight, and offers no way
+# to mark a phrase. These letters are the one bold a body can carry — they
+# are distinct characters that every phone font has a bold glyph for, so the
+# status reads as bold on the lock screen while the summary beside it stays
+# regular. Only ASCII letters and digits have such a twin; anything else
+# passes through unchanged.
+_BOLD_UPPER = 0x1D5D4
+_BOLD_LOWER = 0x1D5EE
+_BOLD_DIGIT = 0x1D7EC
+
+
+def bold_sans(text: str) -> str:
+    """*text* with its ASCII letters and digits swapped for their bold twins."""
+    out = []
+    for ch in text:
+        if "A" <= ch <= "Z":
+            out.append(chr(_BOLD_UPPER + ord(ch) - ord("A")))
+        elif "a" <= ch <= "z":
+            out.append(chr(_BOLD_LOWER + ord(ch) - ord("a")))
+        elif "0" <= ch <= "9":
+            out.append(chr(_BOLD_DIGIT + ord(ch) - ord("0")))
+        else:
+            out.append(ch)
+    return "".join(out)
+
 
 def should_notify(task: Task) -> bool:
     """Whether a task that has just been reaped is worth a notification.
@@ -99,8 +126,13 @@ def build_payload(task: Task) -> dict[str, str]:
     terminal and means nothing on a lock screen. ``tag`` lets a second finish
     of the same task replace the first notification rather than stack under
     it, and ``url`` is where a tap should land.
+
+    The status words are set in bold (see ``bold_sans``) and the summary is
+    not, so how the task finished is what the eye lands on under the title.
+    ``status`` carries the plain enum value for anything that reads the note
+    as data rather than as text.
     """
-    words = FINISH_WORDS.get(task.status, task.status.value)
+    words = bold_sans(FINISH_WORDS.get(task.status, task.status.value))
     summary = (task.summary_one_liner or "").strip()
     body = f"{words} — {summary}" if summary else words
     if len(body) > BODY_LIMIT:

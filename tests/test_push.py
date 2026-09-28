@@ -14,6 +14,7 @@ import os
 import stat
 import threading
 import time
+import unicodedata
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -28,6 +29,7 @@ from ilan.push import (
     DEFAULT_PUSH_CONTACT,
     push_contact,
     PushNotifier,
+    bold_sans,
     build_payload,
     should_notify,
     validate_subscription,
@@ -89,15 +91,39 @@ class TestPayload:
     ])
     def test_body_says_how_it_finished_in_words(self, status: TaskStatus, words: str) -> None:
         payload = build_payload(_task(status=status, summary_one_liner=None))
-        assert payload["body"] == words
+        assert payload["body"] == bold_sans(words)
         assert payload["status"] == status.value
 
     def test_body_carries_the_one_line_summary(self) -> None:
         payload = build_payload(_task(summary_one_liner="Ran the suite; two flakes"))
-        assert payload["body"] == "Agent finished — Ran the suite; two flakes"
+        assert payload["body"] == bold_sans("Agent finished") + " — Ran the suite; two flakes"
 
     def test_a_blank_summary_is_not_appended(self) -> None:
-        assert build_payload(_task(summary_one_liner="   "))["body"] == "Agent finished"
+        assert build_payload(_task(summary_one_liner="   "))["body"] == bold_sans("Agent finished")
+
+    # ── the status is bold, the summary is not ─────────────────────────────
+    # A notification body has no formatting, so the bold is carried by the
+    # Mathematical Sans-Serif Bold letters themselves.
+
+    def test_the_status_words_are_set_in_bold_letters(self) -> None:
+        body = build_payload(_task(summary_one_liner="Ran the suite"))["body"]
+        status, _, summary = body.partition(" — ")
+        for ch in status.replace(" ", ""):
+            assert "MATHEMATICAL SANS-SERIF BOLD" in unicodedata.name(ch), f"{ch!r} in the status is not bold"
+        assert summary == "Ran the suite", "the summary must stay in regular weight"
+        assert not any("MATHEMATICAL" in unicodedata.name(ch) for ch in summary)
+
+    def test_bold_sans_maps_the_ascii_alphabet_and_nothing_else(self) -> None:
+        assert bold_sans("Az09") == "\U0001D5D4\U0001D607\U0001D7EC\U0001D7F5"
+        assert bold_sans("Needs attention — ok!") == bold_sans("Needs attention") + " — " + bold_sans("ok") + "!"
+        assert bold_sans("é ü —") == "é ü —", "non-ASCII letters have no bold twin and pass through"
+        assert bold_sans("") == ""
+
+    def test_bold_letters_read_back_as_the_plain_words(self) -> None:
+        """NFKC folds the bold alphabet back to ASCII, which is how a search or a
+        screen reader that normalises text still sees the words."""
+        for words in FINISH_WORDS.values():
+            assert unicodedata.normalize("NFKC", bold_sans(words)) == words
 
     def test_the_alias_appears_nowhere(self) -> None:
         payload = build_payload(_task(alias="zq", summary_one_liner="done"))
@@ -275,7 +301,7 @@ class TestSending:
         finally:
             n.stop()
         assert len(rec.calls) == 1
-        assert json.loads(rec.calls[0]["data"])["body"] == "Agent finished — Ran the suite"
+        assert json.loads(rec.calls[0]["data"])["body"] == bold_sans("Agent finished") + " — Ran the suite"
 
 
 # ── the routes ────────────────────────────────────────────────────────────
@@ -354,7 +380,7 @@ class TestReaperNotifies:
         assert len(rec.calls) == 1
         note = json.loads(rec.calls[0]["data"])
         assert note["title"] == "live-task"
-        expected = words if mock_status == "ERROR" else f"{words} — Ran the suite"
+        expected = bold_sans(words) if mock_status == "ERROR" else f"{bold_sans(words)} — Ran the suite"
         assert note["body"] == expected
         assert "zq" not in json.dumps(note)
 
