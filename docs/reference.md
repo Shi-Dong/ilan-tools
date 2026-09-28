@@ -645,8 +645,8 @@ The server can tell phones that have installed the web app when a task finishes.
 phone subscribes through `GET /push` (the server's public key and how many devices are
 subscribed) and `POST /push/subscribe` with the subscription its browser produced;
 `POST /push/unsubscribe` forgets it. Each notification carries the task name, how it
-finished (`Agent finished`, `Needs attention` or `Error`, set in bold letters so it stands out
-under the title) and the one-line summary; it is
+finished (`AGENT FINISHED`, `NEEDS ATTENTION` or `ERROR`, in bold capitals like the app's
+status pills, so it stands out under the title) and the one-line summary; it is
 sent once the summary has been written, a few seconds after the reap, and not at all for a
 turn that was replied to or closed in the meantime. A task
 on a `reply -t` cycle is never announced, errors included: the cycle re-prompts the agent on
