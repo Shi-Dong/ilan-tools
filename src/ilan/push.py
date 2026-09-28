@@ -127,12 +127,13 @@ def build_payload(task: Task) -> dict[str, str]:
     of the same task replace the first notification rather than stack under
     it, and ``url`` is where a tap should land.
 
-    The status words are set in bold (see ``bold_sans``) and the summary is
-    not, so how the task finished is what the eye lands on under the title.
+    The status words are set in capitals and bold (see ``bold_sans``), the
+    way the app's status pills are, and the summary is not, so how the task
+    finished is what the eye lands on under the title.
     ``status`` carries the plain enum value for anything that reads the note
     as data rather than as text.
     """
-    words = bold_sans(FINISH_WORDS.get(task.status, task.status.value))
+    words = bold_sans(FINISH_WORDS.get(task.status, task.status.value).upper())
     summary = (task.summary_one_liner or "").strip()
     body = f"{words} — {summary}" if summary else words
     if len(body) > BODY_LIMIT:

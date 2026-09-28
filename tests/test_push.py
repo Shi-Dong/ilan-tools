@@ -91,15 +91,15 @@ class TestPayload:
     ])
     def test_body_says_how_it_finished_in_words(self, status: TaskStatus, words: str) -> None:
         payload = build_payload(_task(status=status, summary_one_liner=None))
-        assert payload["body"] == bold_sans(words)
+        assert payload["body"] == bold_sans(words.upper())
         assert payload["status"] == status.value
 
     def test_body_carries_the_one_line_summary(self) -> None:
         payload = build_payload(_task(summary_one_liner="Ran the suite; two flakes"))
-        assert payload["body"] == bold_sans("Agent finished") + " — Ran the suite; two flakes"
+        assert payload["body"] == bold_sans("AGENT FINISHED") + " — Ran the suite; two flakes"
 
     def test_a_blank_summary_is_not_appended(self) -> None:
-        assert build_payload(_task(summary_one_liner="   "))["body"] == bold_sans("Agent finished")
+        assert build_payload(_task(summary_one_liner="   "))["body"] == bold_sans("AGENT FINISHED")
 
     # ── the status is bold, the summary is not ─────────────────────────────
     # A notification body has no formatting, so the bold is carried by the
@@ -112,6 +112,13 @@ class TestPayload:
             assert "MATHEMATICAL SANS-SERIF BOLD" in unicodedata.name(ch), f"{ch!r} in the status is not bold"
         assert summary == "Ran the suite", "the summary must stay in regular weight"
         assert not any("MATHEMATICAL" in unicodedata.name(ch) for ch in summary)
+
+    def test_the_status_is_in_capitals_like_the_apps_pills(self) -> None:
+        body = build_payload(_task(summary_one_liner="Ran the suite"))["body"]
+        status, _, summary = body.partition(" — ")
+        plain = unicodedata.normalize("NFKC", status)
+        assert plain == "AGENT FINISHED", plain
+        assert summary == "Ran the suite", "only the status is capitalised, never the summary"
 
     def test_bold_sans_maps_the_ascii_alphabet_and_nothing_else(self) -> None:
         assert bold_sans("Az09") == "\U0001D5D4\U0001D607\U0001D7EC\U0001D7F5"
@@ -301,7 +308,7 @@ class TestSending:
         finally:
             n.stop()
         assert len(rec.calls) == 1
-        assert json.loads(rec.calls[0]["data"])["body"] == bold_sans("Agent finished") + " — Ran the suite"
+        assert json.loads(rec.calls[0]["data"])["body"] == bold_sans("AGENT FINISHED") + " — Ran the suite"
 
 
 # ── the routes ────────────────────────────────────────────────────────────
@@ -380,7 +387,7 @@ class TestReaperNotifies:
         assert len(rec.calls) == 1
         note = json.loads(rec.calls[0]["data"])
         assert note["title"] == "live-task"
-        expected = bold_sans(words) if mock_status == "ERROR" else f"{bold_sans(words)} — Ran the suite"
+        expected = bold_sans(words.upper()) if mock_status == "ERROR" else f"{bold_sans(words.upper())} — Ran the suite"
         assert note["body"] == expected
         assert "zq" not in json.dumps(note)
 
