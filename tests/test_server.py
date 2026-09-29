@@ -280,7 +280,7 @@ class TestConfig:
         resp = _get(ilan_server, "/config")
         assert "config" in resp
         assert resp["config"]["model-claude"] == "claude-opus-5-5"
-        assert resp["config"]["model-codex"] == "gpt-5.6-sol"
+        assert resp["config"]["model-codex"] == "gpt-6.1-sol"
 
     def test_set_config(self, ilan_server: IlanServer) -> None:
         resp = _post(ilan_server, "/config/set",
@@ -344,7 +344,7 @@ class TestConfig:
         assert "error" in resp
         assert "model-codex" in resp["error"]
         conf = _get(ilan_server, "/config")["config"]
-        assert conf["model-codex"] == "gpt-5.6-sol"
+        assert conf["model-codex"] == "gpt-6.1-sol"
 
     def test_set_config_model_accepts_exact_ids(
         self, ilan_server: IlanServer
