@@ -45,7 +45,7 @@ class TestBuildCommand:
 
     def test_default_model_when_no_override(self, backend: CodexBackend, tmp_config: Path) -> None:
         cmd, _ = backend.build_command(None, effort="max", resume=False, session_id=None)
-        assert cmd[cmd.index("--model") + 1] == "gpt-5.6-sol"
+        assert cmd[cmd.index("--model") + 1] == "gpt-6.1-sol"
 
     def test_resume_inserts_session(self, backend: CodexBackend, tmp_config: Path) -> None:
         cmd, _ = backend.build_command(None, effort="max", resume=True, session_id="sid-9")
@@ -59,8 +59,8 @@ class TestBuildCommand:
         assert "resume" not in cmd
 
     def test_model_override_passed(self, backend: CodexBackend, tmp_config: Path) -> None:
-        cmd, _ = backend.build_command("gpt-5.6-sol", effort="max", resume=False, session_id=None)
-        assert cmd[cmd.index("--model") + 1] == "gpt-5.6-sol"
+        cmd, _ = backend.build_command("gpt-6.1-sol", effort="max", resume=False, session_id=None)
+        assert cmd[cmd.index("--model") + 1] == "gpt-6.1-sol"
 
     def test_astra_override_passed(
         self, backend: CodexBackend, tmp_config: Path
