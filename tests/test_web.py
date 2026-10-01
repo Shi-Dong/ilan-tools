@@ -1589,11 +1589,15 @@ def test_every_view_arrives_through_one_helper():
     assert show and "if (consume) state.entering = null;" in show.group(1), (
         "the entrance is not consumed on render"
     )
-    # The one render allowed to keep the entrance alive is the transient
-    # placeholder shown while the first list is fetched.
-    assert js.count(", false);") == 1 and "Loading…</div>', false);" in js, (
-        "something other than the loading placeholder declines to consume the entrance"
+    # The renders allowed to keep the entrance alive are the transient
+    # placeholders: the one shown while the first list is fetched, and the one
+    # shown while a task's page is. Both are replaced by the real view, which
+    # is what animates in.
+    assert js.count(", false);") == 2, (
+        "something other than a loading placeholder declines to consume the entrance"
     )
+    assert "Loading…</div>', false);" in js, "the list's placeholder is gone"
+    assert "Loading ${esc(name)}…</div>`, false);" in js, "the task page's placeholder is gone"
     assert show.group(1).index("app.className") < show.group(1).index("app.innerHTML"), (
         "the class has to be on #app before the children are created, or they will not animate"
     )
@@ -1965,3 +1969,61 @@ def test_the_reply_box_hint_names_no_task():
     assert "Reply to ${" not in js, "a placeholder interpolates the task name again"
     hints = re.findall(r'placeholder="([^"]*)"', page)
     assert all("${" not in hint for hint in hints), f"a hint on the task page carries data: {hints}"
+
+
+# ── getting to a task's page ────────────────────────────────────────────
+
+def test_a_request_that_cannot_reach_the_server_answers_rather_than_throws():
+    """`fetch` rejects when the phone cannot reach the server at all, and that
+    rejection used to travel out of api.get, out of renderDetail and out of
+    route() — leaving no view written while the address bar already pointed at
+    the task. Every caller already handles `ok: false`, so a failure is
+    reported that way instead.
+    """
+    js = web.read_asset("app.js").decode()
+    request = re.search(r"async request\(method, path, body\) \{(.*?)\n  \},", js, re.S)
+    assert request, "api.request is gone"
+    body = request.group(1)
+    assert re.search(r"try \{\s*resp = await fetch\(path, opts\);\s*\} catch", body), (
+        "the fetch is unguarded again, so a dropped request throws"
+    )
+    assert "ok: false" in body, "a dropped request does not come back as a failed response"
+    assert not re.search(r"^\s*const resp = await fetch", body, re.M), (
+        "an unguarded await fetch is back in api.request"
+    )
+
+
+def test_every_navigation_goes_through_one_helper():
+    """Assigning a hash that is already in the address bar fires no hashchange,
+    so the router never runs and the control that led there does nothing. The
+    helper routes directly in that case, which is what makes a second tap the
+    retry it looks like — so nothing may assign location.hash around it.
+    """
+    js = web.read_asset("app.js").decode()
+    helper = re.search(r"function goTo\(hash\) \{(.*?)\n\}", js, re.S)
+    assert helper, "the navigation helper is gone"
+    assert re.search(r"if \(\(location\.hash \|\| '#/'\) === hash\) return route\(\);", helper.group(1)), (
+        "goTo no longer routes when the hash already matches, so a repeat tap is a no-op"
+    )
+    assignments = re.findall(r"location\.hash = ", js)
+    assert len(assignments) == 1, (
+        f"{len(assignments)} direct hash assignments; navigation must go through goTo"
+    )
+    assert "location.hash = hash;" in helper.group(1), "the one assignment is not goTo's own"
+    # The card's Details button is the one this was reported against.
+    assert "btn.onclick = () => goTo(`#/t/${encodeURIComponent(btn.dataset.details)}`);" in js, (
+        "the Details button no longer navigates through goTo"
+    )
+
+
+def test_the_task_page_says_it_is_loading_before_its_requests_land():
+    """Two requests have to answer before a conversation can be drawn. With
+    nothing on screen until they do, a slow server is indistinguishable from a
+    button that did nothing — which is what sent people tapping Details twice.
+    """
+    js = web.read_asset("app.js").decode()
+    page = js.split("async function renderDetail")[1].split("\n}\n")[0]
+    placeholder = page.index("showView(")
+    awaited = page.index("await Promise.all")
+    assert placeholder < awaited, "the task page renders nothing until its requests land"
+    assert "Loading" in page[placeholder:awaited], "the placeholder does not say it is loading"
