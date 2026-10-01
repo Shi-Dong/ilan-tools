@@ -202,7 +202,18 @@ const api = {
       opts.headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify(body);
     }
-    const resp = await fetch(path, opts);
+    let resp;
+    try {
+      resp = await fetch(path, opts);
+    } catch {
+      // A phone drops a request all the time — the radio sleeps, Wi-Fi hands
+      // over to cellular, the VPN re-establishes. Reported as a failed
+      // response rather than thrown, because every caller already handles
+      // `ok: false`, while a rejection escaped as far as route(), which left
+      // the view unrendered after the hash had already changed: the app sat
+      // on the old screen and the button that led there went dead.
+      return { ok: false, status: 0, data: { error: 'Cannot reach the ilan server.' } };
+    }
     let data = {};
     try { data = await resp.json(); } catch { /* empty or non-JSON body */ }
     return { ok: resp.ok, status: resp.status, data };
@@ -571,7 +582,7 @@ const BACK_BUTTON =
 
 /** Point the back button at the list. Call after writing a view's markup. */
 function wireBack() {
-  $('#back').onclick = () => { location.hash = '#/'; };
+  $('#back').onclick = () => goTo('#/');
 }
 
 // ── list view ────────────────────────────────────────────────────────
@@ -814,8 +825,8 @@ function renderList() {
   // Returns the load so a caller can await it; the browser ignores the value.
   $('#do-refresh').onclick = () => refreshList();
   $('#collapse-all').onclick = () => collapseAll();
-  $('#go-config').onclick = () => { location.hash = '#/config'; };
-  $('#go-new').onclick = () => { location.hash = '#/new'; };
+  $('#go-config').onclick = () => goTo('#/config');
+  $('#go-new').onclick = () => goTo('#/new');
   // The row itself is the disclosure control: tapping anywhere on the card
   // body toggles it, which is a far bigger target than a chevron and is what
   // a card that summarises something is expected to do. The action buttons sit
@@ -829,9 +840,7 @@ function renderList() {
     btn.onclick = () => tapFromCard(btn.dataset.tap);
   });
   document.querySelectorAll('.act-details').forEach((btn) => {
-    btn.onclick = () => {
-      location.hash = `#/t/${encodeURIComponent(btn.dataset.details)}`;
-    };
+    btn.onclick = () => goTo(`#/t/${encodeURIComponent(btn.dataset.details)}`);
   });
   document.querySelectorAll('.act-done').forEach((btn) => {
     btn.onclick = () => doneFromCard(btn.dataset.done);
@@ -1139,6 +1148,13 @@ function messageHtml(entry) {
 }
 
 async function renderDetail(name) {
+  // Something on screen before the two requests below land. They take a
+  // moment on a phone, and a view that changes only once both have answered
+  // is indistinguishable from a button that did nothing — which is what sent
+  // people tapping Details twice. Does not consume the entrance, so the
+  // conversation still animates in when it arrives, exactly as the list's own
+  // placeholder behaves.
+  showView(`<div class="empty">Loading ${esc(name)}…</div>`, false);
   // ?n= asks the server for the last N assistant messages plus whatever user
   // messages precede each of them — the same slice `ilan tail -n` shows. Show
   // More just increments N, so the reveal rule lives in one place rather than
@@ -1489,7 +1505,7 @@ async function runAction(choice, task) {
       const next = await askText('New name', { value: task.name });
       if (!next || next === task.name) return;
       if (await act(`/tasks/${t}/rename`, { new_name: next })) {
-        location.hash = `#/t/${encodeURIComponent(next)}`;
+        goTo(`#/t/${encodeURIComponent(next)}`);
       }
       return;
     }
@@ -1503,7 +1519,7 @@ async function runAction(choice, task) {
       const { ok, data } = await api.post(`/tasks/${t}/branch`, body);
       if (!ok) { toast(data.error || 'Branch failed', true); return; }
       toast(data.name ? `Branched to \`${data.name}\`` : 'Branched to a new task');
-      if (data.name) location.hash = `#/t/${encodeURIComponent(data.name)}`;
+      if (data.name) goTo(`#/t/${encodeURIComponent(data.name)}`);
       return;
     }
 
@@ -1518,7 +1534,7 @@ async function runAction(choice, task) {
       const { ok, data } = await api.del(`/tasks/${t}`);
       if (!ok) { toast(data.error || 'Delete failed', true); return; }
       toast(`Deleted \`${task.name}\``);
-      location.hash = '#/';
+      goTo('#/');
       return;
     }
 
@@ -1579,7 +1595,7 @@ function renderNew() {
     $('#create').disabled = false;
     if (!ok) { toast(data.error || 'Could not create task', true); return; }
     toast(data.name ? `Created \`${data.name}\`` : 'Created');
-    location.hash = data.name ? `#/t/${encodeURIComponent(data.name)}` : '#/';
+    goTo(data.name ? `#/t/${encodeURIComponent(data.name)}` : '#/');
   };
 }
 
@@ -1661,7 +1677,7 @@ function registerServiceWorker() {
   navigator.serviceWorker.register('sw.js').catch(() => { /* no worker, no notifications */ });
   navigator.serviceWorker.addEventListener('message', (event) => {
     const msg = event.data || {};
-    if (msg.type === 'navigate' && typeof msg.hash === 'string') location.hash = msg.hash;
+    if (msg.type === 'navigate' && typeof msg.hash === 'string') goTo(msg.hash);
   });
 }
 
@@ -1887,6 +1903,22 @@ function canAutoRefresh() {
   return !document.hidden
     && (location.hash || '#/') === '#/'
     && !isTypingSearch();
+}
+
+/** Go to *hash*, including when it is already the one in the address bar.
+ *
+ * Assigning an identical `location.hash` fires no hashchange, so the router
+ * would not run and the tap would do nothing at all. That is reachable
+ * whenever a view failed to render after the hash had already changed — a
+ * dropped request, say — which left the address bar pointing at a page the
+ * app was not showing, and every further tap on the control that leads there
+ * silently did nothing. Routing directly in that case makes a second tap the
+ * retry the user already expects it to be.
+ */
+function goTo(hash) {
+  if ((location.hash || '#/') === hash) return route();
+  location.hash = hash;
+  return undefined;
 }
 
 async function route() {
