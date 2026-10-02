@@ -47,6 +47,15 @@ class TestSleepCommand:
         assert result.exit_code == 0
         client.sleep_task.assert_called_once_with("my-task", 5)
 
+    @pytest.mark.parametrize("prefix", [["sleep"], ["task", "sleep"]])
+    @pytest.mark.parametrize("flag", ["-d", "--description"])
+    def test_sleep_with_instructions(self, runner: CliRunner, tmp_config, prefix: list[str], flag: str) -> None:
+        client = _make_client()
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, [*prefix, "my-task", "12h", flag, "Check the job"])
+        assert result.exit_code == 0, result.output
+        client.sleep_task.assert_called_once_with("my-task", 43200, description="Check the job")
+
     def test_sleep_rejects_non_positive_seconds(
         self, runner: CliRunner, tmp_config
     ) -> None:

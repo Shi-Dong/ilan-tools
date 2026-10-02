@@ -985,6 +985,10 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
 
         def handle_task_sleep(self, name: str):
             body = self._body()
+            description = body.get("description")
+            if description is not None and not isinstance(description, str):
+                self._json({"error": "description must be a string"}, 400)
+                return
             try:
                 seconds = int(body["seconds"])
             except (KeyError, TypeError, ValueError):
@@ -1009,6 +1013,13 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     self._json(confirm, 409)
                     return
                 message = f"Sleep {seconds} seconds and give me a quick report after the sleep finishes."
+                if description:
+                    message = (
+                        f"Sleep {seconds} seconds. After the sleep finishes, "
+                        "follow the instructions below, then give me a quick report. "
+                        "Do not start these instructions before waking up.\n\n"
+                        f"{description}"
+                    )
                 task.cached_replies.append(message)
                 task.needs_review = False
                 task.sleep_seconds = seconds

@@ -230,6 +230,17 @@ class TestReplyEveryConfirmation:
             call("my-task", 300, override_reply_every=True),
         ]
 
+    def test_sleep_confirmation_preserves_instructions(self, runner: CliRunner, tmp_config) -> None:
+        client = _make_client()
+        client.sleep_task.side_effect = [_challenge(), {"ok": True, "name": "my-task"}]
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["sleep", "my-task", "12h", "-d", "Check the job"], input="y"+chr(10))
+        assert result.exit_code == 0, result.output
+        assert client.sleep_task.call_args_list == [
+            call("my-task", 43200, description="Check the job"),
+            call("my-task", 43200, override_reply_every=True, description="Check the job"),
+        ]
+
     def test_sleep_confirm_no_aborts(self, runner: CliRunner, tmp_config) -> None:
         client = _make_client()
         client.sleep_task.side_effect = [_challenge()]

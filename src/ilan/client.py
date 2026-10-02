@@ -275,8 +275,11 @@ class Client:
 
     def sleep_task(
         self, name: str, seconds: int, override_reply_every: bool = False,
+        description: str | None = None,
     ) -> dict:
         body: dict = {"seconds": seconds}
+        if description is not None:
+            body["description"] = description
         if override_reply_every:
             body["override_reply_every"] = True
         return self.post(f"/tasks/{name}/sleep", body)

@@ -1100,6 +1100,31 @@ class TestSleep:
             in task["cached_replies"]
         )
 
+    def test_sleep_instructions_are_delayed_and_logged(self, ilan_server: IlanServer) -> None:
+        self._make_task_in_status(ilan_server, "sleep-instructions", TaskStatus.NEEDS_ATTENTION)
+        instructions = "Check the job and restart it if needed."
+        client = Client(port=ilan_server._httpd.server_address[1])
+        resp = client.sleep_task("sleep-instructions", 43200, description=instructions)
+        assert resp.get("ok") is True
+        task = _get(ilan_server, "/tasks/sleep-instructions")["task"]
+        message = task["cached_replies"][-1]
+        assert message.startswith("Sleep 43200 seconds. After the sleep finishes, ")
+        assert "Do not start these instructions before waking up." in message
+        assert message.endswith(instructions)
+        assert task["status"] == "SLEEPING"
+        assert task["sleep_seconds"] == 43200
+        assert any(entry.content == message for entry in ilan_server.store.read_logs("sleep-instructions"))
+
+    @pytest.mark.parametrize("description", [False, [], {}, 123])
+    def test_sleep_rejects_non_string_instructions(self, ilan_server: IlanServer, description: object) -> None:
+        self._make_task_in_status(ilan_server, "sleep-invalid", TaskStatus.NEEDS_ATTENTION)
+        resp = _post(ilan_server, "/tasks/sleep-invalid/sleep",
+                     {"seconds": 5, "description": description})
+        assert resp["error"] == "description must be a string"
+        task = _get(ilan_server, "/tasks/sleep-invalid")["task"]
+        assert task["status"] == "NEEDS_ATTENTION"
+        assert task["sleep_seconds"] is None
+
     def test_sleep_on_agent_finished_caches_and_restarts(
         self, ilan_server: IlanServer
     ) -> None:
