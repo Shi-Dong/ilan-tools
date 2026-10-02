@@ -2280,7 +2280,7 @@ def _parse_sleep_duration(value: str) -> int:
     return int(round(number * multiplier))
 
 
-def _do_sleep(name: str, duration: str) -> None:
+def _do_sleep(name: str, duration: str, description: str | None = None) -> None:
     try:
         seconds = _parse_sleep_duration(duration)
     except ValueError as exc:
@@ -2290,10 +2290,11 @@ def _do_sleep(name: str, duration: str) -> None:
         console.print("[red]duration must be positive[/red]")
         raise SystemExit(1)
     client = _client()
-    resp = client.sleep_task(name, seconds)
+    options = {"description": description} if description is not None else {}
+    resp = client.sleep_task(name, seconds, **options)
     if resp.get("confirm_reply_every"):
         _confirm_reply_every_override(resp)
-        resp = client.sleep_task(name, seconds, override_reply_every=True)
+        resp = client.sleep_task(name, seconds, override_reply_every=True, **options)
     if _check_error(resp):
         raise SystemExit(1)
     task_name = resp.get("name", name)
@@ -2305,7 +2306,9 @@ def _do_sleep(name: str, duration: str) -> None:
 @task_group.command("sleep")
 @click.argument("name", shell_complete=_complete_task_names)
 @click.argument("duration")
-def task_sleep(name: str, duration: str) -> None:
+@click.option("-d", "--description", default=None,
+              help="Instructions to follow after waking up, before reporting back.")
+def task_sleep(name: str, duration: str, description: str | None) -> None:
     """Tell a NEEDS_ATTENTION / AGENT_FINISHED task to sleep for DURATION and report back.
 
     DURATION accepts an integer or decimal with an optional unit suffix
@@ -2313,7 +2316,7 @@ def task_sleep(name: str, duration: str) -> None:
     Bare numbers are seconds. Unit aliases: seconds = s/sec/second/seconds,
     minutes = m/min/mins/minute/minutes, hours = h/hr/hrs/hour/hours.
     """
-    _do_sleep(name, duration)
+    _do_sleep(name, duration, description)
 
 
 # ── task kill ────────────────────────────────────────────────────────
