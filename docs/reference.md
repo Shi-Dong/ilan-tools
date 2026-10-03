@@ -317,7 +317,7 @@ Siblings orphaned by the same delete share one tombstone, chained deletes nest, 
 
 | Command | Description |
 |---|---|
-| `ilan config show` | Print separate server-side and client-side configuration tables |
+| `ilan config [show]` | Print separate server-side and client-side configuration tables; bare `ilan config` is the same as `ilan config show` |
 | `ilan config set [-y] KEY VALUE` | Set a config value after confirming whether it changes the connected server or this client; `--yes` skips the prompt |
 | `ilan clean DURATION` | Delete tasks whose last change is older than DURATION (e.g. `5h`, `3d`); never touches tasks that have children |
 | `ilan clear-everything` | Delete all tasks, logs, and data (requires confirmation) |

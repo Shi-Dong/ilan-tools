@@ -460,9 +460,15 @@ def ping(count: int) -> None:
 
 # ── config ───────────────────────────────────────────────────────────
 
-@main.group("config")
-def config_group() -> None:
-    """View or modify ilan configuration."""
+@main.group("config", invoke_without_command=True)
+@click.pass_context
+def config_group(ctx: click.Context) -> None:
+    """View or modify ilan configuration.
+
+    With no subcommand, show the current configuration (same as config show).
+    """
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(config_show)
 
 
 def _set_local_config(key: str, value: str) -> object:
