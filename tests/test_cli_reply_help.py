@@ -149,7 +149,7 @@ class TestWhatTheHelpSays:
 class TestTheCommandListingsAreUnchanged:
     def test_the_shorthands_still_read_as_shorthands(self, runner: CliRunner) -> None:
         """The long help must not leak into `ilan --help`'s one-line summaries."""
-        out = _help(runner, ["--help"])
+        out = " ".join(_help(runner, ["--help"]).split())
         assert out.count("Shorthand for 'ilan task reply'.") == 2
 
     def test_task_reply_keeps_its_summary(self, runner: CliRunner) -> None:

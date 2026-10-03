@@ -2,6 +2,8 @@
 
 This is the complete behavioural reference for `ilan`: every command, flag, configuration key, and display rule. For an overview and a quick start, read the [README](../README.md) first.
 
+Use `ilan -h` or `ilan --help` to list commands. Each task shortcut's summary explains what it does before naming its canonical `ilan task` command.
+
 ## Remote usage
 
 To manage tasks on a centralized host from another machine, set `ILAN_SERVER_URL` on the client machine:
