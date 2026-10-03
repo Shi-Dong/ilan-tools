@@ -21,6 +21,7 @@ _ADD_FLAGS = [
     "-n, --name",
     "-f, --file",
     "-d, --description",
+    "-e, --editor",
     "--claude",
     "--codex",
     "--max",
@@ -83,12 +84,14 @@ class TestDashH:
 
 class TestWhatTheHelpSays:
     @pytest.mark.parametrize("prefix", _ADD_PREFIXES)
-    def test_it_explains_the_three_ways_to_give_the_prompt(
+    def test_it_explains_the_four_ways_to_give_the_prompt(
         self, runner: CliRunner, prefix: list[str]
     ) -> None:
         out = " ".join(_help(runner, [*prefix, "-h"]).split())
         assert '-d "…" gives it inline' in out
         assert "-f FILE reads it from a file" in out
+        assert "-e opens the configured editor with an empty buffer" in out
+        assert "editor content creates no task" in out
         assert "A bare INSTRUCTION with no flag at all is the quick form" in out
         assert 'it means -d "…" on the defaults and takes nothing else' in out
         assert "refused rather than guessed at" in out
@@ -138,6 +141,8 @@ class TestWhatTheHelpSays:
             'ilan add "Check whether the flaky test still flakes"',
             '-n fix-bug -d "Fix the crash in auth.py"',
             "-n refactor -f tasks/refactor.md",
+            "ilan add -n fix-bug -e",
+            "ilan add -e",
             '-d "Port the parser to Rust" --codex',
             '-n hard-one -d "Prove the lemma" --max',
             '-d "Try the OAuth2 flow" --max',
@@ -152,7 +157,7 @@ class TestWhatTheHelpSays:
         out = _help(runner, [*prefix, "-h"])
         examples = out[out.index("Examples:"):].splitlines()[1:]
         commands = [line for line in examples if line.strip()]
-        assert len(commands) == 6
+        assert len(commands) == 8
         assert all(line.lstrip().startswith("ilan add ") for line in commands)
 
     @pytest.mark.parametrize("prefix", _ADD_PREFIXES)
