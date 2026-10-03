@@ -327,7 +327,8 @@ def _install_completion(ctx: click.Context, _param: click.Parameter, shell: str 
 
 # ── root group ───────────────────────────────────────────────────────
 
-@click.group()
+@click.group(add_help_option=False)
+@click.help_option("-h", "--help")
 @click.option(
     "--install-completion",
     type=click.Choice(["bash", "zsh", "fish"]),
@@ -3114,34 +3115,62 @@ def task_switch_backend(name: str) -> None:
 
 # ── top-level shorthands ─────────────────────────────────────────────
 
-def _register_task_shortcut(name: str, *, help: str | None = None) -> None:
+def _register_task_shortcut(
+    name: str, *, summary: str | None = None, help: str | None = None,
+) -> None:
     """Reuse a task command's callback and options with top-level help text."""
     command = copy(task_group.commands[name])
-    command.short_help = f"Shorthand for 'ilan task {name}'."
+    summary = summary or command.get_short_help_str(limit=200)
+    command.short_help = f"{summary} Shorthand for 'ilan task {name}'."
     command.help = help if help is not None else command.short_help
     main.add_command(command, name)
 
 
-for _shortcut_name in (
-    "info", "tail", "done", "discard", "undone", "undiscard", "unread",
-    "pin", "unpin", "max", "unmax", "level", "switch-backend", "rename", "alias",
-    "tap", "cancel", "sleep", "attach", "log", "logs", "open",
-    "check-model",
-):
-    _register_task_shortcut(_shortcut_name)
+for _shortcut_name, _shortcut_summary in {
+    "info": "Show task details.",
+    "tail": "Show the latest task exchange.",
+    "done": "Mark tasks as done.",
+    "discard": "Discard tasks.",
+    "undone": "Reopen a done task.",
+    "undiscard": "Restore a discarded task.",
+    "unread": "Mark tasks as unread.",
+    "pin": "Pin a task to the top of listings.",
+    "unpin": "Unpin a task.",
+    "max": "Use a task's max model.",
+    "unmax": "Use a task's default model.",
+    "level": "Set a task's reasoning level.",
+    "switch-backend": "Switch a task's agent backend.",
+    "rename": "Rename a task.",
+    "alias": "Set a task's alias.",
+    "tap": "Prompt a task to report back.",
+    "cancel": "Retract a task's last instruction.",
+    "sleep": "Ask a task to sleep and report back.",
+    "attach": "Attach to a task's agent session.",
+    "log": "Open task logs in your editor.",
+    "logs": "Open task logs in your editor.",
+    "open": "Open a task's history in your browser.",
+    "check-model": "Show reply model.",
+}.items():
+    _register_task_shortcut(_shortcut_name, summary=_shortcut_summary)
 
 _register_task_shortcut(
     "ls",
-    help="Shorthand for 'ilan task ls'. If a task name is given, acts as 'ilan tail'.",
+    help="List tasks, or tail a specific task. Shorthand for 'ilan task ls'.",
 )
 _register_task_shortcut("add", help=_ADD_HELP)
-_register_task_shortcut("branch", help=task_branch.help)
-_register_task_shortcut("btw", help=task_btw.help)
+_register_task_shortcut(
+    "branch", summary="Branch a task with its existing context.", help=task_branch.help,
+)
+_register_task_shortcut(
+    "btw", summary="Ask a side question using a task's context.", help=task_btw.help,
+)
 _register_task_shortcut("reply", help=_REPLY_HELP)
 _register_task_shortcut(
     "notes",
+    summary="Edit a task's note.",
     help=(
-        "Shorthand for 'ilan task notes'. With no note and no flag it opens "
+        "Edit a task's note. Shorthand for 'ilan task notes'. "
+        "With no note and no flag it opens "
         "the current note in your editor. Pass -a TEXT to add to it instead, "
         "or -c to clear it. A note longer than "
         f"{MAX_NOTES_LENGTH} characters is cut down to its first "
