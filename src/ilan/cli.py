@@ -633,8 +633,9 @@ def _do_add(
 def _add_usage_error(
     instruction: str | None, name: str | None, file_path: str | None,
     description: str | None, agent: str | None, max_model: bool,
+    editor: bool = False,
 ) -> str | None:
-    """Refuse any flag typed next to a bare INSTRUCTION.
+    """Reject mixed instruction sources and flags next to a bare INSTRUCTION.
 
     ``ilan add "…"`` is the one-argument spelling of ``ilan add -d "…"``: a
     burnable task on the default backend and its default model, and nothing
@@ -643,6 +644,10 @@ def _add_usage_error(
     where every flag combines. Caught here, not on the server: these are
     mistakes about the command line, not about the task.
     """
+    if editor and (
+        instruction is not None or description is not None or file_path is not None
+    ):
+        return "-e takes no instruction and cannot be combined with -d or -f."
     if instruction is None:
         return None
     if description is not None:
@@ -682,8 +687,10 @@ _DASH_H_HELP_FLAGS = {"help_option_names": ["-h", "--help"]}
 _ADD_HELP = """\
 Add a task and start its agent on it at once.
 
-The prompt can come three ways. -d "…" gives it inline. -f FILE reads it
-from a file, the place for anything longer than a sentence or two. A bare
+The prompt can come four ways. -d "…" gives it inline. -f FILE reads it
+from a file. -e opens the configured editor with an empty buffer; it takes
+no argument and cannot combine with -d or -f. Empty or whitespace-only
+editor content creates no task. A bare
 INSTRUCTION with no flag at all is the quick form: it means -d "…" on the
 defaults and takes nothing else, so a name, a backend or --max typed next
 to it is refused rather than guessed at. To combine any of those, write the
@@ -715,6 +722,8 @@ Examples:
   ilan add "Check whether the flaky test still flakes"  a quick burnable task
   ilan add -n fix-bug -d "Fix the crash in auth.py"     a task worth keeping
   ilan add -n refactor -f tasks/refactor.md             a prompt from a file
+  ilan add -n fix-bug -e                               write in your editor
+  ilan add -e                                         an edited burnable task
   ilan add -d "Port the parser to Rust" --codex         on the Codex backend
   ilan add -n hard-one -d "Prove the lemma" --max       on the max model
   ilan add -d "Try the OAuth2 flow" --max               burnable and maxed
@@ -733,6 +742,8 @@ Examples:
 @click.option("-f", "--file", "file_path", type=click.Path(exists=True), default=None,
               help="Path to a file containing the task prompt.")
 @click.option("-d", "--description", default=None, help="Inline task prompt.")
+@click.option("-e", "--editor", is_flag=True,
+              help="Write the initial instruction in the configured editor.")
 @click.option("--claude", "agent", flag_value="claude", default=None,
               help="Run this task on the Claude backend (the default).")
 @click.option("--codex", "agent", flag_value="codex",
@@ -741,15 +752,29 @@ Examples:
               help="Create the task on its backend's max model.")
 def task_add(
     instruction: str | None, name: str | None, file_path: str | None,
-    description: str | None, agent: str | None, max_model: bool,
+    description: str | None, agent: str | None, max_model: bool, editor: bool,
 ) -> None:
     """Add a new task and start it; ``_ADD_HELP`` is the user-facing guide."""
     if err := _add_usage_error(
-        instruction, name, file_path, description, agent, max_model,
+        instruction, name, file_path, description, agent, max_model, editor,
     ):
         # Text, not markup: the echoed name is the user's own bytes.
         console.print(Text(err, style="red"))
         raise SystemExit(1)
+    if editor:
+        editor_argv = _resolve_editor()
+        if editor_argv is None:
+            raise SystemExit(1)
+        written = _edit_text_in_editor(
+            editor_argv, "new-task", "", kind="instruction",
+            abandoned="no task was created.",
+        )
+        if written is None:
+            raise SystemExit(1)
+        description = written.strip()
+        if not description:
+            console.print("[yellow]Empty instruction; no task created.[/yellow]")
+            return
     if instruction is not None:
         # Nothing else was given (the check above saw to it), so this is
         # `-d INSTRUCTION` on the defaults: no name, backend, or max model.
