@@ -151,7 +151,7 @@ Every task command has a top-level shorthand, so `ilan task reply` is just `ilan
 |---|---|
 | `ilan server status` / `restart` / `stop` | Inspect, restart (after an update), or stop the background server. |
 | `ilan ping [-c N]` | Measure the round trip to a remote server. |
-| `ilan config show` | Print the server-side and client-side settings. |
+| `ilan config [show]` | Print the server-side and client-side settings. |
 | `ilan config set [-y] KEY VALUE` | Change a setting; `-y` skips the "server or client?" confirmation. |
 | `ilan update` | Pull the latest ilan-tools and reinstall. |
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -21,6 +22,55 @@ def _patch_client(monkeypatch: pytest.MonkeyPatch, server_cfg: dict) -> MagicMoc
     client.get_config.return_value = {"config": server_cfg}
     monkeypatch.setattr("ilan.cli._client", lambda: client)
     return client
+
+
+class TestBareConfig:
+    def test_matches_show(
+        self, runner: CliRunner, tmp_config: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        cfg.save({**cfg.DEFAULTS, "line-number": True, "model-claude": "local-stale"})
+        client = _patch_client(monkeypatch, {
+            "model-claude": "server-live", "api-key-claude": "secret-ABCDE",
+        })
+        bare = runner.invoke(main, ["config"])
+        client.get_config.assert_called_once_with()
+        client.reset_mock()
+        explicit = runner.invoke(main, ["config", "show"])
+        client.get_config.assert_called_once_with()
+        assert bare.exit_code == explicit.exit_code == 0
+        assert bare.output == explicit.output
+        assert "server-live" in bare.output
+        assert "local-stale" not in bare.output
+        assert "secret-ABCDE" not in bare.output
+        assert "**ABCDE" in bare.output
+        assert "Client-side configuration" in bare.output
+
+    def test_propagates_show_error(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        client = _patch_client(monkeypatch, {})
+        client.get_config.return_value = {"error": "Cannot fetch configuration"}
+        result = runner.invoke(main, ["config"])
+        assert result.exit_code == 1
+        assert "Cannot fetch configuration" in result.output
+
+    @pytest.mark.parametrize("args", [["--help"], ["unknown"], ["--unknown"]])
+    def test_help_and_invalid_usage_do_not_fetch_config(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, args: list[str],
+    ) -> None:
+        client = _patch_client(monkeypatch, {})
+        result = runner.invoke(main, ["config", *args])
+        assert result.exit_code == (0 if args == ["--help"] else 2)
+        client.get_config.assert_not_called()
+
+    def test_set_does_not_show_config(
+        self, runner: CliRunner, tmp_config: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        client = _patch_client(monkeypatch, {})
+        result = runner.invoke(main, ["config", "set", "-y", "line-number", "true"])
+        assert result.exit_code == 0, result.output
+        assert cfg.load()["line-number"] is True
+        client.get_config.assert_not_called()
 
 
 class TestMaskSecret:
