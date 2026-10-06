@@ -2023,13 +2023,40 @@ def _do_retime_loop(name: str, every: str) -> None:
     )
 
 
+def _do_go_loop(name: str) -> None:
+    """Send the saved looping message now and restart its current timer."""
+    resp = _client().go_reply_every(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    if resp.get("message"):
+        _print_reply_confirmation(resp["message"], resp.get("name"))
+    console.print(
+        f"[{REPLY_EVERY_STYLE}]Will re-send it every "
+        f"{_format_compact_duration(resp['reply_every_seconds'])} "
+        f"until the next human reply.[/{REPLY_EVERY_STYLE}]"
+    )
+
+
 def _do_reply_command(
     name: str, message: str | None, num: int | None, markdown: bool | None,
     line_number: bool | None, max_: bool, unmax: bool,
     every: str | None = None, editor: bool = False, update: bool = False,
-    level: str | None = None,
+    level: str | None = None, go: bool = False,
 ) -> None:
     """Shared body of ``ilan task reply``, ``ilan reply`` and ``ilan re``."""
+    if go:
+        if message is not None:
+            console.print("[red]-g/--go takes no message or argument.[/red]")
+            raise SystemExit(1)
+        if (
+            num is not None or markdown is not None or line_number is not None
+            or max_ or unmax or every is not None or editor or update
+            or level is not None
+        ):
+            console.print("[red]-g/--go cannot be combined with other reply flags.[/red]")
+            raise SystemExit(1)
+        _do_go_loop(name)
+        return
     if update:
         # `-u` is not a reply: nothing is sent, so the flags that shape a
         # reply or the tail have nothing to act on and are refused rather
@@ -2109,6 +2136,12 @@ _REPLY_UPDATE_HELP = (
     "from the next re-send on."
 )
 
+_REPLY_GO_HELP = (
+    "Re-send a looping task's saved message now. The next send is one current "
+    "interval from now. Takes no argument or message and cannot be combined "
+    "with other reply flags. Refused on tasks that are not looping."
+)
+
 # Shared by `ilan task reply`, `ilan reply` and `ilan re`. Click rewraps each
 # paragraph to the terminal; the flags themselves are listed under Options.
 _REPLY_HELP = """\
@@ -2132,6 +2165,9 @@ your next reply to the task, which asks [y/n] before ending the cycle. On a
 task that is already looping, -t DURATION on its own switches it to that
 cadence and re-sends its looping message right away, and -u opens that
 message in your editor so you can change it, leaving the cadence alone.
+Use -g/--go alone to re-send the saved looping message immediately without
+specifying an interval; the next send is one current interval from now.
+It requires a looping task and cannot be combined with a message or other flags.
 
 -e writes MESSAGE in the editor from your config instead of on the command
 line. --max and --unmax switch the task's model before the message is
@@ -2152,6 +2188,7 @@ Examples:
   ilan re fix-bug "Status?" -t 1h        send now, then every hour
   ilan re fix-bug -t 30m                 looping task: now, then every 30m
   ilan re fix-bug -u                     looping task: edit its message
+  ilan re fix-bug -g                     looping task: send now, keep interval
   ilan re fix-bug "Try again" --max      switch to the max model, then send
   ilan re fix-bug "Dig in" --level max   answer this, and what follows, at max
 """
@@ -2188,15 +2225,16 @@ Examples:
               help=_REPLY_EDITOR_HELP)
 @click.option("-u", "--update", "update", is_flag=True,
               help=_REPLY_UPDATE_HELP)
+@click.option("-g", "--go", "go", is_flag=True, help=_REPLY_GO_HELP)
 def task_reply(
     name: str, message: str | None, num: int | None, markdown: bool | None,
     line_number: bool | None, max_: bool, unmax: bool, every: str | None,
-    editor: bool, update: bool, level: str | None,
+    editor: bool, update: bool, level: str | None, go: bool,
 ) -> None:
     """Send a response to a task. If no message is given, show the tail instead."""
     _do_reply_command(
         name, message, num, markdown, line_number, max_, unmax, every, editor,
-        update, level.lower() if level else None,
+        update, level.lower() if level else None, go,
     )
 
 

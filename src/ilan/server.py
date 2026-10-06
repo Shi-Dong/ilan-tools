@@ -907,14 +907,26 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             message is delivered at once, as if the timer had just fired,
             with the next re-send ``every_seconds`` later. That is what
             ``reply -t DURATION`` with no message does. The two are separate
-            edits and are not accepted together.
+            edits and are not accepted together. With ``go: true``, deliver
+            the saved message now and reset the timer using the current
+            interval. The interval is read under the lock, so a concurrent
+            cadence change cannot be overwritten by a stale client value.
 
-            A task with no cycle is refused either way rather than given
-            one. Starting a cycle is ``reply -t MESSAGE``'s job: it needs
-            both a message and a cadence, and a request here carries only
-            one of them.
+            A task with no cycle is refused for all three operations.
+            Starting a cycle is ``reply -t MESSAGE``'s job: it needs
+            both a message and a cadence.
             """
             body = self._body()
+            go = body.get("go", False)
+            if "go" in body and go is not True:
+                self._json({"error": "go must be true"}, 400)
+                return
+            if go and ("message" in body or "every_seconds" in body):
+                self._json(
+                    {"error": "go cannot be combined with message or every_seconds"},
+                    400,
+                )
+                return
             message = str(body.get("message") or "").strip()
             every_seconds = body.get("every_seconds")
             if every_seconds is not None and message:
@@ -922,7 +934,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     {"error": "give either message or every_seconds, not both"}, 400
                 )
                 return
-            if every_seconds is None and not message:
+            if every_seconds is None and not message and not go:
                 self._json({"error": "message or every_seconds is required"}, 400)
                 return
             if every_seconds is not None and (
@@ -950,7 +962,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                         409,
                     )
                     return
-                if every_seconds is None:
+                if every_seconds is None and not go:
                     task.reply_every_message = message
                     self._ilan.store.put_task(task)
                     self._json({
@@ -962,6 +974,8 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     })
                     return
                 previous = task.reply_every_seconds
+                if go:
+                    every_seconds = previous
                 was_running = task.status.is_running
                 task.reply_every_seconds = every_seconds
                 # Reschedule before delivering, as the timer does, so a crash
