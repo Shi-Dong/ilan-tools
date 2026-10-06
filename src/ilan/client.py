@@ -263,6 +263,10 @@ class Client:
         """
         return self.post(f"/tasks/{name}/reply-every", {"message": message})
 
+    def go_reply_every(self, name: str) -> dict:
+        """Re-send the looping message now, keeping the current interval."""
+        return self.post(f"/tasks/{name}/reply-every", {"go": True})
+
     def retime_reply_every(self, name: str, every_seconds: int) -> dict:
         """Change the cadence of a task's ``reply -t`` cycle and re-send its message now.
 

@@ -1632,6 +1632,69 @@ class TestReplyEvery:
         resp = _post(ilan_server, "/tasks/nope/reply-every", {"message": "x"})
         assert "not found" in resp["error"]
 
+    # ── sending now without changing the interval ──────────────────
+
+    @pytest.mark.parametrize("status", [
+        TaskStatus.AGENT_FINISHED, TaskStatus.NEEDS_ATTENTION,
+        TaskStatus.SLEEPING, TaskStatus.ERROR, TaskStatus.WORKING,
+    ])
+    def test_go_delivers_saved_message_and_resets_current_interval(
+        self, ilan_server: IlanServer, status: TaskStatus,
+    ) -> None:
+        self._make_task_in_status(ilan_server, "go-loop", status)
+        self._set_cycle(ilan_server, "go-loop", seconds=2700, message="saved prompt")
+        client = Client(base_url=ilan_server._test_url)
+        before = datetime.now(timezone.utc)
+        with patch.object(ilan_server.runner, "reply_to_working") as working:
+            working.side_effect = lambda task, message: ilan_server.store.put_task(task)
+            resp = client.go_reply_every("go-loop")
+        after = datetime.now(timezone.utc)
+        assert resp.get("ok") is True, resp
+        task = _get(ilan_server, "/tasks/go-loop")["task"]
+        assert task["reply_every_seconds"] == 2700
+        assert task["reply_every_message"] == "saved prompt"
+        next_at = datetime.fromisoformat(task["reply_every_next_at"])
+        assert before + timedelta(seconds=2700) <= next_at <= after + timedelta(seconds=2700)
+        if status.is_running:
+            working.assert_called_once()
+            assert working.call_args.args[1] == "saved prompt"
+            assert "Interrupted" in resp["message"]
+        else:
+            working.assert_not_called()
+            assert task["status"] == "WORKING"
+            assert task["cached_replies"][-1] == "saved prompt"
+            assert ilan_server.store.read_logs("go-loop")[-1].content == "saved prompt"
+
+    @pytest.mark.parametrize("status", list(TaskStatus))
+    def test_go_refuses_every_non_looping_status_without_mutation(
+        self, ilan_server: IlanServer, status: TaskStatus,
+    ) -> None:
+        self._make_task_in_status(ilan_server, "go-plain", status)
+        before = _get(ilan_server, "/tasks/go-plain")["task"]
+        resp = _post(ilan_server, "/tasks/go-plain/reply-every", {"go": True})
+        assert "not looping" in resp["error"]
+        assert _get(ilan_server, "/tasks/go-plain")["task"] == before
+
+    @pytest.mark.parametrize("body", [
+        {"go": False}, {"go": 1}, {"go": "true"}, {"go": None},
+        {"go": True, "message": "new"}, {"go": True, "message": ""},
+        {"go": True, "every_seconds": 3600},
+        {"go": True, "every_seconds": None},
+    ])
+    def test_go_rejects_invalid_requests_without_mutation(
+        self, ilan_server: IlanServer, body: dict,
+    ) -> None:
+        self._make_task_in_status(ilan_server, "go-bad", TaskStatus.AGENT_FINISHED)
+        self._set_cycle(ilan_server, "go-bad", seconds=2700)
+        before = _get(ilan_server, "/tasks/go-bad")["task"]
+        resp = _post(ilan_server, "/tasks/go-bad/reply-every", body)
+        assert "error" in resp
+        assert _get(ilan_server, "/tasks/go-bad")["task"] == before
+
+    def test_go_unknown_task(self, ilan_server: IlanServer) -> None:
+        resp = _post(ilan_server, "/tasks/nope/reply-every", {"go": True})
+        assert "not found" in resp["error"]
+
     # ── re-timing a cycle ───────────────────────────────────────────
 
     def test_retime_changes_the_cadence_and_delivers_the_message_now(

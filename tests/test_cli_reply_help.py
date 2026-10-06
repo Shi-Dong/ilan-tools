@@ -121,7 +121,7 @@ class TestWhatTheHelpSays:
         out = _help(runner, [*prefix, "-h"])
         examples = out[out.index("Examples:"):].splitlines()[1:]
         commands = [line for line in examples if line.strip()]
-        assert len(commands) == 10
+        assert len(commands) == 11
         assert all(line.lstrip().startswith("ilan re fix-bug") for line in commands)
 
     @pytest.mark.parametrize("prefix", _REPLY_PREFIXES)
