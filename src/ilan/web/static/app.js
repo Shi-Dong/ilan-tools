@@ -519,8 +519,9 @@ function showView(html, consume = true) {
 
 // ── maths ───────────────────────────────────────────────────────────────
 //
-// The renderer marks every equation with its TeX source; this turns the marks
-// into typeset maths with KaTeX. KaTeX is the one thing this app does not
+// The renderer marks every equation in a message with its TeX source; this
+// turns the marks into typeset maths with KaTeX. Notes are rendered with maths
+// off, so a `$` in a note stays a dollar sign. KaTeX is the one thing this app does not
 // ship itself: with its fonts it is over a megabyte, so it is fetched from a
 // CDN, pinned to a version and to the hash of each file, and only when a view
 // on screen actually has an equation in it. Most never do, and those pages
@@ -765,7 +766,7 @@ function taskRow(task) {
         <span class="row-meta">${meta}</span>
         ${reasoning ? `<span class="row-reasoning">${reasoning}</span>` : ''}
       </button>
-      ${task.notes ? `<div class="row-notes md">${MD.render(task.notes)}</div>` : ''}
+      ${task.notes ? `<div class="row-notes md">${MD.render(task.notes, { maths: false })}</div>` : ''}
       <div class="row-actions">
         ${TERMINAL_STATUSES.has(task.status) ? `
         <button class="act act-revive" data-revive="${esc(task.name)}">

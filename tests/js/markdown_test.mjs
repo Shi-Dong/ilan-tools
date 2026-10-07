@@ -121,6 +121,12 @@ const CASES = [
   ['an unterminated display block runs to the end', '$$\na+b', ['data-tex="a+b"'], []],
   ['prose after a closing $$ on the same line is prose', '$$x$$ and then',
     ['data-tex="x"', '<p>and then</p>'], []],
+  ['maths can be switched off', ['costs $x$ and \\(y\\)', { maths: false }],
+    ['costs $x$ and \\(y\\)'], ['class="math"']],
+  ['switched off, a display block is a paragraph', ['$$\nx^2\n$$', { maths: false }],
+    ['<p>$$ x^2 $$</p>'], ['class="math"']],
+  ['switched off inside a blockquote too', ['> $x$', { maths: false }], ['$x$'], ['class="math"']],
+  ['on is the default, and a blockquote inherits it', '> $x$', ['class="math"'], []],
   ['a maths marker in the input is inert', '\u00020\u0002 and $y$', ['0 and ', 'data-tex="y"'], ['\u0002']],
   ['unordered list', '- one\n- two', ['<ul>', '<li>one</li>', '<li>two</li>'], []],
   ['ordered list', '1. one\n2. two', ['<ol>', '<li>one</li>'], []],
@@ -181,7 +187,7 @@ let failed = 0;
 for (const [name, input, must, mustNot] of CASES) {
   let html;
   try {
-    html = MD.render(input);
+    html = Array.isArray(input) ? MD.render(...input) : MD.render(input);
   } catch (err) {
     console.log(`THREW  ${name} :: ${err.message}`);
     failed += 1;

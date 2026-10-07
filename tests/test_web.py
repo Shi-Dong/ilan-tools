@@ -1692,7 +1692,7 @@ def test_the_note_is_rendered_as_markdown_beside_the_card_body():
     row = js.split("function taskRow")[1]
     between = re.search(r"</button>(.*?)<div class=\"row-actions\">", row, re.S)
     assert between, "nothing sits between the body and the actions"
-    assert '`<div class="row-notes md">${MD.render(task.notes)}</div>`' in between.group(1), (
+    assert '`<div class="row-notes md">${MD.render(task.notes, { maths: false })}</div>`' in between.group(1), (
         "the note is not rendered as Markdown between the body and the actions"
     )
     assert "esc(task.notes)" not in js, "the note is escaped as plain text somewhere"
@@ -2057,6 +2057,17 @@ def test_katex_is_pinned_by_version_and_hash_and_fetched_only_on_demand():
     assert "typesetMath(app);" in re.search(r"function showView\(.*?\n\}", js, re.S).group(0), (
         "views are no longer typeset after they are written"
     )
+
+
+def test_maths_is_for_messages_not_notes():
+    """A note is a line the user typed, and a `$` there is far more likely to
+    be a price than an equation, so the note box renders with maths off while
+    a message keeps it on."""
+    js = web.read_asset("app.js").decode()
+    assert "MD.render(task.notes, { maths: false })" in js, "notes are typeset as maths"
+    assert "MD.render(entry.content)}" in js, "messages no longer render with maths on by default"
+    md = web.read_asset("markdown.js").decode()
+    assert "function render(src, { maths = true } = {})" in md, "maths is not on by default"
 
 
 def test_an_equation_is_readable_before_and_without_katex():

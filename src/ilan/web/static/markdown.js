@@ -58,6 +58,11 @@ const MD = (() => {
   const PLACEHOLDER = '\u0000';
   const PARKED = '\u0001';
   const MATHS = '\u0002';
+  // Whether the render in progress treats TeX as maths. Messages do; a task's
+  // note does not, since it is a line the user typed and a `$` there is far
+  // more likely to be a price than an equation. Set for the length of one
+  // render() call, so a nested render (a blockquote) inherits it.
+  let mathsOn = true;
 
   /** The element the app typesets. The source is escaped twice over: once as
    *  the attribute the typesetter reads, once as the visible text that stands
@@ -112,12 +117,14 @@ const MD = (() => {
       maths.push({ tex, display });
       return `${MATHS}${maths.length - 1}${MATHS}`;
     };
-    out = out
-      .replace(/\\\[([\s\S]+?)\\\]/g, (_m, tex) => keep(tex, true))
-      .replace(/\\\(([\s\S]+?)\\\)/g, (_m, tex) => keep(tex, false))
-      .replace(/\$\$([^$]+?)\$\$/g, (_m, tex) => keep(tex, true))
-      .replace(/(^|[^\\$\w])\$(?=\S)([^$\n]+?)(?<=\S)\$(?![\d$])/g,
-        (_m, lead, tex) => `${lead}${keep(tex, false)}`);
+    if (mathsOn) {
+      out = out
+        .replace(/\\\[([\s\S]+?)\\\]/g, (_m, tex) => keep(tex, true))
+        .replace(/\\\(([\s\S]+?)\\\)/g, (_m, tex) => keep(tex, false))
+        .replace(/\$\$([^$]+?)\$\$/g, (_m, tex) => keep(tex, true))
+        .replace(/(^|[^\\$\w])\$(?=\S)([^$\n]+?)(?<=\S)\$(?![\d$])/g,
+          (_m, lead, tex) => `${lead}${keep(tex, false)}`);
+    }
 
     out = escapeHtml(out);
 
@@ -224,7 +231,18 @@ const MD = (() => {
     return [html + (ordered ? '</ol>' : '</ul>'), i];
   }
 
-  function render(src) {
+  /** Render *src* to HTML. ``{ maths: false }`` leaves TeX as written text. */
+  function render(src, { maths = true } = {}) {
+    const outer = mathsOn;
+    mathsOn = maths;
+    try {
+      return renderBlocks(src);
+    } finally {
+      mathsOn = outer;
+    }
+  }
+
+  function renderBlocks(src) {
     const lines = String(src ?? '').split('\n');
     let html = '';
     let paragraph = [];
@@ -277,7 +295,7 @@ const MD = (() => {
       // Display maths. Taken whole, before the paragraph reflow could join its
       // lines with spaces and before inline() could see half an equation on
       // each line. An unterminated one runs to the end, like a fence does.
-      const mathOpen = RE_MATH_OPEN.exec(line);
+      const mathOpen = mathsOn ? RE_MATH_OPEN.exec(line) : null;
       if (mathOpen) {
         flush();
         const close = mathOpen[1] === '$$' ? '$$' : '\\]';
@@ -328,7 +346,7 @@ const MD = (() => {
           body.push(RE_QUOTE.exec(lines[i])[1]);
           i += 1;
         }
-        html += `<blockquote>${render(body.join('\n'))}</blockquote>`;
+        html += `<blockquote>${renderBlocks(body.join('\n'))}</blockquote>`;
         continue;
       }
 
