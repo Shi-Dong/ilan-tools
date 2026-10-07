@@ -12,7 +12,7 @@
 
 import { bootApp, checker, settle } from './harness.mjs';
 
-const { check, report } = checker();
+const { check, clickModal, report } = checker();
 
 const TASKS = [
   { name: 'alpha-task', alias: 'aa', status: 'AGENT_FINISHED', engine: 'claude' },
@@ -118,6 +118,46 @@ app.askAboutSelection();
 await visit(app, 'alpha-task');
 check('a quoted selection is kept like typed text', app.el('reply').value.includes('the line in question'),
   `box=${JSON.stringify(app.el('reply').value)}`);
+
+// ── marking the task done drops it ──────────────────────────────────────
+// Done means finished with the task, so a reply half-written to it is moot —
+// from the card's Done button and from the ••• sheet alike.
+const stored = (a) => JSON.parse(a.storage.get('ilan.drafts') || '{}');
+await visit(app, 'beta-task');
+type(app, 'about to be done');
+app.renderList();
+app.doneBtn('beta-task').onclick();
+await settle();
+clickModal(app, '#mo', 'Done must open a confirmation that can be accepted');
+await settle(); await settle();
+check('Done on the card drops the draft', !('beta-task' in stored(app)), JSON.stringify(stored(app)));
+
+await visit(app, 'alpha-task');
+type(app, 'done from the sheet');
+app.showActions({ ...TASKS[0] });
+await settle();
+clickModal(app, '[data-value="done"]', 'the sheet must offer Mark done');
+await settle(); await settle();
+check('Mark done on the ••• sheet drops it too', !('alpha-task' in stored(app)), JSON.stringify(stored(app)));
+
+// Declining the confirmation is not marking it done.
+await visit(app, 'beta-task');
+type(app, 'keep me');
+app.renderList();
+app.doneBtn('beta-task').onclick();
+await settle();
+clickModal(app, '#mc', 'Done must open a confirmation that can be declined');
+await settle();
+check('declining Done keeps the draft', stored(app)['beta-task'] === 'keep me', JSON.stringify(stored(app)));
+
+// Other ••• actions are not done, and keep it.
+await visit(app, 'alpha-task');
+type(app, 'pinned, not done');
+app.showActions({ ...TASKS[0] });
+await settle();
+clickModal(app, '[data-value="pin"]', 'the sheet must offer Pin');
+await settle(); await settle();
+check('another ••• action keeps the draft', stored(app)['alpha-task'] === 'pinned, not done', JSON.stringify(stored(app)));
 
 // ── storage that refuses is not an error ────────────────────────────────
 const { app: priv } = boot({ storage: 'denied' });

@@ -2106,6 +2106,9 @@ def test_an_unsent_reply_is_kept_per_task_until_it_is_sent():
     )
     assert detail.count("saveDraft(task.name, '');") == 2, "sending or clearing no longer forgets the draft"
     assert "moveDraft(task.name, next);" in js, "a renamed task loses its draft"
+    card_done = js.split("async function doneFromCard(name) {")[1].split("\n}\n")[0]
+    assert "saveDraft(name, '');" in card_done, "Done on the card keeps a draft for a finished task"
+    assert "if (choice === 'done') saveDraft(task.name, '');" in js, "Mark done on the sheet keeps the draft"
     for fn in ("readDrafts", "saveDraft"):
         body = js.split(f"function {fn}(")[1].split("\n}\n")[0]
         assert "catch" in body, f"{fn} would throw where storage is refused"

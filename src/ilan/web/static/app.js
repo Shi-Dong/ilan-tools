@@ -1033,7 +1033,11 @@ async function doneFromCard(name) {
     'Mark done',
   );
   if (!ok) return;
-  if (await act(`/tasks/${encodeURIComponent(name)}/done`)) await refreshListAfterChange();
+  if (await act(`/tasks/${encodeURIComponent(name)}/done`)) {
+    // Done means finished with it, so a reply half-written to it is moot.
+    saveDraft(name, '');
+    await refreshListAfterChange();
+  }
 }
 
 /** The longest note the server stores, as models.MAX_NOTES_LENGTH.
@@ -1556,7 +1560,11 @@ async function runAction(choice, task) {
   const back = () => renderDetail(task.name);
 
   if (BARE_POST_ACTIONS.has(choice)) {
-    if (await act(`/tasks/${t}/${choice}`)) back();
+    if (await act(`/tasks/${t}/${choice}`)) {
+      // As from the card: marking it done drops the unsent reply.
+      if (choice === 'done') saveDraft(task.name, '');
+      back();
+    }
     return;
   }
 
