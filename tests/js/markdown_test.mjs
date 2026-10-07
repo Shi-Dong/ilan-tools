@@ -94,6 +94,40 @@ const CASES = [
     ['href="https://x.test/*/y"', '<em>z</em>'], ['/<em>']],
   ['a parked marker in the input is inert', '\u00010\u0001 https://x.test/p',
     ['0 <a href="https://x.test/p"'], ['\u0001']],
+
+  // ── maths ─────────────────────────────────────────────────────────────
+  // Equations are emitted as their escaped TeX inside an element the app
+  // typesets later; with nothing to typeset them the source is what shows.
+  ['inline dollars', 'so $E=mc^2$ holds',
+    ['<span class="math" data-tex="E=mc^2">E=mc^2</span>'], ['math-display']],
+  ['inline parens', 'so \\(a+b\\) holds',
+    ['<span class="math" data-tex="a+b">a+b</span>'], []],
+  ['display dollars on its own lines', '$$\n\\frac{a}{b}\n$$\nthen',
+    ['<div class="math math-display" data-tex="\\frac{a}{b}">\\frac{a}{b}</div><p>then</p>'], ['<p><div']],
+  ['display brackets on its own lines', '\\[\nx^2\n\\]',
+    ['<div class="math math-display" data-tex="x^2">x^2</div>'], ['<p>']],
+  ['display dollars on one line', '$$x^2$$',
+    ['<div class="math math-display" data-tex="x^2">x^2</div>'], ['<p>']],
+  ['display maths met mid-paragraph is a block-styled span, not a div in a p', 'see \\[ x^2 \\] here',
+    ['<span class="math math-display" data-tex="x^2">x^2</span>'], ['<div']],
+  ['underscores and stars in maths are not emphasis', '$a_b * c_d$ and _z_',
+    ['data-tex="a_b * c_d"', '<em>z</em>'], ['<em>b', '<strong>']],
+  ['money is not maths', 'it costs $5 and $10 today', ['$5 and $10'], ['class="math"']],
+  ['a dollar sign alone is not maths', 'price in $ and more $ later', ['in $ and more $ later'], ['class="math"']],
+  ['maths inside a code span is code', '`$x$` literally', ['<code>$x$</code>'], ['class="math"']],
+  ['angle brackets in maths are escaped', '$a < b$', ['data-tex="a &lt; b"'], ['<b$']],
+  ['maths source is escaped in both places', '$x<y$',
+    ['data-tex="x&lt;y">x&lt;y</span>'], ['<y']],
+  ['an unterminated display block runs to the end', '$$\na+b', ['data-tex="a+b"'], []],
+  ['prose after a closing $$ on the same line is prose', '$$x$$ and then',
+    ['data-tex="x"', '<p>and then</p>'], []],
+  ['maths can be switched off', ['costs $x$ and \\(y\\)', { maths: false }],
+    ['costs $x$ and \\(y\\)'], ['class="math"']],
+  ['switched off, a display block is a paragraph', ['$$\nx^2\n$$', { maths: false }],
+    ['<p>$$ x^2 $$</p>'], ['class="math"']],
+  ['switched off inside a blockquote too', ['> $x$', { maths: false }], ['$x$'], ['class="math"']],
+  ['on is the default, and a blockquote inherits it', '> $x$', ['class="math"'], []],
+  ['a maths marker in the input is inert', '\u00020\u0002 and $y$', ['0 and ', 'data-tex="y"'], ['\u0002']],
   ['unordered list', '- one\n- two', ['<ul>', '<li>one</li>', '<li>two</li>'], []],
   ['ordered list', '1. one\n2. two', ['<ol>', '<li>one</li>'], []],
   ['nested list', '- top\n  - inner', ['<ul>', 'inner'], []],
@@ -153,7 +187,7 @@ let failed = 0;
 for (const [name, input, must, mustNot] of CASES) {
   let html;
   try {
-    html = MD.render(input);
+    html = Array.isArray(input) ? MD.render(...input) : MD.render(input);
   } catch (err) {
     console.log(`THREW  ${name} :: ${err.message}`);
     failed += 1;

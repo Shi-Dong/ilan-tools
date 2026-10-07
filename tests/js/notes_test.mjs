@@ -105,6 +105,7 @@ const { app, posted, state } = listWith([
   T('closed-task', 'DONE', { notes: 'closed <b>&</b> noted' }),
   T('marked-task', 'WORKING', { notes: 'See **the paper** and https://x.test/p\n\n- one\n- two' }),
   T('sneaky-task', 'WORKING', { notes: '<img src=x onerror=alert(1)>' }),
+  T('priced-task', 'WORKING', { notes: 'Budget $5 to $x$ per run' }),
 ]);
 
 check('a note is rendered on its card, as Markdown',
@@ -128,6 +129,8 @@ const marked = noteBox(app, 'marked-task');
 check('bold, links and lists in a note are rendered as Markdown',
   marked.includes('<strong>the paper</strong>') && marked.includes('<a href="https://x.test/p"')
   && marked.includes('<ul>') && marked.includes('<li>one</li>') && marked.includes('<li>two</li>'), marked);
+check('a note is never typeset as maths: a $ there is a dollar sign',
+  noteBox(app, 'priced-task') === '<p>Budget $5 to $x$ per run</p>', noteBox(app, 'priced-task'));
 check('a link in a note is outside every button',
   !/<button[^>]*>(?:(?!<\/button>)[\s\S])*<a /.test(card(app, 'marked-task')), card(app, 'marked-task'));
 

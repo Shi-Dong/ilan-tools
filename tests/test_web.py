@@ -1692,7 +1692,7 @@ def test_the_note_is_rendered_as_markdown_beside_the_card_body():
     row = js.split("function taskRow")[1]
     between = re.search(r"</button>(.*?)<div class=\"row-actions\">", row, re.S)
     assert between, "nothing sits between the body and the actions"
-    assert '`<div class="row-notes md">${MD.render(task.notes)}</div>`' in between.group(1), (
+    assert '`<div class="row-notes md">${MD.render(task.notes, { maths: false })}</div>`' in between.group(1), (
         "the note is not rendered as Markdown between the body and the actions"
     )
     assert "esc(task.notes)" not in js, "the note is escaped as plain text somewhere"
@@ -2027,3 +2027,62 @@ def test_the_task_page_says_it_is_loading_before_its_requests_land():
     awaited = page.index("await Promise.all")
     assert placeholder < awaited, "the task page renders nothing until its requests land"
     assert "Loading" in page[placeholder:awaited], "the placeholder does not say it is loading"
+
+
+# ── maths ───────────────────────────────────────────────────────────────
+
+def test_katex_is_pinned_by_version_and_hash_and_fetched_only_on_demand():
+    """KaTeX is the one thing the app does not ship: with its fonts it is over
+    a megabyte, so it comes from a CDN. Both files are pinned to one version
+    and to a hash, so the CDN cannot hand the page a different script, and
+    they are requested only when a view on screen has an equation in it.
+    """
+    js = web.read_asset("app.js").decode()
+    index = web.read_asset("index.html").decode()
+    assert "katex" not in index.lower(), "index.html loads KaTeX eagerly; every page would pay for it"
+    version = re.search(r"const KATEX_VERSION = '(\d+\.\d+\.\d+)';", js)
+    assert version, "KaTeX is not pinned to a version"
+    assert "cdn.jsdelivr.net/npm/katex@${KATEX_VERSION}/dist/" in js, "the CDN path is not built from the pinned version"
+    for key in ("script", "style"):
+        assert re.search(rf"{key}: \{{ file: 'katex\.min\.(?:js|css)', integrity: 'sha384-[A-Za-z0-9+/=]{{64}}' \}}", js), (
+            f"the KaTeX {key} has no sha384 integrity hash"
+        )
+    loader = re.search(r"function ensureKaTeX\(\) \{(.*?)\n\}", js, re.S)
+    assert loader, "the loader is gone"
+    assert loader.group(1).count("crossOrigin = 'anonymous'") == 2, "integrity needs crossorigin on both tags"
+    typeset = re.search(r"function typesetMath\(root\) \{(.*?)\n\}", js, re.S)
+    assert typeset, "typesetMath is gone"
+    assert "if (!pending.length) return undefined;" in typeset.group(1), "KaTeX is fetched even with no maths on screen"
+    assert "throwOnError: false" in typeset.group(1), "one bad equation would take the whole message down"
+    assert "typesetMath(app);" in re.search(r"function showView\(.*?\n\}", js, re.S).group(0), (
+        "views are no longer typeset after they are written"
+    )
+
+
+def test_maths_is_for_messages_not_notes():
+    """A note is a line the user typed, and a `$` there is far more likely to
+    be a price than an equation, so the note box renders with maths off while
+    a message keeps it on."""
+    js = web.read_asset("app.js").decode()
+    assert "MD.render(task.notes, { maths: false })" in js, "notes are typeset as maths"
+    assert "MD.render(entry.content)}" in js, "messages no longer render with maths on by default"
+    md = web.read_asset("markdown.js").decode()
+    assert "function render(src, { maths = true } = {})" in md, "maths is not on by default"
+
+
+def test_an_equation_is_readable_before_and_without_katex():
+    """The renderer leaves the TeX source on screen until KaTeX has run, or
+    for good when it never does. The source is set like code so it reads as
+    notation, and a display equation scrolls sideways rather than wrapping —
+    an equation broken across lines is a different equation.
+    """
+    css = web.read_asset("app.css").decode()
+    rule = re.search(r"\n\.math:not\(\.math-done\) \{(.*?)\}", css, re.S)
+    assert rule and "monospace" in rule.group(1), "untypeset maths is not set like code"
+    disp = re.search(r"\n\.math-display \{(.*?)\}", css, re.S)
+    assert disp, "display maths has no rule"
+    assert "overflow-x: auto" in disp.group(1), "a long display equation wraps"
+    assert "display: block" in disp.group(1), "display maths met mid-paragraph would sit inline"
+    md = web.read_asset("markdown.js").decode()
+    assert "function mathHtml(tex, display, block = false)" in md
+    assert md.count("escapeHtml(tex.trim())") == 1, "the TeX source is not escaped before it is written into the page"
