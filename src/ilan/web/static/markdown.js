@@ -163,7 +163,13 @@ const MD = (() => {
       return `${lead}${park(anchor)}${tail}`;
     });
 
-    out = out.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+    // Bold may hold single asterisks — an italic word, ``**use *only* this**``,
+    // or a literal one, ``**2 * 3 = 6**`` — just not the ``**`` that closes
+    // it. The first version forbade every ``*`` inside, so any bold phrase
+    // with an italic word in it lost its bold and showed both pairs of stars.
+    // The italic rule below still runs over the result, so a nested italic
+    // comes out as <em> inside the <strong>.
+    out = out.replace(/\*\*((?:[^*\n]|\*(?!\*))+?)\*\*/g, '<strong>$1</strong>');
     out = out.replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
     // ``__bold__`` is deliberately NOT supported. It is the rarer of the two
     // bold spellings, and in agent output about Python it collides constantly

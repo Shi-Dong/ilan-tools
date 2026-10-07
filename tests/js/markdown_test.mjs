@@ -51,6 +51,20 @@ const CASES = [
     ['<ol start="2"><li>b</li></ol>'], []],
   ['bold', '**bold**', ['<strong>bold</strong>'], []],
   ['italic', 'an *ital* word', ['<em>ital</em>'], []],
+  // Bold that holds single asterisks. An agent wrote a whole first sentence
+  // in bold with one italic word in it, and the bold was lost with both pairs
+  // of stars left on screen.
+  ['bold with an italic word inside', '**give each *different* tasks.** Then more',
+    ['<strong>give each <em>different</em> tasks.</strong> Then more'], ['**']],
+  ['bold with a literal asterisk inside', '**2 * 3 = 6** holds',
+    ['<strong>2 * 3 = 6</strong> holds'], ['<em>']],
+  ['two bold phrases on a line stay two', '**a** and **b**',
+    ['<strong>a</strong> and <strong>b</strong>'], ['<strong>a</strong> and <strong>b</strong></strong>']],
+  ['bold next to italic stays separate', '**a** then *b* then **c**',
+    ['<strong>a</strong> then <em>b</em> then <strong>c</strong>'], []],
+  ['an unclosed bold is left as written', '**not closed *x* here',
+    ['**not closed <em>x</em> here'], ['<strong>']],
+  ['bold does not reach across a closing pair', '**a** b**', ['<strong>a</strong> b**'], []],
   ['strikethrough', '~~gone~~', ['<del>gone</del>'], []],
   ['inline code', 'use `foo()` here', ['<code>foo()</code>'], []],
   ['code span keeps asterisks', '`a * b * c`', ['<code>a * b * c</code>'], ['<em>']],
