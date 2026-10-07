@@ -4,7 +4,10 @@
  * literal ``**bold**`` and unformatted code fences on a phone. This renders the
  * subset agents actually emit: fenced and inline code, headings, bold, italic,
  * strikethrough, links, bare URLs, ordered/unordered/task lists (nested),
- * blockquotes, tables, and horizontal rules.
+ * blockquotes, tables, horizontal rules, and TeX maths — ``$x$`` / ``\(x\)``
+ * inline, ``$$x$$`` / ``\[x\]`` on its own. Maths is emitted as its escaped
+ * source inside an element the app typesets later; with no typesetter the
+ * source is what shows, which is what the old plain-text view showed.
  *
  * SECURITY. A message is untrusted input — an agent can quote anything,
  * including a user's file that contains a <script> tag. Two rules keep that
@@ -54,6 +57,20 @@ const MD = (() => {
   // and restored last, so no emphasis rule can reach into an href.
   const PLACEHOLDER = '\u0000';
   const PARKED = '\u0001';
+  const MATHS = '\u0002';
+
+  /** The element the app typesets. The source is escaped twice over: once as
+   *  the attribute the typesetter reads, once as the visible text that stands
+   *  in for it until then — or for good, when there is no typesetter. */
+  function mathHtml(tex, display, block = false) {
+    const cls = display ? 'math math-display' : 'math';
+    // A <div> only where the renderer is between blocks. Display maths met
+    // mid-paragraph is a span styled as a block, since a div inside a <p>
+    // is markup the browser would rewrite under us.
+    const tag = block ? 'div' : 'span';
+    const src = escapeHtml(tex.trim());
+    return `<${tag} class="${cls}" data-tex="${src}">${src}</${tag}>`;
+  }
 
   // Marks that end a sentence around a URL rather than belonging to it.
   // ``see https://x.test/a.`` means the URL without the full stop, and
@@ -63,6 +80,7 @@ const MD = (() => {
 
   function inline(text) {
     const codes = [];
+    const maths = [];
     const parked = [];
     const park = (html) => {
       parked.push(html);
@@ -72,6 +90,7 @@ const MD = (() => {
     let out = String(text)
       .replaceAll(PLACEHOLDER, '')
       .replaceAll(PARKED, '')
+      .replaceAll(MATHS, '')
       .replace(/``([^`]+)``/g, (_m, code) => {
         codes.push(code);
         return `${PLACEHOLDER}${codes.length - 1}${PLACEHOLDER}`;
@@ -80,6 +99,25 @@ const MD = (() => {
         codes.push(code);
         return `${PLACEHOLDER}${codes.length - 1}${PLACEHOLDER}`;
       });
+
+    // Maths, pulled out after code (so a ``$`` inside a code span is code) and
+    // before escaping and every other rule: TeX is full of ``_`` and ``*``,
+    // which the emphasis rules below would otherwise eat. ``\(…\)`` and
+    // ``\[…\]`` first, since their delimiters cannot be mistaken for
+    // anything; then ``$$…$$``; then single ``$…$``, which has to be told from
+    // money — an opening ``$`` is followed by a non-space, a closing one is
+    // preceded by a non-space and not followed by a digit, so ``$5 and $10``
+    // stays as written.
+    const keep = (tex, display) => {
+      maths.push({ tex, display });
+      return `${MATHS}${maths.length - 1}${MATHS}`;
+    };
+    out = out
+      .replace(/\\\[([\s\S]+?)\\\]/g, (_m, tex) => keep(tex, true))
+      .replace(/\\\(([\s\S]+?)\\\)/g, (_m, tex) => keep(tex, false))
+      .replace(/\$\$([^$]+?)\$\$/g, (_m, tex) => keep(tex, true))
+      .replace(/(^|[^\\$\w])\$(?=\S)([^$\n]+?)(?<=\S)\$(?![\d$])/g,
+        (_m, lead, tex) => `${lead}${keep(tex, false)}`);
 
     out = escapeHtml(out);
 
@@ -133,6 +171,10 @@ const MD = (() => {
       new RegExp(`${PARKED}(\\d+)${PARKED}`, 'g'),
       (_m, i) => parked[Number(i)],
     );
+    out = out.replace(
+      new RegExp(`${MATHS}(\\d+)${MATHS}`, 'g'),
+      (_m, i) => mathHtml(maths[Number(i)].tex, maths[Number(i)].display),
+    );
     return out.replace(
       new RegExp(`${PLACEHOLDER}(\\d+)${PLACEHOLDER}`, 'g'),
       (_m, i) => `<code>${escapeHtml(codes[Number(i)])}</code>`,
@@ -140,6 +182,9 @@ const MD = (() => {
   }
 
   const RE_FENCE = /^\s*(?:```|~~~)\s*([\w+-]*)\s*$/;
+  // A display equation on lines of its own: ``$$`` or ``\[`` opens, the
+  // matching ``$$`` or ``\]`` closes, either on the same line or later.
+  const RE_MATH_OPEN = /^\s*(\$\$|\\\[)(.*)$/;
   const RE_HEADING = /^(#{1,6})\s+(.*)$/;
   const RE_HR = /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/;
   const RE_QUOTE = /^\s*>\s?(.*)$/;
@@ -228,6 +273,37 @@ const MD = (() => {
       }
 
       if (!line.trim()) { flush(); i += 1; continue; }
+
+      // Display maths. Taken whole, before the paragraph reflow could join its
+      // lines with spaces and before inline() could see half an equation on
+      // each line. An unterminated one runs to the end, like a fence does.
+      const mathOpen = RE_MATH_OPEN.exec(line);
+      if (mathOpen) {
+        flush();
+        const close = mathOpen[1] === '$$' ? '$$' : '\\]';
+        const body = [];
+        let rest = mathOpen[2];
+        let closed = false;
+        for (;;) {
+          const at = rest.indexOf(close);
+          if (at >= 0) {
+            body.push(rest.slice(0, at));
+            closed = true;
+            // Anything after the closing delimiter on that line is prose.
+            const tail = rest.slice(at + close.length).trim();
+            i += 1;
+            html += mathHtml(body.join('\n'), true, true);
+            if (tail) paragraph.push(tail);
+            break;
+          }
+          body.push(rest);
+          i += 1;
+          if (i >= lines.length) break;
+          rest = lines[i];
+        }
+        if (!closed) html += mathHtml(body.join('\n'), true, true);
+        continue;
+      }
 
       if (RE_HR.test(line) && !RE_LIST.test(line)) {
         flush();

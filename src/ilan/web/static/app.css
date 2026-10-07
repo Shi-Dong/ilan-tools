@@ -973,6 +973,25 @@ textarea.field {
 
 .md a { color: var(--accent); overflow-wrap: anywhere; }
 
+/* Maths. Until KaTeX has typeset it — or for good, with no network — an
+ * equation is its own TeX source, set like code so it reads as notation
+ * rather than as a sentence with stray backslashes. A display equation gets a
+ * line of its own and scrolls sideways rather than wrapping: a long equation
+ * broken across lines is a different equation. */
+.math:not(.math-done) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .92em;
+}
+.math-display {
+  display: block;
+  margin: 0 0 10px;
+  text-align: center;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.md .katex-display { margin: 0; }
+.md .katex { font-size: 1.05em; }
+
 .md-table-wrap {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;

@@ -514,6 +514,67 @@ function showView(html, consume = true) {
   app.className = state.entering ? `app ${state.entering}` : 'app';
   if (consume) state.entering = null;
   app.innerHTML = html;
+  typesetMath(app);
+}
+
+// ── maths ───────────────────────────────────────────────────────────────
+//
+// The renderer marks every equation with its TeX source; this turns the marks
+// into typeset maths with KaTeX. KaTeX is the one thing this app does not
+// ship itself: with its fonts it is over a megabyte, so it is fetched from a
+// CDN, pinned to a version and to the hash of each file, and only when a view
+// on screen actually has an equation in it. Most never do, and those pages
+// load nothing. If the fetch fails — offline, blocked — the equation stays as
+// its source, which is what the plain-text view always showed.
+const KATEX_VERSION = '0.19.0';
+const KATEX_BASE = `https://cdn.jsdelivr.net/npm/katex@${KATEX_VERSION}/dist/`;
+const KATEX_FILES = {
+  script: { file: 'katex.min.js', integrity: 'sha384-QFFtAGzvvj+bfgCGxXJlNZZR1nXEZgvG8tDLCCY1F19xl20WlfTYgguB4VcNdxYk' },
+  style: { file: 'katex.min.css', integrity: 'sha384-3rdsX6e5mueWyoweR9NIVmtEsUkokpBT/0ALqKKIBMr9j4qhHkaIkAcGgsE6uVlp' },
+};
+let katexLoading = null;
+
+/** Resolve once KaTeX is on the page, fetching it the first time. */
+function ensureKaTeX() {
+  if (typeof katex !== 'undefined') return Promise.resolve();
+  if (katexLoading) return katexLoading;
+  katexLoading = new Promise((resolve, reject) => {
+    if (typeof document === 'undefined' || !document.head) { reject(new Error('no document')); return; }
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = KATEX_BASE + KATEX_FILES.style.file;
+    link.integrity = KATEX_FILES.style.integrity;
+    link.crossOrigin = 'anonymous';
+    const script = document.createElement('script');
+    script.src = KATEX_BASE + KATEX_FILES.script.file;
+    script.integrity = KATEX_FILES.script.integrity;
+    script.crossOrigin = 'anonymous';
+    script.onload = () => resolve();
+    // A failed load is forgotten, so the next view with maths tries again.
+    script.onerror = () => { katexLoading = null; reject(new Error('KaTeX did not load')); };
+    document.head.appendChild(link);
+    document.head.appendChild(script);
+  });
+  return katexLoading;
+}
+
+/** Typeset every equation under *root* that is not typeset yet. */
+function typesetMath(root) {
+  if (!root || typeof root.querySelectorAll !== 'function') return undefined;
+  const pending = [...root.querySelectorAll('.math:not(.math-done)')];
+  if (!pending.length) return undefined;
+  return ensureKaTeX().then(() => {
+    pending.forEach((el) => {
+      // throwOnError off: a typo in an equation renders in red where it is
+      // wrong, rather than taking the whole message down with it.
+      katex.render(el.dataset.tex || '', el, {
+        displayMode: el.classList.contains('math-display'),
+        throwOnError: false,
+        output: 'htmlAndMathml',
+      });
+      el.classList.add('math-done');
+    });
+  }).catch(() => { /* the source stays on screen */ });
 }
 
 /** The entrance for moving from *from* to *to*: deeper is a push, back to the
