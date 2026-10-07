@@ -423,6 +423,55 @@ const EXPANDED_KEY = 'ilan.expanded';
  * constantly. Any storage failure — Private Browsing, a full quota — degrades
  * to expanding that still works for this session.
  */
+// ── unsent replies ─────────────────────────────────────────────────────
+//
+// What is typed in a task's reply box, kept per task until it is sent. The
+// task page is redrawn from scratch on every visit and on refresh, Show More
+// and every ••• action, so a draft held only in the box was lost the moment
+// any of those happened. On the phone, like the expanded cards, because iOS
+// evicts a backgrounded app freely; and like them, a storage failure only
+// means drafts last as long as the page does.
+const DRAFTS_KEY = 'ilan.drafts';
+
+function readDrafts() {
+  try {
+    const drafts = JSON.parse(localStorage.getItem(DRAFTS_KEY));
+    return drafts && typeof drafts === 'object' ? drafts : {};
+  } catch {
+    return {};
+  }
+}
+
+function loadDraft(name) {
+  const draft = readDrafts()[name];
+  return typeof draft === 'string' ? draft : '';
+}
+
+/** Keep *text* as *name*'s draft; whitespace alone forgets it. */
+function saveDraft(name, text) {
+  const drafts = readDrafts();
+  if (String(text ?? '').trim()) drafts[name] = text;
+  else delete drafts[name];
+  // Drafts of tasks that no longer exist go, so the entry cannot grow without
+  // bound. Only against a loaded list, which an empty one may not be.
+  if (state.tasks.length) {
+    const live = new Set(state.tasks.map((t) => t.name));
+    for (const key of Object.keys(drafts)) if (!live.has(key) && key !== name) delete drafts[key];
+  }
+  try {
+    localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+  } catch {
+    /* storage is a nicety: the draft still lives in the box */
+  }
+}
+
+/** Carry a draft to a task's new name. */
+function moveDraft(from, to) {
+  const draft = loadDraft(from);
+  saveDraft(from, '');
+  if (draft) saveDraft(to, draft);
+}
+
 function loadExpanded() {
   try {
     return new Set(JSON.parse(localStorage.getItem(EXPANDED_KEY)) || []);
@@ -1185,6 +1234,8 @@ function askAboutSelection() {
   if (typeof box.setSelectionRange === 'function') {
     box.setSelectionRange(box.value.length, box.value.length);
   }
+  // Through the box's own input handler, so the quote is kept in the draft
+  // and the buttons light up, exactly as if it had been typed.
   if (box.oninput) box.oninput();
 }
 
@@ -1392,13 +1443,20 @@ async function renderDetail(name) {
       // that looks live and does nothing reads as the app being broken.
       if (sendBtn) sendBtn.disabled = !hasDraft;
     };
-    replyBox.oninput = syncComposer;
+    replyBox.oninput = () => {
+      saveDraft(task.name, replyBox.value);
+      syncComposer();
+    };
+    // Whatever was typed here before and not sent — on an earlier visit, or
+    // before this redraw — comes back.
+    replyBox.value = loadDraft(task.name);
     // Once up front, so the button's state is derived from what is in the box
     // rather than assuming it starts empty.
     syncComposer();
     if (clearBtn) {
       clearBtn.onclick = () => {
         replyBox.value = '';
+        saveDraft(task.name, '');
         // Through the same path as typing, so the box shrinks back and the
         // button disables itself rather than being left lit over nothing.
         syncComposer();
@@ -1413,6 +1471,7 @@ async function renderDetail(name) {
       const sent = await sendReply(task.name, text);
       if (sent) {
         replyBox.value = '';
+        saveDraft(task.name, '');
         renderDetail(name);
         return;
       }
@@ -1567,6 +1626,7 @@ async function runAction(choice, task) {
       const next = await askText('New name', { value: task.name });
       if (!next || next === task.name) return;
       if (await act(`/tasks/${t}/rename`, { new_name: next })) {
+        moveDraft(task.name, next);
         goTo(`#/t/${encodeURIComponent(next)}`);
       }
       return;

@@ -2086,3 +2086,26 @@ def test_an_equation_is_readable_before_and_without_katex():
     md = web.read_asset("markdown.js").decode()
     assert "function mathHtml(tex, display, block = false)" in md
     assert md.count("escapeHtml(tex.trim())") == 1, "the TeX source is not escaped before it is written into the page"
+
+
+# ── unsent replies ──────────────────────────────────────────────────────
+
+def test_an_unsent_reply_is_kept_per_task_until_it_is_sent():
+    """The task page is drawn from scratch on every visit and on refresh,
+    Show More and every ••• action, so a draft held only in the box was lost
+    to any of them. It is kept per task on the phone, restored whenever that
+    page is drawn, and forgotten once sent or cleared.
+    """
+    js = web.read_asset("app.js").decode()
+    assert "const DRAFTS_KEY = 'ilan.drafts';" in js
+    detail = js.split("async function renderDetail")[1].split("\n}\n")[0]
+    assert "saveDraft(task.name, replyBox.value);" in detail, "typing is no longer kept"
+    assert "replyBox.value = loadDraft(task.name);" in detail, "a kept draft is not put back"
+    assert detail.index("replyBox.value = loadDraft(task.name);") < detail.index("    syncComposer();\n    if (clearBtn)"), (
+        "the draft is restored after the buttons decide whether they are live"
+    )
+    assert detail.count("saveDraft(task.name, '');") == 2, "sending or clearing no longer forgets the draft"
+    assert "moveDraft(task.name, next);" in js, "a renamed task loses its draft"
+    for fn in ("readDrafts", "saveDraft"):
+        body = js.split(f"function {fn}(")[1].split("\n}\n")[0]
+        assert "catch" in body, f"{fn} would throw where storage is refused"

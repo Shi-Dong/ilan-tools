@@ -599,7 +599,7 @@ requests relative URLs, so no server address is configured anywhere. On iOS,
 |---|---|
 | List | `ls`, `ls -a`, `search`; an expanded card shows the task's note, rendered as Markdown, between its status line and its buttons, and each card also offers `tap`, `done`, `notes` (its sheet has a Clear button to start the note over; saving it empty removes the note, as `notes -c` does), and — on a closed task — `undone` / `undiscard` |
 | Task | `tail`, `logs`, `show`; replies render as Markdown, and TeX maths in them (not in notes) is typeset — `$x$` or `\(x\)` inline, `$$x$$` or `\[x\]` on a line of its own (KaTeX, fetched on demand; the TeX source shows when offline) |
-| Composer | `reply`, `re` |
+| Composer | `reply`, `re`; an unsent reply is kept per task on the phone until it is sent or cleared |
 | Actions | `tap`, `cancel`, `sleep` (a fixed choice of 15m, 30m, 1h, 2h, 4h or 8h), `done`, `undone`, `undiscard`, `pin`, `unpin`, `max`, `unmax`, `level` (a fixed choice of `low`, `medium` or `max`), `switch-backend`, `rename`, `branch`, `notes`, `kill`, `rm` |
 | New task | `add` |
 | Settings | `config get`, `config set`, `server status`, `server restart` |
