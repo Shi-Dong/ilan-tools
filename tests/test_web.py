@@ -2104,11 +2104,25 @@ def test_an_unsent_reply_is_kept_per_task_until_it_is_sent():
     assert detail.index("replyBox.value = loadDraft(task.name);") < detail.index("    syncComposer();\n    if (clearBtn)"), (
         "the draft is restored after the buttons decide whether they are live"
     )
-    assert detail.count("saveDraft(task.name, '');") == 2, "sending or clearing no longer forgets the draft"
+    assert "        replyBox.value = '';\n        saveDraft(task.name, '');\n        renderDetail(name);" in detail, (
+        "a sent reply is no longer forgotten"
+    )
+    assert "        replyBox.value = '';\n        saveDraft(task.name, '');\n        // Through" in detail, (
+        "Clear no longer forgets the draft"
+    )
+    assert "if (TERMINAL_STATUSES.has(task.status)) saveDraft(task.name, '');" in detail, (
+        "opening a closed task's page keeps its draft"
+    )
     assert "moveDraft(task.name, next);" in js, "a renamed task loses its draft"
     card_done = js.split("async function doneFromCard(name) {")[1].split("\n}\n")[0]
     assert "saveDraft(name, '');" in card_done, "Done on the card keeps a draft for a finished task"
     assert "if (choice === 'done') saveDraft(task.name, '');" in js, "Mark done on the sheet keeps the draft"
+    prune = js.split("function pruneDrafts(tasks) {")[1].split("\n}\n")[0]
+    assert "TERMINAL_STATUSES.has(t.status)" in prune, "a closed task's draft is kept"
+    assert "if (!tasks.length) return;" in prune, "an unloaded list would wipe every draft"
+    assert "pruneDrafts(state.tasks);" in js.split("function renderList() {")[1].split("\n}\n")[0], (
+        "the list no longer drops drafts of tasks closed elsewhere (the app has no Discard)"
+    )
     for fn in ("readDrafts", "saveDraft"):
         body = js.split(f"function {fn}(")[1].split("\n}\n")[0]
         assert "catch" in body, f"{fn} would throw where storage is refused"

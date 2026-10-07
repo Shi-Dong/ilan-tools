@@ -465,6 +465,28 @@ function saveDraft(name, text) {
   }
 }
 
+/** Forget the drafts of tasks that are closed or gone.
+ *
+ * A closed task — DONE or DISCARDED — has nothing left to reply to, so a reply
+ * half-written to it is moot. Judged from what the server reports rather than
+ * from which button was pressed, because most closing happens elsewhere: the
+ * web app has no Discard at all, and `ilan done` / `ilan discard` at a
+ * terminal close tasks the phone only hears about on its next refresh.
+ */
+function pruneDrafts(tasks) {
+  if (!tasks.length) return;
+  const drafts = readDrafts();
+  const open = new Set(tasks.filter((t) => !TERMINAL_STATUSES.has(t.status)).map((t) => t.name));
+  const stale = Object.keys(drafts).filter((name) => !open.has(name));
+  if (!stale.length) return;
+  for (const name of stale) delete drafts[name];
+  try {
+    localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+  } catch {
+    /* storage is a nicety */
+  }
+}
+
 /** Carry a draft to a task's new name. */
 function moveDraft(from, to) {
   const draft = loadDraft(from);
@@ -853,6 +875,8 @@ function applySearch() {
 }
 
 function renderList() {
+  // The list is the app's freshest view of which tasks are closed.
+  pruneDrafts(state.tasks);
   // `search` in the CLI always searches closed tasks too, so a query implies
   // -a; without one, honour the toggle.
   const searching = Boolean(state.query);
@@ -1289,6 +1313,8 @@ async function renderDetail(name) {
 
   const task = taskResp.data.task;
   const status = displayStatus(task);
+  // A closed task's page has no composer, and its draft is moot.
+  if (TERMINAL_STATUSES.has(task.status)) saveDraft(task.name, '');
 
   const entries = bodyResp.data.entries || [];
   const body = entries.length

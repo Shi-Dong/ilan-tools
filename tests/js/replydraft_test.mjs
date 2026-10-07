@@ -159,6 +159,38 @@ clickModal(app, '[data-value="pin"]', 'the sheet must offer Pin');
 await settle(); await settle();
 check('another ••• action keeps the draft', stored(app)['alpha-task'] === 'pinned, not done', JSON.stringify(stored(app)));
 
+// ── a task closed anywhere drops its draft ─────────────────────────────
+// The web app has no Discard, and `ilan done` / `ilan discard` at a terminal
+// close tasks the phone only hears about on refresh, so the rule is judged
+// from the status the server reports, not from a button.
+const { app: closer } = boot();
+closer.storage.set('ilan.drafts', JSON.stringify({
+  'alpha-task': 'still open', 'beta-task': 'discarded at the terminal', 'closed-task': 'done at the terminal',
+}));
+closer.state.tasks = [
+  { ...TASKS[0] },
+  { ...TASKS[1], status: 'DISCARDED' },
+  { ...TASKS[2], status: 'DONE' },
+];
+closer.renderList();
+const after = stored(closer);
+check('the list drops the draft of a task discarded elsewhere', !('beta-task' in after), JSON.stringify(after));
+check('and of a task marked done elsewhere', !('closed-task' in after), JSON.stringify(after));
+check('an open task keeps its draft', after['alpha-task'] === 'still open', JSON.stringify(after));
+
+const { app: viewer } = boot();
+viewer.storage.set('ilan.drafts', JSON.stringify({ 'closed-task': 'moot' }));
+viewer.state.tasks = [];
+await visit(viewer, 'closed-task');
+check('opening a closed task drops its draft too', !('closed-task' in stored(viewer)), JSON.stringify(stored(viewer)));
+
+const { app: empty } = boot();
+empty.storage.set('ilan.drafts', JSON.stringify({ 'alpha-task': 'list not loaded yet' }));
+empty.state.tasks = [];
+empty.renderList();
+check('an empty, not-yet-loaded list drops nothing', stored(empty)['alpha-task'] === 'list not loaded yet',
+  JSON.stringify(stored(empty)));
+
 // ── storage that refuses is not an error ────────────────────────────────
 const { app: priv } = boot({ storage: 'denied' });
 let threw = false;
