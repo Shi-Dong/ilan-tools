@@ -292,7 +292,7 @@ def _append_sleep_progress(cell: Text, row: dict) -> None:
 
 
 def _build_concise_task_line(row: dict) -> Text:
-    """Build a styled ``→ number (alias) name !! STATUS level`` concise line.
+    """Build a styled ``→ number (alias) name !! STATUS {level}`` concise line.
 
     The name links to the task's Gist conversation mirror, same as in the full
     table — see :func:`_name_style`.
@@ -315,8 +315,11 @@ def _build_concise_task_line(row: dict) -> Text:
     ):
         line.append(reply_every_suffix, style=REPLY_EVERY_STYLE)
     # Only the active level: the full ladder is for the table's own column.
+    # The braces set it apart from the status label before it, and take the
+    # level's colour so the two read as one mark.
     if (level := row.get("reasoning")) in REASONING_STYLES:
-        line.append(f" {level}", style=REASONING_STYLES[level])
+        line.append(" ")
+        line.append(f"{{{level}}}", style=REASONING_STYLES[level])
     if reply_every_suffix:
         # Mirror _build_name_cell: paint the background under the whole line
         # so cycling tasks are as easy to spot here as in the full table.
