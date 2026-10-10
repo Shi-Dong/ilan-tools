@@ -2693,18 +2693,43 @@ def task_branch(
 
 @task_group.command("btw", add_help_option=False, options_metavar="")
 @click.argument("old_name", shell_complete=_complete_task_names)
-@click.argument("instruction")
-def task_btw(old_name: str, instruction: str) -> None:
+@click.argument("instruction", required=False, default=None)
+@click.option("-e", "--editor", is_flag=True,
+              help="Write the side question in the configured editor.")
+def task_btw(old_name: str, instruction: str | None, editor: bool) -> None:
     """Ask a quick side question using OLD_NAME's context (or an alias).
 
     Works like branch, with an added instruction to focus on this request,
     leave earlier work and ongoing jobs to the parent, and stop after answering.
 
-    Takes only OLD_NAME and INSTRUCTION, with no flags. The child is named
+    Pass INSTRUCTION inline, or use -e to write it in the configured editor.
+    Empty editor content creates no task. The child is named
     xxx-<parent-name>-btw using the parent's full name, even when OLD_NAME
     is an alias. If taken, the name gets -2, -3, and so on until available.
     Done and discard delete the child; rename it to keep it.
     """
+    if editor and instruction is not None:
+        console.print("[red]-e takes no message: it opens your editor to write one.[/red]")
+        raise SystemExit(1)
+    if not editor and instruction is None:
+        raise click.UsageError("Provide INSTRUCTION or use -e to write it in your editor.")
+    if editor:
+        editor_argv = _resolve_editor()
+        if editor_argv is None:
+            raise SystemExit(1)
+        resp = _client().get_task(old_name)
+        if _check_error(resp):
+            raise SystemExit(1)
+        written = _edit_text_in_editor(
+            editor_argv, resp["task"]["name"], "", kind="instruction",
+            abandoned="no side question was created.",
+        )
+        if written is None:
+            raise SystemExit(1)
+        instruction = written.strip()
+        if not instruction:
+            console.print("[yellow]Empty instruction; no task created.[/yellow]")
+            return
     _do_branch(
         old_name, None, None, None, instruction,
         side_question=True,
