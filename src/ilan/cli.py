@@ -2616,6 +2616,8 @@ def _do_branch(
     instruction: str | None = None,
     *,
     side_question: bool = False,
+    level: str | None = None,
+    engine: str | None = None,
 ) -> None:
     if instruction is not None:
         if any(value is not None for value in (new_name, file_path, description)):
@@ -2648,7 +2650,15 @@ def _do_branch(
         message += _BTW_SUFFIX
         resp = client.btw_task(old_name, message)
     else:
-        resp = client.branch_task(old_name, new_name, message)
+        if level is None and engine is None:
+            resp = client.branch_task(old_name, new_name, message)
+        else:
+            options = {}
+            if level is not None:
+                options["level"] = level
+            if engine is not None:
+                options["engine"] = engine
+            resp = client.branch_task(old_name, new_name, message, **options)
     if _check_error(resp):
         raise SystemExit(1)
     # Report the returned name; ordinary unnamed branches are named by the server.
@@ -2675,20 +2685,59 @@ def _do_branch(
               help="Path to a file containing the child task's first assignment.")
 @click.option("-d", "--description", default=None,
               help="Inline first assignment for the child task.")
+@click.option("-e", "--editor", is_flag=True,
+              help="Write the child's first assignment in the configured editor.")
+@click.option("--level", default=None,
+              type=click.Choice(REASONING_LEVELS, case_sensitive=False),
+              help="Set the child's reasoning level from its first answer on.")
+@click.option("--codex", is_flag=True, help="Run the child on Codex.")
+@click.option("--claude", is_flag=True, help="Run the child on Claude Code.")
 def task_branch(
     old_name: str, instruction: str | None, new_name: str | None,
-    file_path: str | None, description: str | None,
+    file_path: str | None, description: str | None, editor: bool, level: str | None,
+    codex: bool, claude: bool,
 ) -> None:
     """Branch a new task from OLD_NAME (or an alias), inheriting its full context.
 
     A bare INSTRUCTION is the quick form: a burnable child with no flags.
-    Use -d "…" or -f FILE to combine the assignment with -n.
+    Use -d "…", -f FILE or -e to combine the assignment with -n or --level.
+    --level overrides the inherited reasoning level (low, medium or max).
+    --codex or --claude selects the child's backend; otherwise it is inherited.
+    These backend flags are mutually exclusive and combine with -e and --level.
 
     Without ``-n`` the child is given a random burnable name (e.g.
     ``xxx-cat-likes-fin``): ``ilan done`` / ``ilan discard`` delete such a task
     instead of closing it. Rename it to keep it.
     """
-    _do_branch(old_name, new_name, file_path, description, instruction)
+    if codex and claude:
+        raise click.UsageError("--codex and --claude are mutually exclusive.")
+    engine = "codex" if codex else "claude" if claude else None
+    if instruction is not None and (level is not None or engine is not None):
+        raise click.UsageError('Use -d "…", -f FILE or -e with backend or level flags.')
+    if editor:
+        if any(value is not None for value in (instruction, file_path, description)):
+            raise click.UsageError("-e cannot be combined with INSTRUCTION, -d or -f.")
+        editor_argv = _resolve_editor()
+        if editor_argv is None:
+            raise SystemExit(1)
+        resp = _client().get_task(old_name)
+        if _check_error(resp):
+            raise SystemExit(1)
+        written = _edit_text_in_editor(
+            editor_argv, resp["task"]["name"], "", kind="instruction",
+            abandoned="no branch was created.",
+        )
+        if written is None:
+            raise SystemExit(1)
+        description = written.strip()
+        if not description:
+            console.print("[yellow]Empty instruction; no task created.[/yellow]")
+            return
+    _do_branch(
+        old_name, new_name, file_path, description, instruction,
+        level=level.lower() if level else None,
+        engine=engine,
+    )
 
 
 @task_group.command("btw", add_help_option=False, options_metavar="")
