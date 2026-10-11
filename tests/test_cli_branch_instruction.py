@@ -44,6 +44,37 @@ def test_bare_instruction_matches_description(
     assert client.branch_task.call_args == bare_call
 
 
+@pytest.mark.parametrize("prefix", [["branch"], ["task", "branch"]])
+def test_editor_with_level(client: MagicMock, prefix: list[str]) -> None:
+    client.get_task.return_value = {"task": {"name": "parent-task"}}
+    with patch("ilan.cli._client", return_value=client), patch(
+        "ilan.cli._resolve_editor", return_value=["editor"],
+    ), patch("ilan.cli._edit_text_in_editor", return_value="  First\nassignment\n"):
+        result = CliRunner().invoke(main, [*prefix, "aa", "-e", "--level", "MAX"])
+    assert result.exit_code == 0, result.output
+    client.branch_task.assert_called_once_with("aa", None, "First\nassignment", level="max")
+
+
+@pytest.mark.parametrize("args", [["-d", "message"], ["inline"], ["--level", "invalid"]])
+def test_editor_conflicts_before_opening(client: MagicMock, args: list[str]) -> None:
+    with patch("ilan.cli._client", return_value=client), patch("ilan.cli._resolve_editor") as editor:
+        result = CliRunner().invoke(main, ["branch", "aa", "-e", *args])
+    assert result.exit_code != 0
+    editor.assert_not_called()
+    client.branch_task.assert_not_called()
+
+
+@pytest.mark.parametrize("written", [" \n", None])
+def test_empty_or_abandoned_editor_creates_no_branch(client: MagicMock, written: str | None) -> None:
+    client.get_task.return_value = {"task": {"name": "parent-task"}}
+    with patch("ilan.cli._client", return_value=client), patch(
+        "ilan.cli._resolve_editor", return_value=["editor"],
+    ), patch("ilan.cli._edit_text_in_editor", return_value=written):
+        result = CliRunner().invoke(main, ["branch", "aa", "-e", "--level", "max"])
+    assert result.exit_code == (1 if written is None else 0)
+    client.branch_task.assert_not_called()
+
+
 @pytest.mark.parametrize("flag", ["-n", "-d", "-f"])
 @pytest.mark.parametrize("before", [True, False])
 def test_bare_instruction_rejects_flags_before_request(
@@ -121,9 +152,10 @@ def test_help_explains_quick_form(prefix: list[str]) -> None:
 @pytest.mark.parametrize("engine", ["claude", "codex"])
 @pytest.mark.parametrize("parent_ref", ["parent-task", "aa"])
 @pytest.mark.parametrize("command", ["branch", "btw"])
+@pytest.mark.parametrize("branch_level", [None, "MAX"])
 def test_quick_branch_through_real_client_and_server(
     ilan_server: IlanServer, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
-    engine: str, parent_ref: str, command: str,
+    engine: str, parent_ref: str, command: str, branch_level: str | None,
 ) -> None:
     """Exercise HTTP, inheritance and burning while agent spawning is stubbed."""
     session_log = tmp_path / "parent-session.jsonl"
@@ -144,7 +176,10 @@ def test_quick_branch_through_real_client_and_server(
     with patch.object(
         ilan_server.runner, "find_session_log", return_value=session_log,
     ):
-        result = CliRunner().invoke(main, [command, parent_ref, "Explain the last result"])
+        args = [command, parent_ref, "Explain the last result"]
+        if command == "branch" and branch_level:
+            args = [command, parent_ref, "-d", "Explain the last result", "--level", branch_level]
+        result = CliRunner().invoke(main, args)
     assert result.exit_code == 0, result.output
     assignment = "Explain the last result" + (_BTW_SUFFIX if command == "btw" else "")
     with ilan_server.lock:
@@ -155,6 +190,7 @@ def test_quick_branch_through_real_client_and_server(
             assert child.name == "xxx-parent-task-btw"
         assert child.parent_name == parent.name
         assert child.engine == engine
+        assert child.reasoning == ("max" if command == "branch" and branch_level else "low")
         assert child.prompt == parent.prompt
         assert child.cached_replies == [assignment]
         assert child.awaiting_branch_notice

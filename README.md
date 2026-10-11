@@ -113,7 +113,7 @@ Every task command has a top-level shorthand, so `ilan task reply` is just `ilan
 | `ilan tap NAME` | Ask the agent for a status update. |
 | `ilan cancel NAME` | Retract your last message and tell the agent to stop acting on it. Only works within 120s of that message. |
 | `ilan sleep NAME DURATION [-d INSTRUCTIONS]` | Tell an idle agent to wait (`300`, `5m`, `1.5h`), optionally follow instructions after waking, and then report back. |
-| `ilan branch OLD [-n NEW] (-d "msg" \| -f FILE)` | Fork a child task that inherits the whole conversation and starts on `msg`. |
+| `ilan branch OLD [-n NEW] (-d "msg" \| -f FILE \| -e) [--level LEVEL]` | Fork a child task that inherits the whole conversation. Use `-e` to write its first assignment in the configured editor; `--level low\|medium\|max` overrides the inherited reasoning level from the first answer. |
 | `ilan attach NAME` | Drop into the agent's native session (`claude --resume` or `codex resume`). |
 
 ### Organize

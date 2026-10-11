@@ -224,11 +224,16 @@ class Client:
             body["append"] = True
         return self.post(f"/tasks/{name}/notes", body)
 
-    def branch_task(self, old_name: str, new_name: str | None, message: str) -> dict:
+    def branch_task(
+        self, old_name: str, new_name: str | None, message: str,
+        *, level: str | None = None,
+    ) -> dict:
         """Branch a task. A *new_name* of ``None`` lets the server mint a burnable one."""
         body: dict = {"message": message}
         if new_name is not None:
             body["new_name"] = new_name
+        if level is not None:
+            body["level"] = level
         return self.post(f"/tasks/{old_name}/branch", body)
 
     def btw_task(self, name: str, message: str) -> dict:
