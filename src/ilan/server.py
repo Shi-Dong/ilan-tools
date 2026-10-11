@@ -1191,6 +1191,10 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             # one; a name that is present is validated, so an empty ``-n ""``
             # stays an error rather than a silent request for a random name.
             new_name = body.get("new_name")
+            engine = body.get("engine")
+            if engine is not None and engine not in VALID_ENGINES:
+                self._json({"error": "Invalid backend. Use claude or codex."}, 400)
+                return
             level = body.get("level")
             if level is not None:
                 if not isinstance(level, str) or level.strip().lower() not in REASONING_LEVELS:
@@ -1266,6 +1270,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     task_hash=generate_task_hash(),
                     now=now,
                     reasoning=BTW_REASONING if side_question else level,
+                    engine=engine,
                 )
                 child.cached_replies.append(message)
                 # Every branch carries the child's first assignment, so every
@@ -1280,6 +1285,7 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 "name": child.name,
                 "parent_name": parent.name,
                 "reasoning": child.reasoning,
+                "engine": child.engine,
             })
 
         def handle_task_max(self, name: str):

@@ -2617,6 +2617,7 @@ def _do_branch(
     *,
     side_question: bool = False,
     level: str | None = None,
+    engine: str | None = None,
 ) -> None:
     if instruction is not None:
         if any(value is not None for value in (new_name, file_path, description)):
@@ -2649,10 +2650,15 @@ def _do_branch(
         message += _BTW_SUFFIX
         resp = client.btw_task(old_name, message)
     else:
-        if level is None:
+        if level is None and engine is None:
             resp = client.branch_task(old_name, new_name, message)
         else:
-            resp = client.branch_task(old_name, new_name, message, level=level)
+            options = {}
+            if level is not None:
+                options["level"] = level
+            if engine is not None:
+                options["engine"] = engine
+            resp = client.branch_task(old_name, new_name, message, **options)
     if _check_error(resp):
         raise SystemExit(1)
     # Report the returned name; ordinary unnamed branches are named by the server.
@@ -2684,20 +2690,30 @@ def _do_branch(
 @click.option("--level", default=None,
               type=click.Choice(REASONING_LEVELS, case_sensitive=False),
               help="Set the child's reasoning level from its first answer on.")
+@click.option("--codex", is_flag=True, help="Run the child on Codex.")
+@click.option("--claude", is_flag=True, help="Run the child on Claude Code.")
 def task_branch(
     old_name: str, instruction: str | None, new_name: str | None,
     file_path: str | None, description: str | None, editor: bool, level: str | None,
+    codex: bool, claude: bool,
 ) -> None:
     """Branch a new task from OLD_NAME (or an alias), inheriting its full context.
 
     A bare INSTRUCTION is the quick form: a burnable child with no flags.
     Use -d "…", -f FILE or -e to combine the assignment with -n or --level.
     --level overrides the inherited reasoning level (low, medium or max).
+    --codex or --claude selects the child's backend; otherwise it is inherited.
+    These backend flags are mutually exclusive and combine with -e and --level.
 
     Without ``-n`` the child is given a random burnable name (e.g.
     ``xxx-cat-likes-fin``): ``ilan done`` / ``ilan discard`` delete such a task
     instead of closing it. Rename it to keep it.
     """
+    if codex and claude:
+        raise click.UsageError("--codex and --claude are mutually exclusive.")
+    engine = "codex" if codex else "claude" if claude else None
+    if instruction is not None and (level is not None or engine is not None):
+        raise click.UsageError('Use -d "…", -f FILE or -e with backend or level flags.')
     if editor:
         if any(value is not None for value in (instruction, file_path, description)):
             raise click.UsageError("-e cannot be combined with INSTRUCTION, -d or -f.")
@@ -2717,11 +2733,10 @@ def task_branch(
         if not description:
             console.print("[yellow]Empty instruction; no task created.[/yellow]")
             return
-    if instruction is not None and level is not None:
-        raise click.UsageError('Use -d "…", -f FILE or -e with --level.')
     _do_branch(
         old_name, new_name, file_path, description, instruction,
         level=level.lower() if level else None,
+        engine=engine,
     )
 
 

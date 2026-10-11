@@ -338,6 +338,12 @@ Use `-d`, `-f`, or `-e` when combining an assignment with `--level`; the bare
 instruction form continues to take no flags. Both `ilan branch` and
 `ilan task branch` accept these options.
 
+`--codex` and `--claude` choose the child's backend and are mutually exclusive.
+They combine with `-n`, `-d`, `-f`, `-e`, and `--level`; omit both to inherit
+the parent's backend. For example, `ilan branch OLD -e --codex --level max`.
+A child on a different backend starts a fresh native session seeded with the
+inherited unified conversation log. The parent's backend and session stay unchanged.
+
 ### Configuration keys
 
 Configuration is stored in `~/.config/ilan/config.json` on each machine

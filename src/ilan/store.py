@@ -186,11 +186,13 @@ class Store:
         task_hash: str,
         now: str,
         reasoning: str | None = None,
+        engine: str | None = None,
     ) -> Task:
         """Create a child task that inherits *parent*'s conversation.
 
-        The child keeps the parent's ``engine`` so branching a codex task
-        yields a codex child (and a claude task a claude child). It keeps the
+        The child keeps the parent's ``engine`` unless *engine* overrides it.
+        A different backend starts fresh using the inherited unified log.
+        It keeps the
         parent's reasoning level too, unless *reasoning* names the level it
         should start at instead — ``ilan btw`` starts its side question at
         ``BTW_REASONING``.
@@ -222,8 +224,9 @@ class Store:
         child_session_id = parent.session_id
         child_session_log_path = parent.session_log_path
         awaiting_catchup = False
+        child_engine = engine or parent.engine
 
-        if parent.engine == ENGINE_CODEX:
+        if child_engine != parent.engine or parent.engine == ENGINE_CODEX:
             child_session_id = None
             child_session_log_path = None
             awaiting_catchup = True
@@ -255,7 +258,7 @@ class Store:
             gist_synced_count=inherited_log_count,
             gist_branch_point=inherited_log_count,
             gist_branch_parent_name=parent.name,
-            engine=parent.engine,
+            engine=child_engine,
             reasoning=reasoning or parent.reasoning,
             awaiting_catchup=awaiting_catchup,
         )

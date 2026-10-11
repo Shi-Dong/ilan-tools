@@ -45,17 +45,24 @@ def test_bare_instruction_matches_description(
 
 
 @pytest.mark.parametrize("prefix", [["branch"], ["task", "branch"]])
-def test_editor_with_level(client: MagicMock, prefix: list[str]) -> None:
+@pytest.mark.parametrize("backend", [None, "claude", "codex"])
+def test_editor_with_level(client: MagicMock, prefix: list[str], backend: str | None) -> None:
     client.get_task.return_value = {"task": {"name": "parent-task"}}
     with patch("ilan.cli._client", return_value=client), patch(
         "ilan.cli._resolve_editor", return_value=["editor"],
     ), patch("ilan.cli._edit_text_in_editor", return_value="  First\nassignment\n"):
-        result = CliRunner().invoke(main, [*prefix, "aa", "-e", "--level", "MAX"])
+        args = [*prefix, "aa", "-e", "--level", "MAX"]
+        if backend:
+            args.append(f"--{backend}")
+        result = CliRunner().invoke(main, args)
     assert result.exit_code == 0, result.output
-    client.branch_task.assert_called_once_with("aa", None, "First\nassignment", level="max")
+    options = {"level": "max"}
+    if backend:
+        options["engine"] = backend
+    client.branch_task.assert_called_once_with("aa", None, "First\nassignment", **options)
 
 
-@pytest.mark.parametrize("args", [["-d", "message"], ["inline"], ["--level", "invalid"]])
+@pytest.mark.parametrize("args", [["-d", "message"], ["inline"], ["--level", "invalid"], ["--codex", "--claude"]])
 def test_editor_conflicts_before_opening(client: MagicMock, args: list[str]) -> None:
     with patch("ilan.cli._client", return_value=client), patch("ilan.cli._resolve_editor") as editor:
         result = CliRunner().invoke(main, ["branch", "aa", "-e", *args])
@@ -153,9 +160,11 @@ def test_help_explains_quick_form(prefix: list[str]) -> None:
 @pytest.mark.parametrize("parent_ref", ["parent-task", "aa"])
 @pytest.mark.parametrize("command", ["branch", "btw"])
 @pytest.mark.parametrize("branch_level", [None, "MAX"])
+@pytest.mark.parametrize("backend", [None, "claude", "codex"])
 def test_quick_branch_through_real_client_and_server(
     ilan_server: IlanServer, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     engine: str, parent_ref: str, command: str, branch_level: str | None,
+    backend: str | None,
 ) -> None:
     """Exercise HTTP, inheritance and burning while agent spawning is stubbed."""
     session_log = tmp_path / "parent-session.jsonl"
@@ -179,6 +188,10 @@ def test_quick_branch_through_real_client_and_server(
         args = [command, parent_ref, "Explain the last result"]
         if command == "branch" and branch_level:
             args = [command, parent_ref, "-d", "Explain the last result", "--level", branch_level]
+        if command == "branch" and backend:
+            if not branch_level:
+                args = [command, parent_ref, "-d", "Explain the last result"]
+            args.append(f"--{backend}")
         result = CliRunner().invoke(main, args)
     assert result.exit_code == 0, result.output
     assignment = "Explain the last result" + (_BTW_SUFFIX if command == "btw" else "")
@@ -189,12 +202,13 @@ def test_quick_branch_through_real_client_and_server(
         if command == "btw":
             assert child.name == "xxx-parent-task-btw"
         assert child.parent_name == parent.name
-        assert child.engine == engine
+        child_engine = backend if command == "branch" and backend else engine
+        assert child.engine == child_engine
         assert child.reasoning == ("max" if command == "branch" and branch_level else "low")
         assert child.prompt == parent.prompt
         assert child.cached_replies == [assignment]
         assert child.awaiting_branch_notice
-        if engine == "claude":
+        if engine == "claude" and child_engine == engine:
             assert child.session_id != parent.session_id
             assert Path(child.session_log_path).read_text() == session_log.read_text()
         else:
@@ -209,7 +223,11 @@ def test_quick_branch_through_real_client_and_server(
         with patch.object(ilan_server.runner, "find_session_log", return_value=session_log):
             prompt, resume = ilan_server.runner._build_prompt(child)
         assert assignment in prompt
-        assert resume == (engine == "claude")
+        assert resume == (engine == "claude" and child_engine == engine)
+        if child_engine != engine:
+            assert "The job is progressing" in prompt
+            assert not child.sessions
+            assert not child.log_cursors
         assert prompt.count(_BTW_SUFFIX) == (1 if command == "btw" else 0)
     if command == "btw":
         with ilan_server.lock:

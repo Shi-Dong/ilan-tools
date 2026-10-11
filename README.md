@@ -118,6 +118,11 @@ Every task command has a top-level shorthand, so `ilan task reply` is just `ilan
 
 ### Organize
 
+`ilan branch OLD -e --codex --level max` writes the child's assignment in your
+editor and runs it on Codex at maximum reasoning effort. Use `--claude` for
+Claude Code instead; the backend flags are mutually exclusive. Without either,
+the child inherits its parent's backend.
+
 | Command | What it does |
 |---|---|
 | `ilan rename OLD NEW [-d "msg"]` | Rename a task, optionally sending `msg` right after. |
