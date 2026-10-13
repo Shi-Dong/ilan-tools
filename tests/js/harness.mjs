@@ -301,7 +301,7 @@ const TAIL = `;return {
   isLooping,
   sendReply, runAction, showActions, postConfirmingReplyEvery, refreshListAfterChange,
   pushSupport, pushState, enablePush, disablePush, updateBadge, urlBase64ToUint8Array,
-  registerServiceWorker, push: __push, enablePushSupport: __enablePushSupport, notification: Notification,
+  registerServiceWorker, trackKeyboard, push: __push, enablePushSupport: __enablePushSupport, notification: Notification,
   showView, entranceFor, toggleCollapsed, fadeOutAndRemove, animateHeight, reduceMotion,
   restartServer, waitForRestart, notesFromCard,
   toast, toastHtml, withCodeName,

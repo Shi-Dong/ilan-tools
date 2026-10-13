@@ -1052,7 +1052,13 @@ textarea.field {
    would slide under the composer when it appears. */
 .dock {
   position: sticky;
-  bottom: 0;
+  /* Lifted by the part of the page the on-screen keyboard covers (see
+   * trackKeyboard in app.js), so the reply box sits just above the keyboard
+   * whether iOS scrolled the page or panned the window. Zero otherwise. The
+   * same height is added above the bar as scroll room, so the end of the
+   * conversation can still be scrolled clear of it while the keyboard is up. */
+  bottom: var(--kb, 0px);
+  margin-top: var(--kb, 0px);
   background: color-mix(in srgb, var(--bg) 92%, transparent);
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
@@ -1066,14 +1072,27 @@ textarea.field {
   align-items: flex-end;
 }
 
-/* While the reply box has the cursor, the keyboard is up and covers the home
- * indicator — but iOS keeps reporting the same bottom safe area (about 34px
- * on a phone without a Home button), at least in the Home Screen app. Padding
- * for it then leaves a strip of empty page between the box and the keyboard.
- * So while typing the composer keeps only its own 8px. With no keyboard and no
- * safe area, as on a desktop, the two rules are the same. */
-.composer:focus-within {
+/* While the on-screen keyboard is open it covers the home indicator — but iOS
+ * keeps reporting the same bottom safe area (about 34px on a phone without a
+ * Home button), at least in the Home Screen app. Padding for it then leaves a
+ * strip of empty page between the box and the keyboard, so with the keyboard
+ * up the composer keeps only its own 8px. Keyed on the keyboard being open,
+ * which app.js measures, rather than on the box having the cursor: a hardware
+ * keyboard gives the box the cursor without covering the indicator. */
+.kb-open .composer {
   padding-bottom: 8px;
+}
+
+/* With the keyboard up the bar is lifted into the middle of the conversation,
+ * where its clear, faded background would let message text show through
+ * beside the box being typed in. It frosts instead, like the header, for as
+ * long as the keyboard is open. More specific than the glass layer's .dock,
+ * so it wins wherever that is declared. */
+.kb-open .dock {
+  background: var(--glass-tint-strong);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: 0 -1px 0 var(--glass-edge);
 }
 
 /* Shown only while something is selected in a message. It sits above the
@@ -1117,7 +1136,10 @@ textarea.field {
 .composer textarea {
   flex: 1;
   min-height: var(--tap);
-  max-height: 40dvh;
+  /* A share of what is visible, not of the screen: with the keyboard up the
+   * visible region is about half the screen, and a box sized to the screen
+   * could outgrow it. --vvh is that height, kept by app.js. */
+  max-height: min(40dvh, calc(var(--vvh, 100dvh) * .4));
   resize: none;
   /* Keep the text clear of the button overlapping the corner. */
   padding-right: calc(var(--tap) + 2px);

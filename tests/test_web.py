@@ -820,7 +820,9 @@ def test_the_ask_bar_and_composer_dock_together():
     dock = re.search(r"\.dock \{(.*?)\}", css, re.S)
     assert dock, "the composer no longer has a docking container"
     assert "position: sticky" in dock.group(1)
-    assert "bottom: 0" in dock.group(1)
+    # Anchored to the bottom: of the screen with no keyboard, and of the
+    # visible region above the keyboard when it is open (see trackKeyboard).
+    assert "bottom: var(--kb, 0px)" in dock.group(1)
 
     composer = re.search(r"^\.composer \{(.*?)\}", css, re.S | re.M)
     assert composer, ".composer is not styled"
@@ -2131,21 +2133,23 @@ def test_an_unsent_reply_is_kept_per_task_until_it_is_sent():
 def test_the_composer_drops_the_home_indicator_gap_while_typing():
     """With the keyboard up, iOS still reports the bottom safe area, so a
     composer padded for it floats a strip of empty page above the keyboard.
-    While the reply box has the cursor, the composer keeps only its own
-    padding; at rest it still clears the home indicator.
+    While the keyboard is open the composer keeps only its own padding; at
+    rest it still clears the home indicator.
+
+    Keyed on the keyboard being open, which app.js measures, not on the box
+    having the cursor: a hardware keyboard gives the box the cursor without
+    covering the indicator, and that proxy is gone.
     """
     css = web.read_asset("app.css").decode()
     rest = re.search(r"\n\.composer \{(.*?)\}", css, re.S)
     assert rest and "env(safe-area-inset-bottom)" in rest.group(1), (
         "at rest the composer no longer clears the home indicator"
     )
-    typing = re.search(r"\n\.composer:focus-within \{(.*?)\}", css, re.S)
-    assert typing, "nothing changes the composer's padding while typing"
-    assert re.search(r"padding-bottom:\s*8px;", typing.group(1)), "the typing padding is not the plain 8px"
+    typing = re.search(r"\n\.kb-open \.composer \{(.*?)\}", css, re.S)
+    assert typing, "nothing changes the composer's padding while the keyboard is open"
+    assert re.search(r"padding-bottom:\s*8px;", typing.group(1)), "the keyboard padding is not the plain 8px"
     assert "safe-area" not in typing.group(1), "the safe area is still padded while the keyboard is up"
-    assert css.index("\n.composer {") < css.index("\n.composer:focus-within {"), (
-        "the typing rule comes first, so the resting rule would win"
-    )
+    assert ".composer:focus-within" not in css, "the cursor-in-the-box proxy is back"
 
 
 # ── Liquid Glass ────────────────────────────────────────────────────────
@@ -2297,3 +2301,39 @@ def test_the_reply_box_is_a_soft_rectangle_not_a_capsule():
     capsules = re.search(r"\n\.hdr \.btn,\n\.hdr-row \.field,\n(.*?)\{\s*border-radius: var\(--capsule\);", layer, re.S)
     assert capsules and ".composer textarea" not in capsules.group(1), "the reply box is a capsule again"
     assert ".composer #send" in capsules.group(1), "Send lost its capsule"
+
+
+# ── the on-screen keyboard ──────────────────────────────────────────────
+
+def test_the_reply_bar_follows_the_visible_region_above_the_keyboard():
+    """iOS draws the keyboard over the page instead of shrinking it, then
+    scrolls or pans to reveal the focused box. Scrolling cannot reveal a box
+    in a bar that is sticky to the bottom of the screen, so on a conversation
+    long enough to scroll the box stayed under the keyboard. The bar is now
+    lifted by --kb, the part of the page the keyboard covers, which app.js
+    measures from the visual viewport; the same height above the bar keeps the
+    end of the conversation scrollable clear of it.
+    """
+    css = web.read_asset("app.css").decode()
+    js = web.read_asset("app.js").decode()
+    dock = re.search(r"\n\.dock \{(.*?)\}", css, re.S)
+    assert dock, "the dock is gone"
+    assert "bottom: var(--kb, 0px);" in dock.group(1), "the reply bar is not lifted above the keyboard"
+    assert "margin-top: var(--kb, 0px);" in dock.group(1), (
+        "no scroll room above the lifted bar: the end of the conversation would hide behind it"
+    )
+    box = re.search(r"\n\.composer textarea \{(.*?)\}", css, re.S)
+    assert box and "var(--vvh" in box.group(1), (
+        "the reply box is sized against the whole screen, and can outgrow what is visible above the keyboard"
+    )
+    frosted = re.search(r"\n\.kb-open \.dock \{(.*?)\}", css, re.S)
+    assert frosted and "var(--glass-tint-strong)" in frosted.group(1) and "backdrop-filter" in frosted.group(1), (
+        "lifted into the conversation, the bar's clear background lets message text show beside the box"
+    )
+    boot = js[js.index("registerServiceWorker();\n"):]
+    assert boot.startswith("registerServiceWorker();\ntrackKeyboard();"), "the keyboard is not tracked from boot"
+    track = re.search(r"function trackKeyboard\(.*?\) \{(.*?)\n\}", js, re.S)
+    assert track, "trackKeyboard is gone"
+    for listened in ("vv.addEventListener('resize', update);", "vv.addEventListener('scroll', update);"):
+        assert listened in track.group(1), f"not listening: {listened}"
+
