@@ -2147,3 +2147,75 @@ def test_the_composer_drops_the_home_indicator_gap_while_typing():
         "the typing rule comes first, so the resting rule would win"
     )
 
+
+# ── Liquid Glass ────────────────────────────────────────────────────────
+
+def _rgba(value: str) -> tuple[float, float, float, float]:
+    m = re.match(r"rgba\((\d+),\s*(\d+),\s*(\d+),\s*([.\d]+)\)", value)
+    assert m, f"not an rgba(): {value}"
+    return int(m[1]), int(m[2]), int(m[3]), float(m[4])
+
+
+def _over(tint: str, backdrop: str) -> str:
+    r, g, b, a = _rgba(tint)
+    br, bg_, bb = (int(backdrop[i:i + 2], 16) for i in (1, 3, 5))
+    mix = [round(a * c + (1 - a) * d) for c, d in ((r, br), (g, bg_), (b, bb))]
+    return "#%02x%02x%02x" % tuple(mix)
+
+
+def _glass_tints(css: str) -> tuple[dict[str, str], dict[str, str]]:
+    """The translucent glass tints, light and dark. _scheme_values reads hex
+    colours only, and a tint is an rgba() by nature."""
+    root = re.search(r":root \{(.*?)\n\}", css, re.S)
+    dark = re.search(r"@media \(prefers-color-scheme: dark\) \{(.*?)\n  \}", css, re.S)
+    assert root and dark
+    read = lambda block: dict(re.findall(r"(--glass-tint[a-z-]*):\s*(rgba\([^)]*\));", block))  # noqa: E731
+    light = read(root.group(1))
+    return light, {**light, **read(dark.group(1))}
+
+
+def test_glass_keeps_text_readable_in_both_schemes():
+    """Glass is see-through, so its legibility depends on what is behind it.
+    The controls float over the page and over cards, so the dimmest text the
+    app sets on glass has to clear 4.5:1 composited over either, in both
+    schemes, at both tint strengths."""
+    css = web.read_asset("app.css").decode()
+    light, dark = _scheme_values(css)
+    tints_light, tints_dark = _glass_tints(css)
+    for scheme, values, tints in (("light", light, tints_light), ("dark", dark, tints_dark)):
+        assert set(tints) == {"--glass-tint", "--glass-tint-strong"}, f"{scheme}: tints missing: {tints}"
+        for tint_var in ("--glass-tint", "--glass-tint-strong"):
+            for behind in ("--bg", "--bg-elevated"):
+                surface = _over(tints[tint_var], values[behind])
+                for ink in ("--text", "--text-dim"):
+                    ratio = _contrast(values[ink], surface)
+                    assert ratio >= 4.5, (
+                        f"{scheme}: {ink} on {tint_var} over {behind} is {ratio:.2f}:1"
+                    )
+        # The strong tint is what the header, menus and toasts are made of, and
+        # those sit over whatever scrolls by — the blue of a reply bubble
+        # included. The regular tint only ever sits over the page's own grey.
+        surface = _over(tints["--glass-tint-strong"], values["--accent"])
+        for ink in ("--text", "--text-dim"):
+            ratio = _contrast(values[ink], surface)
+            assert ratio >= 4.5, f"{scheme}: {ink} on the strong tint over the accent is {ratio:.2f}:1"
+
+
+def test_glass_falls_back_to_solid_surfaces():
+    """Reduced transparency is an accessibility setting, and not every browser
+    has backdrop-filter. Every glass surface must have an opaque fallback in
+    both cases, and the content layer — cards and bubbles — is never glass."""
+    css = web.read_asset("app.css").decode()
+    layer = css[css.index("/* ── Liquid Glass"):]
+    reduced = re.search(r"@media \(prefers-reduced-transparency: reduce\) \{(.*?)\n\}", layer, re.S)
+    assert reduced, "no reduced-transparency fallback"
+    unsupported = re.search(r"@supports not \(\(backdrop-filter: blur\(1px\)\).*?\{(.*?)\n\}", layer, re.S)
+    assert unsupported, "no fallback for browsers without backdrop-filter"
+    def listed(block: str, sel: str) -> bool:
+        return re.search(rf"^\s*{re.escape(sel)}\s*[,{{]", block, re.M) is not None
+    for surface in (".hdr .btn", ".composer textarea", ".ask-bar", ".sheet", ".toast"):
+        assert listed(reduced.group(1), surface), f"{surface} stays see-through with reduced transparency"
+        assert listed(unsupported.group(1), surface), f"{surface} has no fallback without backdrop-filter"
+    assert "background: var(--bg-elevated);" in reduced.group(1)
+    for content in (".card", ".msg", ".msg-body"):
+        assert not re.search(rf"(^|[\s,]){re.escape(content)}\s*[,{{]", layer), f"{content} was made glass"
