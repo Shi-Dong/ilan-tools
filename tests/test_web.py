@@ -2126,3 +2126,24 @@ def test_an_unsent_reply_is_kept_per_task_until_it_is_sent():
     for fn in ("readDrafts", "saveDraft"):
         body = js.split(f"function {fn}(")[1].split("\n}\n")[0]
         assert "catch" in body, f"{fn} would throw where storage is refused"
+
+
+def test_the_composer_drops_the_home_indicator_gap_while_typing():
+    """With the keyboard up, iOS still reports the bottom safe area, so a
+    composer padded for it floats a strip of empty page above the keyboard.
+    While the reply box has the cursor, the composer keeps only its own
+    padding; at rest it still clears the home indicator.
+    """
+    css = web.read_asset("app.css").decode()
+    rest = re.search(r"\n\.composer \{(.*?)\}", css, re.S)
+    assert rest and "env(safe-area-inset-bottom)" in rest.group(1), (
+        "at rest the composer no longer clears the home indicator"
+    )
+    typing = re.search(r"\n\.composer:focus-within \{(.*?)\}", css, re.S)
+    assert typing, "nothing changes the composer's padding while typing"
+    assert re.search(r"padding-bottom:\s*8px;", typing.group(1)), "the typing padding is not the plain 8px"
+    assert "safe-area" not in typing.group(1), "the safe area is still padded while the keyboard is up"
+    assert css.index("\n.composer {") < css.index("\n.composer:focus-within {"), (
+        "the typing rule comes first, so the resting rule would win"
+    )
+
