@@ -1539,6 +1539,14 @@ textarea.field {
   border-color: var(--glass-edge);
 }
 
+/* The rule above outranks .btn-primary, so without this a filled button on a
+ * sheet (Confirm, Done, Save) lost its blue and kept its white label: white
+ * on white, a blank button beside Cancel. */
+.sheet .btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
 .sheet-backdrop { background: rgba(0, 0, 0, .28); }
 
 /* The toast is glass in the page's own text colour, no longer an inverted
@@ -1661,6 +1669,7 @@ body { background: transparent; }
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
+  .sheet .btn-primary { background: var(--accent); }
   .msg-user {
     background: linear-gradient(var(--glass-user), var(--glass-user)), var(--bg-elevated);
     -webkit-backdrop-filter: none;
@@ -1684,5 +1693,6 @@ body { background: transparent; }
   .card {
     background: var(--bg-elevated);
   }
+  .sheet .btn-primary { background: var(--accent); }
   .msg-user { background: linear-gradient(var(--glass-user), var(--glass-user)), var(--bg-elevated); }
 }
