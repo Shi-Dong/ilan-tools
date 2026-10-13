@@ -2147,3 +2147,153 @@ def test_the_composer_drops_the_home_indicator_gap_while_typing():
         "the typing rule comes first, so the resting rule would win"
     )
 
+
+# ── Liquid Glass ────────────────────────────────────────────────────────
+
+def _rgba(value: str) -> tuple[float, float, float, float]:
+    m = re.match(r"rgba\((\d+),\s*(\d+),\s*(\d+),\s*([.\d]+)\)", value)
+    assert m, f"not an rgba(): {value}"
+    return int(m[1]), int(m[2]), int(m[3]), float(m[4])
+
+
+def _over(tint: str, backdrop: str) -> str:
+    r, g, b, a = _rgba(tint)
+    br, bg_, bb = (int(backdrop[i:i + 2], 16) for i in (1, 3, 5))
+    mix = [round(a * c + (1 - a) * d) for c, d in ((r, br), (g, bg_), (b, bb))]
+    return "#%02x%02x%02x" % tuple(mix)
+
+
+def _glass_tints(css: str) -> tuple[dict[str, str], dict[str, str]]:
+    """The translucent glass tints, light and dark. _scheme_values reads hex
+    colours only, and a tint is an rgba() by nature."""
+    root = re.search(r":root \{(.*?)\n\}", css, re.S)
+    dark = re.search(r"@media \(prefers-color-scheme: dark\) \{(.*?)\n  \}", css, re.S)
+    assert root and dark
+    read = lambda block: dict(re.findall(r"(--glass-tint[a-z-]*):\s*(rgba\([^)]*\));", block))  # noqa: E731
+    light = read(root.group(1))
+    return light, {**light, **read(dark.group(1))}
+
+
+def test_glass_keeps_text_readable_in_both_schemes():
+    """Glass is see-through, so its legibility depends on what is behind it.
+    The controls float over the page and over cards, so the dimmest text the
+    app sets on glass has to clear 4.5:1 composited over either, in both
+    schemes, at both tint strengths."""
+    css = web.read_asset("app.css").decode()
+    light, dark = _scheme_values(css)
+    tints_light, tints_dark = _glass_tints(css)
+    for scheme, values, tints in (("light", light, tints_light), ("dark", dark, tints_dark)):
+        assert set(tints) == {"--glass-tint", "--glass-tint-strong"}, f"{scheme}: tints missing: {tints}"
+        for tint_var in ("--glass-tint", "--glass-tint-strong"):
+            for behind in ("--bg", "--bg-elevated"):
+                surface = _over(tints[tint_var], values[behind])
+                for ink in ("--text", "--text-dim"):
+                    ratio = _contrast(values[ink], surface)
+                    assert ratio >= 4.5, (
+                        f"{scheme}: {ink} on {tint_var} over {behind} is {ratio:.2f}:1"
+                    )
+        # The strong tint is what the header, menus and toasts are made of, and
+        # those sit over whatever scrolls by — the blue of a reply bubble
+        # included. The regular tint only ever sits over the page's own grey.
+        surface = _over(tints["--glass-tint-strong"], values["--accent"])
+        for ink in ("--text", "--text-dim"):
+            ratio = _contrast(values[ink], surface)
+            assert ratio >= 4.5, f"{scheme}: {ink} on the strong tint over the accent is {ratio:.2f}:1"
+
+
+def test_glass_falls_back_to_solid_surfaces():
+    """Reduced transparency is an accessibility setting, and not every browser
+    has backdrop-filter. Every glass surface must have an opaque fallback in
+    both cases, and the content layer — cards and bubbles — is never glass."""
+    css = web.read_asset("app.css").decode()
+    layer = css[css.index("/* ── Liquid Glass"):]
+    reduced = re.search(r"@media \(prefers-reduced-transparency: reduce\) \{(.*?)\n\}", layer, re.S)
+    assert reduced, "no reduced-transparency fallback"
+    unsupported = re.search(r"@supports not \(\(backdrop-filter: blur\(1px\)\).*?\{(.*?)\n\}", layer, re.S)
+    assert unsupported, "no fallback for browsers without backdrop-filter"
+    def listed(block: str, sel: str) -> bool:
+        return re.search(rf"^\s*{re.escape(sel)}\s*[,{{]", block, re.M) is not None
+    for surface in (".hdr .btn", ".composer textarea", ".ask-bar", ".sheet", ".toast",
+                    ".msg-assistant", ".msg-user", ".card"):
+        assert listed(reduced.group(1), surface), f"{surface} stays see-through with reduced transparency"
+        assert listed(unsupported.group(1), surface), f"{surface} has no fallback without backdrop-filter"
+    assert "background: var(--bg-elevated);" in reduced.group(1)
+    # The text inside a bubble is never its own glass layer.
+    for content in (".msg-body",):
+        assert not re.search(rf"(^|[\s,]){re.escape(content)}\s*[,{{]", layer), f"{content} was made glass"
+
+
+def test_message_bubbles_are_glass_and_stay_readable():
+    """The bubbles are glass: the assistant's clear, the user's tinted with the
+    accent. They sit on the page's grey, so their text has to hold 4.5:1 on
+    the tint composited over the page, in both schemes."""
+    css = web.read_asset("app.css").decode()
+    layer = css[css.index("/* ── Liquid Glass"):]
+    assistant = re.search(r"\n\.msg-assistant \{(.*?)\}", layer, re.S)
+    user = re.search(r"\n\.msg-user \{(.*?)\}", layer, re.S)
+    assert assistant and "background: var(--glass-tint)" in assistant.group(1), "the assistant bubble is not glass"
+    assert user and "color-mix(in srgb, var(--accent) 88%, transparent)" in user.group(1), "the user bubble is not accent glass"
+    for rule in (assistant, user):
+        assert "backdrop-filter" in rule.group(1) and "inset 0 1px 0" in rule.group(1), "a bubble lost its blur or rim"
+
+    light, dark = _scheme_values(css)
+    tints_light, tints_dark = _glass_tints(css)
+    for scheme, values, tints in (("light", light, tints_light), ("dark", dark, tints_dark)):
+        # Bubbles sit over the page and its ambient light, so check each.
+        for behind in ("--bg", "--ambient-a", "--ambient-b"):
+            on_assistant = _over(tints["--glass-tint"], values[behind])
+            for ink in ("--text", "--text-dim"):
+                assert _contrast(values[ink], on_assistant) >= 4.5, (
+                    f"{scheme}: {ink} in the assistant bubble over {behind} is "
+                    f"{_contrast(values[ink], on_assistant):.2f}:1"
+                )
+        a = values["--accent"]
+        on_user = _over(f"rgba({int(a[1:3], 16)}, {int(a[3:5], 16)}, {int(a[5:7], 16)}, .88)", values["--bg"])
+        ratio = _contrast(values["--accent-contrast"], on_user)
+        assert ratio >= 4.5, f"{scheme}: text in the user bubble is {ratio:.2f}:1"
+
+
+
+
+def test_cards_are_glass_lit_by_their_status_and_stay_readable():
+    """Each task card is glass over the page's ambient light, keeps its status
+    rail and edge, and takes a faint wash and glow of its status colour. Every
+    ink set on a card has to hold 4.5:1 on the card's glass composited over
+    the strongest point of either ambient pool, in both schemes."""
+    css = web.read_asset("app.css").decode()
+    layer = css[css.index("/* ── Liquid Glass"):]
+    card = re.search(r"\n\.card \{(.*?)\n\}", layer, re.S)
+    assert card, "the cards are not glass"
+    body = card.group(1)
+    assert "var(--glass-card)" in body and "backdrop-filter" in body, "the card has no glass"
+    assert re.search(r"linear-gradient\([^;]*var\(--row-status[^;]*var\(--glass-card\)", body, re.S), (
+        "the status colour no longer washes into the card's glass"
+    )
+    assert re.search(r"box-shadow:[^;]*var\(--row-status", body, re.S), "the card no longer glows its status"
+    assert "border:" not in body and "border-left" not in body, "the glass layer touched the status rail or edge"
+    assert re.search(r"body::before \{[^}]*position: fixed", layer, re.S), "there is no ambient light for the glass"
+
+    light, dark = _scheme_values(css)
+    def card_tint(block: str) -> str:
+        return re.search(r"--glass-card:\s*(rgba\([^)]*\));", block).group(1)
+    root = re.search(r":root \{(.*?)\n\}", css, re.S).group(1)
+    darkb = re.search(r"@media \(prefers-color-scheme: dark\) \{(.*?)\n  \}", css, re.S).group(1)
+    for scheme, values, tint in (("light", light, card_tint(root)), ("dark", dark, card_tint(darkb))):
+        for pool in ("--ambient-a", "--ambient-b"):
+            surface = _over(tint, values[pool])
+            for ink in ("--text", "--text-dim", "--act-tap", "--act-done", "--act-notes", "--accent"):
+                ratio = _contrast(values[ink], surface)
+                assert ratio >= 4.5, f"{scheme}: {ink} on a card over {pool} is {ratio:.2f}:1"
+
+
+def test_the_reply_box_is_a_soft_rectangle_not_a_capsule():
+    """A capsule several lines tall reads as a pill rather than a place to
+    write, so the reply box takes the bubbles' rounding; Send stays a capsule."""
+    css = web.read_asset("app.css").decode()
+    layer = css[css.index("/* ── Liquid Glass"):]
+    box = re.findall(r"\n\.composer textarea \{([^}]*)\}", layer)
+    radii = [int(m) for b in box for m in re.findall(r"border-radius:\s*(\d+)px;", b)]
+    assert radii and all(12 <= r <= 24 for r in radii), f"reply box radius {radii}"
+    capsules = re.search(r"\n\.hdr \.btn,\n\.hdr-row \.field,\n(.*?)\{\s*border-radius: var\(--capsule\);", layer, re.S)
+    assert capsules and ".composer textarea" not in capsules.group(1), "the reply box is a capsule again"
+    assert ".composer #send" in capsules.group(1), "Send lost its capsule"

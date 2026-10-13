@@ -100,10 +100,42 @@
 
   --radius: 12px;
   --tap: 44px;
+
+  /* Liquid Glass (see the section at the end). The tint is the glass's own
+   * colour; how see-through it is sets how much of the content behind shows.
+   * 72% white keeps --text-dim above 4.5:1 over the page and over a card. */
+  --glass-tint: rgba(255, 255, 255, .72);
+  /* 90%, not less: the strong tint sits over whatever scrolls by, the blue
+   * of a reply bubble included, and --text-dim needs 4.5:1 even then. */
+  --glass-tint-strong: rgba(255, 255, 255, .9);
+  --glass-rim: rgba(255, 255, 255, .9);
+  --glass-edge: rgba(0, 0, 0, .08);
+  --glass-shadow: 0 8px 28px rgba(0, 0, 0, .12), 0 1px 3px rgba(0, 0, 0, .08);
+  --glass-blur: saturate(180%) blur(20px);
+  --capsule: 999px;
+  /* The card's own glass. 92% in light mode is set by the amber Tap label,
+   * which has almost no headroom even on solid white (4.59:1); any clearer
+   * and the ambient blue behind it pulls it under 4.5:1. */
+  --glass-card: rgba(255, 255, 255, .92);
+  /* Ambient light behind the page: the colour the glass has to refract. Two
+   * soft pools, the accent's blue and a lavender, faint enough that every
+   * ink on a card still holds 4.5:1 over their strongest point. */
+  --ambient-a: #dfe9fb;
+  --ambient-b: #ebe3fb;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
+    --glass-tint: rgba(44, 44, 46, .62);
+    /* 95%: grey text over a dark tint loses contrast fast once a bright
+     * blue bubble scrolls behind it; below this it drops under 4.5:1. */
+    --glass-tint-strong: rgba(44, 44, 46, .95);
+    --glass-rim: rgba(255, 255, 255, .22);
+    --glass-edge: rgba(255, 255, 255, .1);
+    --glass-shadow: 0 8px 28px rgba(0, 0, 0, .5), 0 1px 3px rgba(0, 0, 0, .4);
+    --glass-card: rgba(44, 44, 46, .78);
+    --ambient-a: #0f1f3f;
+    --ambient-b: #1f1538;
     --bg: #000000;
     --bg-elevated: #1c1c1e;
     --bg-sunken: #2c2c2e;
@@ -1323,4 +1355,268 @@ textarea.field {
 
   /* Re-shown from hidden each time, which is what restarts the animation. */
   .toast { animation: toast-in 200ms cubic-bezier(.2, .8, .2, 1) both; }
+}
+
+/* ── Liquid Glass ───────────────────────────────────────────────────────
+ *
+ * The iOS 26/27 look, applied the way iOS applies it: to the controls that
+ * float over the content, never to the content itself. The header's buttons,
+ * the reply field and Send, the ask bar, menus and toasts are glass — a
+ * translucent tint over a blur of whatever scrolls beneath, a bright rim
+ * along the top edge where light would catch it, and a soft shadow that
+ * lifts it off the page. Task cards and message bubbles stay solid, because
+ * text has to be read off them and glass over glass would read off neither.
+ *
+ * A web page cannot use the system's own material, so this is the CSS
+ * approximation: backdrop-filter for the blur, a gradient rim for the
+ * highlight. Where the reader has asked for reduced transparency, or the
+ * browser has no backdrop-filter, every surface falls back to an opaque tint
+ * of the same colour — the layout is identical, only the see-through goes.
+ */
+/* The glass colours live with the app's other colours, in :root above.
+ * Cards stay solid: the list is a dense column of status colours, and glass
+ * behind each one would muddy exactly the colour that carries the meaning. */
+
+/* One recipe, so every glass surface is the same material. The rim is an
+ * inset highlight on the top edge only; the hairline around the rest keeps
+ * the edge visible over a background of the same tone. */
+.hdr .btn,
+.composer textarea,
+.composer #send,
+.btn-revive,
+.ask-bar,
+.sheet,
+.toast {
+  background: var(--glass-tint);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-edge);
+  box-shadow: inset 0 1px 0 var(--glass-rim), var(--glass-shadow);
+}
+
+/* The header is a sheet of frosted glass rather than a clear strip: it
+ * carries a title and a status line, not only buttons, and text scrolling
+ * visibly behind a title is noise. A strong blur and a mostly opaque tint
+ * keep the content's colour coming through without its letters. No hairline:
+ * the shadow under the glass marks the edge. */
+.hdr {
+  background: var(--glass-tint-strong);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-bottom: 0;
+  box-shadow: 0 1px 0 var(--glass-edge), 0 6px 20px rgba(0, 0, 0, .06);
+}
+
+/* The reply bar has only controls on it, so it can go clear: the field and
+ * Send float as their own glass over a soft fade of the page, so a line of
+ * text passing under them never collides with what is typed. */
+
+.dock {
+  background: linear-gradient(transparent, color-mix(in srgb, var(--bg) 70%, transparent) 40%, var(--bg));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-top: 0;
+}
+
+/* Capsules. Header buttons, the reply field and Send round fully, the way
+ * iOS 26 draws a toolbar; the search field joins them. */
+.hdr .btn,
+.hdr-row .field,
+.composer #send,
+.btn-revive {
+  border-radius: var(--capsule);
+}
+
+/* The reply box grows as a draft gets longer, and a capsule several lines
+ * tall reads as a pill rather than a place to write. A soft rectangle, the
+ * same rounding as the message bubbles above it. */
+.composer textarea {
+  border-radius: 18px;
+}
+
+.hdr-row .field {
+  background: var(--glass-tint);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-color: var(--glass-edge);
+}
+
+/* A capsule's text needs room from the curve. */
+.composer textarea { padding-left: 16px; }
+.composer #send { padding: 0 18px; }
+
+/* The two filled buttons keep their colour — the accent is what says "this
+ * one acts" — and become tinted glass of it rather than flat paint. */
+.hdr .btn-primary,
+.composer #send:not([disabled]),
+.btn-revive {
+  background: color-mix(in srgb, var(--accent) 88%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  color: var(--accent-contrast);
+}
+
+/* Disabled Send stays the neutral glass, not a faded blue (see .btn-primary
+ * [disabled] above for why grey and not pale). */
+.composer #send[disabled] {
+  color: var(--text-dim);
+}
+
+/* The ask bar floats as its own pill above the composer. */
+.ask-bar {
+  margin: 0 10px 6px;
+  border-radius: 22px;
+}
+
+/* Sheets lift off the bottom edge as a floating panel with large corners,
+ * the way iOS 26 presents them, instead of a slab fused to the screen edge. */
+.sheet {
+  width: auto;
+  flex: 1;
+  margin: 0 8px calc(env(safe-area-inset-bottom) + 8px);
+  border-radius: 30px;
+  background: var(--glass-tint-strong);
+  padding-bottom: 12px;
+}
+
+/* The rows are nearly solid: a coloured bubble showing through a row reads
+ * as that row being selected. */
+.sheet .btn {
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+  border-color: var(--glass-edge);
+}
+
+.sheet-backdrop { background: rgba(0, 0, 0, .28); }
+
+/* The toast is glass in the page's own text colour, no longer an inverted
+ * slab, so it reads as part of the same layer as the controls. */
+.toast {
+  background: var(--glass-tint-strong);
+  color: var(--text);
+}
+
+/* The message bubbles, as glass too. They sit on the page's own grey rather
+ * than over other content, so the blur has little to show until something
+ * scrolls beneath; what makes them read as glass is the tint, the rim catching
+ * light along the top edge, the lift of the shadow, and rounder corners.
+ * The assistant's bubble is clear glass; the user's is glass tinted with the
+ * accent, so whose turn it is still reads at a glance. */
+.msg {
+  border-radius: 20px;
+}
+
+.msg-assistant {
+  background: var(--glass-tint);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-color: var(--glass-edge);
+  box-shadow: inset 0 1px 0 var(--glass-rim), var(--glass-shadow);
+}
+
+.msg-user {
+  background: color-mix(in srgb, var(--accent) 88%, transparent);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), var(--glass-shadow);
+}
+
+/* Ambient light. Glass over a flat grey only looks like lighter grey; it
+ * needs colour behind it to refract. Two broad, soft pools — the accent's
+ * blue from the top left, a lavender from the bottom right — fixed to the
+ * screen, so the glass shifts tone as the list scrolls over them. Faint by
+ * design: they are the light in the room, not a picture on the wall. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 45% at 0% 0%, var(--ambient-a), transparent 70%),
+    radial-gradient(65% 50% at 100% 100%, var(--ambient-b), transparent 70%),
+    var(--bg);
+}
+
+body { background: transparent; }
+
+/* Task cards as glass, lit by their own status. The rail and the coloured
+ * edge stay exactly as they were — they are what a column of cards is
+ * scanned along — and the status colour also seeps into the glass from the
+ * rail side and glows faintly beneath the card, so a card needing attention
+ * reads as red-lit glass rather than a grey box with a red stripe. The wash
+ * fades out before the text starts, so nothing is read through colour. */
+.card {
+  /* 16px, not the bubbles' 20: the rail is a 10px block down the card's
+   * leading edge, and rounder corners curve too much of it away. */
+  border-radius: 16px;
+  background:
+    linear-gradient(100deg, color-mix(in srgb, var(--row-status, transparent) 12%, transparent), transparent 42%),
+    var(--glass-card);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow:
+    inset 0 1px 0 var(--glass-rim),
+    0 6px 22px color-mix(in srgb, var(--row-status, transparent) 22%, transparent),
+    0 1px 3px rgba(0, 0, 0, .08);
+  margin-bottom: 12px;
+}
+
+/* A collapsed card is one line; its glow comes down with it, so a long
+ * collapsed list is a calm column rather than a stack of halos. */
+.card.collapsed {
+  box-shadow:
+    inset 0 1px 0 var(--glass-rim),
+    0 3px 10px color-mix(in srgb, var(--row-status, transparent) 16%, transparent),
+    0 1px 2px rgba(0, 0, 0, .06);
+}
+
+/* The note inside a card is a pane of glass set into it. */
+.row-notes {
+  background: color-mix(in srgb, var(--bg-inset) 72%, transparent);
+  border-color: var(--glass-edge);
+  border-radius: 12px;
+}
+
+/* Reduced transparency, or no backdrop-filter: the same surfaces, opaque.
+ * Nothing moves; only the see-through goes. */
+@media (prefers-reduced-transparency: reduce) {
+  .hdr .btn,
+  .hdr-row .field,
+  .composer textarea,
+  .composer #send[disabled],
+  .ask-bar,
+  .sheet,
+  .sheet .btn,
+  .toast,
+  .msg-assistant,
+  .card {
+    background: var(--bg-elevated);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .msg-user {
+    background: var(--accent);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .hdr { background: var(--bg); }
+  .dock { background: var(--bg); }
+  body::before { background: var(--bg); }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .hdr .btn,
+  .hdr-row .field,
+  .composer textarea,
+  .composer #send[disabled],
+  .ask-bar,
+  .sheet,
+  .sheet .btn,
+  .toast,
+  .msg-assistant,
+  .card {
+    background: var(--bg-elevated);
+  }
+  .msg-user { background: var(--accent); }
 }
