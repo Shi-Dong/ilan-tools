@@ -2214,13 +2214,12 @@ def test_glass_falls_back_to_solid_surfaces():
     def listed(block: str, sel: str) -> bool:
         return re.search(rf"^\s*{re.escape(sel)}\s*[,{{]", block, re.M) is not None
     for surface in (".hdr .btn", ".composer textarea", ".ask-bar", ".sheet", ".toast",
-                    ".msg-assistant", ".msg-user"):
+                    ".msg-assistant", ".msg-user", ".card"):
         assert listed(reduced.group(1), surface), f"{surface} stays see-through with reduced transparency"
         assert listed(unsupported.group(1), surface), f"{surface} has no fallback without backdrop-filter"
     assert "background: var(--bg-elevated);" in reduced.group(1)
-    # Cards stay solid: glass behind each one would muddy the status colour
-    # that carries the meaning. Bubbles are glass; their text is not.
-    for content in (".card", ".msg-body"):
+    # The text inside a bubble is never its own glass layer.
+    for content in (".msg-body",):
         assert not re.search(rf"(^|[\s,]){re.escape(content)}\s*[,{{]", layer), f"{content} was made glass"
 
 
@@ -2240,13 +2239,61 @@ def test_message_bubbles_are_glass_and_stay_readable():
     light, dark = _scheme_values(css)
     tints_light, tints_dark = _glass_tints(css)
     for scheme, values, tints in (("light", light, tints_light), ("dark", dark, tints_dark)):
-        on_assistant = _over(tints["--glass-tint"], values["--bg"])
-        for ink in ("--text", "--text-dim"):
-            assert _contrast(values[ink], on_assistant) >= 4.5, (
-                f"{scheme}: {ink} in the assistant bubble is {_contrast(values[ink], on_assistant):.2f}:1"
-            )
+        # Bubbles sit over the page and its ambient light, so check each.
+        for behind in ("--bg", "--ambient-a", "--ambient-b"):
+            on_assistant = _over(tints["--glass-tint"], values[behind])
+            for ink in ("--text", "--text-dim"):
+                assert _contrast(values[ink], on_assistant) >= 4.5, (
+                    f"{scheme}: {ink} in the assistant bubble over {behind} is "
+                    f"{_contrast(values[ink], on_assistant):.2f}:1"
+                )
         a = values["--accent"]
         on_user = _over(f"rgba({int(a[1:3], 16)}, {int(a[3:5], 16)}, {int(a[5:7], 16)}, .88)", values["--bg"])
         ratio = _contrast(values["--accent-contrast"], on_user)
         assert ratio >= 4.5, f"{scheme}: text in the user bubble is {ratio:.2f}:1"
 
+
+
+
+def test_cards_are_glass_lit_by_their_status_and_stay_readable():
+    """Each task card is glass over the page's ambient light, keeps its status
+    rail and edge, and takes a faint wash and glow of its status colour. Every
+    ink set on a card has to hold 4.5:1 on the card's glass composited over
+    the strongest point of either ambient pool, in both schemes."""
+    css = web.read_asset("app.css").decode()
+    layer = css[css.index("/* ── Liquid Glass"):]
+    card = re.search(r"\n\.card \{(.*?)\n\}", layer, re.S)
+    assert card, "the cards are not glass"
+    body = card.group(1)
+    assert "var(--glass-card)" in body and "backdrop-filter" in body, "the card has no glass"
+    assert re.search(r"linear-gradient\([^;]*var\(--row-status[^;]*var\(--glass-card\)", body, re.S), (
+        "the status colour no longer washes into the card's glass"
+    )
+    assert re.search(r"box-shadow:[^;]*var\(--row-status", body, re.S), "the card no longer glows its status"
+    assert "border:" not in body and "border-left" not in body, "the glass layer touched the status rail or edge"
+    assert re.search(r"body::before \{[^}]*position: fixed", layer, re.S), "there is no ambient light for the glass"
+
+    light, dark = _scheme_values(css)
+    def card_tint(block: str) -> str:
+        return re.search(r"--glass-card:\s*(rgba\([^)]*\));", block).group(1)
+    root = re.search(r":root \{(.*?)\n\}", css, re.S).group(1)
+    darkb = re.search(r"@media \(prefers-color-scheme: dark\) \{(.*?)\n  \}", css, re.S).group(1)
+    for scheme, values, tint in (("light", light, card_tint(root)), ("dark", dark, card_tint(darkb))):
+        for pool in ("--ambient-a", "--ambient-b"):
+            surface = _over(tint, values[pool])
+            for ink in ("--text", "--text-dim", "--act-tap", "--act-done", "--act-notes", "--accent"):
+                ratio = _contrast(values[ink], surface)
+                assert ratio >= 4.5, f"{scheme}: {ink} on a card over {pool} is {ratio:.2f}:1"
+
+
+def test_the_reply_box_is_a_soft_rectangle_not_a_capsule():
+    """A capsule several lines tall reads as a pill rather than a place to
+    write, so the reply box takes the bubbles' rounding; Send stays a capsule."""
+    css = web.read_asset("app.css").decode()
+    layer = css[css.index("/* ── Liquid Glass"):]
+    box = re.findall(r"\n\.composer textarea \{([^}]*)\}", layer)
+    radii = [int(m) for b in box for m in re.findall(r"border-radius:\s*(\d+)px;", b)]
+    assert radii and all(12 <= r <= 24 for r in radii), f"reply box radius {radii}"
+    capsules = re.search(r"\n\.hdr \.btn,\n\.hdr-row \.field,\n(.*?)\{\s*border-radius: var\(--capsule\);", layer, re.S)
+    assert capsules and ".composer textarea" not in capsules.group(1), "the reply box is a capsule again"
+    assert ".composer #send" in capsules.group(1), "Send lost its capsule"
