@@ -1826,6 +1826,58 @@ async function restartServer(oldPid, wait = pause) {
 /** Register the notification worker, once, and listen for it steering the
  *  page when a notification is tapped. Harmless where there is no worker
  *  support: the browser simply never shows a notification. */
+// ── the on-screen keyboard ──────────────────────────────────────────────
+//
+// iOS does not make the page smaller when the keyboard opens. It draws the
+// keyboard over the bottom of the screen, then tries to bring the focused box
+// into view: by scrolling the page if it can, by panning the visible window
+// down if it cannot. Scrolling cannot reveal the reply box, because the bar it
+// sits in is sticky to the bottom of the screen — it moves with the scroll and
+// sticks right back under the keyboard. So on a conversation long enough to
+// scroll, the box was covered, and every line typed into it grew out of sight.
+//
+// Rather than rely on that guess, the app measures what is visible. The
+// browser reports the visible region as visualViewport; its height shrinks by
+// the keyboard's, and its offsetTop is how far iOS panned the window down. The
+// difference between that region and the page is exposed to the stylesheet as
+// --kb, the part of the page the keyboard still covers, and the reply bar is
+// lifted by exactly that. Whatever iOS chose to do, the bar ends where the
+// visible region ends.
+
+/** Keyboard heights start well above this; anything smaller is a scrollbar,
+ *  rounding, or a toolbar settling, and must not move the bar. */
+const KEYBOARD_MIN_PX = 80;
+
+/** Keep --kb, --vvh and the kb-open class in step with the visible viewport.
+ *
+ * Two different quantities, deliberately. Whether the keyboard is open is the
+ * whole height it takes, wherever iOS has panned: that is what drops the
+ * home-indicator padding, since the keyboard covers the indicator either way.
+ * How far to lift the bar is only the part of that height still over the
+ * bottom of the page once the pan is taken off: a fully panned page needs no
+ * lift at all. Pinch-zoom also shrinks the visible region; that is the reader
+ * looking closer, not a keyboard, so nothing moves.
+ *
+ * The arguments exist for tests; the browser calls this with none. Returns the
+ * update function, or undefined where there is no visual viewport to track.
+ */
+function trackKeyboard(vv = window.visualViewport, win = window, root = document.documentElement) {
+  if (!vv || !win || !root || !root.style) return undefined;
+  const update = () => {
+    const zoomed = (vv.scale || 1) > 1.01;
+    const keyboard = win.innerHeight - vv.height;
+    const open = !zoomed && keyboard >= KEYBOARD_MIN_PX;
+    const covered = open ? Math.max(0, Math.round(keyboard - vv.offsetTop)) : 0;
+    root.style.setProperty('--kb', `${covered}px`);
+    root.style.setProperty('--vvh', `${Math.round(vv.height)}px`);
+    if (root.classList) root.classList.toggle('kb-open', open);
+  };
+  vv.addEventListener('resize', update);
+  vv.addEventListener('scroll', update);
+  update();
+  return update;
+}
+
 function registerServiceWorker() {
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
   // Relative, like every other URL the app uses: the worker's scope becomes
@@ -2112,6 +2164,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 registerServiceWorker();
+trackKeyboard();
 
 (async function start() {
   const { ok, data } = await api.get('/canned-messages');
