@@ -1034,6 +1034,16 @@ textarea.field {
   align-items: flex-end;
 }
 
+/* While the reply box has the cursor, the keyboard is up and covers the home
+ * indicator — but iOS keeps reporting the same bottom safe area (about 34px
+ * on a phone without a Home button), at least in the Home Screen app. Padding
+ * for it then leaves a strip of empty page between the box and the keyboard.
+ * So while typing the composer keeps only its own 8px. With no keyboard and no
+ * safe area, as on a desktop, the two rules are the same. */
+.composer:focus-within {
+  padding-bottom: 8px;
+}
+
 /* Shown only while something is selected in a message. It sits above the
    composer rather than floating by the selection: iOS puts its own callout
    there and a page cannot add an entry to that menu, so a bubble would be
