@@ -2213,9 +2213,40 @@ def test_glass_falls_back_to_solid_surfaces():
     assert unsupported, "no fallback for browsers without backdrop-filter"
     def listed(block: str, sel: str) -> bool:
         return re.search(rf"^\s*{re.escape(sel)}\s*[,{{]", block, re.M) is not None
-    for surface in (".hdr .btn", ".composer textarea", ".ask-bar", ".sheet", ".toast"):
+    for surface in (".hdr .btn", ".composer textarea", ".ask-bar", ".sheet", ".toast",
+                    ".msg-assistant", ".msg-user"):
         assert listed(reduced.group(1), surface), f"{surface} stays see-through with reduced transparency"
         assert listed(unsupported.group(1), surface), f"{surface} has no fallback without backdrop-filter"
     assert "background: var(--bg-elevated);" in reduced.group(1)
-    for content in (".card", ".msg", ".msg-body"):
+    # Cards stay solid: glass behind each one would muddy the status colour
+    # that carries the meaning. Bubbles are glass; their text is not.
+    for content in (".card", ".msg-body"):
         assert not re.search(rf"(^|[\s,]){re.escape(content)}\s*[,{{]", layer), f"{content} was made glass"
+
+
+def test_message_bubbles_are_glass_and_stay_readable():
+    """The bubbles are glass: the assistant's clear, the user's tinted with the
+    accent. They sit on the page's grey, so their text has to hold 4.5:1 on
+    the tint composited over the page, in both schemes."""
+    css = web.read_asset("app.css").decode()
+    layer = css[css.index("/* ── Liquid Glass"):]
+    assistant = re.search(r"\n\.msg-assistant \{(.*?)\}", layer, re.S)
+    user = re.search(r"\n\.msg-user \{(.*?)\}", layer, re.S)
+    assert assistant and "background: var(--glass-tint)" in assistant.group(1), "the assistant bubble is not glass"
+    assert user and "color-mix(in srgb, var(--accent) 88%, transparent)" in user.group(1), "the user bubble is not accent glass"
+    for rule in (assistant, user):
+        assert "backdrop-filter" in rule.group(1) and "inset 0 1px 0" in rule.group(1), "a bubble lost its blur or rim"
+
+    light, dark = _scheme_values(css)
+    tints_light, tints_dark = _glass_tints(css)
+    for scheme, values, tints in (("light", light, tints_light), ("dark", dark, tints_dark)):
+        on_assistant = _over(tints["--glass-tint"], values["--bg"])
+        for ink in ("--text", "--text-dim"):
+            assert _contrast(values[ink], on_assistant) >= 4.5, (
+                f"{scheme}: {ink} in the assistant bubble is {_contrast(values[ink], on_assistant):.2f}:1"
+            )
+        a = values["--accent"]
+        on_user = _over(f"rgba({int(a[1:3], 16)}, {int(a[3:5], 16)}, {int(a[5:7], 16)}, .88)", values["--bg"])
+        ratio = _contrast(values["--accent-contrast"], on_user)
+        assert ratio >= 4.5, f"{scheme}: text in the user bubble is {ratio:.2f}:1"
+

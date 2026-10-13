@@ -1361,7 +1361,9 @@ textarea.field {
  * browser has no backdrop-filter, every surface falls back to an opaque tint
  * of the same colour — the layout is identical, only the see-through goes.
  */
-/* The glass colours live with the app's other colours, in :root above. */
+/* The glass colours live with the app's other colours, in :root above.
+ * Cards stay solid: the list is a dense column of status colours, and glass
+ * behind each one would muddy exactly the colour that carries the meaning. */
 
 /* One recipe, so every glass surface is the same material. The rim is an
  * inset highlight on the top edge only; the hairline around the rest keeps
@@ -1475,6 +1477,32 @@ textarea.field {
   color: var(--text);
 }
 
+/* The message bubbles, as glass too. They sit on the page's own grey rather
+ * than over other content, so the blur has little to show until something
+ * scrolls beneath; what makes them read as glass is the tint, the rim catching
+ * light along the top edge, the lift of the shadow, and rounder corners.
+ * The assistant's bubble is clear glass; the user's is glass tinted with the
+ * accent, so whose turn it is still reads at a glance. */
+.msg {
+  border-radius: 20px;
+}
+
+.msg-assistant {
+  background: var(--glass-tint);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-color: var(--glass-edge);
+  box-shadow: inset 0 1px 0 var(--glass-rim), var(--glass-shadow);
+}
+
+.msg-user {
+  background: color-mix(in srgb, var(--accent) 88%, transparent);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), var(--glass-shadow);
+}
+
 /* Reduced transparency, or no backdrop-filter: the same surfaces, opaque.
  * Nothing moves; only the see-through goes. */
 @media (prefers-reduced-transparency: reduce) {
@@ -1485,8 +1513,14 @@ textarea.field {
   .ask-bar,
   .sheet,
   .sheet .btn,
-  .toast {
+  .toast,
+  .msg-assistant {
     background: var(--bg-elevated);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .msg-user {
+    background: var(--accent);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
@@ -1502,7 +1536,9 @@ textarea.field {
   .ask-bar,
   .sheet,
   .sheet .btn,
-  .toast {
+  .toast,
+  .msg-assistant {
     background: var(--bg-elevated);
   }
+  .msg-user { background: var(--accent); }
 }
