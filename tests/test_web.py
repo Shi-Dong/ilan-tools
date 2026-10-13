@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import colorsys
 import http.client
+import itertools
 import json
 import re
 from pathlib import Path
@@ -1768,10 +1769,10 @@ def test_the_note_is_a_box_inside_the_card():
     own grey behind the app's hairline, with a radius a step inside the card's
     so it reads as nested rather than as a second card.
 
-    --bg-sunken would be the obvious fill, but --text-dim reads 4.2:1 on it in
-    light mode, under the 4.5:1 a line of text needs — so the fill is its own
-    variable, and its legibility is asserted in both schemes rather than
-    trusted.
+    --bg-sunken would be the obvious fill, but --text-dim has little room on
+    it in light mode, 4.7:1 against the 4.5:1 a line of text needs — so the
+    fill is its own variable, and its legibility is asserted in both schemes
+    rather than trusted.
     """
     css = web.read_asset("app.css").decode()
     light, dark = _scheme_values(css)
@@ -2168,14 +2169,54 @@ def _over(tint: str, backdrop: str) -> str:
 
 
 def _glass_tints(css: str) -> tuple[dict[str, str], dict[str, str]]:
-    """The translucent glass tints, light and dark. _scheme_values reads hex
+    """The translucent glass colours, light and dark. _scheme_values reads hex
     colours only, and a tint is an rgba() by nature."""
     root = re.search(r":root \{(.*?)\n\}", css, re.S)
     dark = re.search(r"@media \(prefers-color-scheme: dark\) \{(.*?)\n  \}", css, re.S)
     assert root and dark
-    read = lambda block: dict(re.findall(r"(--glass-tint[a-z-]*):\s*(rgba\([^)]*\));", block))  # noqa: E731
+    read = lambda block: dict(re.findall(r"(--glass-[a-z-]+):\s*(rgba\([^)]*\));", block))  # noqa: E731
     light = read(root.group(1))
     return light, {**light, **read(dark.group(1))}
+
+
+def _saturate(colour: str, amount: float) -> str:
+    """*colour* through CSS saturate(*amount*). Browsers apply the filter's
+    matrix to the gamma-encoded channels and clamp the result; this matches
+    Chrome's rendering of the panes to within a level per channel."""
+    r, g, b = (int(colour[i:i + 2], 16) for i in (1, 3, 5))
+    s = amount
+    out = (
+        (0.213 + 0.787 * s) * r + (0.715 - 0.715 * s) * g + (0.072 - 0.072 * s) * b,
+        (0.213 - 0.213 * s) * r + (0.715 + 0.285 * s) * g + (0.072 - 0.072 * s) * b,
+        (0.213 - 0.213 * s) * r + (0.715 - 0.715 * s) * g + (0.072 + 0.928 * s) * b,
+    )
+    return "#%02x%02x%02x" % tuple(round(min(255.0, max(0.0, c))) for c in out)
+
+
+def _behind_the_panes(css: str, values: dict[str, str]) -> dict[str, str]:
+    """Every colour a pane can sit over, as its backdrop filter hands it to the
+    glass: the page itself, the heart of each ambient pool, and an even mix of
+    each pair where two overlap. Those are the darkest and lightest points of
+    the light behind the page, so text that holds over all of them holds
+    anywhere a pane scrolls."""
+    pools = sorted(k for k in values if re.fullmatch(r"--ambient-[a-z]", k))
+    assert len(pools) >= 2, f"no ambient light to check against: {pools}"
+    behind = {"--bg": values["--bg"], **{p: values[p] for p in pools}}
+    for a, b in itertools.combinations(pools, 2):
+        behind[f"{a} + {b}"] = _mix(values[a], values[b], .5)
+    amount = re.search(r"--glass-blur:[^;]*saturate\((\d+)%\)", css)
+    assert amount, "the glass no longer saturates what it blurs"
+    return {k: _saturate(v, int(amount.group(1)) / 100) for k, v in behind.items()}
+
+
+def _pane_surfaces(css: str, values: dict[str, str], glass: dict[str, str]) -> dict[str, str]:
+    """The surface text is read off on a pane: its glass at both ends of the
+    top-to-bottom gradient, over everything behind it."""
+    return {
+        f"{stop} over {name}": _over(glass[stop], colour)
+        for stop in ("--glass-pane-top", "--glass-pane")
+        for name, colour in _behind_the_panes(css, values).items()
+    }
 
 
 def test_glass_keeps_text_readable_in_both_schemes():
@@ -2187,7 +2228,7 @@ def test_glass_keeps_text_readable_in_both_schemes():
     light, dark = _scheme_values(css)
     tints_light, tints_dark = _glass_tints(css)
     for scheme, values, tints in (("light", light, tints_light), ("dark", dark, tints_dark)):
-        assert set(tints) == {"--glass-tint", "--glass-tint-strong"}, f"{scheme}: tints missing: {tints}"
+        assert {"--glass-tint", "--glass-tint-strong"} <= set(tints), f"{scheme}: tints missing: {tints}"
         for tint_var in ("--glass-tint", "--glass-tint-strong"):
             for behind in ("--bg", "--bg-elevated"):
                 surface = _over(tints[tint_var], values[behind])
@@ -2208,7 +2249,8 @@ def test_glass_keeps_text_readable_in_both_schemes():
 def test_glass_falls_back_to_solid_surfaces():
     """Reduced transparency is an accessibility setting, and not every browser
     has backdrop-filter. Every glass surface must have an opaque fallback in
-    both cases, and the content layer — cards and bubbles — is never glass."""
+    both cases — cards and bubbles included — and the text inside a bubble is
+    never a glass layer of its own."""
     css = web.read_asset("app.css").decode()
     layer = css[css.index("/* ── Liquid Glass"):]
     reduced = re.search(r"@media \(prefers-reduced-transparency: reduce\) \{(.*?)\n\}", layer, re.S)
@@ -2222,72 +2264,138 @@ def test_glass_falls_back_to_solid_surfaces():
         assert listed(reduced.group(1), surface), f"{surface} stays see-through with reduced transparency"
         assert listed(unsupported.group(1), surface), f"{surface} has no fallback without backdrop-filter"
     assert "background: var(--bg-elevated);" in reduced.group(1)
+    # Your bubble keeps its stain in the fallback, over an opaque base.
+    for block in (reduced.group(1), unsupported.group(1)):
+        mine = re.search(r"\.msg-user \{([^}]*)\}", block)
+        assert mine and "var(--bg-elevated)" in mine.group(1), "your bubble's fallback is not opaque"
     # The text inside a bubble is never its own glass layer.
     for content in (".msg-body",):
         assert not re.search(rf"(^|[\s,]){re.escape(content)}\s*[,{{]", layer), f"{content} was made glass"
 
 
 def test_message_bubbles_are_glass_and_stay_readable():
-    """The bubbles are glass: the assistant's clear, the user's tinted with the
-    accent. They sit on the page's grey, so their text has to hold 4.5:1 on
-    the tint composited over the page, in both schemes."""
+    """The bubbles are panes of the cards' frosted glass: the assistant's
+    clear, yours stained with the accent. Their text, the dimmer quoted lines,
+    links, the role and time labels at their reduced opacity, and code in your
+    bubbles all hold 4.5:1 over every colour the glass can sit over, in both
+    schemes."""
     css = web.read_asset("app.css").decode()
     layer = css[css.index("/* ── Liquid Glass"):]
+    pane = "linear-gradient(180deg, var(--glass-pane-top), var(--glass-pane))"
     assistant = re.search(r"\n\.msg-assistant \{(.*?)\}", layer, re.S)
-    user = re.search(r"\n\.msg-user \{(.*?)\}", layer, re.S)
-    assert assistant and "background: var(--glass-tint)" in assistant.group(1), "the assistant bubble is not glass"
-    assert user and "color-mix(in srgb, var(--accent) 88%, transparent)" in user.group(1), "the user bubble is not accent glass"
+    user = re.search(r"[^,]\n\.msg-user \{(.*?)\}", layer, re.S)
+    assert assistant and pane in assistant.group(1), "the assistant's bubble is not the panes' glass"
+    assert user and re.search(
+        r"linear-gradient\(var\(--glass-user\), var\(--glass-user\)\),\s*" + re.escape(pane), user.group(1),
+    ), "your bubble is not the panes' glass stained with the accent"
+    assert "color: var(--text);" in user.group(1), "the stained glass does not carry the page's own ink"
+    blurred = re.search(r"\n\.card,\n\.msg-assistant,\n\.msg-user \{([^}]*)\}", layer)
+    assert blurred and "backdrop-filter: var(--glass-blur);" in blurred.group(1), "the panes lost their blur"
     for rule in (assistant, user):
-        assert "backdrop-filter" in rule.group(1) and "inset 0 1px 0" in rule.group(1), "a bubble lost its blur or rim"
+        assert "inset 0 1px 0" in rule.group(1) and "inset 0 -1px 0" in rule.group(1), "a bubble lost its rim or shade"
+
+    labels = {
+        sel: float(re.search(rf"\n\{sel} \{{[^}}]*?opacity: ([.\d]+);", css).group(1)) for sel in (".msg-role", ".msg-foot")
+    }
+    code = re.search(
+        r"\.msg-user \.md-pre \{ background: color-mix\(in srgb, var\((--[a-z-]+)\) (\d+)%, transparent\); \}", css,
+    )
+    assert code, "code in your bubble lost its fill"
 
     light, dark = _scheme_values(css)
-    tints_light, tints_dark = _glass_tints(css)
-    for scheme, values, tints in (("light", light, tints_light), ("dark", dark, tints_dark)):
-        # Bubbles sit over the page and its ambient light, so check each.
-        for behind in ("--bg", "--ambient-a", "--ambient-b"):
-            on_assistant = _over(tints["--glass-tint"], values[behind])
-            for ink in ("--text", "--text-dim"):
-                assert _contrast(values[ink], on_assistant) >= 4.5, (
-                    f"{scheme}: {ink} in the assistant bubble over {behind} is "
-                    f"{_contrast(values[ink], on_assistant):.2f}:1"
-                )
-        a = values["--accent"]
-        on_user = _over(f"rgba({int(a[1:3], 16)}, {int(a[3:5], 16)}, {int(a[5:7], 16)}, .88)", values["--bg"])
-        ratio = _contrast(values["--accent-contrast"], on_user)
-        assert ratio >= 4.5, f"{scheme}: text in the user bubble is {ratio:.2f}:1"
-
-
+    glass_light, glass_dark = _glass_tints(css)
+    for scheme, values, glass in (("light", light, glass_light), ("dark", dark, glass_dark)):
+        accent, stain = values["--accent"], glass["--glass-user"]
+        assert _rgba(stain)[:3] == tuple(int(accent[i:i + 2], 16) for i in (1, 3, 5)), (
+            f"{scheme}: your bubble is stained {stain}, not the accent {accent}"
+        )
+        clear = _pane_surfaces(css, values, glass)
+        yours = {k: _over(stain, v) for k, v in clear.items()}
+        pairs: dict[str, dict[str, tuple[str, str]]] = {}
+        for ink in ("--text", "--text-dim", "--accent"):
+            pairs[f"the assistant's {ink}"] = {k: (values[ink], v) for k, v in clear.items()}
+        pairs["your text"] = {k: (values["--text"], v) for k, v in yours.items()}
+        fill, pct = values[code.group(1)], int(code.group(2)) / 100
+        pairs["code in your bubble"] = {k: (values["--text"], _mix(fill, v, pct)) for k, v in yours.items()}
+        for sel, opacity in labels.items():
+            for whose, surfaces in (("the assistant's", clear), ("your", yours)):
+                pairs[f"{sel} in {whose} bubble"] = {
+                    k: (_mix(values["--text"], v, opacity), v) for k, v in surfaces.items()
+                }
+        for what, by_backdrop in pairs.items():
+            for behind, (fg, bg) in by_backdrop.items():
+                ratio = _contrast(fg, bg)
+                assert ratio >= 4.5, f"{scheme}: {what} is {ratio:.2f}:1 on the glass at {behind}"
 
 
 def test_cards_are_glass_lit_by_their_status_and_stay_readable():
-    """Each task card is glass over the page's ambient light, keeps its status
-    rail and edge, and takes a faint wash and glow of its status colour. Every
-    ink set on a card has to hold 4.5:1 on the card's glass composited over
-    the strongest point of either ambient pool, in both schemes."""
+    """Each task card is a pane of frosted glass over the light behind the
+    page. It keeps its status rail and edge, glows its status beneath, and lets
+    the status seep into the glass only as far as the text's own margin. Every
+    ink set on a card, and on the note's box inside it, holds 4.5:1 over every
+    colour the glass can sit over, in both schemes."""
     css = web.read_asset("app.css").decode()
     layer = css[css.index("/* ── Liquid Glass"):]
     card = re.search(r"\n\.card \{(.*?)\n\}", layer, re.S)
     assert card, "the cards are not glass"
     body = card.group(1)
-    assert "var(--glass-card)" in body and "backdrop-filter" in body, "the card has no glass"
-    assert re.search(r"linear-gradient\([^;]*var\(--row-status[^;]*var\(--glass-card\)", body, re.S), (
-        "the status colour no longer washes into the card's glass"
-    )
+    assert "linear-gradient(180deg, var(--glass-pane-top), var(--glass-pane))" in body, "the card is not the panes' glass"
+    blurred = re.search(r"\n\.card,\n\.msg-assistant,\n\.msg-user \{([^}]*)\}", layer)
+    assert blurred and "backdrop-filter: var(--glass-blur);" in blurred.group(1), "the card has no blur"
     assert re.search(r"box-shadow:[^;]*var\(--row-status", body, re.S), "the card no longer glows its status"
     assert "border:" not in body and "border-left" not in body, "the glass layer touched the status rail or edge"
-    assert re.search(r"body::before \{[^}]*position: fixed", layer, re.S), "there is no ambient light for the glass"
+
+    # The wash fades out within the padding the text keeps from the rail, so
+    # no line of text is ever read through the status colour.
+    wash = re.search(r"linear-gradient\(90deg, color-mix\(in srgb, var\(--row-status[^;]*?transparent (\d+)px\)", body)
+    assert wash, "the status no longer seeps into the glass from the rail"
+    for sel in (".row", ".row-actions"):
+        pad = re.search(rf"\n\{sel} \{{[^}}]*?padding: (?:\d+(?:px)? )?(\d+)px", css)
+        assert pad and int(wash.group(1)) <= int(pad.group(1)), (
+            f"the status wash runs {wash.group(1)}px into the glass, under the text of {sel}"
+        )
+    notes = re.search(r"\n\.row-notes \{[^}]*?margin: 0 (\d+)px", css)
+    assert notes and int(wash.group(1)) <= int(notes.group(1)), "the status wash runs under the note's box"
+    inset = re.search(r"\n\.row-notes \{([^}]*)\}", layer)
+    assert inset and "background: var(--glass-inset);" in inset.group(1), "the note's box is not a pane set into the card"
 
     light, dark = _scheme_values(css)
-    def card_tint(block: str) -> str:
-        return re.search(r"--glass-card:\s*(rgba\([^)]*\));", block).group(1)
+    glass_light, glass_dark = _glass_tints(css)
+    levels_light, levels_dark = _level_inks(css)
+    inks = ("--text", "--text-dim", "--engine-claude", "--engine-codex", "--danger",
+            "--act-tap", "--act-done", "--act-notes", "--accent")
+    for scheme, values, glass, levels in (
+        ("light", light, glass_light, levels_light), ("dark", dark, glass_dark, levels_dark),
+    ):
+        on_card = {ink: values[ink] for ink in inks} | {f"the {lvl} reasoning level": c for lvl, c in levels.items()}
+        in_box = {ink: values[ink] for ink in ("--text", "--text-dim", "--accent")}
+        panes = _pane_surfaces(css, values, glass)
+        boxed = {k: _over(glass["--glass-inset"], v) for k, v in panes.items()}
+        for what, surfaces, on_it in (("a card", panes, on_card), ("the note's box", boxed, in_box)):
+            for ink, colour in on_it.items():
+                for behind, surface in surfaces.items():
+                    ratio = _contrast(colour, surface)
+                    assert ratio >= 4.5, f"{scheme}: {ink} on {what} is {ratio:.2f}:1 on the glass at {behind}"
+
+
+def test_the_light_behind_the_page_is_every_ambient_pool():
+    """The contrast checks above test against the --ambient-* colours, so the
+    light behind the page has to be exactly those: each pool drawn once, each
+    defined for both schemes, fixed to the screen and behind everything."""
+    css = web.read_asset("app.css").decode()
+    layer = css[css.index("/* ── Liquid Glass"):]
+    light_rule = re.search(r"\nbody::before \{(.*?)\n\}", layer, re.S)
+    assert light_rule, "there is no light behind the page"
+    rule = light_rule.group(1)
+    assert "position: fixed;" in rule and "z-index: -1;" in rule, "the light is not fixed behind the page"
+    drawn = re.findall(r"radial-gradient\([^;]*?var\((--ambient-[a-z])\)", rule)
     root = re.search(r":root \{(.*?)\n\}", css, re.S).group(1)
     darkb = re.search(r"@media \(prefers-color-scheme: dark\) \{(.*?)\n  \}", css, re.S).group(1)
-    for scheme, values, tint in (("light", light, card_tint(root)), ("dark", dark, card_tint(darkb))):
-        for pool in ("--ambient-a", "--ambient-b"):
-            surface = _over(tint, values[pool])
-            for ink in ("--text", "--text-dim", "--act-tap", "--act-done", "--act-notes", "--accent"):
-                ratio = _contrast(values[ink], surface)
-                assert ratio >= 4.5, f"{scheme}: {ink} on a card over {pool} is {ratio:.2f}:1"
+    for scheme, block in (("light", root), ("dark", darkb)):
+        defined = re.findall(r"(--ambient-[a-z]):\s*#[0-9a-f]{6};", block)
+        assert sorted(drawn) == sorted(defined), f"{scheme}: pools drawn {drawn}, defined {defined}"
+    assert len(set(drawn)) == len(drawn), f"a pool is drawn twice: {drawn}"
+    assert rule.rstrip().endswith("var(--bg);"), "the pools no longer sit on the page's own colour"
 
 
 def test_the_reply_box_is_a_soft_rectangle_not_a_capsule():

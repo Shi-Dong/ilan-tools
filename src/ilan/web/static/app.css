@@ -16,11 +16,11 @@
   --bg-sunken: #e6e6eb;
   /* A box nested inside a card: the page's own grey, so the card → box step
    * repeats the page → card step around it. --bg-sunken would be the obvious
-   * pick, but --text-dim reads 4.2:1 on it, under the 4.5:1 a line of text
-   * needs; on this it reads 4.7:1. */
+   * pick, but --text-dim has little room on it, 4.7:1 against the 4.5:1 a
+   * line of text needs; on this it reads 5.2:1. */
   --bg-inset: #f2f2f7;
   --text: #1c1c1e;
-  --text-dim: #6c6c70;
+  --text-dim: #656569;
   --border: #d8d8dd;
   --accent: #0a63c9;
   --accent-contrast: #ffffff;
@@ -31,7 +31,7 @@
   --st-working: #0b7285;
   --st-sleeping: #075985;
   --st-attention: #c62828;
-  --st-finished: #2e7d32;
+  --st-finished: #2b742f;
   --st-done: #6b8f6e;
   --st-discarded: #8e8e93;
   --st-error: #c62828;
@@ -45,14 +45,14 @@
    * The terminal values (orange1 #ffaf00, light_sky_blue1 #afd7ff) assume a
    * dark background and are unreadable on a white card — 1.84:1 and 1.50:1,
    * against the 4.5:1 that body text needs. Light mode therefore uses
-   * hue-preserving darkenings, at 5.22:1 and 8.77:1.
+   * hue-preserving darkenings, at 5.75:1 and 8.77:1.
    *
    * Codex keeps the original ~210deg hue rather than being pushed toward cyan:
    * a cyan-leaning blue lands within a few degrees of --st-working, which sits
    * directly under the task name in the list and made the two read as one
    * thing. It is instead separated from --accent, which shares its hue, by
    * being markedly darker. Dark mode below uses the terminal colours verbatim. */
-  --engine-claude: #a35a00;
+  --engine-claude: #995500;
   --engine-codex: #00479e;
 
   /* Ink for the card's two quiet actions. These colour a glyph and a label on
@@ -65,7 +65,7 @@
    *
    * Rose for closing, because the status palette already spends cyan, coral,
    * green, sage, grey and lavender, and the accent beside it is a blue. */
-  --act-tap: #a56800;
+  --act-tap: #905a00;
   --act-done: #8f3a5f;
 
   /* Ink for the Note button. Neutral on purpose: the two quiet actions above
@@ -77,9 +77,9 @@
 
   /* Fill behind a looping task's name, mirroring REPLY_EVERY_BG (grey27) in
    * cli.py. The terminal value is #444444, which is a fill for a dark
-   * background; on a white card it would bury the name. This is the darkest
-   * light-mode fill that still keeps every name colour at 4.5:1 on top of it —
-   * the orange is the binding constraint, at 4.60:1. */
+   * background; on a white card it would bury the name. This light fill keeps
+   * every name colour clear of 4.5:1 on top of it — the orange is the closest,
+   * at 5.06:1. */
   --loop-bg: #f0f0f4;
 
   /* Reasoning levels, mirroring REASONING_STYLES in task_display.py: green
@@ -91,11 +91,11 @@
    * terminal's plain green too.
    *
    * Yellow is the new one. As ink on a white card it has to be dark to reach
-   * 4.5:1, so it is an olive-yellow at 5.52:1 on the card and 4.94:1 on the
-   * header's grey. Its hue is held at ~51deg, clear of the Claude orange
+   * 4.5:1, so it is an olive-yellow at 5.76:1 on white and 5.16:1 on the
+   * page's grey. Its hue is held at ~51deg, clear of the Claude orange
    * (33deg) in task names and the Tap amber (38deg) on the same card. */
   --rl-low: var(--st-finished);
-  --rl-medium: #7a6800;
+  --rl-medium: #776500;
   --rl-max: var(--danger);
 
   --radius: 12px;
@@ -113,15 +113,30 @@
   --glass-shadow: 0 8px 28px rgba(0, 0, 0, .12), 0 1px 3px rgba(0, 0, 0, .08);
   --glass-blur: saturate(180%) blur(20px);
   --capsule: 999px;
-  /* The card's own glass. 92% in light mode is set by the amber Tap label,
-   * which has almost no headroom even on solid white (4.59:1); any clearer
-   * and the ambient blue behind it pulls it under 4.5:1. */
-  --glass-card: rgba(255, 255, 255, .92);
-  /* Ambient light behind the page: the colour the glass has to refract. Two
-   * soft pools, the accent's blue and a lavender, faint enough that every
-   * ink on a card still holds 4.5:1 over their strongest point. */
-  --ambient-a: #dfe9fb;
-  --ambient-b: #ebe3fb;
+  /* The panes the content is read off, task cards and the assistant's
+   * bubbles: white glass, thicker along the top edge where the light falls on
+   * it and thinnest at the bottom, where 44% of the colour behind shows
+   * through. Every ink on a card holds 4.5:1 at the thinnest point, over the
+   * strongest colour behind it (see --ambient-*). That is what took five inks
+   * above a shade darker than they once were — --text-dim, the Claude orange,
+   * the finished green, the medium yellow and the Tap amber — each to about
+   * 5.75:1 on white, so it keeps 4.5:1 through the glass. */
+  --glass-pane-top: rgba(255, 255, 255, .68);
+  --glass-pane: rgba(255, 255, 255, .56);
+  /* The note's box: a pane set into the card's, a step more frosted. */
+  --glass-inset: rgba(255, 255, 255, .45);
+  /* Your own bubbles: the same glass, stained with the accent. */
+  --glass-user: rgba(10, 99, 201, .26);
+  /* The lit edges of a pane: a shade along the bottom under the bright rim on
+   * top, and the shadow that lifts it off the page. */
+  --glass-shade: rgba(0, 0, 0, .05);
+  --glass-lift: 0 6px 20px rgba(40, 60, 120, .12), 0 1px 3px rgba(0, 0, 0, .06);
+  /* The light behind the page, for the glass to show: four broad pools of
+   * colour fixed to the screen, a blue, a pink, a mint and a peach. */
+  --ambient-a: #a8ceff;
+  --ambient-b: #f3bcda;
+  --ambient-c: #9fe3c6;
+  --ambient-d: #f6c6a6;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -133,9 +148,22 @@
     --glass-rim: rgba(255, 255, 255, .22);
     --glass-edge: rgba(255, 255, 255, .1);
     --glass-shadow: 0 8px 28px rgba(0, 0, 0, .5), 0 1px 3px rgba(0, 0, 0, .4);
-    --glass-card: rgba(44, 44, 46, .78);
-    --ambient-a: #0f1f3f;
-    --ambient-b: #1f1538;
+    --glass-pane-top: rgba(255, 255, 255, .07);
+    --glass-pane: rgba(255, 255, 255, .045);
+    /* The note's box sinks here rather than rising: a lighter box would cost
+     * the light inks on it their contrast. */
+    --glass-inset: rgba(0, 0, 0, .2);
+    --glass-user: rgba(74, 155, 255, .3);
+    --glass-shade: rgba(0, 0, 0, .25);
+    --glass-lift: 0 10px 30px rgba(0, 0, 0, .35);
+    /* The same light turned down to a glow, a blue, a rose, a teal and a
+     * violet (a peach this dark is brown). Deep enough that every light ink
+     * keeps 4.5:1 through the glass over the brightest of them; the accent
+     * blue is the closest. */
+    --ambient-a: #041934;
+    --ambient-b: #340624;
+    --ambient-c: #051d1c;
+    --ambient-d: #250745;
     --bg: #000000;
     --bg-elevated: #1c1c1e;
     --bg-sunken: #2c2c2e;
@@ -174,9 +202,9 @@
      * light tint and carries straight over at 8.24:1.
      *
      * The amber has to change, and this is the one value the redesign forces:
-     * #a56800 was picked to sit *under* white text and reads 3.71:1 as text
-     * itself on a dark card, which is below the 4.5:1 the rest of the app
-     * holds. #e0aa3c is the same hue taken to a legible lightness, at 8.09:1.
+     * the light amber was picked to sit *under* white text, and as text itself
+     * on a dark card it reads under 3:1, far below the 4.5:1 the rest of the
+     * app holds. #e0aa3c is the same hue taken to a legible lightness, at 8.09:1.
      * It stays off --engine-claude (#ffaf00), which colours task names in this
      * same list: less saturated and a little deeper, so the button does not
      * read as another Claude-coloured word. */
@@ -343,7 +371,7 @@ button, input, textarea, select {
    as "the blue button", just badly printed, and invites the tap it is going to
    refuse. Grey says the button is not available. The neutral stands 4.6:1
    clear of the live blue in light mode and 4.9:1 in dark, so the two states
-   are not easily mistaken for one another, and the label keeps 4.2:1 and
+   are not easily mistaken for one another, and the label keeps 4.7:1 and
    5.0:1 on it respectively. */
 .btn-primary[disabled] {
   background: var(--bg-sunken);
@@ -917,7 +945,9 @@ textarea.field {
   font-weight: 700;
   letter-spacing: .05em;
   text-transform: uppercase;
-  opacity: .7;
+  /* Three quarters of the bubble's ink: quieter than the message, and still
+   * 4.5:1 on the stained glass of your own bubbles. */
+  opacity: .75;
   margin-bottom: 4px;
 }
 
@@ -929,7 +959,7 @@ textarea.field {
 
 .msg-foot {
   font-size: 11px;
-  opacity: .65;
+  opacity: .75;
   margin-top: 6px;
 }
 
@@ -1039,10 +1069,12 @@ textarea.field {
 }
 .md th { background: var(--bg-sunken); font-weight: 600; }
 
-/* A user bubble is solid accent, so the default link and code colours would
- * disappear into it. */
+/* A user bubble is stained with the accent, so an accent link would sink into
+ * it, and the grey code fill would sit on it as an opaque patch. Code takes a
+ * step toward the page's own colour instead: lighter in light mode, darker in
+ * dark, so it always moves away from the text on it. */
 .msg-user .md code,
-.msg-user .md-pre { background: rgba(255, 255, 255, .18); }
+.msg-user .md-pre { background: color-mix(in srgb, var(--bg) 25%, transparent); }
 .msg-user .md a { color: inherit; text-decoration: underline; }
 
 /* ── composer ───────────────────────────────────────────────────────── */
@@ -1381,13 +1413,14 @@ textarea.field {
 
 /* ── Liquid Glass ───────────────────────────────────────────────────────
  *
- * The iOS 26/27 look, applied the way iOS applies it: to the controls that
- * float over the content, never to the content itself. The header's buttons,
- * the reply field and Send, the ask bar, menus and toasts are glass — a
- * translucent tint over a blur of whatever scrolls beneath, a bright rim
- * along the top edge where light would catch it, and a soft shadow that
- * lifts it off the page. Task cards and message bubbles stay solid, because
- * text has to be read off them and glass over glass would read off neither.
+ * The iOS 26/27 look. Everything above the page is glass: a translucent tint
+ * over a blur of whatever is beneath it, a bright rim along the top edge where
+ * light would catch it, and a soft shadow that lifts it off the page. The
+ * controls — the header's buttons, the reply field and Send, the ask bar,
+ * menus and toasts — float over the content as clear glass. The content
+ * itself, task cards and message bubbles, is frosted glass over coloured
+ * light fixed behind the page, so each pane takes on the colour behind it and
+ * changes tone as it scrolls.
  *
  * A web page cannot use the system's own material, so this is the CSS
  * approximation: backdrop-filter for the blur, a gradient rim for the
@@ -1395,9 +1428,7 @@ textarea.field {
  * browser has no backdrop-filter, every surface falls back to an opaque tint
  * of the same colour — the layout is identical, only the see-through goes.
  */
-/* The glass colours live with the app's other colours, in :root above.
- * Cards stay solid: the list is a dense column of status colours, and glass
- * behind each one would muddy exactly the colour that carries the meaning. */
+/* The glass colours live with the app's other colours, in :root above. */
 
 /* One recipe, so every glass surface is the same material. The rim is an
  * inset highlight on the top edge only; the hairline around the rest keeps
@@ -1517,37 +1548,50 @@ textarea.field {
   color: var(--text);
 }
 
-/* The message bubbles, as glass too. They sit on the page's own grey rather
- * than over other content, so the blur has little to show until something
- * scrolls beneath; what makes them read as glass is the tint, the rim catching
- * light along the top edge, the lift of the shadow, and rounder corners.
- * The assistant's bubble is clear glass; the user's is glass tinted with the
- * accent, so whose turn it is still reads at a glance. */
+/* The content panes, task cards and message bubbles, are glass as well: the
+ * thicker kind iOS reads text off, a white frost over a blur of the coloured
+ * light behind the page. Brighter along the top edge where the light falls on
+ * it, a bright rim on that edge and a shade along the bottom one, and a soft
+ * shadow under it. The colour behind shows through and shifts as the page
+ * scrolls over it, which is what makes the pane read as glass rather than as
+ * a tinted box. */
+.card,
+.msg-assistant,
+.msg-user {
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+
 .msg {
   border-radius: 20px;
 }
 
+/* The corner by whoever spoke tightens, the tail of a speech bubble. */
 .msg-assistant {
-  background: var(--glass-tint);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
+  border-bottom-left-radius: 6px;
+  background: linear-gradient(180deg, var(--glass-pane-top), var(--glass-pane));
   border-color: var(--glass-edge);
-  box-shadow: inset 0 1px 0 var(--glass-rim), var(--glass-shadow);
+  box-shadow: inset 0 1px 0 var(--glass-rim), inset 0 -1px 0 var(--glass-shade), var(--glass-lift);
 }
 
+/* Your own bubbles: the same glass stained with the accent, so whose turn it
+ * is still reads at a glance. Stained glass lets the light through, so the
+ * text on it is the page's own ink, not the white that solid blue needed. */
 .msg-user {
-  background: color-mix(in srgb, var(--accent) 88%, transparent);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
-  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), var(--glass-shadow);
+  border-bottom-right-radius: 6px;
+  background:
+    linear-gradient(var(--glass-user), var(--glass-user)),
+    linear-gradient(180deg, var(--glass-pane-top), var(--glass-pane));
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  box-shadow: inset 0 1px 0 var(--glass-rim), inset 0 -1px 0 var(--glass-shade), var(--glass-lift);
 }
 
-/* Ambient light. Glass over a flat grey only looks like lighter grey; it
- * needs colour behind it to refract. Two broad, soft pools — the accent's
- * blue from the top left, a lavender from the bottom right — fixed to the
- * screen, so the glass shifts tone as the list scrolls over them. Faint by
- * design: they are the light in the room, not a picture on the wall. */
+/* The light behind the page. Glass over a flat grey only looks like a lighter
+ * grey; it needs colour behind it to show. Four broad, soft pools, one from
+ * each side in turn down the screen, fixed to it so every pane changes tone
+ * as it scrolls across them. They overlap, so no part of the screen is
+ * without colour. */
 body::before {
   content: "";
   position: fixed;
@@ -1555,30 +1599,29 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(60% 45% at 0% 0%, var(--ambient-a), transparent 70%),
-    radial-gradient(65% 50% at 100% 100%, var(--ambient-b), transparent 70%),
+    radial-gradient(110% 55% at 0% 0%, var(--ambient-a), transparent 85%),
+    radial-gradient(100% 50% at 100% 35%, var(--ambient-b), transparent 85%),
+    radial-gradient(110% 55% at 0% 75%, var(--ambient-c), transparent 85%),
+    radial-gradient(100% 50% at 100% 100%, var(--ambient-d), transparent 85%),
     var(--bg);
 }
 
 body { background: transparent; }
 
-/* Task cards as glass, lit by their own status. The rail and the coloured
- * edge stay exactly as they were — they are what a column of cards is
- * scanned along — and the status colour also seeps into the glass from the
- * rail side and glows faintly beneath the card, so a card needing attention
- * reads as red-lit glass rather than a grey box with a red stripe. The wash
- * fades out before the text starts, so nothing is read through colour. */
+/* Task cards. The rail and the coloured edge stay exactly as they were: they
+ * are what a column of cards is scanned along. The status colour also glows
+ * faintly beneath the card, and seeps a few pixels into the glass from the
+ * rail, fading out before the text starts so nothing is read through it. */
 .card {
   /* 16px, not the bubbles' 20: the rail is a 10px block down the card's
    * leading edge, and rounder corners curve too much of it away. */
   border-radius: 16px;
   background:
-    linear-gradient(100deg, color-mix(in srgb, var(--row-status, transparent) 12%, transparent), transparent 42%),
-    var(--glass-card);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
+    linear-gradient(90deg, color-mix(in srgb, var(--row-status, transparent) 24%, transparent), transparent 14px),
+    linear-gradient(180deg, var(--glass-pane-top), var(--glass-pane));
   box-shadow:
     inset 0 1px 0 var(--glass-rim),
+    inset 0 -1px 0 var(--glass-shade),
     0 6px 22px color-mix(in srgb, var(--row-status, transparent) 22%, transparent),
     0 1px 3px rgba(0, 0, 0, .08);
   margin-bottom: 12px;
@@ -1589,13 +1632,14 @@ body { background: transparent; }
 .card.collapsed {
   box-shadow:
     inset 0 1px 0 var(--glass-rim),
+    inset 0 -1px 0 var(--glass-shade),
     0 3px 10px color-mix(in srgb, var(--row-status, transparent) 16%, transparent),
     0 1px 2px rgba(0, 0, 0, .06);
 }
 
 /* The note inside a card is a pane of glass set into it. */
 .row-notes {
-  background: color-mix(in srgb, var(--bg-inset) 72%, transparent);
+  background: var(--glass-inset);
   border-color: var(--glass-edge);
   border-radius: 12px;
 }
@@ -1618,7 +1662,7 @@ body { background: transparent; }
     backdrop-filter: none;
   }
   .msg-user {
-    background: var(--accent);
+    background: linear-gradient(var(--glass-user), var(--glass-user)), var(--bg-elevated);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
@@ -1640,5 +1684,5 @@ body { background: transparent; }
   .card {
     background: var(--bg-elevated);
   }
-  .msg-user { background: var(--accent); }
+  .msg-user { background: linear-gradient(var(--glass-user), var(--glass-user)), var(--bg-elevated); }
 }
