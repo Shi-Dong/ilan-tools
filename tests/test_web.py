@@ -2445,3 +2445,21 @@ def test_the_reply_bar_follows_the_visible_region_above_the_keyboard():
     for listened in ("vv.addEventListener('resize', update);", "vv.addEventListener('scroll', update);"):
         assert listened in track.group(1), f"not listening: {listened}"
 
+
+
+def test_a_filled_button_on_a_sheet_keeps_its_fill():
+    """The sheet's row style paints every .btn near-white, and it outranks
+    .btn-primary. A confirm sheet's filled button (Tap, Done, Save) then kept
+    only its white label: white on white, a blank button beside Cancel. Each
+    place that repaints sheet buttons must give the filled one its accent back,
+    later in the same block so it wins."""
+    css = web.read_asset("app.css").decode()
+    layer = css[css.index("/* ── Liquid Glass"):]
+    reduced = re.search(r"@media \(prefers-reduced-transparency: reduce\) \{(.*?)\n\}", layer, re.S).group(1)
+    unsupported = re.search(r"@supports not \(\(backdrop-filter: blur\(1px\)\).*?\{(.*?)\n\}", layer, re.S).group(1)
+    main_layer = layer[:layer.index("@media (prefers-reduced-transparency")]
+    for where, block in (("the glass layer", main_layer), ("reduced transparency", reduced), ("no backdrop-filter", unsupported)):
+        rows = [m.end() for m in re.finditer(r"\.sheet \.btn[ ,][^{]*\{[^}]*background", block)]
+        assert rows, f"{where}: no sheet button background found"
+        fill = re.search(r"\.sheet \.btn-primary \{[^}]*background: var\(--accent\)", block[rows[-1]:])
+        assert fill, f"{where}: a filled button on a sheet is painted over with the row colour"
