@@ -393,12 +393,12 @@ class TestTheOtherReplyModesAreUnchanged:
     def test_the_editor_flag_still_writes_a_fresh_reply(
         self, runner: CliRunner
     ) -> None:
-        """`-e` keeps its empty buffer and still posts a reply."""
+        """`-e` shows a reminder and still posts a fresh reply."""
         result, client, seen = _invoke_editor(
             runner, ["re", "my-task", "-e"], written="ship it",
         )
         assert result.exit_code == 0, result.output
-        assert seen["prefill"] == ""
+        assert seen["prefill"].startswith("%% You are replying to `my-task`.")
         client.reply.assert_called_once_with("my-task", "ship it")
         client.set_reply_every_message.assert_not_called()
 

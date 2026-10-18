@@ -23,8 +23,11 @@ def test_editor_creates_task(prefix: list[str], flag: str, name: str | None) -> 
         assert argv[:2] == ["emacs", "-nw"]
         path = Path(argv[-1])
         paths.append(path)
-        assert path.read_text() == ""
-        path.write_text("  first line\n\nsecond line\n")
+        assert path.read_text().startswith(
+            f"%% You are creating task `{name}`." if name else
+            "%% You are creating a new burnable task."
+        )
+        path.write_text(path.read_text() + "%% extra comment\n  first line\n\nsecond line\n%% footer")
         return MagicMock(returncode=0)
 
     args = [*prefix, flag, "--codex", "--max"]
@@ -43,7 +46,9 @@ def test_editor_creates_task(prefix: list[str], flag: str, name: str | None) -> 
 
 
 @pytest.mark.parametrize("prefix", [["add"], ["task", "add"]])
-@pytest.mark.parametrize("content,returncode", [("", 0), (" \t\n\n ", 0), ("text", 1)])
+@pytest.mark.parametrize("content,returncode", [
+    ("", 0), (" \t\n\n ", 0), ("%% reminder\n \n%% footer", 0), ("text", 1),
+])
 def test_no_task_on_empty_or_abandoned_edit(
     prefix: list[str], content: str, returncode: int,
 ) -> None:
