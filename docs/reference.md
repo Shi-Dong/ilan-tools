@@ -325,6 +325,14 @@ Siblings orphaned by the same delete share one tombstone, chained deletes nest, 
 
 ### Branch editor and reasoning flags
 
+Task reminder headers end with two newline characters, leaving a blank line for
+your message. When composing with `add -e`, `reply -e`, or `branch -e`, Emacs
+(including `emacsclient`), Vim/Neovim, and Nano/Pico open at the end of the
+buffer. Vim also starts in insert mode so you can type immediately. Existing
+editor arguments are preserved. Other editor commands open normally; configure
+their own cursor-position option if needed. Editing existing notes or loop
+messages keeps the editor's normal starting position.
+
 `ilan branch OLD -e` (or `--editor`) opens a buffer in the configured
 `editor` for the child's first assignment, with a `%%` reminder naming the parent
 and its alias, when present. Lines starting with `%%` are removed before

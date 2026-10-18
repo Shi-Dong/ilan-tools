@@ -116,7 +116,8 @@ class TestEditorFlagSendsWhatWasWritten:
         )
         assert result.exit_code == 0, result.output
         assert seen["cmd"][:2] == ["emacs", "-nw"]
-        assert len(seen["cmd"]) == 3
+        assert seen["cmd"][2] == "+3:0"
+        assert len(seen["cmd"]) == 4
         client.reply.assert_called_once_with("my-task", "ship it")
 
     def test_a_quoted_editor_path_stays_one_word(
