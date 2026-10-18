@@ -778,6 +778,7 @@ def task_add(
             _editor_reminder("creating a new burnable task"),
             kind="instruction",
             abandoned="no task was created.",
+            compose=True,
         )
         if written is None:
             raise SystemExit(1)
@@ -1674,9 +1675,22 @@ def _strip_editor_comments(text: str) -> str:
     ).strip()
 
 
+def _editor_compose_args(editor: list[str], current: str) -> list[str]:
+    """Position supported editors after a task reminder, ready for input."""
+    program = os.path.basename(editor[0])
+    if program in {"vi", "vim", "nvim", "gvim", "mvim"}:
+        return ["+normal! G$", "+startinsert!"]
+    line = current.count("\n") + 1
+    if program in {"emacs", "emacsclient"}:
+        return [f"+{line}:0"]
+    if program in {"nano", "pico"}:
+        return [f"+{line}"]
+    return []
+
+
 def _edit_text_in_editor(
     editor: list[str], task_name: str, current: str, *, kind: str,
-    abandoned: str,
+    abandoned: str, compose: bool = False,
 ) -> str | None:
     """Open *current* in the *editor* argv and return what came back.
 
@@ -1690,9 +1704,9 @@ def _edit_text_in_editor(
     "the user emptied the buffer" — that would clear a note, or send an empty
     reply, on a crash.
 
-    The temp file holds nothing but the text. No instruction header, so there
-    is no comment syntax to strip and no way for a line that legitimately
-    starts with ``#`` to be swallowed.
+    The temp file holds exactly *current*. With *compose*, supported editors
+    start at its end, ready for a message after the caller's reminder header.
+    Callers handle comment stripping where applicable; notes stay verbatim.
     """
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=f"-{task_name}-{kind}.txt", delete=False,
@@ -1701,7 +1715,11 @@ def _edit_text_in_editor(
         tmp_path = tmp.name
     try:
         try:
-            completed = subprocess.run([*editor, tmp_path])
+            completed = subprocess.run([
+                *editor,
+                *(_editor_compose_args(editor, current) if compose else []),
+                tmp_path,
+            ])
         except OSError as exc:
             # `shutil.which` said it was there, so this is a race or a
             # permission problem rather than a missing editor.
@@ -1911,6 +1929,7 @@ def _collect_editor_reply(name: str) -> str:
     written = _edit_text_in_editor(
         editor, resp["task"]["name"], _editor_reminder("replying to", resp["task"]),
         kind="reply", abandoned="nothing was sent.",
+        compose=True,
     )
     if written is None:
         raise SystemExit(1)  # _edit_text_in_editor has already said which it was
@@ -2748,6 +2767,7 @@ def task_branch(
             editor_argv, resp["task"]["name"],
             _editor_reminder("branching from", resp["task"]), kind="instruction",
             abandoned="no branch was created.",
+            compose=True,
         )
         if written is None:
             raise SystemExit(1)

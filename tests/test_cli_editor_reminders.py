@@ -8,7 +8,20 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from ilan.cli import main
+from ilan.cli import _editor_compose_args, main
+
+
+@pytest.mark.parametrize(("editor", "expected"), [
+    (["vim", "-n"], ["+normal! G$", "+startinsert!"]),
+    (["/usr/bin/nvim"], ["+normal! G$", "+startinsert!"]),
+    (["emacs", "-nw"], ["+3:0"]),
+    (["emacsclient", "-t"], ["+3:0"]),
+    (["nano"], ["+3"]),
+    (["pico"], ["+3"]),
+    (["custom-editor", "--wait"], []),
+])
+def test_compose_cursor_args(editor: list[str], expected: list[str]) -> None:
+    assert _editor_compose_args(editor, "%% You are replying to `task`.\n\n") == expected
 
 
 @pytest.mark.parametrize("prefix", [
@@ -16,7 +29,7 @@ from ilan.cli import main
 ])
 @pytest.mark.parametrize("alias", ["hk", None])
 @pytest.mark.parametrize("body", [
-    "", "\n%% extra\n  hello\n\nworld\n%% footer\n",
+    "", "immediate message", "\n%% extra\n  hello\n\nworld\n%% footer\n",
     "\n  %% indented\ntext %% inline\n",
 ])
 def test_task_editor_reminder(
