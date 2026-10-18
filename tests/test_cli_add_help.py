@@ -90,7 +90,7 @@ class TestWhatTheHelpSays:
         out = " ".join(_help(runner, [*prefix, "-h"]).split())
         assert '-d "…" gives it inline' in out
         assert "-f FILE reads it from a file" in out
-        assert "-e opens the configured editor with an empty buffer" in out
+        assert "-e opens the configured editor with a task reminder" in out
         assert "editor content creates no task" in out
         assert "A bare INSTRUCTION with no flag at all is the quick form" in out
         assert 'it means -d "…" on the defaults and takes nothing else' in out

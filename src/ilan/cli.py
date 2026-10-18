@@ -695,7 +695,7 @@ _ADD_HELP = """\
 Add a task and start its agent on it at once.
 
 The prompt can come four ways. -d "…" gives it inline. -f FILE reads it
-from a file. -e opens the configured editor with an empty buffer; it takes
+from a file. -e opens the configured editor with a task reminder; it takes
 no argument and cannot combine with -d or -f. Empty or whitespace-only
 editor content creates no task. A bare
 INSTRUCTION with no flag at all is the quick form: it means -d "…" on the
@@ -773,12 +773,15 @@ def task_add(
         if editor_argv is None:
             raise SystemExit(1)
         written = _edit_text_in_editor(
-            editor_argv, "new-task", "", kind="instruction",
+            editor_argv, "new-task",
+            _editor_reminder("creating task", {"name": name}) if name else
+            _editor_reminder("creating a new burnable task"),
+            kind="instruction",
             abandoned="no task was created.",
         )
         if written is None:
             raise SystemExit(1)
-        description = written.strip()
+        description = _strip_editor_comments(written)
         if not description:
             console.print("[yellow]Empty instruction; no task created.[/yellow]")
             return
@@ -1652,6 +1655,25 @@ def _resolve_editor() -> list[str] | None:
     return argv
 
 
+def _editor_reminder(action: str, task: dict | None = None) -> str:
+    """Describe the task being composed before the editable message."""
+    if task is not None:
+        action += f" `{task['name']}`"
+        if task.get("alias"):
+            action += f" (alias `{task['alias']}`)"
+    return (
+        f"%% You are {action}. All lines starting with `%%` will be omitted "
+        "in the message.\n\n"
+    )
+
+
+def _strip_editor_comments(text: str) -> str:
+    """Remove comment lines before trimming the remaining message."""
+    return "".join(
+        line for line in text.splitlines(keepends=True) if not line.startswith("%%")
+    ).strip()
+
+
 def _edit_text_in_editor(
     editor: list[str], task_name: str, current: str, *, kind: str,
     abandoned: str,
@@ -1872,9 +1894,8 @@ def _parse_reply_every(every: str | None) -> int | None:
 def _collect_editor_reply(name: str) -> str:
     """Write a reply in the configured editor and return it.
 
-    The buffer starts empty: a reply is new text, not an edit of something
-    the task already carries. Everything that can be rejected is rejected
-    before the editor opens — a usable editor, a real task, a parsable
+    The buffer starts with a task reminder. Everything that can be rejected
+    is rejected before the editor opens — a usable editor, a real task, a parsable
     ``-t`` — so a typed reply is never thrown away by a mistake that was
     knowable beforehand.
 
@@ -1888,12 +1909,12 @@ def _collect_editor_reply(name: str) -> str:
     if _check_error(resp):
         raise SystemExit(1)
     written = _edit_text_in_editor(
-        editor, resp["task"]["name"], "",
+        editor, resp["task"]["name"], _editor_reminder("replying to", resp["task"]),
         kind="reply", abandoned="nothing was sent.",
     )
     if written is None:
         raise SystemExit(1)  # _edit_text_in_editor has already said which it was
-    written = written.strip()
+    written = _strip_editor_comments(written)
     if not written:
         # Leaving the buffer empty is how you back out once the editor is
         # already open, so it is not an error worth a red line — but nothing
@@ -1919,7 +1940,7 @@ def _do_update_loop_prompt(name: str) -> None:
 
     The buffer is prefilled with the current message, because this is an
     edit of something the task already carries — the one way it differs from
-    ``reply -e``, whose buffer starts empty. What is saved replaces the
+    ``reply -e``, whose buffer starts with a task reminder. What is saved replaces the
     message from the next re-send on. The cadence and the time of the next
     re-send are untouched, and nothing is sent now.
 
@@ -2724,12 +2745,13 @@ def task_branch(
         if _check_error(resp):
             raise SystemExit(1)
         written = _edit_text_in_editor(
-            editor_argv, resp["task"]["name"], "", kind="instruction",
+            editor_argv, resp["task"]["name"],
+            _editor_reminder("branching from", resp["task"]), kind="instruction",
             abandoned="no branch was created.",
         )
         if written is None:
             raise SystemExit(1)
-        description = written.strip()
+        description = _strip_editor_comments(written)
         if not description:
             console.print("[yellow]Empty instruction; no task created.[/yellow]")
             return

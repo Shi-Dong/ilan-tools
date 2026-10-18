@@ -128,10 +128,13 @@ class TestEditorFlagSendsWhatWasWritten:
         )
         assert seen["cmd"][:2] == ["/Applications/My Editor/bin/ed", "--wait"]
 
-    def test_the_buffer_starts_empty(self, runner: CliRunner) -> None:
-        """A reply is new text, so nothing is prefilled for the user to delete."""
+    def test_the_buffer_starts_with_a_reminder(self, runner: CliRunner) -> None:
+        """Identify the resolved task before the editable reply."""
         _, _, seen = _invoke_editor(runner, ["re", "my-task", "-e"], written="x")
-        assert seen["prefill"] == ""
+        assert seen["prefill"] == (
+            "%% You are replying to `my-task`. All lines starting with `%%` "
+            "will be omitted in the message.\n\n"
+        )
 
     def test_the_temp_file_is_labelled_a_reply(self, runner: CliRunner) -> None:
         _, _, seen = _invoke_editor(runner, ["re", "my-task", "-e"], written="x")
