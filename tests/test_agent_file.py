@@ -12,7 +12,7 @@ import pytest
 from click.testing import CliRunner
 
 from ilan import config as cfg_mod
-from ilan.cli import main
+from ilan.cli import _agent_confirm_lines, main
 from ilan.client import Client
 from ilan.server import IlanServer
 from tests.helpers import get_json, post_json
@@ -235,3 +235,24 @@ def test_cli_yes_skips_the_question(
     assert result.exit_code == 0, result.output
     assert "Continue?" not in result.output
     assert (tmp_workdir / "CLAUDE.md").read_text() == "y"
+
+
+def test_short_prompt_is_one_line() -> None:
+    about = "About to edit /srv/.ilan/CLAUDE.md on this machine."
+    assert _agent_confirm_lines(about, 80) == (None, f"{about} Continue?")
+
+
+def test_long_prompt_puts_the_path_on_its_own_line() -> None:
+    about = "About to edit /" + "x" * 80 + "/CLAUDE.md on this machine."
+    assert _agent_confirm_lines(about, 80) == (about, "Continue?")
+
+
+def test_cli_short_path_prompts_on_one_line(
+    ilan_server: IlanServer, tmp_workdir: Path, tmp_path: Path,
+) -> None:
+    (tmp_workdir / "CLAUDE.md").write_text("x")
+    with patch("ilan.cli._agent_file_location", return_value="/s/CLAUDE.md on this machine"):
+        result = _invoke(ilan_server, _fake_editor(tmp_path, "pass"), [])
+    assert result.output.splitlines()[0] == (
+        "About to edit /s/CLAUDE.md on this machine. Continue? [y/N]: y"
+    )

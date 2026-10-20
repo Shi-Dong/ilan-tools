@@ -3529,6 +3529,19 @@ def _agent_file_location(client: Client, resp: dict) -> str:
     return f"{location} {where}"
 
 
+def _agent_confirm_lines(about: str, width: int) -> tuple[str | None, str]:
+    """Split the confirmation into a line printed first and the question.
+
+    The whole prompt goes on one line when it fits *width* (``[y/N]: `` and
+    the answer included); otherwise *about* gets its own line above a bare
+    ``Continue?``, so a long path is never broken across lines.
+    """
+    question = f"{about} Continue?"
+    if len(question) + len(" [y/N]: y") <= width:
+        return None, question
+    return about, "Continue?"
+
+
 def _do_agent(engine: str, yes: bool) -> None:
     editor = _resolve_editor()
     if editor is None:
@@ -3538,10 +3551,13 @@ def _do_agent(engine: str, yes: bool) -> None:
     if "error" in resp:
         console.print(Text(resp["error"], style="red"))
         raise SystemExit(1)
-    # Unwrapped, so a long path stays whole and can be copied.
-    console.print(Text(f"About to edit {_agent_file_location(client, resp)}."),
-                  soft_wrap=True)
-    if not yes and not click.confirm("Continue?", default=False):
+    lead, question = _agent_confirm_lines(
+        f"About to edit {_agent_file_location(client, resp)}.", console.width,
+    )
+    if yes or lead is not None:
+        # Unwrapped, so a long path stays whole and can be copied.
+        console.print(Text(lead or question.removesuffix(" Continue?")), soft_wrap=True)
+    if not yes and not click.confirm(question, default=False):
         console.print("[dim]Nothing opened.[/dim]")
         return
 
