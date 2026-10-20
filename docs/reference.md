@@ -326,6 +326,10 @@ Siblings orphaned by the same delete share one tombstone, chained deletes nest, 
 
 ### Branch editor and reasoning flags
 
+Editor detection ignores executable-name case, including macOS application paths
+such as `/Applications/Emacs.app/Contents/MacOS/Emacs -nw`, so Emacs opens at
+the end of the reminder with the cursor ready for input.
+
 Task reminder headers end with two newline characters, leaving a blank line for
 your message. When composing with `add -e`, `reply -e`, or `branch -e`, Emacs
 (including `emacsclient`), Vim/Neovim, and Nano/Pico open at the end of the

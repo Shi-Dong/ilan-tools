@@ -15,6 +15,8 @@ from ilan.cli import _editor_compose_args, main
     (["vim", "-n"], ["+normal! G$", "+startinsert!"]),
     (["/usr/bin/nvim"], ["+normal! G$", "+startinsert!"]),
     (["emacs", "-nw"], ["+3:0"]),
+    (["/Applications/Emacs.app/Contents/MacOS/Emacs", "-nw"], ["+3:0"]),
+    (["/Applications/Emacs.app/Contents/MacOS/bin/emacs", "-nw"], ["+3:0"]),
     (["emacsclient", "-t"], ["+3:0"]),
     (["nano"], ["+3"]),
     (["pico"], ["+3"]),
