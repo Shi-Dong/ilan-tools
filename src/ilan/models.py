@@ -185,6 +185,10 @@ ENGINE_CODEX = "codex"
 VALID_ENGINES: tuple[str, ...] = (ENGINE_CLAUDE, ENGINE_CODEX)
 DEFAULT_ENGINE = ENGINE_CLAUDE
 
+# The instruction file each backend reads from the ilan workdir, which
+# ``ilan agent`` edits.
+AGENT_FILES: dict[str, str] = {ENGINE_CLAUDE: "CLAUDE.md", ENGINE_CODEX: "AGENTS.md"}
+
 
 def other_engine(engine: str) -> str:
     """Return the engine to toggle to (the chain has exactly two backends)."""

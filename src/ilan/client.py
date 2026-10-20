@@ -176,6 +176,12 @@ class Client:
     def set_config(self, key: str, value) -> dict:
         return self.post("/config/set", {"key": key, "value": value})
 
+    def get_agent_file(self, engine: str) -> dict:
+        return self.get(f"/agent-file/{engine}")
+    def set_agent_file(self, engine: str, content: str, base_sha256: str) -> dict:
+        return self.post(f"/agent-file/{engine}",
+                         {"content": content, "base_sha256": base_sha256})
+
     def list_tasks(self, show_all: bool = False) -> dict:
         path = "/tasks?all=true" if show_all else "/tasks"
         return self.get(path)

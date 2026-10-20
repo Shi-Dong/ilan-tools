@@ -8,6 +8,7 @@ the PID + port to ``<workdir>/server.pid``.
 from __future__ import annotations
 
 import getpass
+import hashlib
 import json
 import os
 import re
@@ -25,6 +26,7 @@ from ilan.gist import GistSyncer, github_token, last_comment_url
 from ilan.oneliner import Summarizer
 from ilan.push import PushNotifier
 from ilan.models import (
+    AGENT_FILES,
     ALIAS_POOL,
     BTW_REASONING,
     CANCEL_MESSAGE,
@@ -72,6 +74,8 @@ ROUTES: list[tuple[str, str, str]] = [
     ("POST",   r"^/push/unsubscribe$",         "handle_push_unsubscribe"),
     ("GET",    r"^/config$",                   "handle_get_config"),
     ("POST",   r"^/config/set$",               "handle_set_config"),
+    ("GET",    r"^/agent-file/([^/]+)$",       "handle_get_agent_file"),
+    ("POST",   r"^/agent-file/([^/]+)$",       "handle_set_agent_file"),
     ("GET",    r"^/tasks$",                    "handle_list_tasks"),
     ("POST",   r"^/tasks$",                    "handle_add_task"),
     ("GET",    r"^/tasks/([^/]+)$",            "handle_get_task"),
@@ -485,6 +489,62 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
 
         def handle_get_config(self):
             self._json({"config": cfg.load()})
+
+        def _agent_file(self, engine: str) -> tuple[str, Path] | None:
+            """Resolve *engine*'s instruction file, or answer the error and return None.
+
+            ``default`` means the server's ``default-backend``. Returns the
+            file's name in the workdir and the file it really is: it may be a
+            symlink to somewhere else, and writing to the target keeps the
+            link intact instead of replacing it with a plain file.
+            """
+            if engine == "default":
+                engine = str(cfg.load().get("default-backend", DEFAULT_ENGINE))
+            if engine not in AGENT_FILES:
+                self._json({"error": f"Unknown backend {engine!r}. "
+                                     f"Choose from: {', '.join(AGENT_FILES)}"}, 400)
+                return None
+            path = cfg.get_workdir() / AGENT_FILES[engine]
+            if not path.is_file():
+                self._json({"error": f"{path} does not exist on the server."}, 404)
+                return None
+            return path.name, path.resolve()
+
+        def handle_get_agent_file(self, engine: str):
+            found = self._agent_file(engine)
+            if found is None:
+                return
+            name, path = found
+            # Bytes, not read_text: universal newlines would turn CRLF into LF
+            # and the round trip would rewrite lines the user never touched.
+            data = path.read_bytes()
+            self._json({
+                "name": name,
+                "path": str(path),
+                "content": data.decode(),
+                "sha256": hashlib.sha256(data).hexdigest(),
+            })
+
+        def handle_set_agent_file(self, engine: str):
+            """Overwrite the file, unless it changed since the client read it.
+
+            ``base_sha256`` is the hash of the content the client started
+            from; a mismatch means someone else wrote the file meanwhile, and
+            the write is refused rather than silently undoing their edit.
+            """
+            body = self._body()
+            found = self._agent_file(engine)
+            if found is None:
+                return
+            _, path = found
+            if body.get("base_sha256") != hashlib.sha256(path.read_bytes()).hexdigest():
+                self._json({"error": f"{path} changed on the server since it "
+                                     "was opened; not overwriting it."}, 409)
+                return
+            data = str(body["content"]).encode()
+            path.write_bytes(data)
+            self._json({"ok": True, "path": str(path),
+                        "sha256": hashlib.sha256(data).hexdigest()})
 
         def handle_set_config(self):
             body = self._body()
