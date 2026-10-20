@@ -1679,7 +1679,7 @@ def _strip_editor_comments(text: str) -> str:
 
 def _editor_compose_args(editor: list[str], current: str) -> list[str]:
     """Position supported editors after a task reminder, ready for input."""
-    program = os.path.basename(editor[0])
+    program = os.path.basename(editor[0]).lower()
     if program in {"vi", "vim", "nvim", "gvim", "mvim"}:
         return ["+normal! G$", "+startinsert!"]
     line = current.count("\n") + 1
