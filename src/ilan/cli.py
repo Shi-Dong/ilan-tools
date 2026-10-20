@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import termios
+import threading
 import time
 import tty
 import webbrowser
@@ -42,6 +43,7 @@ from ilan.models import (
     BURNABLE_PREFIX,
     CANCEL_MESSAGE,
     DEFAULT_ENGINE,
+    ENGINE_CLAUDE,
     ENGINE_CODEX,
     ENGINE_NAME_STYLE,
     MAX_NOTES_LENGTH,
@@ -3465,6 +3467,164 @@ def _do_dashboard() -> None:
 def dashboard() -> None:
     """Full-screen, real-time task dashboard (like htop)."""
     _do_dashboard()
+
+
+# ── agent ────────────────────────────────────────────────────────────
+
+# How often the open file is checked for a save while the editor runs.
+_AGENT_SYNC_INTERVAL = 0.5
+
+
+class _AgentFileSync:
+    """Push each save of a local copy of the server's agent file back to it.
+
+    Runs beside the editor, so it never prints: the editor owns the terminal.
+    What happened is kept in ``saves`` and ``error`` for after the editor
+    exits. After a failed write it stops, so a conflict is reported once
+    instead of being retried on every later save.
+    """
+
+    def __init__(self, client: Client, engine: str, path: Path, base: dict) -> None:
+        self._client = client
+        self._engine = engine
+        self._path = path
+        self._sha256 = base["sha256"]
+        self._content = base["content"]
+        self._lock = threading.Lock()
+        self.saves = 0
+        self.error: str | None = None
+
+    def sync(self) -> None:
+        """Upload the local copy if it differs from what the server holds."""
+        with self._lock:
+            if self.error is not None:
+                return
+            # newline="" keeps CRLF as written, matching the server's bytes.
+            with open(self._path, newline="") as f:
+                content = f.read()
+            if content == self._content:
+                return
+            try:
+                resp = self._client.set_agent_file(self._engine, content, self._sha256)
+            except ConnectionError as exc:
+                resp = {"error": str(exc)}
+            if "error" in resp:
+                self.error = resp["error"]
+                return
+            self._sha256, self._content = resp["sha256"], content
+            self.saves += 1
+
+    def watch(self, stop: threading.Event) -> None:
+        while not stop.wait(_AGENT_SYNC_INTERVAL):
+            self.sync()
+
+
+def _agent_file_location(client: Client, resp: dict) -> str:
+    """Name the server file about to be edited, and where it lives."""
+    where = (f"on the server at {client.base_url}" if client.is_remote
+             else "on this machine")
+    location = resp["file"]
+    if resp["symlink"]:
+        location += f" (a link to {resp['path']})"
+    return f"{location} {where}"
+
+
+def _agent_confirm_lines(about: str, width: int) -> tuple[str | None, str]:
+    """Split the confirmation into a line printed first and the question.
+
+    The whole prompt goes on one line when it fits *width* (``[y/N]: `` and
+    the answer included); otherwise *about* gets its own line above a bare
+    ``Continue?``, so a long path is never broken across lines.
+    """
+    question = f"{about} Continue?"
+    if len(question) + len(" [y/N]: y") <= width:
+        return None, question
+    return about, "Continue?"
+
+
+def _do_agent(engine: str, yes: bool) -> None:
+    editor = _resolve_editor()
+    if editor is None:
+        raise SystemExit(1)
+    client = _client()
+    resp = client.get_agent_file(engine)
+    if "error" in resp:
+        console.print(Text(resp["error"], style="red"))
+        raise SystemExit(1)
+    lead, question = _agent_confirm_lines(
+        f"About to edit {_agent_file_location(client, resp)}.", console.width,
+    )
+    if yes or lead is not None:
+        # Unwrapped, so a long path stays whole and can be copied.
+        console.print(Text(lead or question.removesuffix(" Continue?")), soft_wrap=True)
+    if not yes and not click.confirm(question, default=False):
+        console.print("[dim]Nothing opened.[/dim]")
+        return
+
+    # The copy keeps the file's own name, so the editor picks its Markdown
+    # mode and its title bar says which file is open.
+    tmp_dir = Path(tempfile.mkdtemp(prefix="ilan-agent-"))
+    local = tmp_dir / resp["name"]
+    with open(local, "w", newline="") as f:
+        f.write(resp["content"])
+    syncer = _AgentFileSync(client, engine, local, resp)
+    stop = threading.Event()
+    watcher = threading.Thread(target=syncer.watch, args=(stop,), daemon=True)
+    watcher.start()
+    try:
+        completed = subprocess.run([*editor, str(local)])
+    except OSError as exc:
+        console.print(
+            f"[red]Cannot run the configured editor {editor[0]!r}: {exc}. "
+            f"{_SET_EDITOR_HINT}[/red]"
+        )
+        completed = None
+    finally:
+        stop.set()
+        watcher.join()
+    # A save just before quitting may have landed between two checks.
+    syncer.sync()
+
+    if completed is not None and completed.returncode != 0:
+        console.print(
+            f"[yellow]{editor[0]} exited with {completed.returncode}.[/yellow]"
+        )
+    if syncer.error is not None:
+        console.print(Text(syncer.error, style="red"))
+        console.print(Text(f"Your edit is kept at {local}.", style="yellow"))
+        raise SystemExit(1)
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+    if syncer.saves:
+        console.print(Text(f"Saved {resp['path']} on the server.", style="green"))
+    else:
+        console.print(f"[dim]No changes to {resp['name']}.[/dim]")
+
+
+_AGENT_HELP = """\
+Edit the agent instruction file in the server's ilan workdir.
+
+--claude opens CLAUDE.md and --codex opens AGENTS.md; with neither, the
+server's default-backend decides. ilan first names the file and whether it
+is on this machine or on a remote server, and asks before opening it
+(-y skips the question). The file is always the server's, even
+when the CLI talks to a remote server: ilan fetches it, opens a copy in your
+configured editor, and writes every save back to the server. When the file
+is a symlink, the file it points to is updated and the link is kept.
+
+A file missing on the server is an error and nothing is created. A save is
+refused if the file changed on the server since it was opened, and your
+copy is kept so nothing is lost.
+"""
+
+
+@main.command("agent", help=_AGENT_HELP, short_help="Edit CLAUDE.md or AGENTS.md on the server.")
+@click.option("--claude", "engine", flag_value=ENGINE_CLAUDE, default=None,
+              help="Open CLAUDE.md.")
+@click.option("--codex", "engine", flag_value=ENGINE_CODEX, help="Open AGENTS.md.")
+@click.option("-y", "--yes", is_flag=True, help="Skip the confirmation.")
+def agent(engine: str | None, yes: bool) -> None:
+    """Edit the server's CLAUDE.md / AGENTS.md; ``_AGENT_HELP`` is the guide."""
+    _do_agent(engine or "default", yes)
 
 
 # ── clean ────────────────────────────────────────────────────────────

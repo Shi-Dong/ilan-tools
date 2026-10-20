@@ -158,6 +158,7 @@ the child inherits its parent's backend.
 | `ilan ping [-c N]` | Measure the round trip to a remote server. |
 | `ilan config [show]` | Print the server-side and client-side settings. |
 | `ilan config set [-y] KEY VALUE` | Change a setting; `-y` skips the "server or client?" confirmation. |
+| `ilan agent [--claude\|--codex]` | Edit the server's `CLAUDE.md` or `AGENTS.md` (in its `workdir`) in your editor; every save goes back to the server. It names the file and the machine it is on and asks first (`-y` skips). No flag means `default-backend`. |
 | `ilan update` | Pull the latest ilan-tools and reinstall. |
 
 ## Configuration

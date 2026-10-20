@@ -54,6 +54,10 @@ class Client:
     def is_remote(self) -> bool:
         return self._remote
 
+    @property
+    def base_url(self) -> str | None:
+        return self._base_url
+
     # ── server lifecycle ─────────────────────────────────────────
 
     def ensure_server(self) -> dict:
@@ -175,6 +179,12 @@ class Client:
     def get_config(self) -> dict:                return self.get("/config")
     def set_config(self, key: str, value) -> dict:
         return self.post("/config/set", {"key": key, "value": value})
+
+    def get_agent_file(self, engine: str) -> dict:
+        return self.get(f"/agent-file/{engine}")
+    def set_agent_file(self, engine: str, content: str, base_sha256: str) -> dict:
+        return self.post(f"/agent-file/{engine}",
+                         {"content": content, "base_sha256": base_sha256})
 
     def list_tasks(self, show_all: bool = False) -> dict:
         path = "/tasks?all=true" if show_all else "/tasks"
