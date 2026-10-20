@@ -54,6 +54,10 @@ class Client:
     def is_remote(self) -> bool:
         return self._remote
 
+    @property
+    def base_url(self) -> str | None:
+        return self._base_url
+
     # ── server lifecycle ─────────────────────────────────────────
 
     def ensure_server(self) -> dict:

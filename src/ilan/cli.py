@@ -3519,7 +3519,17 @@ class _AgentFileSync:
             self.sync()
 
 
-def _do_agent(engine: str) -> None:
+def _agent_file_location(client: Client, resp: dict) -> str:
+    """Name the server file about to be edited, and where it lives."""
+    where = (f"on the server at {client.base_url}" if client.is_remote
+             else "on this machine")
+    location = resp["file"]
+    if resp["symlink"]:
+        location += f" (a link to {resp['path']})"
+    return f"{location} {where}"
+
+
+def _do_agent(engine: str, yes: bool) -> None:
     editor = _resolve_editor()
     if editor is None:
         raise SystemExit(1)
@@ -3528,6 +3538,12 @@ def _do_agent(engine: str) -> None:
     if "error" in resp:
         console.print(Text(resp["error"], style="red"))
         raise SystemExit(1)
+    # Unwrapped, so a long path stays whole and can be copied.
+    console.print(Text(f"About to edit {_agent_file_location(client, resp)}."),
+                  soft_wrap=True)
+    if not yes and not click.confirm("Continue?", default=False):
+        console.print("[dim]Nothing opened.[/dim]")
+        return
 
     # The copy keeps the file's own name, so the editor picks its Markdown
     # mode and its title bar says which file is open.
@@ -3572,7 +3588,9 @@ _AGENT_HELP = """\
 Edit the agent instruction file in the server's ilan workdir.
 
 --claude opens CLAUDE.md and --codex opens AGENTS.md; with neither, the
-server's default-backend decides. The file is always the server's, even
+server's default-backend decides. ilan first names the file and whether it
+is on this machine or on a remote server, and asks before opening it
+(-y skips the question). The file is always the server's, even
 when the CLI talks to a remote server: ilan fetches it, opens a copy in your
 configured editor, and writes every save back to the server. When the file
 is a symlink, the file it points to is updated and the link is kept.
@@ -3587,9 +3605,10 @@ copy is kept so nothing is lost.
 @click.option("--claude", "engine", flag_value=ENGINE_CLAUDE, default=None,
               help="Open CLAUDE.md.")
 @click.option("--codex", "engine", flag_value=ENGINE_CODEX, help="Open AGENTS.md.")
-def agent(engine: str | None) -> None:
+@click.option("-y", "--yes", is_flag=True, help="Skip the confirmation.")
+def agent(engine: str | None, yes: bool) -> None:
     """Edit the server's CLAUDE.md / AGENTS.md; ``_AGENT_HELP`` is the guide."""
-    _do_agent(engine or "default")
+    _do_agent(engine or "default", yes)
 
 
 # ── clean ────────────────────────────────────────────────────────────

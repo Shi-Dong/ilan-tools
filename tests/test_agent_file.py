@@ -104,11 +104,15 @@ def _fake_editor(tmp_path: Path, script: str) -> str:
     return str(editor)
 
 
-def _invoke(ilan_server: IlanServer, editor: str, argv: list[str]):
+def _invoke(
+    ilan_server: IlanServer, editor: str, argv: list[str], *,
+    answer: str = "y\n", remote: bool = True,
+):
     cfg_mod.save({**cfg_mod.load(), "editor": editor})
     client = Client(base_url=ilan_server._test_url)  # type: ignore[attr-defined]
+    client._remote = remote  # type: ignore[attr-defined]
     with patch("ilan.cli._client", return_value=client):
-        return CliRunner().invoke(main, ["agent", *argv])
+        return CliRunner().invoke(main, ["agent", *argv], input=answer)
 
 
 @pytest.mark.parametrize(("flag", "name"), [("--claude", "CLAUDE.md"), ("--codex", "AGENTS.md")])
@@ -187,3 +191,47 @@ def test_cli_conflict_keeps_the_local_copy(
     assert "changed on the server" in out
     kept = out.split("kept at ")[1].rstrip(". ")
     assert Path(kept).read_text() == "mine"
+
+
+@pytest.mark.parametrize(("remote", "where"), [(True, "on the server at http://"), (False, "on this machine")])
+def test_cli_names_the_file_and_where_it_is(
+    ilan_server: IlanServer, tmp_workdir: Path, tmp_path: Path, remote: bool, where: str,
+) -> None:
+    (tmp_workdir / "CLAUDE.md").write_text("x")
+    result = _invoke(ilan_server, _fake_editor(tmp_path, "pass"), [], remote=remote)
+    out = " ".join(result.output.split())
+    assert f"About to edit {tmp_workdir / 'CLAUDE.md'} {where}" in out
+    assert "Continue? [y/N]" in out
+
+
+def test_cli_names_the_link_target(
+    ilan_server: IlanServer, tmp_workdir: Path, tmp_path: Path,
+) -> None:
+    target = tmp_path / "real.md"
+    target.write_text("x")
+    (tmp_workdir / "AGENTS.md").symlink_to(target)
+    result = _invoke(ilan_server, _fake_editor(tmp_path, "pass"), ["--codex"])
+    assert f"(a link to {target.resolve()})" in " ".join(result.output.split())
+
+
+def test_cli_declining_opens_nothing(
+    ilan_server: IlanServer, tmp_workdir: Path, tmp_path: Path,
+) -> None:
+    (tmp_workdir / "CLAUDE.md").write_text("x")
+    opened = tmp_path / "opened"
+    editor = _fake_editor(tmp_path, f"open({str(opened)!r}, 'w').write('x')")
+    result = _invoke(ilan_server, editor, [], answer="n\n")
+    assert result.exit_code == 0, result.output
+    assert not opened.exists()
+    assert "Nothing opened" in result.output
+
+
+def test_cli_yes_skips_the_question(
+    ilan_server: IlanServer, tmp_workdir: Path, tmp_path: Path,
+) -> None:
+    (tmp_workdir / "CLAUDE.md").write_text("x")
+    editor = _fake_editor(tmp_path, "open(p, 'w').write('y')")
+    result = _invoke(ilan_server, editor, ["-y"], answer="")
+    assert result.exit_code == 0, result.output
+    assert "Continue?" not in result.output
+    assert (tmp_workdir / "CLAUDE.md").read_text() == "y"

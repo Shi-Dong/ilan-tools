@@ -508,18 +508,20 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             if not path.is_file():
                 self._json({"error": f"{path} does not exist on the server."}, 404)
                 return None
-            return path.name, path.resolve()
+            return path, path.resolve()
 
         def handle_get_agent_file(self, engine: str):
             found = self._agent_file(engine)
             if found is None:
                 return
-            name, path = found
+            link, path = found
             # Bytes, not read_text: universal newlines would turn CRLF into LF
             # and the round trip would rewrite lines the user never touched.
             data = path.read_bytes()
             self._json({
-                "name": name,
+                "name": link.name,
+                "file": str(link),
+                "symlink": link.is_symlink(),
                 "path": str(path),
                 "content": data.decode(),
                 "sha256": hashlib.sha256(data).hexdigest(),
