@@ -2985,6 +2985,57 @@ def task_open(name: str) -> None:
     _do_open(name)
 
 
+# ── task copy ────────────────────────────────────────────────────────
+
+# Clipboard writers to try in order, each reading the text on stdin. They
+# run on the machine where `ilan` was typed, so a client copies to its own
+# clipboard, never the server's.
+_CLIPBOARD_COMMANDS: tuple[tuple[str, ...], ...] = (
+    ("pbcopy",),
+    ("wl-copy",),
+    ("xclip", "-selection", "clipboard"),
+    ("xsel", "--clipboard", "--input"),
+    ("clip.exe",),
+)
+
+
+def _copy_to_clipboard(text: str) -> bool:
+    """Put *text* on the local clipboard; ``False`` if no writer worked."""
+    for command in _CLIPBOARD_COMMANDS:
+        if shutil.which(command[0]) is None:
+            continue
+        try:
+            subprocess.run(command, input=text, text=True, check=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        return True
+    return False
+
+
+def _do_copy(name: str) -> None:
+    resp = _client().get_task(name)
+    if _check_error(resp):
+        raise SystemExit(1)
+    url = (resp["task"].get("gist_url") or "").strip()
+    if not url:
+        console.print(f"[red]Task {resp['task']['name']} has no GitHub Gist yet.[/red]")
+        raise SystemExit(1)
+    if not _copy_to_clipboard(url):
+        console.print(
+            "[red]Could not reach a clipboard: install pbcopy, wl-copy, "
+            "xclip, or xsel.[/red]"
+        )
+        raise SystemExit(1)
+    console.print(f"[green]Copied {url}[/green]")
+
+
+@task_group.command("copy")
+@click.argument("name", shell_complete=_complete_task_names)
+def task_copy(name: str) -> None:
+    """Copy the task's GitHub Gist link to the local clipboard."""
+    _do_copy(name)
+
+
 # ── task rm ──────────────────────────────────────────────────────────
 
 @task_group.command("rm")
@@ -3336,6 +3387,7 @@ for _shortcut_name, _shortcut_summary in {
     "log": "Open task logs in your editor.",
     "logs": "Open task logs in your editor.",
     "open": "Open a task's history in your browser.",
+    "copy": "Copy a task's Gist link to the clipboard.",
     "check-model": "Show reply model.",
 }.items():
     _register_task_shortcut(_shortcut_name, summary=_shortcut_summary)
