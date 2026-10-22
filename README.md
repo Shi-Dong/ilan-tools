@@ -102,6 +102,7 @@ Every task command has a top-level shorthand, so `ilan task reply` is just `ilan
 | `ilan check-model NAME` | Print the model that wrote the last reply. |
 | `ilan log NAME [-p]` | Open the whole conversation in your editor; `-p` prints the log path instead. |
 | `ilan open NAME` | Open the task's Gist history in the browser. |
+| `ilan copy NAME` | Copy the task's Gist link to this machine's clipboard. |
 | `ilan info NAME` | Everything about one task on a screen: names it has had, alias, status, summary, note, timestamps, and the branch tree it sits in. |
 | `ilan dashboard` | Live full-screen table, refreshed every second. `q` quits, `r` refreshes. |
 
