@@ -1800,6 +1800,13 @@ def _do_reply(
     every_seconds: int | None = None, confirmation: str | None = None,
     level: str | None = None,
 ) -> None:
+    if _line_number_enabled():
+        message = _expand_at_refs(message, cfg.load_last_tail(name))
+    if len(message.strip()) < 3:
+        console.print(
+            "[red]Reply must be at least 3 characters after trimming whitespace.[/red]"
+        )
+        raise SystemExit(1)
     # Switch the model first so this reply's own turn (and every one after
     # it) already runs on the new model. On a codex task the max endpoint
     # warns and leaves the model untouched; the reply is still posted. If
@@ -1809,8 +1816,6 @@ def _do_reply(
         _do_max(name)
     elif unmax and _model_switch_needed(name, max_=False):
         _do_unmax(name)
-    if _line_number_enabled():
-        message = _expand_at_refs(message, cfg.load_last_tail(name))
     kwargs: dict = {}
     if every_seconds is not None:
         kwargs["every_seconds"] = every_seconds
