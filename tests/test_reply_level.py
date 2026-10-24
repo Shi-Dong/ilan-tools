@@ -54,7 +54,7 @@ def test_the_answer_to_the_reply_is_spawned_at_the_new_level(
         return fake_start(task)
 
     with patch.object(ilan_server.runner, "start", side_effect=start):
-        resp = post_json(ilan_server, "/tasks/my-task/reply", {"message": "Go", "level": level})
+        resp = post_json(ilan_server, "/tasks/my-task/reply", {"message": "Go on", "level": level})
     assert resp["ok"] is True, resp
     assert (resp["reasoning"], resp["effort"]) == (level, effort)
     assert seen == [effort]
@@ -72,7 +72,7 @@ def test_a_working_task_is_resumed_at_the_new_level(ilan_server: IlanServer) -> 
         seen.append(task.effort)
 
     with patch.object(ilan_server.runner, "reply_to_working", side_effect=reply_to_working):
-        resp = post_json(ilan_server, "/tasks/my-task/reply", {"message": "Go", "level": "max"})
+        resp = post_json(ilan_server, "/tasks/my-task/reply", {"message": "Go on", "level": "max"})
     assert resp["ok"] is True, resp
     assert seen == ["xhigh"]
     assert (resp["reasoning"], resp["effort"]) == ("max", "xhigh")
@@ -80,7 +80,7 @@ def test_a_working_task_is_resumed_at_the_new_level(ilan_server: IlanServer) -> 
 
 def test_the_level_is_case_insensitive(ilan_server: IlanServer) -> None:
     _seed(ilan_server)
-    resp = post_json(ilan_server, "/tasks/my-task/reply", {"message": "Go", "level": " MAX "})
+    resp = post_json(ilan_server, "/tasks/my-task/reply", {"message": "Go on", "level": " MAX "})
     assert resp["reasoning"] == "max"
 
 
@@ -91,7 +91,7 @@ def test_a_bad_level_refuses_the_reply_and_changes_nothing(
     """Refused up front, so the message is not posted at the old level either."""
     _seed(ilan_server)
     with patch.object(ilan_server.runner, "start") as start:
-        resp = post_json(ilan_server, "/tasks/my-task/reply", {"message": "Go", "level": bad})
+        resp = post_json(ilan_server, "/tasks/my-task/reply", {"message": "Go on", "level": bad})
     assert "Invalid reasoning level" in resp["error"]
     start.assert_not_called()
     task = _stored(ilan_server)
@@ -105,12 +105,12 @@ def test_a_declined_cycle_confirmation_leaves_the_level_alone(ilan_server: IlanS
     """A reply that ends a reply -t cycle is first refused with a question; the
     level must not move until the reply is actually accepted."""
     _seed(ilan_server, reply_every_seconds=3600, reply_every_message="poke")
-    resp = post_json(ilan_server, "/tasks/my-task/reply", {"message": "Go", "level": "max"})
+    resp = post_json(ilan_server, "/tasks/my-task/reply", {"message": "Go on", "level": "max"})
     assert resp.get("confirm_reply_every") is True, resp
     assert _stored(ilan_server).reasoning == "low"
 
     resp = post_json(ilan_server, "/tasks/my-task/reply", {
-        "message": "Go", "level": "max", "override_reply_every": True,
+        "message": "Go on", "level": "max", "override_reply_every": True,
     })
     assert resp["ok"] is True, resp
     assert _stored(ilan_server).reasoning == "max"
@@ -118,7 +118,7 @@ def test_a_declined_cycle_confirmation_leaves_the_level_alone(ilan_server: IlanS
 
 def test_a_reply_without_a_level_keeps_the_tasks_level(ilan_server: IlanServer) -> None:
     _seed(ilan_server, reasoning="medium")
-    resp = post_json(ilan_server, "/tasks/my-task/reply", {"message": "Go"})
+    resp = post_json(ilan_server, "/tasks/my-task/reply", {"message": "Go on"})
     assert resp["ok"] is True, resp
     assert resp["reasoning"] == "medium"
     assert _stored(ilan_server).reasoning == "medium"
@@ -126,7 +126,7 @@ def test_a_reply_without_a_level_keeps_the_tasks_level(ilan_server: IlanServer) 
 
 def test_a_closed_task_refuses_the_reply_and_keeps_its_level(ilan_server: IlanServer) -> None:
     _seed(ilan_server, status=TaskStatus.DONE)
-    resp = post_json(ilan_server, "/tasks/my-task/reply", {"message": "Go", "level": "max"})
+    resp = post_json(ilan_server, "/tasks/my-task/reply", {"message": "Go on", "level": "max"})
     assert "Cannot reply" in resp["error"]
     assert _stored(ilan_server).reasoning == "low"
 
@@ -170,9 +170,9 @@ def test_the_level_travels_with_the_reply(
 def test_no_level_sends_none(runner: CliRunner, tmp_config) -> None:
     client = _client(reasoning="low", effort="low")
     with patch("ilan.cli._client", return_value=client):
-        result = runner.invoke(main, ["reply", "my-task", "Go"])
+        result = runner.invoke(main, ["reply", "my-task", "Go on"])
     assert result.exit_code == 0, result.output
-    client.reply.assert_called_once_with("my-task", "Go")
+    client.reply.assert_called_once_with("my-task", "Go on")
     assert "Reasoning level" not in result.output
 
 
@@ -180,7 +180,7 @@ def test_no_level_sends_none(runner: CliRunner, tmp_config) -> None:
 def test_only_the_three_levels_are_accepted(runner: CliRunner, tmp_config, bad: str) -> None:
     client = _client()
     with patch("ilan.cli._client", return_value=client):
-        result = runner.invoke(main, ["reply", "my-task", "Go", "--level", bad])
+        result = runner.invoke(main, ["reply", "my-task", "Go on", "--level", bad])
     assert result.exit_code != 0
     client.reply.assert_not_called()
 
@@ -242,7 +242,7 @@ def test_the_level_is_resent_when_the_cycle_confirmation_is_accepted(
         accepted,
     ]
     with patch("ilan.cli._client", return_value=client):
-        result = runner.invoke(main, ["reply", "my-task", "Go", "--level", "max"], input="y\n")
+        result = runner.invoke(main, ["reply", "my-task", "Go on", "--level", "max"], input="y\n")
     assert result.exit_code == 0, result.output
     assert client.reply.call_args_list[1].kwargs == {"override_reply_every": True, "level": "max"}
     assert "Reasoning level set to max" in result.output
@@ -254,7 +254,7 @@ def test_a_declined_cycle_confirmation_reports_no_level(runner: CliRunner, tmp_c
         "confirm_reply_every": True, "name": "my-task", "reply_every_seconds": 3600,
     }
     with patch("ilan.cli._client", return_value=client):
-        result = runner.invoke(main, ["reply", "my-task", "Go", "--level", "max"], input="n\n")
+        result = runner.invoke(main, ["reply", "my-task", "Go on", "--level", "max"], input="n\n")
     assert result.exit_code != 0
     assert client.reply.call_count == 1
     assert "Reasoning level set" not in result.output
@@ -265,7 +265,7 @@ def test_a_server_that_ignores_the_level_is_reported(runner: CliRunner, tmp_conf
     level; the CLI says so rather than confirming a change that did not happen."""
     client = _client(reasoning=None)
     with patch("ilan.cli._client", return_value=client):
-        result = runner.invoke(main, ["reply", "my-task", "Go", "--level", "max"])
+        result = runner.invoke(main, ["reply", "my-task", "Go on", "--level", "max"])
     assert result.exit_code == 0, result.output
     out = " ".join(result.output.split())
     assert "did not change the reasoning level" in out

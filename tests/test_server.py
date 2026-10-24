@@ -776,7 +776,7 @@ class TestTaskNumbers:
         _post(ilan_server, "/tasks", {"name": "no-num-reply", "prompt": "P"})
         _post(ilan_server, "/tasks/no-num-reply/done")
         _post(ilan_server, "/tasks/no-num-reply/undone")
-        resp = _post(ilan_server, "/tasks/1/reply", {"message": "hi"})
+        resp = _post(ilan_server, "/tasks/1/reply", {"message": "hello"})
         assert "error" in resp
         assert "undone/undiscard" in resp["error"]
 
@@ -789,7 +789,7 @@ class TestTaskNumbers:
         assert "undone/undiscard" in resp["error"]
 
     def test_unknown_number_gets_plain_not_found(self, ilan_server: IlanServer) -> None:
-        resp = _post(ilan_server, "/tasks/42/reply", {"message": "hi"})
+        resp = _post(ilan_server, "/tasks/42/reply", {"message": "hello"})
         assert resp["error"] == "Task 42 not found"
 
     def test_number_in_task_list(self, ilan_server: IlanServer) -> None:
@@ -1068,7 +1068,7 @@ class TestCancelWindow:
             patch.object(ilan_server.store, "read_logs", return_value=entries),
             patch.object(ilan_server.runner, "start"),
         ):
-            resp = _post(ilan_server, "/tasks/cancel-plain/reply", {"message": "hi"})
+            resp = _post(ilan_server, "/tasks/cancel-plain/reply", {"message": "hello"})
         assert resp.get("ok") is True
 
 
@@ -1263,15 +1263,15 @@ class TestReplyEvery:
         self._make_task_in_status(ilan_server, "re-t", TaskStatus.NEEDS_ATTENTION)
         resp = _post(
             ilan_server, "/tasks/re-t/reply",
-            {"message": "go", "every_seconds": 3600},
+            {"message": "go on", "every_seconds": 3600},
         )
         assert resp.get("ok") is True
         task = _get(ilan_server, "/tasks/re-t")["task"]
         assert task["reply_every_seconds"] == 3600
-        assert task["reply_every_message"] == "go"
+        assert task["reply_every_message"] == "go on"
         next_at = datetime.fromisoformat(task["reply_every_next_at"])
         assert next_at > datetime.now(timezone.utc)
-        assert "go" in task["cached_replies"]
+        assert "go on" in task["cached_replies"]
         assert task["status"] == "WORKING"
 
     def test_reply_with_every_seconds_on_working_persists_cycle(
@@ -1284,13 +1284,13 @@ class TestReplyEvery:
             m.side_effect = lambda task, message: ilan_server.store.put_task(task)
             resp = _post(
                 ilan_server, "/tasks/re-wk-t/reply",
-                {"message": "go", "every_seconds": 1200},
+                {"message": "go on", "every_seconds": 1200},
             )
         assert resp.get("ok") is True
         m.assert_called_once()
         task = _get(ilan_server, "/tasks/re-wk-t")["task"]
         assert task["reply_every_seconds"] == 1200
-        assert task["reply_every_message"] == "go"
+        assert task["reply_every_message"] == "go on"
 
     @pytest.mark.parametrize("bad", [0, -5, "1h", 1.5, 1199])
     def test_reply_rejects_bad_every_seconds(
@@ -1299,7 +1299,7 @@ class TestReplyEvery:
         self._make_task_in_status(ilan_server, "re-bad", TaskStatus.NEEDS_ATTENTION)
         resp = _post(
             ilan_server, "/tasks/re-bad/reply",
-            {"message": "go", "every_seconds": bad},
+            {"message": "go on", "every_seconds": bad},
         )
         assert "error" in resp
 
@@ -1319,14 +1319,14 @@ class TestReplyEvery:
     ) -> None:
         self._make_task_in_status(ilan_server, "re-ch", TaskStatus.NEEDS_ATTENTION)
         self._set_cycle(ilan_server, "re-ch", seconds=60)
-        resp = _post(ilan_server, "/tasks/re-ch/reply", {"message": "hi"})
+        resp = _post(ilan_server, "/tasks/re-ch/reply", {"message": "hello"})
         assert resp.get("confirm_reply_every") is True
         assert resp["name"] == "re-ch"
         assert resp["reply_every_seconds"] == 60
         # Nothing was delivered and the cycle is untouched.
         task = _get(ilan_server, "/tasks/re-ch")["task"]
         assert task["reply_every_seconds"] == 60
-        assert "hi" not in task["cached_replies"]
+        assert "hello" not in task["cached_replies"]
         assert task["status"] == "NEEDS_ATTENTION"
 
     def test_override_reply_clears_cycle(self, ilan_server: IlanServer) -> None:
@@ -1334,14 +1334,14 @@ class TestReplyEvery:
         self._set_cycle(ilan_server, "re-ov", seconds=60)
         resp = _post(
             ilan_server, "/tasks/re-ov/reply",
-            {"message": "hi", "override_reply_every": True},
+            {"message": "hello", "override_reply_every": True},
         )
         assert resp.get("ok") is True
         task = _get(ilan_server, "/tasks/re-ov")["task"]
         assert task["reply_every_seconds"] is None
         assert task["reply_every_message"] is None
         assert task["reply_every_next_at"] is None
-        assert "hi" in task["cached_replies"]
+        assert "hello" in task["cached_replies"]
 
     def test_override_reply_with_every_seconds_replaces_cycle(
         self, ilan_server: IlanServer
@@ -1622,14 +1622,15 @@ class TestReplyEvery:
         self._make_task_in_status(ilan_server, "edit-empty", TaskStatus.AGENT_FINISHED)
         self._set_cycle(ilan_server, "edit-empty", message="old prompt")
         resp = _post(ilan_server, "/tasks/edit-empty/reply-every", body)
-        assert "is required" in resp["error"]
+        expected = "at least 3 characters" if "message" in body else "is required"
+        assert expected in resp["error"]
         task = _get(ilan_server, "/tasks/edit-empty")["task"]
         assert task["reply_every_message"] == "old prompt"
 
     def test_set_message_on_an_unknown_task_is_not_found(
         self, ilan_server: IlanServer
     ) -> None:
-        resp = _post(ilan_server, "/tasks/nope/reply-every", {"message": "x"})
+        resp = _post(ilan_server, "/tasks/nope/reply-every", {"message": "new"})
         assert "not found" in resp["error"]
 
     # ── sending now without changing the interval ──────────────────

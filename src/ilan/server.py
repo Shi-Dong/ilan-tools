@@ -863,7 +863,13 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
 
         def handle_task_reply(self, name: str):
             body = self._body()
-            message = body["message"]
+            message = body.get("message")
+            if not isinstance(message, str) or len(message.strip()) < 3:
+                self._json(
+                    {"error": "Reply must be at least 3 characters after trimming whitespace."},
+                    400,
+                )
+                return
             every_seconds = body.get("every_seconds")
             # ``reply --level``: the task's reasoning level from this reply's
             # own answer on. Checked before anything else changes, so a bad
@@ -990,6 +996,14 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 )
                 return
             message = str(body.get("message") or "").strip()
+            if "message" in body and (
+                not isinstance(body["message"], str) or len(message) < 3
+            ):
+                self._json(
+                    {"error": "Reply must be at least 3 characters after trimming whitespace."},
+                    400,
+                )
+                return
             every_seconds = body.get("every_seconds")
             if every_seconds is not None and message:
                 self._json(
