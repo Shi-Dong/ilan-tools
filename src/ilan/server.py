@@ -23,13 +23,7 @@ from urllib.parse import parse_qs
 
 from ilan import __version__, config as cfg, get_git_commit, web
 from ilan.backends.claude import last_assistant_model
-from ilan.gist import (
-    GistSyncer,
-    entry_gist_owner,
-    find_entry_comment_url,
-    github_token,
-    last_comment_url,
-)
+from ilan.gist import GistSyncer, find_entry_comment_url, github_token, last_comment_url
 from ilan.oneliner import Summarizer
 from ilan.push import PushNotifier
 from ilan.models import (
@@ -1655,7 +1649,9 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             The bookmark is a permalink to the reply's comment on the Gist
             that mirrors the conversation, so it needs Gist mirroring. The
             task's one-line summary goes with it, or nothing if it has none.
-            Any task can be bookmarked, closed ones included.
+            Any task can be bookmarked, closed ones included, except a branch
+            that has not replied since it was branched: the replies in its
+            log so far are its parent's.
 
             The comment is looked up on GitHub off the lock, as ``history-url``
             does. Nothing is saved unless that lookup finds the comment and it
@@ -1685,13 +1681,14 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 if index is None:
                     self._json({"error": f"Task {task.name} has no reply to bookmark yet."}, 409)
                     return
-                owner = entry_gist_owner(self._ilan.store, task, index)
-                if owner is None:
+                # The first ``gist_branch_point`` entries were copied from the
+                # parent when the task was branched: a reply among them is the
+                # parent's, not this task's.
+                if index < task.gist_branch_point:
                     self._json(
                         {"error": (
-                            f"The latest reply of {task.name} was inherited from "
-                            "a task that has since been deleted, so its Gist "
-                            "comment cannot be found."
+                            f"Task {task.name} has no reply of its own yet: it "
+                            "has not answered since it was branched."
                         )},
                         409,
                     )
@@ -1702,15 +1699,15 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 # the link describe the same reply even if a new one lands
                 # before the bookmark is saved.
                 summary = (task.summary_one_liner or "").strip()
-                gist_id, gist_url = owner.gist_id, owner.gist_url
-                # How many of the owner's mirrored entries follow the reply:
+                gist_id, gist_url = task.gist_id, task.gist_url
+                # How many of the task's mirrored entries follow the reply:
                 # negative while the reply itself is not mirrored yet.
-                later = owner.gist_synced_count - 1 - index
+                later = task.gist_synced_count - 1 - index
             if not (gist_id and gist_url and later >= 0):
                 # Usually the syncer is seconds behind; a task whose Gist does
                 # not exist yet is back-filled whole, which takes longer.
                 # Either way, nudge it and let the user retry.
-                self._ilan.gist.enqueue(owner.name)
+                self._ilan.gist.enqueue(task_name)
                 self._json(
                     {"error": (
                         f"The latest reply of {task_name} is not on its Gist "

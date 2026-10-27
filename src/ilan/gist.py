@@ -30,7 +30,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from ilan import config as cfg
-from ilan.models import LogEntry, Task, format_cost_usd
+from ilan.models import LogEntry, format_cost_usd
 from ilan.store import Store
 
 GITHUB_API_URL = "https://api.github.com"
@@ -385,31 +385,6 @@ def find_entry_comment_url(
         if comment is not None and _mirrors(comment.get("body") or "", entry):
             return _permalink(html_url, comment["id"])
     return None
-
-
-def entry_gist_owner(store: Store, task: Task, index: int) -> Task | None:
-    """Return the task whose Gist mirrors entry *index* of *task*'s log.
-
-    A task's Gist mirrors its log from ``gist_branch_point`` on. An earlier
-    entry was inherited when the task was branched, so it is on an ancestor's
-    Gist; a child's log starts as a copy of its parent's, so the entry has the
-    same index there.
-
-    ``None`` when that ancestor has been deleted. Deleting a parent moves the
-    child's ``parent_name`` to the grandparent but leaves
-    ``gist_branch_parent_name`` alone, so the two disagreeing means the parent
-    is gone, and a later task that reuses its name is not taken for it.
-    """
-    owner = task
-    while index < owner.gist_branch_point:
-        parent_name = owner.gist_branch_parent_name
-        if parent_name is None or parent_name != owner.parent_name:
-            return None
-        parent = store.get_task(parent_name)
-        if parent is None:
-            return None
-        owner = parent
-    return owner
 
 
 def fetch_gist_filename(token: str, gist_id: str) -> str | None:

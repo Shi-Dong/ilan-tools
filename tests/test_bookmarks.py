@@ -22,13 +22,12 @@ from ilan.cli import (
     BOOKMARK_LINK_TEXT,
     BOOKMARK_TIME_STYLE,
     BOOKMARKS_COUNT_DEFAULT,
-    _build_bookmarks_grid,
+    _bookmark_lines,
     _print_bookmarks,
     main,
 )
 from ilan.models import MAX_BOOKMARKS, Bookmark, LogEntry, Task, TaskStatus
 from ilan.server import IlanServer
-from ilan.store import Store
 from ilan.task_display import ONE_LINER_STYLE
 
 from tests.helpers import get_json as _get, post_json as _post
@@ -101,66 +100,7 @@ class TestBookmarkModel:
         assert Bookmark.from_dict({"created_at": "x", "url": "u", "summary": None}).summary == ""
 
 
-# ── which Gist holds a reply ────────────────────────────────────────────
-
-
-@pytest.fixture()
-def store(tmp_workdir: Path) -> Store:
-    return Store(tmp_workdir)
-
-
-def _branch(store: Store, parent: Task, name: str) -> Task:
-    return store.branch_task(parent, name, alias="zz", task_hash="h", now=_stamp(0))
-
-
-class TestEntryGistOwner:
-    def test_a_root_task_holds_every_entry(self, store: Store) -> None:
-        task = Task(name="root-task", prompt="p")
-        store.put_task(task)
-        assert gist_mod.entry_gist_owner(store, task, 4).name == "root-task"
-
-    def test_a_child_holds_what_came_after_the_branch(self, store: Store) -> None:
-        parent = Task(name="parent-task", prompt="p")
-        store.put_task(parent)
-        for role in ("user", "assistant", "user"):
-            store.append_log(parent.name, role, "x")
-        child = _branch(store, parent, "child-task")
-        assert child.gist_branch_point == 3
-        assert gist_mod.entry_gist_owner(store, child, 3).name == "child-task"
-        assert gist_mod.entry_gist_owner(store, child, 2).name == "parent-task"
-
-    def test_an_inherited_entry_is_on_the_ancestor_that_wrote_it(self, store: Store) -> None:
-        root = Task(name="root-task", prompt="p")
-        store.put_task(root)
-        for role in ("user", "assistant"):
-            store.append_log(root.name, role, "x")
-        child = _branch(store, root, "child-task")
-        store.append_log(child.name, "user", "child's own")
-        grandchild = _branch(store, child, "grandchild")
-        # Entry 2 is the child's own, entry 1 the root's.
-        assert gist_mod.entry_gist_owner(store, grandchild, 2).name == "child-task"
-        assert gist_mod.entry_gist_owner(store, grandchild, 1).name == "root-task"
-
-    def test_a_renamed_parent_is_still_found(self, store: Store) -> None:
-        parent = Task(name="parent-task", prompt="p")
-        store.put_task(parent)
-        store.append_log(parent.name, "assistant", "x")
-        _branch(store, parent, "child-task")
-        store.rename_task("parent-task", "renamed-parent")
-        child = store.get_task("child-task")
-        assert gist_mod.entry_gist_owner(store, child, 0).name == "renamed-parent"
-
-    def test_a_deleted_parent_is_not_replaced_by_a_namesake(self, store: Store) -> None:
-        parent = Task(name="parent-task", prompt="p")
-        store.put_task(parent)
-        store.append_log(parent.name, "assistant", "x")
-        _branch(store, parent, "child-task")
-        store.delete_task("parent-task")
-        child = store.get_task("child-task")
-        assert gist_mod.entry_gist_owner(store, child, 0) is None
-        # A new, unrelated task under the old name must not be mistaken for it.
-        store.put_task(Task(name="parent-task", prompt="unrelated"))
-        assert gist_mod.entry_gist_owner(store, child, 0) is None
+# ── finding a reply's comment on the Gist ───────────────────────────────
 
 
 def _entry(role: str, content: str, second: int) -> LogEntry:
@@ -435,29 +375,26 @@ class TestAddBookmark:
         assert _looked_up(github) == ("gid1", GIST_URL, "assistant text", 0)
         assert resp["bookmark"]["url"].startswith(GIST_URL)
 
-    def test_a_reply_inherited_at_branching_links_the_parent_gist(
-        self, ilan_server: IlanServer, github,
+    @pytest.mark.parametrize("child_replies", [(), ("user",)])
+    def test_a_branch_that_has_not_replied_is_refused(
+        self, ilan_server: IlanServer, github, child_replies: tuple[str, ...],
     ) -> None:
-        self._branched(ilan_server, child_replies=())
-        with ilan_server.lock:
-            parent = ilan_server.store.get_task("parent-task")
-            ilan_server.store.append_log("parent-task", "user", "the parent moved on")
-            parent.gist_synced_count += 1
-            ilan_server.store.put_task(parent)
+        # The child's log holds the parent's reply, inherited at branching,
+        # and only the user's messages since.
+        self._branched(ilan_server, child_replies=child_replies)
         resp = _post(ilan_server, "/tasks/child-task/bookmarks")
-        # Counted back on the parent's Gist, past what the parent added since.
-        assert _looked_up(github) == ("gid0", PARENT_GIST_URL, "assistant text", 1)
-        assert _bookmarks(ilan_server, "child-task")[0].url == resp["bookmark"]["url"]
-        # The bookmark is the child's; the parent gets none.
+        assert resp["error"] == (
+            "Task child-task has no reply of its own yet: it has not answered "
+            "since it was branched."
+        )
+        github.assert_not_called()
+        assert _bookmarks(ilan_server, "child-task") == []
         assert _bookmarks(ilan_server, "parent-task") == []
 
-    def test_a_reply_inherited_from_a_deleted_task_is_refused(
-        self, ilan_server: IlanServer, github,
-    ) -> None:
+    def test_the_parent_can_still_bookmark_the_reply(self, ilan_server: IlanServer, github) -> None:
         self._branched(ilan_server, child_replies=())
-        ilan_server.store.delete_task("parent-task")
-        assert "deleted" in _post(ilan_server, "/tasks/child-task/bookmarks")["error"]
-        github.assert_not_called()
+        assert _post(ilan_server, "/tasks/parent-task/bookmarks")["ok"] is True
+        assert _looked_up(github) == ("gid0", PARENT_GIST_URL, "assistant text", 0)
 
 
 def _seed_bookmarks(server: IlanServer, name: str, minutes: list[int], *, engine: str = "claude") -> None:
@@ -598,9 +535,11 @@ class TestBookmarkCommand:
             result = runner.invoke(main, argv)
         assert result.exit_code == 0, result.output
         client.add_bookmark.assert_called_once_with("aa")
-        lines = result.output.splitlines()
-        assert lines[0] == f"Bookmarked the latest reply of my-task (3 of {MAX_BOOKMARKS})."
-        assert lines[1] == "2026-10-27 20:05  [Link](https://gist/5)  Did the thing."
+        assert result.output.splitlines() == [
+            f"Bookmarked the latest reply of my-task (3 of {MAX_BOOKMARKS}).",
+            "2026-10-27 20:05  [Link](https://gist/5)",
+            "Did the thing.",
+        ]
 
     def test_says_when_it_updated_a_bookmark(self, runner: CliRunner, utc) -> None:
         client = _client(add_bookmark=_saved(replaced=True))
@@ -652,12 +591,22 @@ class TestBookmarksCommand:
         assert result.exit_code == 0, result.output
         client.get_bookmarks.assert_called_once_with("aa")
         client.list_bookmarks.assert_not_called()
-        # Newest first, as the server sends them; an empty summary leaves
-        # nothing behind the link.
+        # Newest first, as the server sends them: the time and link, the
+        # summary under them, and a blank line before the next bookmark. A
+        # bookmark with no summary is its first line alone.
         assert result.output.splitlines() == [
-            "2026-10-27 20:09  [Link](https://gist/9)  Did the thing.",
+            "2026-10-27 20:09  [Link](https://gist/9)",
+            "Did the thing.",
+            "",
             "2026-10-27 20:02  [Link](https://gist/2)",
         ]
+
+    def test_piped_a_long_summary_stays_on_one_line(self, runner: CliRunner, utc) -> None:
+        summary = " ".join(["word"] * 40)  # 199 characters, far past 80 columns
+        client = _client(get_bookmarks={"name": "my-task", "bookmarks": [_row(9, summary)]})
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["bookmarks", "aa"])
+        assert result.output.splitlines() == ["2026-10-27 20:09  [Link](https://gist/9)", summary]
 
     @pytest.mark.parametrize("argv,num", [
         (["bookmarks"], BOOKMARKS_COUNT_DEFAULT),
@@ -671,8 +620,11 @@ class TestBookmarksCommand:
         assert result.exit_code == 0, result.output
         client.list_bookmarks.assert_called_once_with(num)
         assert result.output.splitlines() == [
-            "2026-10-27 20:07  task-b  [Link](https://gist/7)  Did the thing.",
-            "2026-10-27 20:01  task-a  [Link](https://gist/1)  Did the thing.",
+            "2026-10-27 20:07  task-b  [Link](https://gist/7)",
+            "Did the thing.",
+            "",
+            "2026-10-27 20:01  task-a  [Link](https://gist/1)",
+            "Did the thing.",
         ]
 
     @pytest.mark.parametrize("argv", [
@@ -710,17 +662,22 @@ class TestBookmarksCommand:
         assert "not found" in result.output
 
 
+def _span_styles(line: Text) -> dict[str, str]:
+    """Each styled stretch of *line*, by its text."""
+    return {line.plain[s.start:s.end]: str(s.style) for s in line.spans}
+
+
 class TestBookmarkRendering:
     def test_three_parts_in_three_colours(self, utc) -> None:
-        grid = _build_bookmarks_grid([_row(5)], with_task=False)
-        time_cell, link_cell, summary_cell = (list(c.cells)[0] for c in grid.columns)
-        assert time_cell.plain == "2026-10-27 20:05"
-        assert str(time_cell.style) == BOOKMARK_TIME_STYLE
-        # The link shows its text and carries the URL as a hyperlink.
-        assert link_cell.plain == BOOKMARK_LINK_TEXT
-        (span,) = link_cell.spans
-        assert str(span.style) == f"{BOOKMARK_LINK_STYLE} link https://gist/5"
-        assert (summary_cell.plain, str(summary_cell.style)) == ("Did the thing.", ONE_LINER_STYLE)
+        head, summary = _bookmark_lines(_row(5), terminal=True, with_task=False)
+        assert head.plain == f"2026-10-27 20:05  {BOOKMARK_LINK_TEXT}"
+        # The link shows its text and carries the URL as a hyperlink. The
+        # separator is unstyled, so the underline and the link stop at the word.
+        assert _span_styles(head) == {
+            "2026-10-27 20:05": BOOKMARK_TIME_STYLE,
+            BOOKMARK_LINK_TEXT: f"{BOOKMARK_LINK_STYLE} link https://gist/5",
+        }
+        assert (summary.plain, str(summary.style)) == ("Did the thing.", ONE_LINER_STYLE)
         colours = [
             {word for word in style.split() if word not in {"underline", "italic", "bold"}}
             for style in (BOOKMARK_TIME_STYLE, BOOKMARK_LINK_STYLE, ONE_LINER_STYLE)
@@ -728,26 +685,29 @@ class TestBookmarkRendering:
         assert all(len(c) == 1 for c in colours)
         assert len(set().union(*colours)) == 3
 
-    def test_all_tasks_add_the_name_column(self, utc) -> None:
-        grid = _build_bookmarks_grid([_row(5, task="task-b")], with_task=True)
-        name_cell = list(grid.columns[1].cells)[0]
-        assert isinstance(name_cell, Text)
-        assert name_cell.plain == "task-b"
-        assert "orange1" in str(name_cell.style)
+    def test_all_tasks_put_the_name_between_time_and_link(self, utc) -> None:
+        head, _ = _bookmark_lines(_row(5, task="task-b"), terminal=True, with_task=True)
+        assert head.plain == f"2026-10-27 20:05  task-b  {BOOKMARK_LINK_TEXT}"
+        assert _span_styles(head)["task-b"] == "bold orange1"
 
-    def test_a_narrow_terminal_wraps_only_the_summary(self, utc) -> None:
-        summary = "A summary long enough that it has to wrap at sixty columns."
+    def test_no_summary_is_one_line(self, utc) -> None:
+        assert len(_bookmark_lines(_row(5, " "), terminal=True, with_task=False)) == 1
+
+    def test_a_long_summary_wraps_on_lines_of_its_own(self, utc) -> None:
+        summary = "A summary long enough that it has to wrap in a forty-column window."
         out = io.StringIO()
-        narrow = Console(file=out, force_terminal=True, color_system=None, width=60)
+        narrow = Console(file=out, force_terminal=True, color_system=None, width=40)
         with patch("ilan.cli.console", narrow):
-            _print_bookmarks([_row(5, summary, task="full-of-bookmarks")], with_task=True)
-        first, *rest = out.getvalue().splitlines()
-        assert first.startswith(f"2026-10-27 20:05  full-of-bookmarks  {BOOKMARK_LINK_TEXT}  A summary")
-        assert rest, "the summary should have wrapped"
-        # Every continuation line sits under the summary, nothing else.
-        indent = first.index("A summary")
-        assert all(not line[:indent].strip() for line in rest)
-        assert " ".join(" ".join(line.split()) for line in [first[indent:], *rest]) == summary
+            _print_bookmarks([_row(5, summary), _row(1)], with_task=False)
+        lines = out.getvalue().splitlines()
+        blank = lines.index("")
+        first, wrapped, second = lines[0], lines[1:blank], lines[blank + 1:]
+        assert first == f"2026-10-27 20:05  {BOOKMARK_LINK_TEXT}"
+        # The summary starts at the left edge and wraps there, word by word.
+        assert len(wrapped) > 1
+        assert all(len(line) <= 40 for line in wrapped)
+        assert " ".join(" ".join(wrapped).split()) == summary
+        assert second == [f"2026-10-27 20:01  {BOOKMARK_LINK_TEXT}", "Did the thing."]
 
     def test_a_terminal_shows_link_text_and_hides_the_url(self, utc) -> None:
         url = "https://gist.github.com/u/" + "f" * 32 + "?permalink_comment_id=1#gistcomment-1"
@@ -759,4 +719,4 @@ class TestBookmarkRendering:
         assert f";{url}\x1b\\" in rendered  # the OSC 8 hyperlink target
         visible = re.sub(r"\x1b\]8;[^\x1b]*\x1b\\|\x1b\[[0-9;]*m", "", rendered)
         assert url not in visible
-        assert visible.split() == ["2026-10-27", "20:05", BOOKMARK_LINK_TEXT, "Did", "the", "thing."]
+        assert visible.splitlines() == [f"2026-10-27 20:05  {BOOKMARK_LINK_TEXT}", "Did the thing."]

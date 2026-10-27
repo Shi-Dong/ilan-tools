@@ -3087,8 +3087,8 @@ BOOKMARK_TIME_STYLE = "green"
 BOOKMARK_LINK_STYLE = "underline bright_blue"
 # What a bookmark's link shows in place of its URL, as `[Link](url)` does.
 BOOKMARK_LINK_TEXT = "Link"
-# Room between the parts of a bookmark, as between the fields of `ilan info`.
-BOOKMARK_COLUMN_PADDING = (0, 2)
+# Between the parts of a bookmark's first line, as between `ilan info`'s fields.
+BOOKMARK_SEPARATOR = "  "
 
 
 def _bookmark_link(url: str, *, terminal: bool) -> Text:
@@ -3110,9 +3110,15 @@ def _bookmark_link(url: str, *, terminal: bool) -> Text:
     return text
 
 
-def _bookmark_cells(bookmark: dict, *, terminal: bool, with_task: bool) -> list[Text]:
-    """The parts of one bookmark: time, then its task's name if asked, link, summary."""
-    cells = [
+def _bookmark_lines(bookmark: dict, *, terminal: bool, with_task: bool) -> list[Text]:
+    """The lines one bookmark prints as.
+
+    The first holds its time, then its task's name when asked for, then its
+    link. The summary follows on a line of its own: it can run long, and there
+    it has the whole width to wrap in. A bookmark without a summary is its
+    first line alone.
+    """
+    head = [
         Text(
             _format_date_minute(bookmark.get("created_at") or ""),
             style=BOOKMARK_TIME_STYLE,
@@ -3121,40 +3127,27 @@ def _bookmark_cells(bookmark: dict, *, terminal: bool, with_task: bool) -> list[
     if with_task:
         engine = bookmark.get("engine") or DEFAULT_ENGINE
         name_style = f"bold {ENGINE_NAME_STYLE.get(engine, '')}".strip()
-        cells.append(Text(bookmark["task"], style=name_style))
-    cells.append(_bookmark_link(bookmark["url"], terminal=terminal))
-    cells.append(Text(bookmark.get("summary") or "", style=ONE_LINER_STYLE))
-    return cells
-
-
-def _build_bookmarks_grid(bookmarks: list[dict], *, with_task: bool) -> Table:
-    """Lay out bookmarks one per row, their parts aligned in columns.
-
-    The summary is the part that runs long, so it is the only column that
-    wraps, under itself rather than back at the left edge. A task name stays
-    whole, as everywhere else a name is printed.
-    """
-    grid = Table.grid(padding=BOOKMARK_COLUMN_PADDING)
-    grid.add_column(no_wrap=True)
-    if with_task:
-        grid.add_column(no_wrap=True)
-    grid.add_column(no_wrap=True)
-    grid.add_column(overflow="fold")
-    for bookmark in bookmarks:
-        grid.add_row(*_bookmark_cells(bookmark, terminal=True, with_task=with_task))
-    return grid
+        head.append(Text(bookmark["task"], style=name_style))
+    head.append(_bookmark_link(bookmark["url"], terminal=terminal))
+    lines = [Text(BOOKMARK_SEPARATOR).join(head)]
+    if summary := (bookmark.get("summary") or "").strip():
+        lines.append(Text(summary, style=ONE_LINER_STYLE))
+    return lines
 
 
 def _print_bookmarks(bookmarks: list[dict], *, with_task: bool) -> None:
-    """Print bookmarks in the order given, which the server makes newest first."""
-    if console.is_terminal:
-        console.print(_build_bookmarks_grid(bookmarks, with_task=with_task))
-        return
-    # Piped or redirected: one unwrapped line per bookmark, so each stays
-    # whole for `grep` and its link's Markdown stays intact.
-    for bookmark in bookmarks:
-        cells = _bookmark_cells(bookmark, terminal=False, with_task=with_task)
-        console.print(Text("  ").join(c for c in cells if c.plain), soft_wrap=True)
+    """Print bookmarks in the order given, which the server makes newest first.
+
+    A blank line separates each bookmark from the next. In a terminal a long
+    summary wraps at the window's edge; piped or redirected nothing wraps, so
+    every line stays whole for `grep` and each link's Markdown stays intact.
+    """
+    terminal = console.is_terminal
+    for position, bookmark in enumerate(bookmarks):
+        if position:
+            console.print()
+        for line in _bookmark_lines(bookmark, terminal=terminal, with_task=with_task):
+            console.print(line, soft_wrap=not terminal)
 
 
 def _check_bookmark_error(resp: dict) -> bool:
@@ -3221,17 +3214,19 @@ _BOOKMARK_DETAILS = (
     "Saves the link to that reply's comment on the task's GitHub Gist, "
     "together with the task's current one-line summary (left empty if there "
     "is none yet). Needs Gist mirroring: without a github-token the bookmark "
-    f"is refused. A task keeps its {MAX_BOOKMARKS} newest bookmarks, so a new "
-    "one past that removes the oldest, and bookmarking the same reply again "
-    "updates its bookmark instead of adding another. 'ilan bookmarks NAME' "
-    "lists them."
+    "is refused. A branched task is refused too until it has replied since "
+    f"it was branched. A task keeps its {MAX_BOOKMARKS} newest bookmarks, so "
+    "a new one past that removes the oldest, and bookmarking the same reply "
+    "again updates its bookmark instead of adding another. 'ilan bookmarks "
+    "NAME' lists them."
 )
 _BOOKMARKS_SUMMARY = "List the bookmarks of a task or of all tasks."
 _BOOKMARKS_DETAILS = (
-    "Newest first, each with the time it was saved, its link, and its "
-    "one-line summary. With NAME, every bookmark of that task, closed tasks "
-    "included. Without it, the most recent bookmarks across all tasks, each "
-    "with its task's name after the time; -n says how many."
+    "Newest first, two lines each: the time it was saved and its link, then "
+    "its one-line summary, with a blank line between bookmarks. With NAME, "
+    "every bookmark of that task, closed tasks included. Without it, the most "
+    "recent bookmarks across all tasks, each with its task's name after the "
+    "time; -n says how many."
 )
 
 
