@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import itertools
 import os
 import random
 import re
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -344,6 +346,15 @@ def display_status(
 # more evicts the oldest, so bookmarking never fails for want of room.
 MAX_BOOKMARKS = 16
 
+# A bookmark's hash is this many random bytes, written as twice as many hex
+# digits: short enough to print in full on every bookmark line, long enough
+# that a fresh one rarely shares more than its first few digits.
+BOOKMARK_HASH_BYTES = 4
+
+# The shortest prefix that names a bookmark. One hex digit is never enough to
+# type with confidence, however few bookmarks there are.
+MIN_BOOKMARK_PREFIX = 2
+
 
 @dataclass(frozen=True)
 class Bookmark:
@@ -353,14 +364,31 @@ class Bookmark:
     mirrors the conversation. ``summary`` is the task's one-line summary when
     the bookmark was saved, empty if it had none. ``created_at`` is when the
     bookmark was saved, as a UTC ISO timestamp.
+
+    ``hash`` names the bookmark for ``ilan bookmark-open`` and
+    ``ilan bookmark-rm``. The server mints it at random, unique among all
+    bookmarks (see :func:`new_bookmark_hash`). A bookmark built without one,
+    as a hand-edited store might hold, gets one derived from its URL, so it
+    still reads the same from one load to the next.
     """
 
     created_at: str
     url: str
     summary: str = ""
+    hash: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.hash:
+            derived = hashlib.sha1(self.url.encode()).hexdigest()[: 2 * BOOKMARK_HASH_BYTES]
+            object.__setattr__(self, "hash", derived)
 
     def to_dict(self) -> dict[str, str]:
-        return {"created_at": self.created_at, "url": self.url, "summary": self.summary}
+        return {
+            "hash": self.hash,
+            "created_at": self.created_at,
+            "url": self.url,
+            "summary": self.summary,
+        }
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Bookmark:
@@ -368,7 +396,36 @@ class Bookmark:
             created_at=d.get("created_at", ""),
             url=d.get("url", ""),
             summary=d.get("summary") or "",
+            hash=d.get("hash") or "",
         )
+
+
+def new_bookmark_hash(taken: Collection[str]) -> str:
+    """Return a random bookmark hash that no hash in *taken* already is."""
+    while True:
+        candidate = os.urandom(BOOKMARK_HASH_BYTES).hex()
+        if candidate not in taken:
+            return candidate
+
+
+def unique_prefixes(hashes: Iterable[str], minimum: int = MIN_BOOKMARK_PREFIX) -> dict[str, str]:
+    """Map each hash to the shortest prefix of it that no other hash shares.
+
+    The prefix is never shorter than *minimum* (nor longer than the hash). In
+    sorted order a hash shares the most leading characters with one of its
+    two neighbours, so those two are the only ones it is compared against.
+    Computed afresh from whatever hashes exist, so a prefix grows when a new
+    hash starts the same way and shrinks again when that one is removed.
+    """
+    ordered = sorted(set(hashes))
+    prefixes: dict[str, str] = {}
+    for i, current in enumerate(ordered):
+        length = minimum
+        for neighbour in ordered[max(0, i - 1):i] + ordered[i + 1:i + 2]:
+            shared = len(os.path.commonprefix([current, neighbour]))
+            length = max(length, shared + 1)
+        prefixes[current] = current[:length]
+    return prefixes
 
 
 @dataclass
@@ -754,6 +811,16 @@ class Task:
         engine = d.get("engine") or DEFAULT_ENGINE
         pinned = _PINNED_MAX_MODELS.get(engine, _PINNED_MAX_MODELS[DEFAULT_ENGINE])
         return d.get("model") in pinned
+
+
+def bookmarks_matching(tasks: Iterable[Task], ref: str) -> list[tuple[Task, Bookmark]]:
+    """Every bookmark whose hash starts with *ref*, each with its task.
+
+    *ref* is a whole hash or a prefix of one, in any case; one match is the
+    bookmark it names, and more than one means it is too short to tell apart.
+    """
+    ref = ref.lower()
+    return [(task, b) for task in tasks for b in task.bookmarks if b.hash.startswith(ref)]
 
 
 # Budget label for a spawn billed to an API key rather than a subscription.

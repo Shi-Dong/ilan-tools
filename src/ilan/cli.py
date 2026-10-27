@@ -48,6 +48,7 @@ from ilan.models import (
     ENGINE_NAME_STYLE,
     MAX_BOOKMARKS,
     MAX_NOTES_LENGTH,
+    MIN_BOOKMARK_PREFIX,
     REASONING_LEVELS,
     REPLY_EVERY_MIN_SECONDS,
     TAP_MESSAGE,
@@ -3089,6 +3090,13 @@ BOOKMARK_LINK_STYLE = "underline bright_blue"
 BOOKMARK_LINK_TEXT = "Link"
 # Between the parts of a bookmark's first line, as between `ilan info`'s fields.
 BOOKMARK_SEPARATOR = "  "
+# The bookmark's hash follows its link. Its unique prefix, the part you type
+# to name the bookmark, is underlined and magenta, a hue nothing else on the
+# line uses; the rest of the hash is grey, there only to make it whole.
+BOOKMARK_HASH_PREFIX_STYLE = "underline magenta"
+BOOKMARK_HASH_REST_STYLE = "grey50"
+# What a BOOKMARK_HASH argument may be made of, once lowercased.
+_BOOKMARK_HASH_RE = re.compile(r"^[0-9a-f]+$")
 
 
 def _bookmark_link(url: str, *, terminal: bool) -> Text:
@@ -3110,13 +3118,23 @@ def _bookmark_link(url: str, *, terminal: bool) -> Text:
     return text
 
 
+def _bookmark_hash_text(bookmark: dict) -> Text:
+    """A bookmark's hash, its unique prefix set apart from the rest."""
+    full = bookmark.get("hash") or ""
+    prefix = bookmark.get("prefix") or full[:MIN_BOOKMARK_PREFIX]
+    text = Text()
+    text.append(prefix, style=BOOKMARK_HASH_PREFIX_STYLE)
+    text.append(full[len(prefix):], style=BOOKMARK_HASH_REST_STYLE)
+    return text
+
+
 def _bookmark_lines(bookmark: dict, *, terminal: bool, with_task: bool) -> list[Text]:
     """The lines one bookmark prints as.
 
     The first holds its time, then its task's name when asked for, then its
-    link. The summary follows on a line of its own: it can run long, and there
-    it has the whole width to wrap in. A bookmark without a summary is its
-    first line alone.
+    link and its hash. The summary follows on a line of its own: it can run
+    long, and there it has the whole width to wrap in. A bookmark without a
+    summary is its first line alone.
     """
     head = [
         Text(
@@ -3129,6 +3147,7 @@ def _bookmark_lines(bookmark: dict, *, terminal: bool, with_task: bool) -> list[
         name_style = f"bold {ENGINE_NAME_STYLE.get(engine, '')}".strip()
         head.append(Text(bookmark["task"], style=name_style))
     head.append(_bookmark_link(bookmark["url"], terminal=terminal))
+    head.append(_bookmark_hash_text(bookmark))
     lines = [Text(BOOKMARK_SEPARATOR).join(head)]
     if summary := (bookmark.get("summary") or "").strip():
         lines.append(Text(summary, style=ONE_LINER_STYLE))
@@ -3181,7 +3200,7 @@ def _do_bookmark(name: str) -> None:
     console.print(line)
     for old in resp.get("evicted") or []:
         console.print(Text(
-            f"Removed the oldest bookmark, from "
+            f"Removed the oldest bookmark, {old.get('hash', '')} from "
             f"{_format_date_minute(old.get('created_at') or '')}, "
             f"to keep {resp['limit']}.",
             style="yellow",
@@ -3217,16 +3236,18 @@ _BOOKMARK_DETAILS = (
     "is refused. A branched task is refused too until it has replied since "
     f"it was branched. A task keeps its {MAX_BOOKMARKS} newest bookmarks, so "
     "a new one past that removes the oldest, and bookmarking the same reply "
-    "again updates its bookmark instead of adding another. 'ilan bookmarks "
-    "NAME' lists them."
+    "again updates its bookmark, hash and all, instead of adding another. "
+    "'ilan bookmarks NAME' lists them."
 )
 _BOOKMARKS_SUMMARY = "List the bookmarks of a task or of all tasks."
 _BOOKMARKS_DETAILS = (
-    "Newest first, two lines each: the time it was saved and its link, then "
-    "its one-line summary, with a blank line between bookmarks. With NAME, "
-    "every bookmark of that task, closed tasks included. Without it, the most "
-    "recent bookmarks across all tasks, each with its task's name after the "
-    "time; -n says how many."
+    "Newest first, two lines each: the time it was saved, its link and its "
+    "hash, then its one-line summary, with a blank line between bookmarks. "
+    "The underlined start of a hash is the shortest part of it that no other "
+    "bookmark shares, and names the bookmark for 'ilan bookmark-open' and "
+    "'ilan bookmark-rm'. With NAME, every bookmark of that task, closed tasks "
+    "included. Without it, the most recent bookmarks across all tasks, each "
+    "with its task's name after the time; -n says how many."
 )
 
 
@@ -3255,6 +3276,85 @@ def task_bookmarks(name: str | None, num: int | None) -> None:
             "-n counts bookmarks across all tasks; it cannot be used with a task name."
         )
     _do_bookmarks(name, num)
+
+
+# ── bookmark-open / bookmark-rm ──────────────────────────────────────
+#
+# Top-level only: a bookmark is named by its hash, whichever task holds it,
+# so these two take no task and have no `ilan task …` form.
+
+def _bookmark_hash_param(ctx: click.Context, param: click.Parameter, value: str) -> str:
+    """Check a BOOKMARK_HASH before any server is asked about it."""
+    ref = value.strip().lower()
+    if len(ref) < MIN_BOOKMARK_PREFIX or not _BOOKMARK_HASH_RE.match(ref):
+        raise click.BadParameter(
+            f"give at least {MIN_BOOKMARK_PREFIX} characters of a bookmark's "
+            "hash (0-9, a-f), as 'ilan bookmarks' prints it."
+        )
+    return ref
+
+
+def _do_bookmark_open(ref: str) -> None:
+    resp = _client().get_bookmark(ref)
+    if _check_bookmark_error(resp):
+        raise SystemExit(1)
+    bookmark = resp["bookmark"]
+    line = Text("Opening bookmark ")
+    line.append_text(_bookmark_hash_text(bookmark))
+    line.append(f" of {bookmark['task']}.")
+    console.print(line)
+    if not webbrowser.open(bookmark["url"]):
+        console.print(Text(f"Could not open a browser. The link is {bookmark['url']}", style="yellow"))
+        raise SystemExit(1)
+
+
+def _do_bookmark_rm(ref: str, yes: bool) -> None:
+    client = _client()
+    resp = client.get_bookmark(ref)
+    if _check_bookmark_error(resp):
+        raise SystemExit(1)
+    bookmark = resp["bookmark"]
+    _print_bookmarks([bookmark], with_task=True)
+    if not yes and not click.confirm("Remove this bookmark permanently?", default=False):
+        return
+    # By the whole hash: a prefix that named one bookmark a moment ago could
+    # name two by now.
+    resp = client.remove_bookmark(bookmark["hash"])
+    if _check_bookmark_error(resp):
+        raise SystemExit(1)
+    line = Text("Removed bookmark ", style="green")
+    line.append_text(_bookmark_hash_text(bookmark))
+    line.append(" of ", style="green")
+    line.append(bookmark["task"], style="bold green")
+    line.append(".", style="green")
+    console.print(line)
+
+
+_BOOKMARK_HASH_HELP = (
+    "BOOKMARK_HASH is the hash 'ilan bookmarks' prints after a bookmark's "
+    "link, or its underlined start: any first "
+    f"{MIN_BOOKMARK_PREFIX} or more characters that no other bookmark's hash "
+    "starts with."
+)
+
+
+@main.command("bookmark-open", help=f"Open a bookmark in your browser. {_BOOKMARK_HASH_HELP}")
+@click.argument("bookmark_hash", metavar="BOOKMARK_HASH", callback=_bookmark_hash_param)
+def bookmark_open(bookmark_hash: str) -> None:
+    _do_bookmark_open(bookmark_hash)
+
+
+@main.command(
+    "bookmark-rm",
+    help=(
+        "Remove a bookmark permanently. It is shown first and you are asked "
+        f"to confirm; -y skips the question. {_BOOKMARK_HASH_HELP}"
+    ),
+)
+@click.argument("bookmark_hash", metavar="BOOKMARK_HASH", callback=_bookmark_hash_param)
+@click.option("-y", "--yes", is_flag=True, help="Remove without asking.")
+def bookmark_rm(bookmark_hash: str, yes: bool) -> None:
+    _do_bookmark_rm(bookmark_hash, yes)
 
 
 # ── task rm ──────────────────────────────────────────────────────────

@@ -229,6 +229,9 @@ class Client:
         """Bookmarks across every task, newest first; *num* caps how many."""
         return self.get("/bookmarks" if num is None else f"/bookmarks?n={num}")
 
+    def get_bookmark(self, ref: str) -> dict:     return self.get(f"/bookmarks/{ref}")
+    def remove_bookmark(self, ref: str) -> dict:  return self.delete(f"/bookmarks/{ref}")
+
     def rename_task(self, old_name: str, new_name: str) -> dict:
         return self.post(f"/tasks/{old_name}/rename", {"new_name": new_name})
 

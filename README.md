@@ -132,7 +132,9 @@ the child inherits its parent's backend.
 | `ilan pin NAME` / `ilan unpin NAME` | Keep a task at the top of every listing, even after it is closed. |
 | `ilan unread NAME…` | Put the `!!` marker back on tasks. |
 | `ilan bookmark NAME` | Save a link to the task's latest reply on its Gist, with the task's one-line summary. Needs Gist mirroring, and a branched task must have replied since it was branched. A task keeps its 16 newest bookmarks; bookmarking the same reply again updates its bookmark. |
-| `ilan bookmarks [NAME \| -n N]` | List bookmarks newest first, two lines each: the time (`YYYY-MM-DD hh:mm`) and a clickable `Link`, then the summary. With `NAME`, every bookmark of that task, closed or not; without it, the 10 newest across all tasks with their task names, or `N` of them with `-n`. |
+| `ilan bookmarks [NAME \| -n N]` | List bookmarks newest first, two lines each: the time (`YYYY-MM-DD hh:mm`), a clickable `Link` and the bookmark's hash, then the summary. The hash's underlined start is the shortest part of it that no other bookmark shares. With `NAME`, every bookmark of that task, closed or not; without it, the 10 newest across all tasks with their task names, or `N` of them with `-n`. |
+| `ilan bookmark-open HASH` | Open a bookmark in the browser. `HASH` is the bookmark's hash, or its underlined unique start (at least 2 characters). |
+| `ilan bookmark-rm [-y] HASH` | Remove a bookmark permanently, after showing it and asking; `-y` skips the question. |
 
 ### Change how a task runs
 

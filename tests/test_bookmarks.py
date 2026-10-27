@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import io
 import json
+import random
 import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
@@ -18,6 +20,8 @@ import ilan.server as srv_mod
 from ilan import config as cfg
 from ilan import gist as gist_mod
 from ilan.cli import (
+    BOOKMARK_HASH_PREFIX_STYLE,
+    BOOKMARK_HASH_REST_STYLE,
     BOOKMARK_LINK_STYLE,
     BOOKMARK_LINK_TEXT,
     BOOKMARK_TIME_STYLE,
@@ -26,7 +30,17 @@ from ilan.cli import (
     _print_bookmarks,
     main,
 )
-from ilan.models import MAX_BOOKMARKS, Bookmark, LogEntry, Task, TaskStatus
+from ilan import models as models_mod
+from ilan.models import (
+    MAX_BOOKMARKS,
+    Bookmark,
+    LogEntry,
+    Task,
+    TaskStatus,
+    bookmarks_matching,
+    new_bookmark_hash,
+    unique_prefixes,
+)
 from ilan.server import IlanServer
 from ilan.task_display import ONE_LINER_STYLE
 
@@ -88,10 +102,61 @@ class TestBookmarkModel:
 
     def test_round_trip_through_the_store_format(self) -> None:
         task = Task(name="t-one", prompt="p")
-        task.add_bookmark(Bookmark(_stamp(0), "u0", "summary"))
+        task.add_bookmark(Bookmark(_stamp(0), "u0", "summary", hash="0123abcd"))
         d = task.to_dict()
-        assert d["bookmarks"] == [{"created_at": _stamp(0), "url": "u0", "summary": "summary"}]
+        assert d["bookmarks"] == [
+            {"hash": "0123abcd", "created_at": _stamp(0), "url": "u0", "summary": "summary"},
+        ]
         assert Task.from_dict(d).bookmarks == task.bookmarks
+
+    def test_a_bookmark_without_a_hash_gets_one_from_its_url(self) -> None:
+        first = Bookmark.from_dict({"created_at": _stamp(0), "url": "https://gist/1"})
+        again = Bookmark(_stamp(9), "https://gist/1")
+        other = Bookmark(_stamp(0), "https://gist/2")
+        assert re.fullmatch(r"[0-9a-f]{8}", first.hash)
+        # The same on every load, and different for a different reply.
+        assert first.hash == again.hash != other.hash
+
+
+class TestBookmarkHashes:
+    def test_a_new_hash_is_eight_hex_digits(self) -> None:
+        assert re.fullmatch(r"[0-9a-f]{8}", new_bookmark_hash(set()))
+
+    def test_a_new_hash_avoids_every_taken_one(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        draws = iter([bytes.fromhex("aaaa1111"), bytes.fromhex("bbbb2222")])
+        monkeypatch.setattr(models_mod.os, "urandom", lambda n: next(draws))
+        assert new_bookmark_hash({"aaaa1111"}) == "bbbb2222"
+
+    @pytest.mark.parametrize("hashes,expected", [
+        ([], {}),
+        # Never shorter than two characters, even alone.
+        (["4f3a9c2e"], {"4f3a9c2e": "4f"}),
+        (["12345678", "9abcdef0"], {"12345678": "12", "9abcdef0": "9a"}),
+        # One more character than the longest start shared with another hash.
+        (["abcd1234", "abef5678"], {"abcd1234": "abc", "abef5678": "abe"}),
+        (["aa110000", "aa120000", "ab000000"],
+         {"aa110000": "aa11", "aa120000": "aa12", "ab000000": "ab"}),
+        # Hashes that differ only at the end need all of it.
+        (["ab000000", "ab000001"], {"ab000000": "ab000000", "ab000001": "ab000001"}),
+    ])
+    def test_unique_prefixes(self, hashes: list[str], expected: dict[str, str]) -> None:
+        assert unique_prefixes(hashes) == expected
+
+    def test_every_prefix_names_exactly_one_hash(self) -> None:
+        rng = random.Random(0)
+        hashes = [f"{rng.getrandbits(32):08x}" for _ in range(300)]
+        prefixes = unique_prefixes(hashes)
+        assert len(prefixes) == 300
+        for full, prefix in prefixes.items():
+            assert len(prefix) >= 2
+            assert [h for h in prefixes if h.startswith(prefix)] == [full]
+
+    def test_matching_takes_any_case(self) -> None:
+        one = Task(name="t-one", prompt="p", bookmarks=[Bookmark("t", "u1", hash="abcd1234")])
+        two = Task(name="t-two", prompt="p", bookmarks=[Bookmark("t", "u2", hash="abef5678")])
+        assert [b.hash for _, b in bookmarks_matching([one, two], "ABC")] == ["abcd1234"]
+        assert len(bookmarks_matching([one, two], "ab")) == 2
+        assert bookmarks_matching([one, two], "ff") == []
 
     def test_a_task_saved_before_bookmarks_loads_with_none(self) -> None:
         assert Task.from_dict({"name": "old", "prompt": "p", "status": "WORKING"}).bookmarks == []
@@ -437,10 +502,13 @@ class TestListBookmarks:
         assert [(r["task"], r["created_at"]) for r in rows] == [
             ("task-a", _stamp(4)), ("task-b", _stamp(3)), ("task-b", _stamp(2)), ("task-a", _stamp(1)),
         ]
-        assert rows[1] == {
+        row = rows[1]
+        assert row == {
             "task": "task-b", "engine": "codex", "created_at": _stamp(3),
             "url": "https://task-b/3", "summary": "task-b 3",
+            "hash": Bookmark(_stamp(3), "https://task-b/3").hash, "prefix": row["prefix"],
         }
+        assert row["hash"].startswith(row["prefix"]) and len(row["prefix"]) >= 2
 
     def test_n_keeps_the_most_recent(self, ilan_server: IlanServer) -> None:
         _seed_bookmarks(ilan_server, "task-a", [1, 4])
@@ -492,6 +560,116 @@ class TestBookmarksFollowTheTask:
         assert _get(ilan_server, "/bookmarks")["bookmarks"][0]["task"] == "new-name"
 
 
+def _delete(server: IlanServer, path: str) -> dict:
+    url = f"{server._test_url}{path}"  # type: ignore[attr-defined]
+    try:
+        with urlopen(Request(url, method="DELETE"), timeout=5) as resp:
+            return json.loads(resp.read())
+    except HTTPError as exc:
+        return json.loads(exc.read())
+
+
+def _seed_hashed(server: IlanServer, name: str, hashes: list[str]) -> None:
+    """A task holding one bookmark per hash in *hashes*, oldest first."""
+    _add_task(server, name)
+    with server.lock:
+        task = server.store.get_task(name)
+        for i, bookmark_hash in enumerate(hashes):
+            task.add_bookmark(Bookmark(_stamp(i), f"https://{name}/{i}", f"{name} {i}", bookmark_hash))
+        server.store.put_task(task)
+
+
+@pytest.fixture()
+def hashed(ilan_server: IlanServer) -> IlanServer:
+    """Hashes ``abc11111`` on task-a, ``abd22222`` and ``f0000000`` on task-b."""
+    _seed_hashed(ilan_server, "task-a", ["abc11111"])
+    _seed_hashed(ilan_server, "task-b", ["abd22222", "f0000000"])
+    return ilan_server
+
+
+class TestBookmarkHashesOnTheServer:
+    def test_a_new_bookmark_gets_a_hash_no_task_has(
+        self, ilan_server: IlanServer, github, monkeypatch,
+    ) -> None:
+        _seed_hashed(ilan_server, "other-task", ["aaaa1111"])
+        _add_task(ilan_server, "bm-task")
+        taken: list[list[str]] = []
+
+        def fake_new(hashes: list[str]) -> str:
+            taken.append(sorted(hashes))
+            return "feedc0de"
+
+        monkeypatch.setattr(srv_mod, "new_bookmark_hash", fake_new)
+        resp = _post(ilan_server, "/tasks/bm-task/bookmarks")
+        assert (resp["bookmark"]["hash"], resp["bookmark"]["prefix"]) == ("feedc0de", "fe")
+        # Unique among the bookmarks of every task, not just this one.
+        assert taken == [["aaaa1111"]]
+        assert _bookmarks(ilan_server, "bm-task")[0].hash == "feedc0de"
+
+    def test_the_hash_is_eight_hex_digits(self, ilan_server: IlanServer, github) -> None:
+        _add_task(ilan_server, "bm-task")
+        saved = _post(ilan_server, "/tasks/bm-task/bookmarks")["bookmark"]
+        assert re.fullmatch(r"[0-9a-f]{8}", saved["hash"])
+        assert saved["hash"].startswith(saved["prefix"])
+
+    def test_bookmarking_the_same_reply_keeps_its_hash(self, ilan_server: IlanServer, github) -> None:
+        _add_task(ilan_server, "bm-task")
+        first = _post(ilan_server, "/tasks/bm-task/bookmarks")["bookmark"]["hash"]
+        again = _post(ilan_server, "/tasks/bm-task/bookmarks")
+        assert again["replaced"] is True
+        assert again["bookmark"]["hash"] == first
+
+    def test_prefixes_are_unique_across_all_tasks(self, hashed: IlanServer) -> None:
+        # task-a's only bookmark still needs three characters, for task-b's.
+        rows = _get(hashed, "/tasks/task-a/bookmarks")["bookmarks"]
+        assert [(r["hash"], r["prefix"]) for r in rows] == [("abc11111", "abc")]
+        rows = _get(hashed, "/bookmarks")["bookmarks"]
+        assert {r["hash"]: r["prefix"] for r in rows} == {
+            "abc11111": "abc", "abd22222": "abd", "f0000000": "f0",
+        }
+
+    @pytest.mark.parametrize("ref", ["abc", "ABC", "abc1", "abc11111"])
+    def test_a_unique_prefix_or_the_whole_hash_finds_it(self, hashed: IlanServer, ref: str) -> None:
+        found = _get(hashed, f"/bookmarks/{ref}")["bookmark"]
+        assert (found["task"], found["hash"], found["prefix"]) == ("task-a", "abc11111", "abc")
+        assert (found["url"], found["summary"]) == ("https://task-a/0", "task-a 0")
+
+    def test_a_shared_prefix_is_refused_naming_every_match(self, hashed: IlanServer) -> None:
+        assert _get(hashed, "/bookmarks/ab")["error"] == (
+            "ab starts 2 bookmark hashes: abc11111 (task-a), abd22222 (task-b). "
+            "Give more of the hash."
+        )
+
+    @pytest.mark.parametrize("ref", ["a", "zz", "ab-c"])
+    def test_a_malformed_hash_is_refused(self, hashed: IlanServer, ref: str) -> None:
+        assert "is not a bookmark hash" in _get(hashed, f"/bookmarks/{ref}")["error"]
+
+    def test_no_match(self, hashed: IlanServer) -> None:
+        assert _get(hashed, "/bookmarks/99")["error"] == "No bookmark has a hash starting with 99."
+
+    def test_removing_deletes_that_bookmark_only(self, hashed: IlanServer) -> None:
+        resp = _delete(hashed, "/bookmarks/abd")
+        assert resp["ok"] is True
+        removed = resp["bookmark"]
+        assert (removed["task"], removed["hash"], removed["prefix"]) == ("task-b", "abd22222", "abd")
+        # Its task keeps its other bookmark, and the other task keeps its own.
+        assert [b.hash for b in _bookmarks(hashed, "task-b")] == ["f0000000"]
+        assert [b.hash for b in _bookmarks(hashed, "task-a")] == ["abc11111"]
+        assert "No bookmark" in _get(hashed, "/bookmarks/abd22222")["error"]
+        # With its neighbour gone, the other hash's prefix shrinks back to two.
+        assert _get(hashed, "/bookmarks/ab")["bookmark"]["prefix"] == "ab"
+
+    def test_removing_by_a_shared_prefix_removes_nothing(self, hashed: IlanServer) -> None:
+        assert "Give more of the hash" in _delete(hashed, "/bookmarks/ab")["error"]
+        assert len(_bookmarks(hashed, "task-a")) == 1
+        assert len(_bookmarks(hashed, "task-b")) == 2
+
+    def test_a_closed_task_s_bookmark_can_be_removed(self, hashed: IlanServer) -> None:
+        _post(hashed, "/tasks/task-a/done")
+        assert _delete(hashed, "/bookmarks/abc")["ok"] is True
+        assert _bookmarks(hashed, "task-a") == []
+
+
 # ── CLI ─────────────────────────────────────────────────────────────────
 
 
@@ -514,7 +692,11 @@ def _client(**responses: dict) -> MagicMock:
 
 
 def _row(minute: int, summary: str = "Did the thing.", task: str | None = None) -> dict:
-    row = {"created_at": _stamp(minute), "url": f"https://gist/{minute}", "summary": summary}
+    """A bookmark as the server returns it; its hash is ``<minute>c0ffee`` in hex."""
+    row = {
+        "created_at": _stamp(minute), "url": f"https://gist/{minute}", "summary": summary,
+        "hash": f"{minute:02x}c0ffee", "prefix": f"{minute:02x}c",
+    }
     if task is not None:
         row.update(task=task, engine="claude")
     return row
@@ -537,7 +719,7 @@ class TestBookmarkCommand:
         client.add_bookmark.assert_called_once_with("aa")
         assert result.output.splitlines() == [
             f"Bookmarked the latest reply of my-task (3 of {MAX_BOOKMARKS}).",
-            "2026-10-27 20:05  [Link](https://gist/5)",
+            "2026-10-27 20:05  [Link](https://gist/5)  05c0ffee",
             "Did the thing.",
         ]
 
@@ -552,7 +734,7 @@ class TestBookmarkCommand:
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["bookmark", "aa"])
         assert (
-            f"Removed the oldest bookmark, from 2026-10-27 20:00, to keep {MAX_BOOKMARKS}."
+            f"Removed the oldest bookmark, 00c0ffee from 2026-10-27 20:00, to keep {MAX_BOOKMARKS}."
             in result.output
         )
 
@@ -595,10 +777,10 @@ class TestBookmarksCommand:
         # summary under them, and a blank line before the next bookmark. A
         # bookmark with no summary is its first line alone.
         assert result.output.splitlines() == [
-            "2026-10-27 20:09  [Link](https://gist/9)",
+            "2026-10-27 20:09  [Link](https://gist/9)  09c0ffee",
             "Did the thing.",
             "",
-            "2026-10-27 20:02  [Link](https://gist/2)",
+            "2026-10-27 20:02  [Link](https://gist/2)  02c0ffee",
         ]
 
     def test_piped_a_long_summary_stays_on_one_line(self, runner: CliRunner, utc) -> None:
@@ -606,7 +788,7 @@ class TestBookmarksCommand:
         client = _client(get_bookmarks={"name": "my-task", "bookmarks": [_row(9, summary)]})
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["bookmarks", "aa"])
-        assert result.output.splitlines() == ["2026-10-27 20:09  [Link](https://gist/9)", summary]
+        assert result.output.splitlines() == ["2026-10-27 20:09  [Link](https://gist/9)  09c0ffee", summary]
 
     @pytest.mark.parametrize("argv,num", [
         (["bookmarks"], BOOKMARKS_COUNT_DEFAULT),
@@ -620,10 +802,10 @@ class TestBookmarksCommand:
         assert result.exit_code == 0, result.output
         client.list_bookmarks.assert_called_once_with(num)
         assert result.output.splitlines() == [
-            "2026-10-27 20:07  task-b  [Link](https://gist/7)",
+            "2026-10-27 20:07  task-b  [Link](https://gist/7)  07c0ffee",
             "Did the thing.",
             "",
-            "2026-10-27 20:01  task-a  [Link](https://gist/1)",
+            "2026-10-27 20:01  task-a  [Link](https://gist/1)  01c0ffee",
             "Did the thing.",
         ]
 
@@ -662,6 +844,130 @@ class TestBookmarksCommand:
         assert "not found" in result.output
 
 
+def _found(**overrides) -> dict:
+    """What the server answers when a hash names one bookmark."""
+    return {"bookmark": {**_row(5, task="my-task"), **overrides}}
+
+
+class TestBookmarkOpen:
+    def test_opens_the_link_in_the_browser(self, runner: CliRunner, utc) -> None:
+        client = _client(get_bookmark=_found())
+        with patch("ilan.cli._client", return_value=client), \
+                patch("ilan.cli.webbrowser.open", return_value=True) as browser:
+            result = runner.invoke(main, ["bookmark-open", "05C"])
+        assert result.exit_code == 0, result.output
+        # Any case is accepted, and asked about in lower case.
+        client.get_bookmark.assert_called_once_with("05c")
+        browser.assert_called_once_with("https://gist/5")
+        assert result.output == "Opening bookmark 05c0ffee of my-task.\n"
+
+    @pytest.mark.parametrize("ref", ["0", "zz", "05-c"])
+    def test_a_malformed_hash_never_reaches_the_server(self, runner: CliRunner, ref: str) -> None:
+        with patch("ilan.cli._client") as client, patch("ilan.cli.webbrowser.open") as browser:
+            result = runner.invoke(main, ["bookmark-open", ref])
+        assert result.exit_code == 2
+        assert "at least 2 characters" in result.output
+        client.assert_not_called()
+        browser.assert_not_called()
+
+    def test_an_unknown_or_shared_prefix_exits_1(self, runner: CliRunner, utc) -> None:
+        error = "ab starts 2 bookmark hashes: abc11111 (a), abd22222 (b). Give more of the hash."
+        client = _client(get_bookmark={"error": error})
+        with patch("ilan.cli._client", return_value=client), \
+                patch("ilan.cli.webbrowser.open") as browser:
+            result = runner.invoke(main, ["bookmark-open", "ab"])
+        assert result.exit_code == 1
+        assert "Give more of the hash." in result.output
+        browser.assert_not_called()
+
+    def test_without_a_browser_it_prints_the_link(self, runner: CliRunner, utc) -> None:
+        client = _client(get_bookmark=_found())
+        with patch("ilan.cli._client", return_value=client), \
+                patch("ilan.cli.webbrowser.open", return_value=False):
+            result = runner.invoke(main, ["bookmark-open", "05c"])
+        assert result.exit_code == 1
+        assert "The link is https://gist/5" in result.output
+
+
+class TestBookmarkRm:
+    REMOVED = {"ok": True, "bookmark": _row(5, task="my-task")}
+
+    def test_shows_it_asks_and_removes_it_by_its_whole_hash(self, runner: CliRunner, utc) -> None:
+        client = _client(get_bookmark=_found(), remove_bookmark=self.REMOVED)
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["bookmark-rm", "05c"], input="y\n")
+        assert result.exit_code == 0, result.output
+        client.get_bookmark.assert_called_once_with("05c")
+        client.remove_bookmark.assert_called_once_with("05c0ffee")
+        lines = result.output.splitlines()
+        assert lines[:2] == [
+            "2026-10-27 20:05  my-task  [Link](https://gist/5)  05c0ffee",
+            "Did the thing.",
+        ]
+        assert lines[2].startswith("Remove this bookmark permanently? [y/N]:")
+        assert lines[-1] == "Removed bookmark 05c0ffee of my-task."
+
+    @pytest.mark.parametrize("answer", ["n\n", "\n"])
+    def test_anything_but_yes_keeps_it(self, runner: CliRunner, utc, answer: str) -> None:
+        client = _client(get_bookmark=_found(), remove_bookmark=self.REMOVED)
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["bookmark-rm", "05c"], input=answer)
+        assert result.exit_code == 0, result.output
+        client.remove_bookmark.assert_not_called()
+        assert "Removed" not in result.output
+
+    def test_yes_skips_the_question(self, runner: CliRunner, utc) -> None:
+        client = _client(get_bookmark=_found(), remove_bookmark=self.REMOVED)
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["bookmark-rm", "-y", "05c"])
+        assert result.exit_code == 0, result.output
+        assert "Remove this bookmark permanently?" not in result.output
+        client.remove_bookmark.assert_called_once_with("05c0ffee")
+
+    def test_an_unknown_hash_asks_nothing(self, runner: CliRunner, utc) -> None:
+        client = _client(get_bookmark={"error": "No bookmark has a hash starting with 99."})
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["bookmark-rm", "99"], input="y\n")
+        assert result.exit_code == 1
+        assert "No bookmark has a hash starting with 99." in result.output
+        assert "Remove this bookmark" not in result.output
+        client.remove_bookmark.assert_not_called()
+
+    def test_a_failed_removal_exits_1(self, runner: CliRunner, utc) -> None:
+        client = _client(get_bookmark=_found(), remove_bookmark={"error": "No bookmark has a hash starting with 05c0ffee."})
+        with patch("ilan.cli._client", return_value=client):
+            result = runner.invoke(main, ["bookmark-rm", "-y", "05c"])
+        assert result.exit_code == 1
+        assert "Removed" not in result.output
+
+    def test_a_malformed_hash_never_reaches_the_server(self, runner: CliRunner) -> None:
+        with patch("ilan.cli._client") as client:
+            result = runner.invoke(main, ["bookmark-rm", "x"])
+        assert result.exit_code == 2
+        client.assert_not_called()
+
+
+@pytest.mark.parametrize("argv", [["bookmark-open", "ab"], ["bookmark-rm", "-y", "ab"]])
+def test_an_old_server_asks_for_a_restart_on_the_new_commands(runner: CliRunner, utc, argv) -> None:
+    client = _client(get_bookmark=OLD_SERVER, remove_bookmark=OLD_SERVER)
+    with patch("ilan.cli._client", return_value=client), patch("ilan.cli.webbrowser.open") as browser:
+        result = runner.invoke(main, argv)
+    assert result.exit_code == 1
+    assert "predates bookmarks" in result.output
+    browser.assert_not_called()
+
+
+def test_main_help_lists_the_new_commands_whole(runner: CliRunner) -> None:
+    result = runner.invoke(main, ["-h"], terminal_width=120)
+    rows = {
+        line.split(None, 1)[0]: line.split(None, 1)[1]
+        for line in result.output.splitlines()
+        if line.startswith("  bookmark")
+    }
+    assert rows["bookmark-open"] == "Open a bookmark in your browser."
+    assert rows["bookmark-rm"] == "Remove a bookmark permanently."
+
+
 def _span_styles(line: Text) -> dict[str, str]:
     """Each styled stretch of *line*, by its text."""
     return {line.plain[s.start:s.end]: str(s.style) for s in line.spans}
@@ -670,24 +976,35 @@ def _span_styles(line: Text) -> dict[str, str]:
 class TestBookmarkRendering:
     def test_three_parts_in_three_colours(self, utc) -> None:
         head, summary = _bookmark_lines(_row(5), terminal=True, with_task=False)
-        assert head.plain == f"2026-10-27 20:05  {BOOKMARK_LINK_TEXT}"
+        assert head.plain == f"2026-10-27 20:05  {BOOKMARK_LINK_TEXT}  05c0ffee"
         # The link shows its text and carries the URL as a hyperlink. The
         # separator is unstyled, so the underline and the link stop at the word.
         assert _span_styles(head) == {
             "2026-10-27 20:05": BOOKMARK_TIME_STYLE,
             BOOKMARK_LINK_TEXT: f"{BOOKMARK_LINK_STYLE} link https://gist/5",
+            # The hash: its unique prefix set apart from the rest.
+            "05c": BOOKMARK_HASH_PREFIX_STYLE,
+            "0ffee": BOOKMARK_HASH_REST_STYLE,
         }
         assert (summary.plain, str(summary.style)) == ("Did the thing.", ONE_LINER_STYLE)
+        styles = (
+            BOOKMARK_TIME_STYLE, BOOKMARK_LINK_STYLE, ONE_LINER_STYLE,
+            BOOKMARK_HASH_PREFIX_STYLE, BOOKMARK_HASH_REST_STYLE,
+        )
         colours = [
             {word for word in style.split() if word not in {"underline", "italic", "bold"}}
-            for style in (BOOKMARK_TIME_STYLE, BOOKMARK_LINK_STYLE, ONE_LINER_STYLE)
+            for style in styles
         ]
+        # One colour each, and no two parts sharing one: in particular the
+        # hash's prefix stands out from the rest of the hash.
         assert all(len(c) == 1 for c in colours)
-        assert len(set().union(*colours)) == 3
+        assert len(set().union(*colours)) == len(styles)
+        assert "underline" in BOOKMARK_HASH_PREFIX_STYLE.split()
+        assert "underline" not in BOOKMARK_HASH_REST_STYLE.split()
 
     def test_all_tasks_put_the_name_between_time_and_link(self, utc) -> None:
         head, _ = _bookmark_lines(_row(5, task="task-b"), terminal=True, with_task=True)
-        assert head.plain == f"2026-10-27 20:05  task-b  {BOOKMARK_LINK_TEXT}"
+        assert head.plain == f"2026-10-27 20:05  task-b  {BOOKMARK_LINK_TEXT}  05c0ffee"
         assert _span_styles(head)["task-b"] == "bold orange1"
 
     def test_no_summary_is_one_line(self, utc) -> None:
@@ -702,12 +1019,12 @@ class TestBookmarkRendering:
         lines = out.getvalue().splitlines()
         blank = lines.index("")
         first, wrapped, second = lines[0], lines[1:blank], lines[blank + 1:]
-        assert first == f"2026-10-27 20:05  {BOOKMARK_LINK_TEXT}"
+        assert first == f"2026-10-27 20:05  {BOOKMARK_LINK_TEXT}  05c0ffee"
         # The summary starts at the left edge and wraps there, word by word.
         assert len(wrapped) > 1
         assert all(len(line) <= 40 for line in wrapped)
         assert " ".join(" ".join(wrapped).split()) == summary
-        assert second == [f"2026-10-27 20:01  {BOOKMARK_LINK_TEXT}", "Did the thing."]
+        assert second == [f"2026-10-27 20:01  {BOOKMARK_LINK_TEXT}  01c0ffee", "Did the thing."]
 
     def test_a_terminal_shows_link_text_and_hides_the_url(self, utc) -> None:
         url = "https://gist.github.com/u/" + "f" * 32 + "?permalink_comment_id=1#gistcomment-1"
@@ -719,4 +1036,4 @@ class TestBookmarkRendering:
         assert f";{url}\x1b\\" in rendered  # the OSC 8 hyperlink target
         visible = re.sub(r"\x1b\]8;[^\x1b]*\x1b\\|\x1b\[[0-9;]*m", "", rendered)
         assert url not in visible
-        assert visible.splitlines() == [f"2026-10-27 20:05  {BOOKMARK_LINK_TEXT}", "Did the thing."]
+        assert visible.splitlines() == [f"2026-10-27 20:05  {BOOKMARK_LINK_TEXT}  05c0ffee", "Did the thing."]
