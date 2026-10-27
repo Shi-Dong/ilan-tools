@@ -13,6 +13,10 @@ dependencies = [
     # Web Push to phones that installed the web app: VAPID signing and the
     # RFC 8291 payload encryption, which are not worth hand-rolling.
     "pywebpush>=2.0",
+    # The default time zone is US/Pacific, a legacy alias that some systems'
+    # zoneinfo no longer ship (e.g. newer Ubuntu without tzdata-legacy). The
+    # bundled database keeps every alias, so ZoneInfo never depends on the OS.
+    "tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]
