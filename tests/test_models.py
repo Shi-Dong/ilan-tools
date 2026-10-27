@@ -316,7 +316,7 @@ class TestTask:
             "reply_every_seconds", "reply_every_message", "reply_every_next_at",
             "parent_name", "deleted_ancestors",
             "notes",
-            "summary_one_liner", "maxed", "reasoning", "last_assistant_model",
+            "summary_one_liner", "bookmarks", "maxed", "reasoning", "last_assistant_model",
             "spawn_effort", "last_assistant_effort",
             "spawn_budget", "last_assistant_budget", "last_assistant_cost_usd",
             "gist_id", "gist_url", "gist_synced_count", "gist_branch_point",

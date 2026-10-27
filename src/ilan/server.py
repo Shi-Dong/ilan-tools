@@ -19,10 +19,11 @@ import threading
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs
 
 from ilan import __version__, config as cfg, get_git_commit, web
 from ilan.backends.claude import last_assistant_model
-from ilan.gist import GistSyncer, github_token, last_comment_url
+from ilan.gist import GistSyncer, find_entry_comment_url, github_token, last_comment_url
 from ilan.oneliner import Summarizer
 from ilan.push import PushNotifier
 from ilan.models import (
@@ -33,20 +34,26 @@ from ilan.models import (
     CANCEL_WINDOW_SECONDS,
     DEFAULT_ENGINE,
     DEFAULT_REASONING,
+    MAX_BOOKMARKS,
     MAX_NOTES_LENGTH,
+    MIN_BOOKMARK_PREFIX,
     REASONING_LEVELS,
     REPLY_EVERY_MIN_SECONDS,
     TAP_MESSAGE,
     VALID_ENGINES,
+    Bookmark,
     Task,
     TaskStatus,
+    bookmarks_matching,
     generate_task_hash,
     is_burnable_name,
     join_notes,
     max_tag,
+    new_bookmark_hash,
     other_engine,
     parse_task_number,
     truncate_notes,
+    unique_prefixes,
     validate_task_name,
 )
 from ilan.runner import Runner
@@ -107,6 +114,11 @@ ROUTES: list[tuple[str, str, str]] = [
     ("GET",    r"^/tasks/([^/]+)/path$",       "handle_task_path"),
     ("GET",    r"^/tasks/([^/]+)/last-model$", "handle_task_last_model"),
     ("GET",    r"^/tasks/([^/]+)/history-url$", "handle_task_history_url"),
+    ("POST",   r"^/tasks/([^/]+)/bookmarks$",  "handle_task_add_bookmark"),
+    ("GET",    r"^/tasks/([^/]+)/bookmarks$",  "handle_task_bookmarks"),
+    ("GET",    r"^/bookmarks$",                "handle_list_bookmarks"),
+    ("GET",    r"^/bookmarks/([^/]+)$",        "handle_get_bookmark"),
+    ("DELETE", r"^/bookmarks/([^/]+)$",        "handle_delete_bookmark"),
     ("POST",   r"^/clear-everything$",         "handle_clear_everything"),
     ("POST",   r"^/stop$",                     "handle_stop"),
     ("POST",   r"^/restart$",                  "handle_restart"),
@@ -324,6 +336,31 @@ class IlanServer:
                 now + timedelta(seconds=task.reply_every_seconds)
             ).isoformat()
             self.deliver_cycle_message(task, message)
+
+
+# ── bookmarks ────────────────────────────────────────────────────────
+
+# What a bookmark hash, or a prefix of one, may be made of.
+_HEX_DIGITS = frozenset("0123456789abcdef")
+
+
+def _bookmark_hashes(tasks: dict[str, Task]) -> list[str]:
+    """Every bookmark's hash, across all tasks: the set prefixes are unique in."""
+    return [b.hash for task in tasks.values() for b in task.bookmarks]
+
+
+def _bookmark_row(task: Task, bookmark: Bookmark, prefixes: dict[str, str]) -> dict:
+    """A bookmark as the routes return it: with its task, and its unique prefix.
+
+    The task's engine rides along so a client can tint the name the way the
+    listings do.
+    """
+    return {
+        "task": task.name,
+        "engine": task.engine,
+        **bookmark.to_dict(),
+        "prefix": prefixes.get(bookmark.hash, bookmark.hash),
+    }
 
 
 # ── Request handler (built via closure to capture IlanServer) ────────
@@ -1636,6 +1673,232 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 # Network/auth hiccups fall back to the plain Gist page.
                 url = gist_url
             self._json({"url": url})
+
+        def handle_task_add_bookmark(self, name: str) -> None:
+            """Bookmark the task's latest reply (``ilan bookmark``).
+
+            The bookmark is a permalink to the reply's comment on the Gist
+            that mirrors the conversation, so it needs Gist mirroring. The
+            task's one-line summary goes with it, or nothing if it has none.
+            Any task can be bookmarked, closed ones included, except a branch
+            that has not replied since it was branched: the replies in its
+            log so far are its parent's.
+
+            The comment is looked up on GitHub off the lock, as ``history-url``
+            does. Nothing is saved unless that lookup finds the comment and it
+            checks out against the reply: a bookmark pointing at the wrong
+            message is worse than an error.
+            """
+            if not (token := github_token()):
+                self._json(
+                    {"error": (
+                        "Bookmarks need Gist mirroring, which is off: no "
+                        "github-token is set. Turn it on with "
+                        "`ilan config set github-token <token>`."
+                    )},
+                    409,
+                )
+                return
+            with self._ilan.lock:
+                task = self._get_task_or_404(name)
+                if task is None:
+                    return
+                entries = self._ilan.store.read_logs(task.name)
+                index = next(
+                    (i for i in range(len(entries) - 1, -1, -1)
+                     if entries[i].role == "assistant"),
+                    None,
+                )
+                if index is None:
+                    self._json({"error": f"Task {task.name} has no reply to bookmark yet."}, 409)
+                    return
+                # The first ``gist_branch_point`` entries were copied from the
+                # parent when the task was branched: a reply among them is the
+                # parent's, not this task's.
+                if index < task.gist_branch_point:
+                    self._json(
+                        {"error": (
+                            f"Task {task.name} has no reply of its own yet: it "
+                            "has not answered since it was branched."
+                        )},
+                        409,
+                    )
+                    return
+                task_name = task.name
+                reply = entries[index]
+                # Read in the same breath as the reply, so the summary and
+                # the link describe the same reply even if a new one lands
+                # before the bookmark is saved.
+                summary = (task.summary_one_liner or "").strip()
+                gist_id, gist_url = task.gist_id, task.gist_url
+                # How many of the task's mirrored entries follow the reply:
+                # negative while the reply itself is not mirrored yet.
+                later = task.gist_synced_count - 1 - index
+            if not (gist_id and gist_url and later >= 0):
+                # Usually the syncer is seconds behind; a task whose Gist does
+                # not exist yet is back-filled whole, which takes longer.
+                # Either way, nudge it and let the user retry.
+                self._ilan.gist.enqueue(task_name)
+                self._json(
+                    {"error": (
+                        f"The latest reply of {task_name} is not on its Gist "
+                        "yet. Mirroring runs in the background; try again in "
+                        "a moment."
+                    )},
+                    409,
+                )
+                return
+            try:
+                url = find_entry_comment_url(token, gist_id, gist_url, reply, later)
+            except Exception as exc:
+                self._json(
+                    {"error": f"Could not look up the reply's Gist comment on GitHub: {exc}"},
+                    502,
+                )
+                return
+            if url is None:
+                self._json(
+                    {"error": (
+                        f"Could not find the comment for the latest reply of "
+                        f"{task_name} on its Gist, so nothing was saved."
+                    )},
+                    502,
+                )
+                return
+            with self._ilan.lock:
+                tasks = self._ilan.store.load_tasks()
+                task = tasks.get(task_name)
+                if task is None:
+                    self._json(
+                        {"error": (
+                            f"Task {task_name} was renamed or removed while it "
+                            "was being bookmarked; try again."
+                        )},
+                        409,
+                    )
+                    return
+                # The same reply bookmarked again is the same bookmark, so
+                # it keeps its hash: a prefix already typed still names it.
+                same = next((b for b in task.bookmarks if b.url == url), None)
+                bookmark = Bookmark(
+                    created_at=datetime.now(timezone.utc).isoformat(),
+                    url=url,
+                    summary=summary,
+                    hash=same.hash if same else new_bookmark_hash(_bookmark_hashes(tasks)),
+                )
+                replaced, evicted = task.add_bookmark(bookmark)
+                self._ilan.store.put_task(task)
+                prefixes = unique_prefixes(_bookmark_hashes(tasks))
+            self._json({
+                "ok": True,
+                "name": task.name,
+                "bookmark": _bookmark_row(task, bookmark, prefixes),
+                "replaced": replaced,
+                "evicted": [b.to_dict() for b in evicted],
+                "count": len(task.bookmarks),
+                "limit": MAX_BOOKMARKS,
+            })
+
+        def handle_task_bookmarks(self, name: str) -> None:
+            """A task's bookmarks, newest first. Closed tasks answer too.
+
+            Each prefix is unique among the bookmarks of every task, since
+            that is what ``bookmark-open`` and ``bookmark-rm`` resolve it in.
+            """
+            with self._ilan.lock:
+                task = self._get_task_or_404(name)
+                if task is None:
+                    return
+                prefixes = unique_prefixes(_bookmark_hashes(self._ilan.store.load_tasks()))
+            bookmarks = sorted(task.bookmarks, key=lambda b: b.created_at, reverse=True)
+            self._json({
+                "name": task.name,
+                "bookmarks": [_bookmark_row(task, b, prefixes) for b in bookmarks],
+            })
+
+        def handle_list_bookmarks(self) -> None:
+            """Bookmarks across every task, newest first; ``?n=`` caps the count."""
+            query = parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+            n: int | None = None
+            if "n" in query:
+                try:
+                    n = int(query["n"][-1])
+                except ValueError:
+                    self._json({"error": "n must be an integer"}, 400)
+                    return
+                if n <= 0:
+                    self._json({"error": "n must be positive"}, 400)
+                    return
+            with self._ilan.lock:
+                tasks = self._ilan.store.load_tasks()
+            prefixes = unique_prefixes(_bookmark_hashes(tasks))
+            rows = [
+                _bookmark_row(t, b, prefixes)
+                for t in tasks.values()
+                for b in t.bookmarks
+            ]
+            rows.sort(key=lambda row: row["created_at"], reverse=True)
+            self._json({"bookmarks": rows if n is None else rows[:n]})
+
+        def _resolve_bookmark_or_error(
+            self, ref: str, tasks: dict[str, Task],
+        ) -> tuple[Task, Bookmark] | None:
+            """The one bookmark *ref* names, or ``None`` after answering why not.
+
+            *ref* is a whole hash or a prefix of one, at least
+            ``MIN_BOOKMARK_PREFIX`` hex digits; case does not matter. A prefix
+            that more than one bookmark starts with is refused with all of
+            them listed, never settled by picking one.
+            """
+            ref = ref.strip().lower()
+            if len(ref) < MIN_BOOKMARK_PREFIX or not set(ref) <= _HEX_DIGITS:
+                self._json(
+                    {"error": (
+                        f"{ref!r} is not a bookmark hash: give at least "
+                        f"{MIN_BOOKMARK_PREFIX} of its characters (0-9, a-f)."
+                    )},
+                    400,
+                )
+                return None
+            matches = bookmarks_matching(tasks.values(), ref)
+            if not matches:
+                self._json({"error": f"No bookmark has a hash starting with {ref}."}, 404)
+                return None
+            if len(matches) > 1:
+                named = ", ".join(f"{b.hash} ({t.name})" for t, b in matches)
+                self._json(
+                    {"error": (
+                        f"{ref} starts {len(matches)} bookmark hashes: {named}. "
+                        "Give more of the hash."
+                    )},
+                    409,
+                )
+                return None
+            return matches[0]
+
+        def handle_get_bookmark(self, ref: str) -> None:
+            """The bookmark a hash or unique prefix names (``bookmark-open``)."""
+            with self._ilan.lock:
+                tasks = self._ilan.store.load_tasks()
+                found = self._resolve_bookmark_or_error(ref, tasks)
+            if found is None:
+                return
+            prefixes = unique_prefixes(_bookmark_hashes(tasks))
+            self._json({"bookmark": _bookmark_row(*found, prefixes)})
+
+        def handle_delete_bookmark(self, ref: str) -> None:
+            """Remove the bookmark a hash or unique prefix names (``bookmark-rm``)."""
+            with self._ilan.lock:
+                tasks = self._ilan.store.load_tasks()
+                found = self._resolve_bookmark_or_error(ref, tasks)
+                if found is None:
+                    return
+                task, bookmark = found
+                # Reported with the prefix it had, which is what was typed.
+                row = _bookmark_row(task, bookmark, unique_prefixes(_bookmark_hashes(tasks)))
+                task.bookmarks = [b for b in task.bookmarks if b.hash != bookmark.hash]
+                self._ilan.store.put_task(task)
+            self._json({"ok": True, "bookmark": row})
 
         def handle_clear_everything(self):
             with self._ilan.lock:

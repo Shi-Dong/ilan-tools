@@ -44,6 +44,20 @@ def _format_ts(iso: str, *, seconds: bool = True) -> str:
         return iso
 
 
+def _format_date_minute(iso: str) -> str:
+    """Convert a UTC ISO timestamp to ``YYYY-MM-DD hh:mm`` in the configured time-zone.
+
+    The full date rather than ``_format_ts``'s ``Today`` / ``Yesterday``: a
+    bookmark is read long after it was made, and a relative day would leave
+    the reader working out which day it means.
+    """
+    try:
+        tz = ZoneInfo(str(cfg.load().get("time-zone", "US/Pacific")))
+        return datetime.fromisoformat(iso).astimezone(tz).strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return iso
+
+
 def _format_compact_duration(seconds: int) -> str:
     """Render a positive duration compactly: ``5m``, ``30m``, ``1.5h``."""
     seconds = int(seconds)

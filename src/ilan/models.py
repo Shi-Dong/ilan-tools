@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import itertools
 import os
 import random
 import re
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -340,6 +342,92 @@ def display_status(
     return status.value, STYLE_FOR_STATUS.get(status, "")
 
 
+# ``ilan bookmark`` keeps at most this many bookmarks on a task. Saving one
+# more evicts the oldest, so bookmarking never fails for want of room.
+MAX_BOOKMARKS = 16
+
+# A bookmark's hash is this many random bytes, written as twice as many hex
+# digits: short enough to print in full on every bookmark line, long enough
+# that a fresh one rarely shares more than its first few digits.
+BOOKMARK_HASH_BYTES = 4
+
+# The shortest prefix that names a bookmark. One hex digit is never enough to
+# type with confidence, however few bookmarks there are.
+MIN_BOOKMARK_PREFIX = 2
+
+
+@dataclass(frozen=True)
+class Bookmark:
+    """A reply saved with ``ilan bookmark``.
+
+    ``url`` is the permalink to the reply's comment on the GitHub Gist that
+    mirrors the conversation. ``summary`` is the task's one-line summary when
+    the bookmark was saved, empty if it had none. ``created_at`` is when the
+    bookmark was saved, as a UTC ISO timestamp.
+
+    ``hash`` names the bookmark for ``ilan bookmark-open`` and
+    ``ilan bookmark-rm``. The server mints it at random, unique among all
+    bookmarks (see :func:`new_bookmark_hash`). A bookmark built without one,
+    as a hand-edited store might hold, gets one derived from its URL, so it
+    still reads the same from one load to the next.
+    """
+
+    created_at: str
+    url: str
+    summary: str = ""
+    hash: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.hash:
+            derived = hashlib.sha1(self.url.encode()).hexdigest()[: 2 * BOOKMARK_HASH_BYTES]
+            object.__setattr__(self, "hash", derived)
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "hash": self.hash,
+            "created_at": self.created_at,
+            "url": self.url,
+            "summary": self.summary,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Bookmark:
+        return cls(
+            created_at=d.get("created_at", ""),
+            url=d.get("url", ""),
+            summary=d.get("summary") or "",
+            hash=d.get("hash") or "",
+        )
+
+
+def new_bookmark_hash(taken: Collection[str]) -> str:
+    """Return a random bookmark hash that no hash in *taken* already is."""
+    while True:
+        candidate = os.urandom(BOOKMARK_HASH_BYTES).hex()
+        if candidate not in taken:
+            return candidate
+
+
+def unique_prefixes(hashes: Iterable[str], minimum: int = MIN_BOOKMARK_PREFIX) -> dict[str, str]:
+    """Map each hash to the shortest prefix of it that no other hash shares.
+
+    The prefix is never shorter than *minimum* (nor longer than the hash). In
+    sorted order a hash shares the most leading characters with one of its
+    two neighbours, so those two are the only ones it is compared against.
+    Computed afresh from whatever hashes exist, so a prefix grows when a new
+    hash starts the same way and shrinks again when that one is removed.
+    """
+    ordered = sorted(set(hashes))
+    prefixes: dict[str, str] = {}
+    for i, current in enumerate(ordered):
+        length = minimum
+        for neighbour in ordered[max(0, i - 1):i] + ordered[i + 1:i + 2]:
+            shared = len(os.path.commonprefix([current, neighbour]))
+            length = max(length, shared + 1)
+        prefixes[current] = current[:length]
+    return prefixes
+
+
 @dataclass
 class Task:
     name: str
@@ -407,6 +495,11 @@ class Task:
     # nothing overwrites it and it survives every status change.
     notes: str | None = None
     summary_one_liner: str | None = None
+    # Replies saved with ``ilan bookmark``, oldest first, at most
+    # ``MAX_BOOKMARKS``. They live on the task so they follow it: a rename
+    # carries them and deleting the task deletes them. A branched child does
+    # not inherit them; it starts with none.
+    bookmarks: list[Bookmark] = field(default_factory=list)
     # Whether ``ilan max`` has put this task on its backend's max model. Only
     # the choice is stored, never a model id: ``model_override`` resolves it
     # afresh at every spawn, so a newer Fable or Astra reaches every maxed task
@@ -539,6 +632,25 @@ class Task:
         if status.is_terminal:
             self.clear_reply_every()
 
+    def add_bookmark(self, bookmark: Bookmark) -> tuple[bool, list[Bookmark]]:
+        """Save *bookmark*, keeping the newest ``MAX_BOOKMARKS``.
+
+        A bookmark of a reply that is already bookmarked replaces the old one
+        rather than sitting beside it. The link is the same, so only the time
+        and the summary can differ, and the newer of each is the one to keep.
+
+        Returns whether an old bookmark was replaced, and the bookmarks
+        evicted to make room, oldest first.
+        """
+        kept = [b for b in self.bookmarks if b.url != bookmark.url]
+        replaced = len(kept) < len(self.bookmarks)
+        kept.append(bookmark)
+        # Lexical order is time order: every stamp is a UTC ISO timestamp.
+        kept.sort(key=lambda b: b.created_at)
+        overflow = max(0, len(kept) - MAX_BOOKMARKS)
+        self.bookmarks = kept[overflow:]
+        return replaced, kept[:overflow]
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
@@ -569,6 +681,7 @@ class Task:
             "deleted_ancestors": self.deleted_ancestors,
             "notes": self.notes,
             "summary_one_liner": self.summary_one_liner,
+            "bookmarks": [b.to_dict() for b in self.bookmarks],
             "maxed": self.maxed,
             "reasoning": self.reasoning,
             "last_assistant_model": self.last_assistant_model,
@@ -623,6 +736,7 @@ class Task:
             deleted_ancestors=list(d.get("deleted_ancestors") or []),
             notes=d.get("notes"),
             summary_one_liner=d.get("summary_one_liner"),
+            bookmarks=[Bookmark.from_dict(b) for b in d.get("bookmarks") or []],
             maxed=cls._migrate_maxed(d),
             reasoning=(
                 d["reasoning"] if d.get("reasoning") in REASONING_LEVELS
@@ -697,6 +811,16 @@ class Task:
         engine = d.get("engine") or DEFAULT_ENGINE
         pinned = _PINNED_MAX_MODELS.get(engine, _PINNED_MAX_MODELS[DEFAULT_ENGINE])
         return d.get("model") in pinned
+
+
+def bookmarks_matching(tasks: Iterable[Task], ref: str) -> list[tuple[Task, Bookmark]]:
+    """Every bookmark whose hash starts with *ref*, each with its task.
+
+    *ref* is a whole hash or a prefix of one, in any case; one match is the
+    bookmark it names, and more than one means it is too short to tell apart.
+    """
+    ref = ref.lower()
+    return [(task, b) for task in tasks for b in task.bookmarks if b.hash.startswith(ref)]
 
 
 # Budget label for a spawn billed to an API key rather than a subscription.
