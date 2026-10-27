@@ -46,6 +46,7 @@ from ilan.models import (
     ENGINE_CLAUDE,
     ENGINE_CODEX,
     ENGINE_NAME_STYLE,
+    MAX_BOOKMARKS,
     MAX_NOTES_LENGTH,
     REASONING_LEVELS,
     REPLY_EVERY_MIN_SECONDS,
@@ -80,6 +81,7 @@ from ilan.task_display import (
 )
 from ilan.time_format import (
     _format_compact_duration,
+    _format_date_minute,
     _format_ts,
 )
 
@@ -3072,6 +3074,194 @@ def task_copy(name: str) -> None:
     _do_copy(name)
 
 
+# ── task bookmark / bookmarks ────────────────────────────────────────
+
+# How many bookmarks `ilan bookmarks` lists across all tasks when no `-n` is
+# given: the reach of `ilan latest`, for the same reason.
+BOOKMARKS_COUNT_DEFAULT = 10
+# A bookmark has three parts, each in its own hue: the time in green, like
+# the dashboard's clock; the link in the bright blue Rich draws Markdown
+# links in, underlined as links are; and the summary in the style the
+# listings give the same one-line summary (`ONE_LINER_STYLE`).
+BOOKMARK_TIME_STYLE = "green"
+BOOKMARK_LINK_STYLE = "underline bright_blue"
+# What a bookmark's link shows in place of its URL, as `[Link](url)` does.
+BOOKMARK_LINK_TEXT = "Link"
+# Room between the parts of a bookmark, as between the fields of `ilan info`.
+BOOKMARK_COLUMN_PADDING = (0, 2)
+
+
+def _bookmark_link(url: str, *, terminal: bool) -> Text:
+    """A bookmark's link, shown the way Markdown renders ``[Link](url)``.
+
+    In a terminal that is the word ``Link`` carrying the URL as a hyperlink,
+    so the long Gist URL sits inside it instead of sprawling across the line.
+    Piped or redirected there is nothing to click, so the Markdown itself is
+    printed, URL included.
+    """
+    text = Text()
+    if terminal:
+        # A span rather than the base style, so the hyperlink and underline
+        # stop at the word instead of running on through the cell's padding.
+        # The URL goes last: Rich reads the word after `link` as the URL.
+        text.append(BOOKMARK_LINK_TEXT, style=f"{BOOKMARK_LINK_STYLE} link {url}")
+    else:
+        text.append(f"[{BOOKMARK_LINK_TEXT}]({url})", style=BOOKMARK_LINK_STYLE)
+    return text
+
+
+def _bookmark_cells(bookmark: dict, *, terminal: bool, with_task: bool) -> list[Text]:
+    """The parts of one bookmark: time, then its task's name if asked, link, summary."""
+    cells = [
+        Text(
+            _format_date_minute(bookmark.get("created_at") or ""),
+            style=BOOKMARK_TIME_STYLE,
+        ),
+    ]
+    if with_task:
+        engine = bookmark.get("engine") or DEFAULT_ENGINE
+        name_style = f"bold {ENGINE_NAME_STYLE.get(engine, '')}".strip()
+        cells.append(Text(bookmark["task"], style=name_style))
+    cells.append(_bookmark_link(bookmark["url"], terminal=terminal))
+    cells.append(Text(bookmark.get("summary") or "", style=ONE_LINER_STYLE))
+    return cells
+
+
+def _build_bookmarks_grid(bookmarks: list[dict], *, with_task: bool) -> Table:
+    """Lay out bookmarks one per row, their parts aligned in columns.
+
+    The summary is the part that runs long, so it is the only column that
+    wraps, under itself rather than back at the left edge. A task name stays
+    whole, as everywhere else a name is printed.
+    """
+    grid = Table.grid(padding=BOOKMARK_COLUMN_PADDING)
+    grid.add_column(no_wrap=True)
+    if with_task:
+        grid.add_column(no_wrap=True)
+    grid.add_column(no_wrap=True)
+    grid.add_column(overflow="fold")
+    for bookmark in bookmarks:
+        grid.add_row(*_bookmark_cells(bookmark, terminal=True, with_task=with_task))
+    return grid
+
+
+def _print_bookmarks(bookmarks: list[dict], *, with_task: bool) -> None:
+    """Print bookmarks in the order given, which the server makes newest first."""
+    if console.is_terminal:
+        console.print(_build_bookmarks_grid(bookmarks, with_task=with_task))
+        return
+    # Piped or redirected: one unwrapped line per bookmark, so each stays
+    # whole for `grep` and its link's Markdown stays intact.
+    for bookmark in bookmarks:
+        cells = _bookmark_cells(bookmark, terminal=False, with_task=with_task)
+        console.print(Text("  ").join(c for c in cells if c.plain), soft_wrap=True)
+
+
+def _check_bookmark_error(resp: dict) -> bool:
+    """``_check_error``, plus an explanation for a server without bookmarks.
+
+    ``ilan update`` installs the new CLI without restarting the server, and
+    a server that predates bookmarks answers their routes with its bare
+    route-miss error. A missing task reads ``Task NAME not found`` instead,
+    so the two cannot be confused.
+    """
+    if resp.get("error") == "Not found":
+        console.print(
+            "[yellow]The server predates bookmarks. Restart it with "
+            "ilan server restart, then try again.[/yellow]"
+        )
+        return True
+    return _check_error(resp)
+
+
+def _do_bookmark(name: str) -> None:
+    resp = _client().add_bookmark(name)
+    if _check_bookmark_error(resp):
+        raise SystemExit(1)
+    line = Text()
+    if resp.get("replaced"):
+        line.append("Updated the bookmark of the latest reply of ", style="green")
+    else:
+        line.append("Bookmarked the latest reply of ", style="green")
+    line.append(resp["name"], style="bold green")
+    line.append(f" ({resp['count']} of {resp['limit']}).", style="green")
+    console.print(line)
+    for old in resp.get("evicted") or []:
+        console.print(Text(
+            f"Removed the oldest bookmark, from "
+            f"{_format_date_minute(old.get('created_at') or '')}, "
+            f"to keep {resp['limit']}.",
+            style="yellow",
+        ))
+    _print_bookmarks([resp["bookmark"]], with_task=False)
+
+
+def _do_bookmarks(name: str | None, num: int | None) -> None:
+    client = _client()
+    if name is not None:
+        resp = client.get_bookmarks(name)
+        if _check_bookmark_error(resp):
+            raise SystemExit(1)
+        if not (bookmarks := resp.get("bookmarks") or []):
+            console.print(Text(f"Task {resp['name']} has no bookmarks yet.", style="dim"))
+            return
+        _print_bookmarks(bookmarks, with_task=False)
+        return
+    resp = client.list_bookmarks(num or BOOKMARKS_COUNT_DEFAULT)
+    if _check_bookmark_error(resp):
+        raise SystemExit(1)
+    if not (bookmarks := resp.get("bookmarks") or []):
+        console.print(Text("No bookmarks yet.", style="dim"))
+        return
+    _print_bookmarks(bookmarks, with_task=True)
+
+
+_BOOKMARK_SUMMARY = "Bookmark a task's latest reply."
+_BOOKMARK_DETAILS = (
+    "Saves the link to that reply's comment on the task's GitHub Gist, "
+    "together with the task's current one-line summary (left empty if there "
+    "is none yet). Needs Gist mirroring: without a github-token the bookmark "
+    f"is refused. A task keeps its {MAX_BOOKMARKS} newest bookmarks, so a new "
+    "one past that removes the oldest, and bookmarking the same reply again "
+    "updates its bookmark instead of adding another. 'ilan bookmarks NAME' "
+    "lists them."
+)
+_BOOKMARKS_SUMMARY = "List the bookmarks of a task or of all tasks."
+_BOOKMARKS_DETAILS = (
+    "Newest first, each with the time it was saved, its link, and its "
+    "one-line summary. With NAME, every bookmark of that task, closed tasks "
+    "included. Without it, the most recent bookmarks across all tasks, each "
+    "with its task's name after the time; -n says how many."
+)
+
+
+@task_group.command("bookmark", help=f"{_BOOKMARK_SUMMARY} {_BOOKMARK_DETAILS}")
+@click.argument("name", shell_complete=_complete_task_names)
+def task_bookmark(name: str) -> None:
+    _do_bookmark(name)
+
+
+@task_group.command("bookmarks", help=f"{_BOOKMARKS_SUMMARY} {_BOOKMARKS_DETAILS}")
+@click.argument("name", required=False, default=None, shell_complete=_complete_task_names)
+@click.option(
+    "-n",
+    "--num",
+    "num",
+    type=click.IntRange(min=1),
+    default=None,
+    help=(
+        "How many bookmarks to show across all tasks "
+        f"(default {BOOKMARKS_COUNT_DEFAULT}). Not with NAME."
+    ),
+)
+def task_bookmarks(name: str | None, num: int | None) -> None:
+    if name is not None and num is not None:
+        raise click.UsageError(
+            "-n counts bookmarks across all tasks; it cannot be used with a task name."
+        )
+    _do_bookmarks(name, num)
+
+
 # ── task rm ──────────────────────────────────────────────────────────
 
 @task_group.command("rm")
@@ -3451,6 +3641,16 @@ _register_task_shortcut(
         f"{MAX_NOTES_LENGTH} characters is cut down to its first "
         f"{MAX_NOTES_LENGTH}."
     ),
+)
+_register_task_shortcut(
+    "bookmark",
+    summary=_BOOKMARK_SUMMARY,
+    help=f"{_BOOKMARK_SUMMARY} Shorthand for 'ilan task bookmark'. {_BOOKMARK_DETAILS}",
+)
+_register_task_shortcut(
+    "bookmarks",
+    summary=_BOOKMARKS_SUMMARY,
+    help=f"{_BOOKMARKS_SUMMARY} Shorthand for 'ilan task bookmarks'. {_BOOKMARKS_DETAILS}",
 )
 main.add_command(main.commands["reply"], "re")
 main.add_command(main.commands["notes"], "note")

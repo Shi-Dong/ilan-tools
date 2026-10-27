@@ -340,6 +340,37 @@ def display_status(
     return status.value, STYLE_FOR_STATUS.get(status, "")
 
 
+# ``ilan bookmark`` keeps at most this many bookmarks on a task. Saving one
+# more evicts the oldest, so bookmarking never fails for want of room.
+MAX_BOOKMARKS = 16
+
+
+@dataclass(frozen=True)
+class Bookmark:
+    """A reply saved with ``ilan bookmark``.
+
+    ``url`` is the permalink to the reply's comment on the GitHub Gist that
+    mirrors the conversation. ``summary`` is the task's one-line summary when
+    the bookmark was saved, empty if it had none. ``created_at`` is when the
+    bookmark was saved, as a UTC ISO timestamp.
+    """
+
+    created_at: str
+    url: str
+    summary: str = ""
+
+    def to_dict(self) -> dict[str, str]:
+        return {"created_at": self.created_at, "url": self.url, "summary": self.summary}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Bookmark:
+        return cls(
+            created_at=d.get("created_at", ""),
+            url=d.get("url", ""),
+            summary=d.get("summary") or "",
+        )
+
+
 @dataclass
 class Task:
     name: str
@@ -407,6 +438,11 @@ class Task:
     # nothing overwrites it and it survives every status change.
     notes: str | None = None
     summary_one_liner: str | None = None
+    # Replies saved with ``ilan bookmark``, oldest first, at most
+    # ``MAX_BOOKMARKS``. They live on the task so they follow it: a rename
+    # carries them and deleting the task deletes them. A branched child does
+    # not inherit them; it starts with none.
+    bookmarks: list[Bookmark] = field(default_factory=list)
     # Whether ``ilan max`` has put this task on its backend's max model. Only
     # the choice is stored, never a model id: ``model_override`` resolves it
     # afresh at every spawn, so a newer Fable or Astra reaches every maxed task
@@ -539,6 +575,25 @@ class Task:
         if status.is_terminal:
             self.clear_reply_every()
 
+    def add_bookmark(self, bookmark: Bookmark) -> tuple[bool, list[Bookmark]]:
+        """Save *bookmark*, keeping the newest ``MAX_BOOKMARKS``.
+
+        A bookmark of a reply that is already bookmarked replaces the old one
+        rather than sitting beside it. The link is the same, so only the time
+        and the summary can differ, and the newer of each is the one to keep.
+
+        Returns whether an old bookmark was replaced, and the bookmarks
+        evicted to make room, oldest first.
+        """
+        kept = [b for b in self.bookmarks if b.url != bookmark.url]
+        replaced = len(kept) < len(self.bookmarks)
+        kept.append(bookmark)
+        # Lexical order is time order: every stamp is a UTC ISO timestamp.
+        kept.sort(key=lambda b: b.created_at)
+        overflow = max(0, len(kept) - MAX_BOOKMARKS)
+        self.bookmarks = kept[overflow:]
+        return replaced, kept[:overflow]
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
@@ -569,6 +624,7 @@ class Task:
             "deleted_ancestors": self.deleted_ancestors,
             "notes": self.notes,
             "summary_one_liner": self.summary_one_liner,
+            "bookmarks": [b.to_dict() for b in self.bookmarks],
             "maxed": self.maxed,
             "reasoning": self.reasoning,
             "last_assistant_model": self.last_assistant_model,
@@ -623,6 +679,7 @@ class Task:
             deleted_ancestors=list(d.get("deleted_ancestors") or []),
             notes=d.get("notes"),
             summary_one_liner=d.get("summary_one_liner"),
+            bookmarks=[Bookmark.from_dict(b) for b in d.get("bookmarks") or []],
             maxed=cls._migrate_maxed(d),
             reasoning=(
                 d["reasoning"] if d.get("reasoning") in REASONING_LEVELS

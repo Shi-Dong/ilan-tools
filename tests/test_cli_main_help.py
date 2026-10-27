@@ -38,6 +38,7 @@ def test_rendered_shortcuts_have_descriptions_before_targets(width: int) -> None
         "info", "tail", "done", "discard", "undone", "undiscard", "unread",
         "pin", "unpin", "max", "unmax", "level", "switch-backend", "rename",
         "alias", "tap", "cancel", "sleep", "attach", "log", "logs", "open",
+        "bookmark", "bookmarks",
         "check-model", "ls", "add", "branch", "btw", "reply", "re", "notes", "note",
     ]
     for name in shortcuts:

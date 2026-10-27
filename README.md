@@ -131,6 +131,8 @@ the child inherits its parent's backend.
 | `ilan notes NAME [["note"] \| -a TEXT \| -c \| -e]` | Write a reminder of what the task is about, shown in light-green italics beneath the task's name in `ilan ls` and `ilan dashboard`, and, rendered as Markdown, on the web app's task list. `-a` adds to the note already there (separated by a space), `-c` clears it, and `-e` — or just `ilan notes NAME` on its own — edits it in your configured editor. The note stays with the task after it is closed; anything past 256 characters is cut to fit. `ilan note` is the same command. |
 | `ilan pin NAME` / `ilan unpin NAME` | Keep a task at the top of every listing, even after it is closed. |
 | `ilan unread NAME…` | Put the `!!` marker back on tasks. |
+| `ilan bookmark NAME` | Save a link to the task's latest reply on its Gist, with the task's one-line summary. Needs Gist mirroring. A task keeps its 16 newest bookmarks; bookmarking the same reply again updates its bookmark. |
+| `ilan bookmarks [NAME \| -n N]` | List bookmarks newest first: the time (`YYYY-MM-DD hh:mm`), a clickable `Link`, and the summary. With `NAME`, every bookmark of that task, closed or not; without it, the 10 newest across all tasks with their task names, or `N` of them with `-n`. |
 
 ### Change how a task runs
 

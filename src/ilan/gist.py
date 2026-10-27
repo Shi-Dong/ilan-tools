@@ -30,7 +30,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from ilan import config as cfg
-from ilan.models import LogEntry, format_cost_usd
+from ilan.models import LogEntry, Task, format_cost_usd
 from ilan.store import Store
 
 GITHUB_API_URL = "https://api.github.com"
@@ -312,17 +312,104 @@ def comment_url(
     comment_number: int,
 ) -> str:
     """Return a permalink to a Gist comment by its one-based position."""
+    comment = _comment_at(token, gist_id, comment_number)
+    return html_url if comment is None else _permalink(html_url, comment["id"])
+
+
+def _comment_at(token: str, gist_id: str, position: int) -> dict | None:
+    """The Gist's comment at one-based *position*, or ``None`` if there is none."""
     comments = _api_request(
         "GET",
-        f"/gists/{gist_id}/comments?per_page=1&page={comment_number}",
+        f"/gists/{gist_id}/comments?per_page=1&page={position}",
         token,
     )
     # The comments endpoint returns a JSON array (not the dict most other
     # endpoints return), so guard the shape before indexing.
     if not isinstance(comments, list) or not comments:
-        return html_url
-    comment_id = comments[-1]["id"]
+        return None
+    return comments[-1]
+
+
+def _permalink(html_url: str, comment_id: int) -> str:
     return f"{html_url}?permalink_comment_id={comment_id}#gistcomment-{comment_id}"
+
+
+# How far either side of where it should be a reply's comment is looked for.
+# A retried post that GitHub had already accepted lands twice, and a duplicate
+# among the comments after the reply moves it one place back.
+_COMMENT_SEARCH_RADIUS = 5
+
+
+def _mirrors(body: str, entry: LogEntry) -> bool:
+    """Whether a Gist comment *body* is the one posted for log *entry*.
+
+    The syncer posts exactly ``format_comment(entry)``, and either part of it
+    identifies the message: the header holds the role and the second it was
+    sent, and the rest is its text. Each can drift on its own, the header when
+    the time-zone changes and the rest when a release rewords the attribution
+    line, so a match on either counts.
+    """
+    want_header, _, want_rest = format_comment(entry).partition("\n")
+    header, _, rest = body.partition("\n")
+    return header == want_header or rest == want_rest
+
+
+def find_entry_comment_url(
+    token: str,
+    gist_id: str,
+    html_url: str,
+    entry: LogEntry,
+    later_entries: int,
+) -> str | None:
+    """Return a permalink to the comment that mirrors log *entry*.
+
+    *later_entries* is how many mirrored log entries come after *entry*, so
+    the comment is counted back from the Gist's last one. Counting forward
+    from the first is not reliable: every duplicate post shifts the comments
+    after it, and a long-lived task collects a few. Counting back is only
+    thrown off by a duplicate after the entry, which the search around the
+    expected position absorbs. A comment is used only once it is checked
+    against the entry. ``None`` when no comment nearby mirrors it.
+    """
+    total = int(_api_request("GET", f"/gists/{gist_id}", token).get("comments") or 0)
+    expected = total - later_entries
+    offsets = [0] + [
+        sign * step
+        for step in range(1, _COMMENT_SEARCH_RADIUS + 1)
+        for sign in (-1, 1)
+    ]
+    for position in (expected + offset for offset in offsets):
+        if not 1 <= position <= total:
+            continue
+        comment = _comment_at(token, gist_id, position)
+        if comment is not None and _mirrors(comment.get("body") or "", entry):
+            return _permalink(html_url, comment["id"])
+    return None
+
+
+def entry_gist_owner(store: Store, task: Task, index: int) -> Task | None:
+    """Return the task whose Gist mirrors entry *index* of *task*'s log.
+
+    A task's Gist mirrors its log from ``gist_branch_point`` on. An earlier
+    entry was inherited when the task was branched, so it is on an ancestor's
+    Gist; a child's log starts as a copy of its parent's, so the entry has the
+    same index there.
+
+    ``None`` when that ancestor has been deleted. Deleting a parent moves the
+    child's ``parent_name`` to the grandparent but leaves
+    ``gist_branch_parent_name`` alone, so the two disagreeing means the parent
+    is gone, and a later task that reuses its name is not taken for it.
+    """
+    owner = task
+    while index < owner.gist_branch_point:
+        parent_name = owner.gist_branch_parent_name
+        if parent_name is None or parent_name != owner.parent_name:
+            return None
+        parent = store.get_task(parent_name)
+        if parent is None:
+            return None
+        owner = parent
+    return owner
 
 
 def fetch_gist_filename(token: str, gist_id: str) -> str | None:
