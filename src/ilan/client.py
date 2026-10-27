@@ -192,7 +192,7 @@ class Client:
 
     def add_task(
         self, name: str | None, prompt: str, agent: str | None = None,
-        max_model: bool = False,
+        max_model: bool = False, level: str | None = None,
     ) -> dict:
         """Create a task. A *name* of ``None`` lets the server mint a burnable one."""
         body: dict = {"prompt": prompt}
@@ -202,6 +202,8 @@ class Client:
             body["agent"] = agent
         if max_model:
             body["max"] = True
+        if level is not None:
+            body["level"] = level
         return self.post("/tasks", body)
 
     def get_task(self, name: str) -> dict:       return self.get(f"/tasks/{name}")

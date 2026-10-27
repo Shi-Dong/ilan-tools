@@ -40,7 +40,7 @@ def test_editor_creates_task(prefix: list[str], flag: str, name: str | None) -> 
         result = CliRunner().invoke(main, args)
     assert result.exit_code == 0, result.output
     client.add_task.assert_called_once_with(
-        name, "first line\n\nsecond line", "codex", max_model=True,
+        name, "first line\n\nsecond line", "codex", max_model=True, level=None
     )
     assert all(not path.exists() for path in paths)
 
@@ -123,7 +123,7 @@ def test_real_editor_process(tmp_path: Path, content: str) -> None:
     assert result.exit_code == 0, result.output
     if content.strip():
         client.add_task.assert_called_once_with(
-            "task-name", content.strip(), None, max_model=False,
+            "task-name", content.strip(), None, max_model=False, level=None
         )
     else:
         client.add_task.assert_not_called()

@@ -417,6 +417,21 @@ class TestTasksCRUD:
         task = _get(ilan_server, "/tasks/eng-codex")["task"]
         assert task["engine"] == "codex"
 
+    def test_add_task_starts_at_the_default_level(self, ilan_server: IlanServer) -> None:
+        resp = _post(ilan_server, "/tasks", {"name": "lvl-default", "prompt": "P"})
+        assert resp["reasoning"] == "low"
+        assert _get(ilan_server, "/tasks/lvl-default")["task"]["reasoning"] == "low"
+
+    def test_add_task_with_level(self, ilan_server: IlanServer) -> None:
+        resp = _post(ilan_server, "/tasks", {"name": "lvl-max", "prompt": "P", "level": " MAX "})
+        assert resp["reasoning"] == "max"
+        assert _get(ilan_server, "/tasks/lvl-max")["task"]["reasoning"] == "max"
+
+    def test_add_task_invalid_level_rejected(self, ilan_server: IlanServer) -> None:
+        resp = _post(ilan_server, "/tasks", {"name": "lvl-bad", "prompt": "P", "level": "high"})
+        assert "error" in resp
+        assert _get(ilan_server, "/tasks/lvl-bad").get("error")
+
     def test_add_task_invalid_agent_rejected(self, ilan_server: IlanServer) -> None:
         resp = _post(ilan_server, "/tasks", {"name": "eng-bad", "prompt": "P", "agent": "gpt"})
         assert "error" in resp

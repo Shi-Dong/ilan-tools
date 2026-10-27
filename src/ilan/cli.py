@@ -601,7 +601,7 @@ def _print_burnable_hint(task_name: str) -> None:
 
 def _do_add(
     name: str | None, file_path: str | None, description: str | None,
-    agent: str | None, max_model: bool = False,
+    agent: str | None, max_model: bool = False, level: str | None = None,
 ) -> None:
     if shutil.which("tmux") is None:
         console.print(
@@ -619,7 +619,7 @@ def _do_add(
     if prompt is None:
         raise ValueError("either --file or --description must be provided")
 
-    resp = _client().add_task(name, prompt, agent, max_model=max_model)
+    resp = _client().add_task(name, prompt, agent, max_model=max_model, level=level)
     if _check_error(resp):
         raise SystemExit(1)
     # Without ``-n`` the server mints the name, so report the one it chose.
@@ -636,13 +636,32 @@ def _do_add(
         )
     else:
         console.print(f"[green]Task [bold]{task_name}[/bold] added.[/green]")
+    if level is not None:
+        _print_add_level(task_name, level, resp)
     _print_burnable_hint(task_name)
+
+
+def _print_add_level(name: str, level: str, resp: dict) -> None:
+    """Confirm the level ``add --level`` set, or warn that it was not set.
+
+    A server that predates ``add --level`` ignores the field and starts the
+    task at the default level; its response then carries no matching level.
+    """
+    if resp.get("reasoning") != level:
+        console.print(
+            "[yellow]The server did not set the reasoning level: it predates "
+            "add --level. Restart it with ilan server restart, then use "
+            f"ilan level {name} {level}.[/yellow]"
+        )
+        return
+    style = REASONING_STYLES.get(level, "")
+    console.print(f"[green]Reasoning level: [{style}]{level}[/{style}].[/green]")
 
 
 def _add_usage_error(
     instruction: str | None, name: str | None, file_path: str | None,
     description: str | None, agent: str | None, max_model: bool,
-    editor: bool = False,
+    editor: bool = False, level: str | None = None,
 ) -> str | None:
     """Reject mixed instruction sources and flags next to a bare INSTRUCTION.
 
@@ -676,6 +695,8 @@ def _add_usage_error(
         flags.append(f"--{agent}")
     if max_model:
         flags.append("--max")
+    if level is not None:
+        flags.append(f"--level {level}")
     if flags:
         given = " ".join(flags)
         return (
@@ -701,8 +722,8 @@ from a file. -e opens the configured editor with a task reminder; it takes
 no argument and cannot combine with -d or -f. Empty or whitespace-only
 editor content creates no task. A bare
 INSTRUCTION with no flag at all is the quick form: it means -d "…" on the
-defaults and takes nothing else, so a name, a backend or --max typed next
-to it is refused rather than guessed at. To combine any of those, write the
+defaults and takes nothing else, so a name, a backend, --max or --level
+typed next to it is refused rather than guessed at. To combine any of those, write the
 prompt after -d.
 
 Naming: -n NAME is how every later command refers to the task (three or
@@ -720,6 +741,10 @@ its backend's max model, FABLE on Claude and ASTRA on Codex, for work worth
 that model's price; ilan unmax NAME steps it back down later, and ilan max
 NAME steps a plain task up.
 
+Reasoning level: --level low, medium or max starts the task at that
+reasoning level instead of the default (low); ilan level NAME LEVEL
+changes it later.
+
 Once added, the agent is already working: ilan ls shows the task and its
 status, ilan tail NAME reads the agent's reply, ilan reply NAME "…" answers
 it, and ilan done NAME closes it.
@@ -736,6 +761,7 @@ Examples:
   ilan add -d "Port the parser to Rust" --codex         on the Codex backend
   ilan add -n hard-one -d "Prove the lemma" --max       on the max model
   ilan add -d "Try the OAuth2 flow" --max               burnable and maxed
+  ilan add -n hard-one -d "Prove it" --level max        at max reasoning
 """
 
 
@@ -759,13 +785,18 @@ Examples:
               help="Run this task on the Codex backend.")
 @click.option("--max", "max_model", is_flag=True, default=False,
               help="Create the task on its backend's max model.")
+@click.option("--level", "level", default=None,
+              type=click.Choice(REASONING_LEVELS, case_sensitive=False),
+              help="Start the task at this reasoning level instead of the default.")
 def task_add(
     instruction: str | None, name: str | None, file_path: str | None,
     description: str | None, agent: str | None, max_model: bool, editor: bool,
+    level: str | None,
 ) -> None:
     """Add a new task and start it; ``_ADD_HELP`` is the user-facing guide."""
+    level = level.lower() if level else None
     if err := _add_usage_error(
-        instruction, name, file_path, description, agent, max_model, editor,
+        instruction, name, file_path, description, agent, max_model, editor, level,
     ):
         # Text, not markup: the echoed name is the user's own bytes.
         console.print(Text(err, style="red"))
@@ -793,7 +824,7 @@ def task_add(
         # `-d INSTRUCTION` on the defaults: no name, backend, or max model.
         _do_add(None, None, instruction, None, False)
         return
-    _do_add(name, file_path, description, agent, max_model)
+    _do_add(name, file_path, description, agent, max_model, level)
 
 
 # ── task ls ──────────────────────────────────────────────────────────

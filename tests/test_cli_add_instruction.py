@@ -58,7 +58,7 @@ class TestBareInstruction:
         # No name, no backend, no max model: the server mints a burnable name
         # and applies `default-backend` and its default model.
         client.add_task.assert_called_once_with(
-            None, _INSTRUCTION, None, max_model=False
+            None, _INSTRUCTION, None, max_model=False, level=None
         )
         out = _unwrap(result.output)
         assert "Task xxx-cat-likes-fin added." in out
@@ -80,7 +80,7 @@ class TestBareInstruction:
         text = "  two words\nand a second line  "
         result = _invoke(runner, ["add", text], client)
         assert result.exit_code == 0, result.output
-        client.add_task.assert_called_once_with(None, text, None, max_model=False)
+        client.add_task.assert_called_once_with(None, text, None, max_model=False, level=None)
 
     def test_a_double_dash_lets_an_instruction_start_with_a_dash(
         self, runner: CliRunner, tmp_config: Path
@@ -89,7 +89,7 @@ class TestBareInstruction:
         result = _invoke(runner, ["add", "--", "--dry-run the deploy script"], client)
         assert result.exit_code == 0, result.output
         client.add_task.assert_called_once_with(
-            None, "--dry-run the deploy script", None, max_model=False
+            None, "--dry-run the deploy script", None, max_model=False, level=None
         )
 
     def test_a_second_bare_argument_is_a_usage_error(
@@ -110,7 +110,7 @@ class TestBareInstruction:
             runner, ["add", "-n", "fix-bug", "-d", "p", "--codex", "--max"], client
         )
         assert result.exit_code == 0, result.output
-        client.add_task.assert_called_once_with("fix-bug", "p", "codex", max_model=True)
+        client.add_task.assert_called_once_with("fix-bug", "p", "codex", max_model=True, level=None)
 
     def test_nothing_at_all_is_still_an_error(
         self, runner: CliRunner, tmp_config: Path
@@ -129,6 +129,7 @@ _REFUSED = [
     (["--codex"], "--codex"),
     (["--max"], "--max"),
     (["--codex", "--max"], "--codex --max"),
+    (["--level", "max"], "--level max"),
     (["-n", "fix-bug", "--claude", "--max"], "-n fix-bug --claude --max"),
 ]
 
@@ -202,3 +203,41 @@ class TestHelp:
         result = runner.invoke(main, [*prefix, "--help"])
         assert result.exit_code == 0, result.output
         assert "[OPTIONS] [INSTRUCTION]" in result.output
+
+
+class TestLevel:
+    @pytest.mark.parametrize("prefix", _ADD_PREFIXES)
+    def test_level_is_sent_and_confirmed(
+        self, runner: CliRunner, tmp_config: Path, prefix: list[str]
+    ) -> None:
+        client = _make_client()
+        client.add_task.return_value = {"ok": True, "name": "fix-bug", "reasoning": "max"}
+        result = _invoke(
+            runner, [*prefix, "-n", "fix-bug", "-d", "p", "--level", "MAX"], client
+        )
+        assert result.exit_code == 0, result.output
+        client.add_task.assert_called_once_with(
+            "fix-bug", "p", None, max_model=False, level="max"
+        )
+        assert "Reasoning level: max." in _unwrap(result.output)
+
+    def test_an_old_server_that_ignores_it_is_flagged(
+        self, runner: CliRunner, tmp_config: Path
+    ) -> None:
+        client = _make_client()
+        client.add_task.return_value = {"ok": True, "name": "fix-bug"}
+        result = _invoke(
+            runner, ["add", "-n", "fix-bug", "-d", "p", "--level", "medium"], client
+        )
+        assert result.exit_code == 0, result.output
+        out = _unwrap(result.output)
+        assert "did not set the reasoning level" in out
+        assert "ilan level fix-bug medium" in out
+
+    def test_an_unknown_level_is_a_usage_error(
+        self, runner: CliRunner, tmp_config: Path
+    ) -> None:
+        client = _make_client()
+        result = _invoke(runner, ["add", "-d", "p", "--level", "high"], client)
+        assert result.exit_code == 2
+        client.add_task.assert_not_called()

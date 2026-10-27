@@ -2036,7 +2036,7 @@ class TestAddAgent:
             )
         assert result.exit_code == 0
         client.add_task.assert_called_once_with(
-            "codex-task", "do it", "codex", max_model=False
+            "codex-task", "do it", "codex", max_model=False, level=None
         )
 
     def test_claude_flag_passed_through(self, runner: CliRunner, tmp_config) -> None:
@@ -2049,7 +2049,7 @@ class TestAddAgent:
             )
         assert result.exit_code == 0
         client.add_task.assert_called_once_with(
-            "claude-task", "do it", "claude", max_model=False
+            "claude-task", "do it", "claude", max_model=False, level=None
         )
 
     def test_agent_omitted_defaults_to_none(self, runner: CliRunner, tmp_config) -> None:
@@ -2060,7 +2060,7 @@ class TestAddAgent:
             result = runner.invoke(main, ["add", "-n", "plain-task", "-d", "do it"])
         assert result.exit_code == 0
         client.add_task.assert_called_once_with(
-            "plain-task", "do it", None, max_model=False
+            "plain-task", "do it", None, max_model=False, level=None
         )
 
     def test_max_flag_leaves_the_backend_to_the_server(
@@ -2077,7 +2077,7 @@ class TestAddAgent:
             )
         assert result.exit_code == 0
         client.add_task.assert_called_once_with(
-            "maxed-task", "do it", None, max_model=True
+            "maxed-task", "do it", None, max_model=True, level=None
         )
         assert "added on FABLE" in _strip_ansi(result.output)
 
@@ -2095,7 +2095,7 @@ class TestAddAgent:
             )
         assert result.exit_code == 0
         client.add_task.assert_called_once_with(
-            "maxed-codex", "do it", "codex", max_model=True
+            "maxed-codex", "do it", "codex", max_model=True, level=None
         )
         out = _strip_ansi(result.output)
         assert "added on ASTRA" in out

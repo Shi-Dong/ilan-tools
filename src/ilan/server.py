@@ -32,6 +32,7 @@ from ilan.models import (
     CANCEL_MESSAGE,
     CANCEL_WINDOW_SECONDS,
     DEFAULT_ENGINE,
+    DEFAULT_REASONING,
     MAX_NOTES_LENGTH,
     REASONING_LEVELS,
     REPLY_EVERY_MIN_SECONDS,
@@ -661,6 +662,12 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 )
                 return
             want_max = bool(body.get("max"))
+            level = body.get("level")
+            if level is not None:
+                if not isinstance(level, str) or level.strip().lower() not in REASONING_LEVELS:
+                    self._json({"error": "Invalid reasoning level. Use low, medium or max."}, 400)
+                    return
+                level = level.strip().lower()
             with self._ilan.lock:
                 # Minted under the lock so two concurrent unnamed adds can't be
                 # handed the same name.
@@ -683,13 +690,17 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                     task_hash=generate_task_hash(),
                     engine=engine,
                     maxed=want_max,
+                    reasoning=level or DEFAULT_REASONING,
                 )
                 self._ilan.store.put_task(task)
                 # Log the opening prompt before spawning so the unified log
                 # always opens with the task statement.
                 self._ilan.store.append_log(task.name, "user", prompt)
                 self._ilan.runner.start(task)
-            self._json({"ok": True, "name": task.name, "model": task.model_override})
+            self._json({
+                "ok": True, "name": task.name, "model": task.model_override,
+                "reasoning": task.reasoning,
+            })
 
         def handle_get_task(self, name: str):
             with self._ilan.lock:
