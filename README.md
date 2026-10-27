@@ -89,7 +89,7 @@ Every task command has a top-level shorthand, so `ilan task reply` is just `ilan
 
 | Command | What it does |
 |---|---|
-| `ilan add [-n NAME] (-d "prompt" \| -f FILE \| -e) [--claude \| --codex] [--max]` | Add a task and start it. Omit `-n` for a burnable task; `--max` starts it on its backend's max model. |
+| `ilan add [-n NAME] (-d "prompt" \| -f FILE \| -e) [--claude \| --codex] [--max] [--level LEVEL]` | Add a task and start it. Omit `-n` for a burnable task; `--max` starts it on its backend's max model; `--level low\|medium\|max` starts it at that reasoning level instead of `low`. |
 | `ilan add "prompt"` | The quick form: a burnable task on the default backend and model. Takes no other flag; to combine flags, use `-d`. |
 | `ilan branch NAME "prompt"` | Quickly branch a burnable task from a task name or alias, inheriting its context. Takes no other flag; use `-d` or `-f` to combine with `-n`. |
 | `ilan btw NAME "question"` | Create `xxx-<full-parent-name>-btw` from a task name or alias, adding `-2`, `-3`, etc. if the name is taken. Use `-e` instead of inline text to write the question in your configured editor. The child focuses on the new request and leaves earlier work and running jobs to the parent. It starts at the `low` reasoning level, whatever the parent runs at. |

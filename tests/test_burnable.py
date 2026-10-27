@@ -630,7 +630,7 @@ class TestAddCli:
             result = runner.invoke(main, [*argv, "-d", "do a quick thing"])
         assert result.exit_code == 0
         client.add_task.assert_called_once_with(
-            None, "do a quick thing", None, max_model=False
+            None, "do a quick thing", None, max_model=False, level=None
         )
         out = _unwrap(_strip_ansi(result.output))
         assert "Task xxx-cat-likes-fin added." in out
@@ -658,7 +658,7 @@ class TestAddCli:
             result = runner.invoke(main, ["add", "-n", "xxx-my-scratch", "-d", "p"])
         assert result.exit_code == 0
         client.add_task.assert_called_once_with(
-            "xxx-my-scratch", "p", None, max_model=False
+            "xxx-my-scratch", "p", None, max_model=False, level=None
         )
         assert "Burnable" in _strip_ansi(result.output)
 
@@ -685,7 +685,7 @@ class TestAddCli:
              patch("ilan.cli.shutil.which", return_value="/usr/bin/tmux"):
             result = runner.invoke(main, ["add", "-d", "p", "--max"])
         assert result.exit_code == 0
-        client.add_task.assert_called_once_with(None, "p", None, max_model=True)
+        client.add_task.assert_called_once_with(None, "p", None, max_model=True, level=None)
         out = _unwrap(_strip_ansi(result.output))
         assert "Task xxx-owl-naps-dune added on FABLE" in out
         assert "Burnable" in out
