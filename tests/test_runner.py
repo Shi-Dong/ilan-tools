@@ -1212,7 +1212,7 @@ class TestSpawn:
             runner._spawn(t, "do work", resume=False)
             cmd = mock_popen.call_args[0][0]
             assert "--model" in cmd
-            assert cmd[cmd.index("--model") + 1] == "claude-fable-5-1"
+            assert cmd[cmd.index("--model") + 1] == "claude-fable-5-2"
 
     def test_a_maxed_task_spawns_the_newest_max_model(
         self, store: Store, tmp_workdir: Path, tmp_config: Path,

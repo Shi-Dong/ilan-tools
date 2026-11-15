@@ -211,7 +211,7 @@ ENGINE_NAME_STYLE: dict[str, str] = {
 # ``ilan unmax`` clears the mark, putting the task back on the configured
 # default. The mark never names a model: every spawn resolves it here, so
 # bumping an id below moves every maxed task onto the new model at once.
-FABLE_MODEL = "claude-fable-5-1"  # Anthropic's Fable, for the Claude backend
+FABLE_MODEL = "claude-fable-5-2"  # Anthropic's Fable, for the Claude backend
 ASTRA_MODEL = "gpt-6-astra"  # OpenAI's GPT-6 Astra, for the Codex backend
 
 

@@ -592,7 +592,7 @@ class TestTask:
 
 class TestMaxModels:
     def test_model_ids(self) -> None:
-        assert FABLE_MODEL == "claude-fable-5-1"
+        assert FABLE_MODEL == "claude-fable-5-2"
         assert ASTRA_MODEL == "gpt-6-astra"
 
     def test_every_engine_has_a_max_model(self) -> None:

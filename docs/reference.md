@@ -622,7 +622,7 @@ next reply, with nothing to re-max.
 
 | Backend | Current max model | Tag |
 | --- | --- | --- |
-| `claude` | Anthropic's Fable (`claude-fable-5-1`) | `FABLE` |
+| `claude` | Anthropic's Fable (`claude-fable-5-2`) | `FABLE` |
 | `codex` | OpenAI's GPT-6 Astra (`gpt-6-astra`) | `ASTRA` |
 
 While a task is maxed, its alias is printed in capitals inside square brackets
