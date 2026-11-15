@@ -317,7 +317,7 @@ class TestAddWithoutAName:
         task = ilan_server.store.get_task(body["name"])
         assert is_burnable_name(task.name)
         assert task.maxed
-        assert task.model_override == body["model"] == "claude-fable-5-1"
+        assert task.model_override == body["model"] == "claude-fable-5-2"
 
 
 class TestBurnOnDone:
@@ -679,7 +679,7 @@ class TestAddCli:
     ) -> None:
         client = _make_client()
         client.add_task.return_value = {
-            "ok": True, "name": "xxx-owl-naps-dune", "model": "claude-fable-5-1",
+            "ok": True, "name": "xxx-owl-naps-dune", "model": "claude-fable-5-2",
         }
         with patch("ilan.cli._client", return_value=client), \
              patch("ilan.cli.shutil.which", return_value="/usr/bin/tmux"):

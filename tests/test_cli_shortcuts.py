@@ -327,7 +327,7 @@ class TestLsNoArgs:
                     "pinned": True,
                     "needs_review": True,
                     "maxed": True,
-                    "model": "claude-fable-5-1",
+                    "model": "claude-fable-5-2",
                     "max_tag": "FABLE",
                     "created_at": "2026-04-13T00:00:00+00:00",
                     "status_changed_at": "2026-04-13T01:00:00+00:00",
@@ -1404,7 +1404,7 @@ class TestUnreadShorthand:
 class TestMaxShorthand:
     def test_max_success(self, runner: CliRunner, tmp_config) -> None:
         client = _make_client()
-        client.max_task.return_value = {"name": "my-task", "model": "claude-fable-5-1"}
+        client.max_task.return_value = {"name": "my-task", "model": "claude-fable-5-2"}
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["max", "my-task"])
         assert result.exit_code == 0
@@ -1413,7 +1413,7 @@ class TestMaxShorthand:
 
     def test_task_max_success(self, runner: CliRunner, tmp_config) -> None:
         client = _make_client()
-        client.max_task.return_value = {"name": "my-task", "model": "claude-fable-5-1"}
+        client.max_task.return_value = {"name": "my-task", "model": "claude-fable-5-2"}
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["task", "max", "my-task"])
         assert result.exit_code == 0
@@ -1565,7 +1565,7 @@ class TestReplyMaxFlags:
 
     def _client_for_reply(
         self, model: str | None = None, engine: str = "claude",
-        maxed_to: str = "claude-fable-5-1",
+        maxed_to: str = "claude-fable-5-2",
     ) -> MagicMock:
         client = _make_client()
         client.get_task.return_value = {
@@ -1646,7 +1646,7 @@ class TestReplyMaxFlags:
         """A task maxed on claude and then switched to codex keeps the Fable
         pin, which codex will not run: --max moves it onto Astra."""
         client = self._client_for_reply(
-            model="claude-fable-5-1", engine="codex", maxed_to="gpt-6-astra",
+            model="claude-fable-5-2", engine="codex", maxed_to="gpt-6-astra",
         )
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["reply", "my-task", "go on", "--max"])
@@ -1657,7 +1657,7 @@ class TestReplyMaxFlags:
     def test_reply_unmax_resets_then_replies(
         self, runner: CliRunner, tmp_config
     ) -> None:
-        client = self._client_for_reply(model="claude-fable-5-1")
+        client = self._client_for_reply(model="claude-fable-5-2")
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["reply", "my-task", "go on", "--unmax"])
         assert result.exit_code == 0
@@ -1672,7 +1672,7 @@ class TestReplyMaxFlags:
     ) -> None:
         """A task already on Fable is left alone: no switch call, no output
         beyond the reply confirmation."""
-        client = self._client_for_reply(model="claude-fable-5-1")
+        client = self._client_for_reply(model="claude-fable-5-2")
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["reply", "my-task", "go on", "--max"])
         assert result.exit_code == 0
@@ -1791,7 +1791,7 @@ class TestMaxedAliasMark:
         return row
 
     def _maxed(self, **extra) -> dict:
-        return self._row(maxed=True, model="claude-fable-5-1", max_tag="FABLE",
+        return self._row(maxed=True, model="claude-fable-5-2", max_tag="FABLE",
                          engine="claude", **extra)
 
     def test_an_ordinary_alias_is_lowercase_in_parentheses(self) -> None:
@@ -1841,7 +1841,7 @@ class TestMaxedAliasMark:
             width=120, force_terminal=True, color_system="256", no_color=False,
         ))
         client = _make_client()
-        client.max_task.return_value = {"name": "the-task", "model": "claude-fable-5-1"}
+        client.max_task.return_value = {"name": "the-task", "model": "claude-fable-5-2"}
         with patch("ilan.cli._client", return_value=client):
             result = runner.invoke(main, ["max", "the-task"])
         assert result.exit_code == 0, result.output
@@ -1853,7 +1853,7 @@ class TestMaxedAliasMark:
         it gives no tag because Codex ignores it — and the alias stays
         ``(gk)``, exactly as that server's own tag disappeared.
         """
-        row = self._row(model="claude-fable-5-1", engine="codex")
+        row = self._row(model="claude-fable-5-2", engine="codex")
         assert _format_alias(row) == "(gk)"
 
     def test_an_older_servers_superseded_id_keeps_the_mark_it_tagged(self) -> None:
@@ -1922,7 +1922,7 @@ class TestMaxedAliasMark:
         client = _make_client()
         client.list_tasks.return_value = {"tasks": [
             {"name": "maxed-task", "alias": "aa", "status": "WORKING", "needs_review": False,
-             "maxed": True, "model": "claude-fable-5-1", "max_tag": "FABLE",
+             "maxed": True, "model": "claude-fable-5-2", "max_tag": "FABLE",
              "engine": "claude", **stamps},
             {"name": "astra-task", "alias": "as", "status": "WORKING", "needs_review": False,
              "maxed": True, "model": "gpt-6-astra", "max_tag": "ASTRA",
@@ -2069,7 +2069,7 @@ class TestAddAgent:
         """Every backend has a max model, so --max no longer picks one: the
         task lands on the `default-backend` the server resolves."""
         client = _make_client()
-        client.add_task.return_value = {"ok": True, "model": "claude-fable-5-1"}
+        client.add_task.return_value = {"ok": True, "model": "claude-fable-5-2"}
         with patch("ilan.cli._client", return_value=client), \
              patch("ilan.cli.shutil.which", return_value="/usr/bin/tmux"):
             result = runner.invoke(
